@@ -277,11 +277,11 @@ public class ShowAction extends RestBaseController {
         Map<String, Long> result = new HashMap<String, Long>();
         List<String> dbNames = Catalog.getCurrentCatalog().getDbNames();
 
-        for (int i = 0; i < dbNames.size(); i++) {
-            String dbName = dbNames.get(i);
-            Database db = Catalog.getCurrentCatalog().getDb(dbName);
-            long totalSize = getDataSizeOfDatabase(db);
-            result.put(dbName, Long.valueOf(totalSize));
+        for (String dbName : dbNames) {
+            Catalog.getCurrentCatalog().getDb(dbName).ifPresent(db -> {
+                long totalSize = getDataSizeOfDatabase(db);
+                result.put(dbName, totalSize);
+            });
         } // end for dbs
         return result;
     }

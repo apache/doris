@@ -21,13 +21,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import org.apache.doris.common.path.PathTrie;
-import org.apache.doris.http.rest.LoadAction;
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
 
 public class ActionController {
-    private static final Logger LOG = LogManager.getLogger(LoadAction.class);
+    private static final Logger LOG = LogManager.getLogger(ActionController.class);
     private final PathTrie<IAction> getHandlers = new PathTrie<>(WebUtils.REST_DECODER);
     private final PathTrie<IAction> postHandlers = new PathTrie<>(WebUtils.REST_DECODER);
     private final PathTrie<IAction> putHandlers = new PathTrie<>(WebUtils.REST_DECODER);

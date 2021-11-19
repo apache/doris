@@ -32,13 +32,13 @@ namespace doris {
 
 class TestBloomFilterColumnPredicate : public testing::Test {
 public:
-    TestBloomFilterColumnPredicate() : _vectorized_batch(NULL), _row_block(nullptr) {
+    TestBloomFilterColumnPredicate() : _vectorized_batch(nullptr), _row_block(nullptr) {
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
     ~TestBloomFilterColumnPredicate() {
-        if (_vectorized_batch != NULL) {
+        if (_vectorized_batch != nullptr) {
             delete _vectorized_batch;
         }
     }

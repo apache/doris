@@ -35,6 +35,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.QueryStmt;
@@ -1691,10 +1692,14 @@ public class SingleNodePlanner {
             case ELASTICSEARCH:
                 scanNode = new EsScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
                 break;
+            case HIVE:
+                scanNode = new HiveScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
+                        null, -1);
+                break;
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode) {
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode) {
             PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             scanNode.setSortColumn(tblRef.getSortColumn());
         }
@@ -1859,12 +1864,29 @@ public class SingleNodePlanner {
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException, AnalysisException {
         if (tblRef instanceof BaseTableRef) {
-            return createScanNode(analyzer, tblRef, selectStmt);
+            PlanNode scanNode = createScanNode(analyzer, tblRef, selectStmt);
+            List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
+            if (lateralViewRefs != null && lateralViewRefs.size() != 0) {
+                return createTableFunctionNode(analyzer, scanNode, lateralViewRefs);
+            }
+            return scanNode;
         }
         if (tblRef instanceof InlineViewRef) {
             return createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
         }
         throw new UserException("unknown TableRef node");
+    }
+
+    private PlanNode createTableFunctionNode(Analyzer analyzer, PlanNode inputNode,
+                                                      List<LateralViewRef> lateralViewRefs)
+            throws UserException {
+        Preconditions.checkNotNull(lateralViewRefs);
+        Preconditions.checkState(lateralViewRefs.size() > 0);
+        TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
+                lateralViewRefs);
+        tableFunctionNode.init(analyzer);
+        inputNode = tableFunctionNode;
+        return inputNode;
     }
 
     /**
@@ -2165,6 +2187,7 @@ public class SingleNodePlanner {
                     slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
                     slot.setColumn(minimuColumn);
                     slot.setIsMaterialized(true);
+                    slot.setIsNullable(minimuColumn.isAllowNull());
                 }
             }
         }

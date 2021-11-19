@@ -179,7 +179,7 @@ struct BlockManagerOptions {
     BlockManagerOptions() = default;
 
     // The memory tracker under which all new memory trackers will be parented.
-    // If NULL, new memory trackers will be parented to the root tracker.
+    // If nullptr, new memory trackers will be parented to the root tracker.
     std::shared_ptr<MemTracker> parent_mem_tracker;
 
     // If false, metrics will not be produced.

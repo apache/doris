@@ -43,7 +43,7 @@ namespace doris {
 // only used in Runtime Filter
 class MinMaxFuncBase {
 public:
-    virtual void insert(void* data) = 0;
+    virtual void insert(const void* data) = 0;
     virtual bool find(void* data) = 0;
     virtual bool is_empty() = 0;
     virtual void* get_max() = 0;
@@ -61,9 +61,9 @@ class MinMaxNumFunc : public MinMaxFuncBase {
 public:
     MinMaxNumFunc() = default;
     ~MinMaxNumFunc() = default;
-    virtual void insert(void* data) {
+    virtual void insert(const void* data) {
         if (data == nullptr) return;
-        T val_data = *reinterpret_cast<T*>(data);
+        const T val_data = *reinterpret_cast<const T*>(data);
         if (_empty) {
             _min = val_data;
             _max = val_data;
@@ -101,7 +101,6 @@ public:
                 _max.ptr = str->data();
                 _max.len = str->length();
             }
-
         } else {
             MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
             if (other_minmax->_min < _min) {
@@ -151,30 +150,33 @@ MinMaxFuncBase* MinMaxFuncBase::create_minmax_filter(PrimitiveType type) {
     case TYPE_BIGINT:
         return new (std::nothrow) MinMaxNumFunc<int64_t>();
 
+    case TYPE_LARGEINT:
+        return new (std::nothrow) MinMaxNumFunc<__int128>();
+
     case TYPE_FLOAT:
         return new (std::nothrow) MinMaxNumFunc<float>();
 
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         return new (std::nothrow) MinMaxNumFunc<double>();
+
+    case TYPE_DECIMALV2:
+        return new (std::nothrow) MinMaxNumFunc<DecimalV2Value>();
 
     case TYPE_DATE:
     case TYPE_DATETIME:
         return new (std::nothrow) MinMaxNumFunc<DateTimeValue>();
 
-    case TYPE_DECIMALV2:
-        return new (std::nothrow) MinMaxNumFunc<DecimalV2Value>();
-
-    case TYPE_LARGEINT:
-        return new (std::nothrow) MinMaxNumFunc<__int128>();
-
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
         return new (std::nothrow) MinMaxNumFunc<StringValue>();
+
     default:
         DCHECK(false) << "Invalid type.";
     }
-    return NULL;
+
+    return nullptr;
 }
 
 // PrimitiveType->TExprNodeType
@@ -291,6 +293,8 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_VARCHAR;
     case PColumnType::COLUMN_TYPE_CHAR:
         return TYPE_CHAR;
+    case PColumnType::COLUMN_TYPE_STRING:
+        return TYPE_STRING;
     default:
         DCHECK(false);
     }
@@ -329,6 +333,8 @@ TTypeDesc create_type_desc(PrimitiveType type) {
     TScalarType scalarType;
     scalarType.__set_type(to_thrift(type));
     scalarType.__set_len(-1);
+    scalarType.__set_precision(-1);
+    scalarType.__set_scale(-1);
     node_type.back().__set_scalar_type(scalarType);
     type_desc.__set_types(node_type);
     return type_desc;
@@ -414,7 +420,7 @@ Expr* create_literal(ObjectPool* pool, PrimitiveType type, const void* data) {
     }
     default:
         DCHECK(false);
-        return NULL;
+        return nullptr;
     }
     node.__set_node_type(get_expr_node_type(type));
     node.__set_type(create_type_desc(type));
@@ -470,18 +476,15 @@ public:
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         default:
-            DCHECK(false);
             return Status::InvalidArgument("Unknown Filter type");
         }
         return Status::OK();
     }
 
-    void insert(void* data) {
+    void insert(const void* data) {
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            if (data != nullptr) {
-                _hybrid_set->insert(data);
-            }
+            _hybrid_set->insert(data);
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
@@ -489,7 +492,6 @@ public:
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            DCHECK(_bloomfilter_func != nullptr);
             _bloomfilter_func->insert(data);
             break;
         }
@@ -745,12 +747,12 @@ Status IRuntimeFilter::create(RuntimeState* state, MemTracker* tracker, ObjectPo
     return (*res)->init_with_desc(desc, node_id);
 }
 
-void IRuntimeFilter::insert(void* data) {
+void IRuntimeFilter::insert(const void* data) {
     DCHECK(is_producer());
     _wrapper->insert(data);
 }
 
-Status IRuntimeFilter::publish(HashJoinNode* hash_join_node, ExprContext* probe_ctx) {
+Status IRuntimeFilter::publish() {
     DCHECK(is_producer());
     if (_has_local_target) {
         IRuntimeFilter* consumer_filter = nullptr;
@@ -1051,75 +1053,5 @@ Status IRuntimeFilter::consumer_close() {
 
 RuntimeFilterWrapperHolder::RuntimeFilterWrapperHolder() = default;
 RuntimeFilterWrapperHolder::~RuntimeFilterWrapperHolder() = default;
-
-Status RuntimeFilterSlots::init(RuntimeState* state, ObjectPool* pool, MemTracker* tracker,
-                                int64_t hash_table_size) {
-    DCHECK(_probe_expr_context.size() == _build_expr_context.size());
-
-    // runtime filter effect stragety
-    // 1. we will ignore IN filter when hash_table_size is too big
-    // 2. we will ignore BLOOM filter and MinMax filter when hash_table_size
-    // is too small and IN filter has effect
-
-    std::map<int, bool> has_in_filter;
-
-    auto ignore_filter = [state](int filter_id) {
-        IRuntimeFilter* consumer_filter = nullptr;
-        state->runtime_filter_mgr()->get_consume_filter(filter_id, &consumer_filter);
-        DCHECK(consumer_filter != nullptr);
-        consumer_filter->set_ignored();
-        consumer_filter->signal();
-    };
-
-    for (auto& filter_desc : _runtime_filter_descs) {
-        IRuntimeFilter* runtime_filter = nullptr;
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(filter_desc.filter_id,
-                                                                         &runtime_filter));
-        DCHECK(runtime_filter != nullptr);
-        DCHECK(runtime_filter->expr_order() >= 0);
-        DCHECK(runtime_filter->expr_order() < _probe_expr_context.size());
-
-        if (runtime_filter->type() == RuntimeFilterType::IN_FILTER &&
-            hash_table_size >= state->runtime_filter_max_in_num()) {
-            ignore_filter(filter_desc.filter_id);
-            continue;
-        }
-        if (has_in_filter[runtime_filter->expr_order()] && !runtime_filter->has_remote_target() &&
-            runtime_filter->type() != RuntimeFilterType::IN_FILTER &&
-            hash_table_size < state->runtime_filter_max_in_num()) {
-            ignore_filter(filter_desc.filter_id);
-            continue;
-        }
-        has_in_filter[runtime_filter->expr_order()] =
-                (runtime_filter->type() == RuntimeFilterType::IN_FILTER);
-        _runtime_filters[runtime_filter->expr_order()].push_back(runtime_filter);
-    }
-
-    return Status::OK();
-}
-
-void RuntimeFilterSlots::ready_for_publish() {
-    for (auto& pair : _runtime_filters) {
-        for (auto filter : pair.second) {
-            filter->ready_for_publish();
-        }
-    }
-}
-
-void RuntimeFilterSlots::publish(HashJoinNode* hash_join_node) {
-    for (int i = 0; i < _probe_expr_context.size(); ++i) {
-        auto iter = _runtime_filters.find(i);
-        if (iter != _runtime_filters.end()) {
-            for (auto filter : iter->second) {
-                filter->publish(hash_join_node, _probe_expr_context[i]);
-            }
-        }
-    }
-    for (auto& pair : _runtime_filters) {
-        for (auto filter : pair.second) {
-            filter->publish_finally();
-        }
-    }
-}
 
 } // namespace doris

@@ -23,7 +23,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
 
-#include <boost/shared_ptr.hpp>
 #include <sstream>
 #include <vector>
 
@@ -49,7 +48,7 @@ public:
     template <class T>
     Status serialize(T* obj, std::vector<uint8_t>* result) {
         uint32_t len = 0;
-        uint8_t* buffer = NULL;
+        uint8_t* buffer = nullptr;
         RETURN_IF_ERROR(serialize<T>(obj, &len, &buffer));
         result->resize(len);
         memcpy(&((*result)[0]), buffer, len);
@@ -106,8 +105,8 @@ public:
     void get_buffer(uint8_t** buffer, uint32_t* length) { _mem_buffer->getBuffer(buffer, length); }
 
 private:
-    boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> _mem_buffer;
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
+    std::shared_ptr<apache::thrift::transport::TMemoryBuffer> _mem_buffer;
+    std::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
 };
 
 class ThriftDeserializer {
@@ -115,13 +114,13 @@ public:
     ThriftDeserializer(bool compact);
 
 private:
-    boost::shared_ptr<apache::thrift::protocol::TProtocolFactory> _factory;
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> _tproto;
+    std::shared_ptr<apache::thrift::protocol::TProtocolFactory> _factory;
+    std::shared_ptr<apache::thrift::protocol::TProtocol> _tproto;
 };
 
 // Utility to create a protocol (deserialization) object for 'mem'.
-boost::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
-        boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact);
+std::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
+        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact);
 
 // Deserialize a thrift message from buf/len.  buf/len must at least contain
 // all the bytes needed to store the thrift message.  On return, len will be
@@ -132,9 +131,9 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
     // Deserialize msg bytes into c++ thrift msg using memory
     // transport. TMemoryBuffer is not const-safe, although we use it in
     // a const-safe way, so we have to explicitly cast away the const.
-    boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> tmem_transport(
+    std::shared_ptr<apache::thrift::transport::TMemoryBuffer> tmem_transport(
             new apache::thrift::transport::TMemoryBuffer(const_cast<uint8_t*>(buf), *len));
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
+    std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
             create_deserialize_protocol(tmem_transport, compact);
 
     try {

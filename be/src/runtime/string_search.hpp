@@ -54,9 +54,8 @@
 #ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
 #define DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
 
-#include <vector>
 #include <cstring>
-#include <boost/cstdint.hpp>
+#include <vector>
 
 #include "common/logging.h"
 #include "runtime/string_value.h"
@@ -66,7 +65,6 @@ namespace doris {
 // TODO: This can be sped up with SIDD_CMP_EQUAL_ORDERED or at the very least rewritten
 // from published algorithms.
 class StringSearch {
-
 public:
     virtual ~StringSearch() {}
     StringSearch() : _pattern(NULL), _mask(0) {}
@@ -158,19 +156,15 @@ public:
 private:
     static const int BLOOM_WIDTH = 64;
 
-    void bloom_add(char c) {
-        _mask |= (1UL << (c & (BLOOM_WIDTH - 1)));
-    }
+    void bloom_add(char c) { _mask |= (1UL << (c & (BLOOM_WIDTH - 1))); }
 
-    bool bloom_query(char c) const {
-        return _mask & (1UL << (c & (BLOOM_WIDTH - 1)));
-    }
+    bool bloom_query(char c) const { return _mask & (1UL << (c & (BLOOM_WIDTH - 1))); }
 
     const StringValue* _pattern;
     int64_t _mask;
     int64_t _skip;
 };
 
-}
+} // namespace doris
 
 #endif

@@ -71,7 +71,8 @@ public class BeLoadRebalancer extends Rebalancer {
      */
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium) {
+            ClusterLoadStatistic clusterStat, TStorageMedium medium) {
+        String clusterName = clusterStat.getClusterName();
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
@@ -162,7 +163,9 @@ public class BeLoadRebalancer extends Rebalancer {
 
                     TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
                             tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
-                            tabletMeta.getIndexId(), tabletId, System.currentTimeMillis());
+                            tabletMeta.getIndexId(), tabletId, null /* replica alloc is not used for balance*/,
+                            System.currentTimeMillis());
+                    tabletCtx.setTag(clusterStat.getTag());
                     // balance task's priority is always LOW
                     tabletCtx.setOrigPriority(Priority.LOW);
 
@@ -197,7 +200,7 @@ public class BeLoadRebalancer extends Rebalancer {
      */
     @Override
     public void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
-        ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster());
+        ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
         }

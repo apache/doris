@@ -113,7 +113,7 @@ public:
     //
     // May be called multiple times, subsequent calls will no-op.
     // Derived class implements the load logic by overriding the `do_load_once()` method.
-    OLAPStatus load(bool use_cache = true, std::shared_ptr<MemTracker> parent = nullptr);
+    OLAPStatus load(bool use_cache = true);
 
     // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
     virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
@@ -131,7 +131,7 @@ public:
     // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
     // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
     virtual OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                   uint64_t request_block_row_count,
+                                   uint64_t request_block_row_count, size_t key_num,
                                    std::vector<OlapTuple>* ranges) = 0;
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
@@ -224,7 +224,7 @@ public:
     }
 
     // this function is called by reader to increase reference of rowset
-    void aquire() { ++_refs_by_reader; }
+    void acquire() { ++_refs_by_reader; }
 
     void release() {
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
@@ -260,7 +260,7 @@ protected:
     virtual OLAPStatus init() = 0;
 
     // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual OLAPStatus do_load(bool use_cache, std::shared_ptr<MemTracker> parent = nullptr) = 0;
+    virtual OLAPStatus do_load(bool use_cache) = 0;
 
     // release resources in this api
     virtual void do_close() = 0;

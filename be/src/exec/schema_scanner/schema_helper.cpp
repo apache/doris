@@ -17,8 +17,8 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 
-#include <boost/thread/thread.hpp>
 #include <sstream>
+#include <thread>
 
 #include "exec/text_converter.hpp"
 #include "gen_cpp/FrontendService.h"

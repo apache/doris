@@ -44,7 +44,7 @@ const StringSearch UrlParser::_s_question_search(&_s_question);
 const StringSearch UrlParser::_s_hash_search(&_s_hash);
 
 bool UrlParser::parse_url(const StringValue& url, UrlPart part, StringValue* result) {
-    result->ptr = NULL;
+    result->ptr = nullptr;
     result->len = 0;
     // Remove leading and trailing spaces.
     StringValue trimmed_url = url.trim();

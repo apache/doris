@@ -21,10 +21,12 @@ import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
@@ -50,6 +52,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * eg usage information, current administrative state etc.
  */
 public class Backend implements Writable {
+
+    // Represent a meaningless IP
+    public static final String DUMMY_IP = "0.0.0.0";
 
     public enum BackendState {
         using, /* backend is belong to a cluster*/
@@ -112,6 +117,8 @@ public class Backend implements Writable {
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
     private BackendStatus backendStatus = new BackendStatus();
+    @SerializedName("tag")
+    private Tag tag = Tag.DEFAULT_BACKEND_TAG;
 
     public Backend() {
         this.host = "";
@@ -128,7 +135,6 @@ public class Backend implements Writable {
 
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
-        
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
     }
 
@@ -325,6 +331,10 @@ public class Backend implements Writable {
 
     public boolean hasPathHash() {
         return disksRef.values().stream().allMatch(DiskInfo::hasPathHash);
+    }
+
+    public boolean hasSpecifiedStorageMedium(TStorageMedium storageMedium) {
+        return disksRef.values().stream().anyMatch(d -> d.isStorageMediumMatch(storageMedium));
     }
 
     public long getTotalCapacityB() {
@@ -628,17 +638,17 @@ public class Backend implements Writable {
                 this.version = hbResponse.getVersion();
             }
 
-            if (this.bePort != hbResponse.getBePort()) {
+            if (this.bePort != hbResponse.getBePort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
                 this.bePort = hbResponse.getBePort();
             }
 
-            if (this.httpPort != hbResponse.getHttpPort()) {
+            if (this.httpPort != hbResponse.getHttpPort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
                 this.httpPort = hbResponse.getHttpPort();
             }
 
-            if (this.brpcPort != hbResponse.getBrpcPort()) {
+            if (this.brpcPort != hbResponse.getBrpcPort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
                 this.brpcPort = hbResponse.getBrpcPort();
             }
@@ -696,6 +706,14 @@ public class Backend implements Writable {
         @SerializedName("lastStreamLoadTime")
         // the last time when the stream load status was reported by backend
         public long lastStreamLoadTime = -1;
+    }
+
+    public void setTag(Tag tag) {
+        this.tag = tag;
+    }
+
+    public Tag getTag() {
+        return tag;
     }
 }
 

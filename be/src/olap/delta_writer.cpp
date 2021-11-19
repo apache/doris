@@ -169,6 +169,9 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
+        if (++_segment_counter > config::max_segment_num_per_rowset) {
+            return OLAP_ERR_TOO_MANY_SEGMENTS;
+        }
         RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
         _reset_mem_table();
@@ -177,6 +180,9 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
 }
 
 OLAPStatus DeltaWriter::_flush_memtable_async() {
+    if (++_segment_counter > config::max_segment_num_per_rowset) {
+        return OLAP_ERR_TOO_MANY_SEGMENTS;
+    }
     return _flush_token->submit(_mem_table);
 }
 
@@ -315,7 +321,9 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
-    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id() << ", stats: " << stat;
+    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id() 
+                  << ", load id: " << print_id(_req.load_id)
+                  << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 
@@ -335,6 +343,11 @@ OLAPStatus DeltaWriter::cancel() {
 }
 
 int64_t DeltaWriter::mem_consumption() const {
+    if (_mem_tracker == nullptr) {
+        // This method may be called before this writer is initialized.
+        // So _mem_tracker may be null.
+        return 0;
+    }
     return _mem_tracker->consumption();
 }
 

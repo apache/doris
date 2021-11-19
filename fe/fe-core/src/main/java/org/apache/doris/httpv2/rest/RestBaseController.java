@@ -66,14 +66,18 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
-
     public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
         URI urlObj = null;
         URI resultUriObj = null;
         String urlStr = request.getRequestURI();
+        String userInfo = null;
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            userInfo = authInfo.fullUserName + ":" + authInfo.password;
+        }
         try {
             urlObj = new URI(urlStr);
-            resultUriObj = new URI("http", null, addr.getHostname(),
+            resultUriObj = new URI("http", userInfo, addr.getHostname(),
                     addr.getPort(), urlObj.getPath(), "", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -94,8 +98,7 @@ public class RestBaseController extends BaseController {
         if (catalog.isMaster()) {
             return null;
         }
-        RedirectView redirectView = redirectTo(request, new TNetworkAddress(catalog.getMasterIp(), catalog.getMasterHttpPort()));
-        return redirectView;
+        return redirectTo(request, new TNetworkAddress(catalog.getMasterIp(), catalog.getMasterHttpPort()));
     }
 
     public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)

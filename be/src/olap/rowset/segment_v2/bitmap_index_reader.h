@@ -87,9 +87,9 @@ public:
     Status seek_dictionary(const void* value, bool* exact_match);
 
     // Read bitmap at the given ordinal into `result`.
-    Status read_bitmap(rowid_t ordinal, Roaring* result);
+    Status read_bitmap(rowid_t ordinal, roaring::Roaring* result);
 
-    Status read_null_bitmap(Roaring* result) {
+    Status read_null_bitmap(roaring::Roaring* result) {
         if (has_null_bitmap()) {
             // null bitmap is always stored at last
             return read_bitmap(bitmap_nums() - 1, result);
@@ -98,7 +98,7 @@ public:
     }
 
     // Read and union all bitmaps in range [from, to) into `result`
-    Status read_union_bitmap(rowid_t from, rowid_t to, Roaring* result);
+    Status read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result);
 
     inline rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
 

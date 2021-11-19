@@ -18,20 +18,23 @@
 
 package org.apache.doris.rewrite;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang3.StringUtils;
-
-import java.util.UUID;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.UUID;
+
 public class ExtractCommonFactorsRuleFunctionTest {
+    private static final Logger LOG = LogManager.getLogger(ExtractCommonFactorsRuleFunctionTest.class);
     private static String baseDir = "fe";
     private static String runningDir = baseDir + "/mocked/ExtractCommonFactorsRuleFunctionTest/"
             + UUID.randomUUID().toString() + "/";
@@ -39,12 +42,13 @@ public class ExtractCommonFactorsRuleFunctionTest {
     private static final String DB_NAME = "db1";
     private static final String TABLE_NAME_1 = "tb1";
     private static final String TABLE_NAME_2 = "tb2";
+    private static final String TABLE_NAME_3 = "tb3";
 
     @BeforeClass
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_1
@@ -53,6 +57,10 @@ public class ExtractCommonFactorsRuleFunctionTest {
         dorisAssert.withTable(createTableSQL);
         createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_2
                 + " (k1 int, k2 int) "
+                + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        dorisAssert.withTable(createTableSQL);
+        createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_3
+                + " (k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 largeint, k6 date, k7 datetime, k8 float, k9 double) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
@@ -243,4 +251,67 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + "'MED BOX', 'MED PKG', 'MED PACK', 'LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')"));
     }
 
+    @Test
+    public void testRewriteLikePredicate() throws Exception {
+        // tinyint
+        String sql = "select * from tb3 where k1 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("CAST(`k1` AS CHARACTER) LIKE '%4%'");
+
+        // smallint
+        sql = "select * from tb3 where k2 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("CAST(`k2` AS CHARACTER) LIKE '%4%'");
+
+        // int
+        sql = "select * from tb3 where k3 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("CAST(`k3` AS CHARACTER) LIKE '%4%'");
+
+        // bigint
+        sql = "select * from tb3 where k4 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("CAST(`k4` AS CHARACTER) LIKE '%4%'");
+
+        // largeint
+        sql = "select * from tb3 where k5 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("CAST(`k5` AS CHARACTER) LIKE '%4%'");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testRewriteLikePredicateDate() throws Exception {
+        // date
+        String sql = "select * from tb3 where k6 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainQuery();
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testRewriteLikePredicateDateTime() throws Exception {
+        // datetime
+        String sql = "select * from tb3 where k7 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainQuery();
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testRewriteLikePredicateFloat() throws Exception {
+        // date
+        String sql = "select * from tb3 where k8 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainQuery();
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testRewriteLikePredicateDouble() throws Exception {
+        // date
+        String sql = "select * from tb3 where k9 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainQuery();
+        Assert.fail("No exception throws.");
+    }
 }

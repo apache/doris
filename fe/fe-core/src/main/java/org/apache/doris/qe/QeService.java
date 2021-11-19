@@ -24,7 +24,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 
-// 这是整个前端服务的包装，包括创建支持MySQL协议的服务
+/**
+ * This is the encapsulation of the entire front-end service,
+ * including the creation of services that support the MySQL protocol
+ */
 public class QeService {
     private static final Logger LOG = LogManager.getLogger(QeService.class);
 

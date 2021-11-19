@@ -19,8 +19,6 @@ package org.apache.doris.load.sync;
 
 public interface SyncChannelCallback {
 
-    public boolean state();
-
     public void onFinished(long channelId);
 
     public void onFailed(String errMsg);

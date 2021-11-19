@@ -47,7 +47,7 @@ using BufferHandle = BufferPool::BufferHandle;
 
 BufferedTupleStream3::BufferedTupleStream3(RuntimeState* state, const RowDescriptor* row_desc,
                                            BufferPool::ClientHandle* buffer_pool_client,
-                                           int64_t default_page_len, int64_t max_page_len,
+                                           int64_t default_page_len,
                                            const std::set<SlotId>& ext_varlen_slots)
         : state_(state),
           desc_(row_desc),
@@ -70,14 +70,11 @@ BufferedTupleStream3::BufferedTupleStream3(RuntimeState* state, const RowDescrip
           bytes_pinned_(0),
           num_rows_(0),
           default_page_len_(default_page_len),
-          max_page_len_(max_page_len),
           has_nullable_tuple_(row_desc->is_any_tuple_nullable()),
           delete_on_read_(false),
           closed_(false),
           pinned_(true) {
-    DCHECK_GE(max_page_len, default_page_len);
     DCHECK(BitUtil::IsPowerOf2(default_page_len)) << default_page_len;
-    DCHECK(BitUtil::IsPowerOf2(max_page_len)) << max_page_len;
     read_page_ = pages_.end();
     for (int i = 0; i < desc_->tuple_descriptors().size(); ++i) {
         const TupleDescriptor* tuple_desc = desc_->tuple_descriptors()[i];
@@ -379,15 +376,6 @@ Status BufferedTupleStream3::NewWritePage(int64_t page_len) noexcept {
 }
 
 Status BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_len) {
-    if (UNLIKELY(row_size > max_page_len_)) {
-        std::stringstream ss;
-        ss << " execeed max row size, row size:" << PrettyPrinter::print(row_size, TUnit::BYTES)
-           << " node id:" << node_id_;
-        //<< " query option max row size:"
-        //<< PrettyPrinter::print
-        //    (state_->query_options().max_row_size, TUnit::BYTES);
-        return Status::InternalError(ss.str());
-    }
     *page_len = std::max(default_page_len_, BitUtil::RoundUpToPowerOfTwo(row_size));
     return Status::OK();
 }
@@ -683,7 +671,7 @@ void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
 }
 */
 Status BufferedTupleStream3::GetRows(const std::shared_ptr<MemTracker>& tracker,
-                                     boost::scoped_ptr<RowBatch>* batch, bool* got_rows) {
+                                     std::unique_ptr<RowBatch>* batch, bool* got_rows) {
     if (num_rows() > numeric_limits<int>::max()) {
         // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
         return Status::InternalError(
@@ -954,7 +942,7 @@ bool BufferedTupleStream3::DeepCopyInternal(TupleRow* row, uint8_t** data,
                                             const uint8_t* data_end) noexcept {
     uint8_t* pos = *data;
     const uint64_t tuples_per_row = desc_->tuple_descriptors().size();
-    // Copy the not NULL fixed len tuples. For the NULL tuples just update the NULL tuple
+    // Copy the not nullptr fixed len tuples. For the nullptr tuples just update the nullptr tuple
     // indicator.
     if (HAS_NULLABLE_TUPLE) {
         int null_indicator_bytes = NullIndicatorBytesPerRow();
@@ -1075,7 +1063,7 @@ void BufferedTupleStream3::UnflattenTupleRow(uint8_t** data, TupleRow* row) cons
     const int tuples_per_row = desc_->tuple_descriptors().size();
     uint8_t* ptr = *data;
     if (has_nullable_tuple_) {
-        // Stitch together the tuples from the page and the NULL ones.
+        // Stitch together the tuples from the page and the nullptr ones.
         const uint8_t* null_indicators = ptr;
         ptr += NullIndicatorBytesPerRow();
         for (int i = 0; i < tuples_per_row; ++i) {

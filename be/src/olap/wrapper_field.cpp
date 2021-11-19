@@ -17,6 +17,8 @@
 
 #include "olap/wrapper_field.h"
 
+#include "olap/row_cursor.h"
+
 namespace doris {
 
 const size_t DEFAULT_STRING_LENGTH = 50;
@@ -25,8 +27,9 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     bool is_string_type =
             (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
              column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT ||
-                    column.type() == OLAP_FIELD_TYPE_STRING);
-    size_t max_length = column.type() == OLAP_FIELD_TYPE_STRING ? OLAP_STRING_MAX_LENGTH : OLAP_VARCHAR_MAX_LENGTH;
+             column.type() == OLAP_FIELD_TYPE_STRING);
+    size_t max_length = column.type() == OLAP_FIELD_TYPE_STRING ? OLAP_STRING_MAX_LENGTH
+                                                                : OLAP_VARCHAR_MAX_LENGTH;
     if (is_string_type && len > max_length) {
         OLAP_LOG_WARNING("length of string parameter is too long[len=%lu, max_len=%lu].", len,
                          max_length);
@@ -88,6 +91,10 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
         slice->size = _var_length;
         _string_content.reset(new char[slice->size]);
         slice->data = _string_content.get();
+    }
+    if (_rep->type() == OLAP_FIELD_TYPE_STRING) {
+        _long_text_buf = (char*)malloc(RowCursor::DEFAULT_TEXT_LENGTH * sizeof(char));
+        rep->set_long_text_buf(&_long_text_buf);
     }
 }
 

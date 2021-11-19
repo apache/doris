@@ -54,6 +54,13 @@ under the License.
               class="action-button"
               :item="actionLink"
             />
+            <span class="link-wrap">
+              <NavLink
+                class="action-button article-button"
+                :item="articleLink"
+              />
+              <img class="link-icon" :src="$withBase('/images/home/new.svg')" alt="last news">
+            </span>
           </p>
         </div>
         <div
@@ -71,6 +78,7 @@ under the License.
     </header>
 
     <div class="structure wrapper">
+      <div v-html="$page.excerpt"></div>
       <div class="image">
         <img
           v-if="data.structure.image"
@@ -187,6 +195,12 @@ export default {
         link: this.data.structure.actionLink,
         text: this.data.structure.actionText
       }
+    },
+    articleLink() {
+      return {
+        link: this.data.articleLink,
+        text: this.data.articleText
+      }
     }
   }
 }
@@ -243,6 +257,26 @@ export default {
           &:hover
             color #5A77F3
             background-color white
+        .link-wrap
+          display inline-block
+          margin-left 10px
+          position relative
+          .link-icon
+            display block
+            width 30px
+            height 30px
+            position absolute
+            right 6px
+            top 0px
+          &:before
+            content ''
+            display block
+            width 24px
+            height 9px
+            position absolute
+            right 9px
+            top 10px
+            background-color #ffffff
       .image
         position relative
         flex-basis 50%

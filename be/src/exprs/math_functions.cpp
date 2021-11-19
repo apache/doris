@@ -250,7 +250,7 @@ DoubleVal MathFunctions::pow(FunctionContext* ctx, const DoubleVal& base, const 
 
 void MathFunctions::rand_prepare(FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
     std::mt19937* generator = reinterpret_cast<std::mt19937*>(ctx->allocate(sizeof(std::mt19937)));
-    if (UNLIKELY(generator == NULL)) {
+    if (UNLIKELY(generator == nullptr)) {
         LOG(ERROR) << "allocate random seed generator failed.";
         return;
     }
@@ -323,10 +323,28 @@ StringVal MathFunctions::hex_int(FunctionContext* ctx, const BigIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-    // TODO: this is probably unreasonably slow
-    std::stringstream ss;
-    ss << std::hex << std::uppercase << v.val;
-    return AnyValUtil::from_string_temp(ctx, ss.str());
+
+    uint64_t num = v.val;
+    if (num == 0) {
+        return AnyValUtil::from_string_temp(ctx, "0");
+    }
+    char hex[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+    // uint64_t max value 0xFFFFFFFFFFFFFFFF , 16 'F'
+    // need 1 more space for '\0'
+    char ans[17];
+    int i = 0;
+    while (num) {
+        ans[i++] = hex[num & 15];
+        num = num >> 4;
+    }
+    ans[i] = '\0';
+    // reverse
+    for (int k = 0, j = i - 1; k <= j; k++, j--) {
+        char tmp = ans[j];
+        ans[j] = ans[k];
+        ans[k] = tmp;
+    }
+    return AnyValUtil::from_string_temp(ctx, ans);
 }
 
 StringVal MathFunctions::hex_string(FunctionContext* ctx, const StringVal& s) {
@@ -347,8 +365,8 @@ StringVal MathFunctions::unhex(FunctionContext* ctx, const StringVal& s) {
     if (s.is_null) {
         return StringVal::null();
     }
-    // For uneven number of chars return empty string like Hive does.
-    if (s.len % 2 != 0) {
+    // For odd number of chars return empty string like Hive does.
+    if (s.len & 1) {
         return StringVal();
     }
 
@@ -411,7 +429,7 @@ StringVal MathFunctions::conv_int(FunctionContext* ctx, const BigIntVal& num,
     // If a negative target base is given, num should be interpreted in 2's complement.
     if (std::abs(src_base.val) < MIN_BASE || std::abs(src_base.val) > MAX_BASE ||
         std::abs(dest_base.val) < MIN_BASE || std::abs(dest_base.val) > MAX_BASE) {
-        // Return NULL like Hive does.
+        // Return nullptr like Hive does.
         return StringVal::null();
     }
     // Invalid input.
@@ -440,7 +458,7 @@ StringVal MathFunctions::conv_string(FunctionContext* ctx, const StringVal& num_
     // If a negative target base is given, num should be interpreted in 2's complement.
     if (std::abs(src_base.val) < MIN_BASE || std::abs(src_base.val) > MAX_BASE ||
         std::abs(dest_base.val) < MIN_BASE || std::abs(dest_base.val) > MAX_BASE) {
-        // Return NULL like Hive does.
+        // Return nullptr like Hive does.
         return StringVal::null();
     }
     // Convert digits in num_str in src_base to decimal.
@@ -685,11 +703,11 @@ void* MathFunctions::greatest_bigint(Expr* e, TupleRow* row) {
     int32_t num_args = e->get_num_children();
 
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         int64_t* arg = reinterpret_cast<int64_t*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
 
         if (*arg > *reinterpret_cast<int64_t*>(e->children()[result_idx]->get_value(row))) {
@@ -703,11 +721,11 @@ void* MathFunctions::greatest_double(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         double* arg = reinterpret_cast<double*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
 
         if (*arg > *reinterpret_cast<double*>(e->children()[result_idx]->get_value(row))) {
@@ -721,11 +739,11 @@ void* MathFunctions::greatest_string(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         StringValue* arg = reinterpret_cast<StringValue*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
         if (*arg > *reinterpret_cast<StringValue*>(e->children()[result_idx]->get_value(row))) {
             result_idx = i;
@@ -738,11 +756,11 @@ void* MathFunctions::greatest_timestamp(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         DateTimeValue* arg = reinterpret_cast<DateTimeValue*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
         if (*arg > *reinterpret_cast<DateTimeValue*>(e->children()[result_idx]->get_value(row))) {
             result_idx = i;
@@ -755,11 +773,11 @@ void* MathFunctions::least_bigint(Expr* e, TupleRow* row) {
     int32_t num_args = e->get_num_children();
 
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         int64_t* arg = reinterpret_cast<int64_t*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
 
         if (*arg < *reinterpret_cast<int64_t*>(e->children()[result_idx]->get_value(row))) {
@@ -774,11 +792,11 @@ void* MathFunctions::least_double(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         double* arg = reinterpret_cast<double*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
 
         if (*arg < *reinterpret_cast<double*>(e->children()[result_idx]->get_value(row))) {
@@ -792,11 +810,11 @@ void* MathFunctions::least_decimalv2(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         DecimalV2Value* arg = reinterpret_cast<DecimalV2Value*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
         if (*arg < *reinterpret_cast<DecimalV2Value*>(e->children()[result_idx]->get_value(row))) {
             result_idx = i;
@@ -810,11 +828,11 @@ void* MathFunctions::least_string(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         StringValue* arg = reinterpret_cast<StringValue*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
         if (*arg < *reinterpret_cast<StringValue*>(e->children()[result_idx]->get_value(row))) {
             result_idx = i;
@@ -827,11 +845,11 @@ void* MathFunctions::least_timestamp(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
     for (int i = 0; i < num_args; ++i) {
         DateTimeValue* arg = reinterpret_cast<DateTimeValue*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
+        if (arg == nullptr) {
+            return nullptr;
         }
         if (*arg < *reinterpret_cast<DateTimeValue*>(e->children()[result_idx]->get_value(row))) {
             result_idx = i;

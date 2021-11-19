@@ -287,6 +287,13 @@ TEST_F(StringFunctionsTest, null_or_empty) {
     delete context;
 }
 
+TEST_F(StringFunctionsTest, left) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
+              StringFunctions::left(context, StringVal(""), 10));
+}
+
 TEST_F(StringFunctionsTest, substring) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
@@ -470,6 +477,8 @@ TEST_F(StringFunctionsTest, lpad) {
               StringFunctions::lpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"),
               StringFunctions::lpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"),
+              StringFunctions::lpad(ctx, StringVal("你"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""),
               StringFunctions::lpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
     ASSERT_EQ(StringVal::null(),
@@ -498,6 +507,8 @@ TEST_F(StringFunctionsTest, rpad) {
               StringFunctions::rpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"),
               StringFunctions::rpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"),
+              StringFunctions::rpad(ctx, StringVal("你"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""),
               StringFunctions::rpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
     ASSERT_EQ(StringVal::null(),
@@ -555,6 +566,11 @@ TEST_F(StringFunctionsTest, replace) {
     ASSERT_EQ(StringVal("http://华夏zhongguo:9090"),
               StringFunctions::replace(ctx, StringVal("http://中国hello:9090"),
                                        StringVal("中国hello"), StringVal("华夏zhongguo")));
+
+    //old substring is at the beginning of string
+    ASSERT_EQ(StringVal("ftp://www.baidu.com:9090"),
+              StringFunctions::replace(ctx, StringVal("http://www.baidu.com:9090"),
+                                       StringVal("http"), StringVal("ftp")));
 }
 
 TEST_F(StringFunctionsTest, parse_url) {

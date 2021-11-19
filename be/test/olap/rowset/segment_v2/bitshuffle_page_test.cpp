@@ -336,7 +336,7 @@ TEST_F(BitShufflePageTest, TestBitShuffleDecimal12BlockEncoderSeekValue) {
     const uint32_t size = 1000;
     std::unique_ptr<decimal12_t[]> decimals(new decimal12_t[size]);
     for (int i = 0; i < size; i++) {
-        decimals.get()[i] = {i + 100, random()};
+        decimals.get()[i] = {i + 100, std::rand()};
     }
 
     decimal12_t small_than_smallest = {99, 9};

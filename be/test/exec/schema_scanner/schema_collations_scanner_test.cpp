@@ -53,7 +53,7 @@ TEST_F(SchemaCollationsScannerTest, normal_use) {
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL != tuple_desc);
+    ASSERT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
@@ -70,7 +70,7 @@ TEST_F(SchemaCollationsScannerTest, normal_use) {
 TEST_F(SchemaCollationsScannerTest, use_with_no_init) {
     SchemaCollationsScanner scanner;
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL == tuple_desc);
+    ASSERT_TRUE(nullptr == tuple_desc);
     Status status = scanner.start((RuntimeState*)1);
     ASSERT_FALSE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
@@ -81,17 +81,17 @@ TEST_F(SchemaCollationsScannerTest, use_with_no_init) {
 
 TEST_F(SchemaCollationsScannerTest, invalid_param) {
     SchemaCollationsScanner scanner;
-    Status status = scanner.init(&_param, NULL);
+    Status status = scanner.init(&_param, nullptr);
     ASSERT_FALSE(status.ok());
     status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL != tuple_desc);
+    ASSERT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
-    status = scanner.get_next_row(tuple, NULL, &eos);
+    status = scanner.get_next_row(tuple, nullptr, &eos);
     ASSERT_FALSE(status.ok());
 }
 

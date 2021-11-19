@@ -21,18 +21,16 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/thread.hpp>
 #include <functional>
 #include <iostream>
 #include <mutex>
+#include <thread>
 
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "gen_cpp/RuntimeProfile_types.h"
 #include "util/binary_cast.hpp"
 #include "util/stopwatch.hpp"
-
 
 namespace doris {
 
@@ -66,14 +64,14 @@ namespace doris {
     /*ThreadCounterMeasurement                                        \
       MACRO_CONCAT(SCOPED_THREAD_COUNTER_MEASUREMENT, __COUNTER__)(c)*/
 #else
-#define ADD_COUNTER(profile, name, type) NULL
-#define ADD_TIMER(profile, name) NULL
+#define ADD_COUNTER(profile, name, type) nullptr
+#define ADD_TIMER(profile, name) nullptr
 #define SCOPED_TIMER(c)
 #define SCOPED_RAW_TIMER(c)
 #define SCOPED_ATOMIC_TIMER(c)
 #define COUNTER_UPDATE(c, v)
 #define COUNTER_SET(c, v)
-#define ADD_THREADCOUNTERS(profile, prefix) NULL
+#define ADD_THREADCOUNTERS(profile, prefix) nullptr
 #define SCOPED_THREAD_COUNTER_MEASUREMENT(c)
 #endif
 
@@ -112,7 +110,7 @@ public:
 
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
-            _value.store(binary_cast<double,int64_t>(value));
+            _value.store(binary_cast<double, int64_t>(value));
         }
 
         virtual int64_t value() const { return _value.load(); }
@@ -148,7 +146,9 @@ public:
 
         virtual void add(int64_t delta) {
             int64_t new_val = current_value_.add(delta);
-            UpdateMax(new_val);
+            if (delta > 0) {
+                UpdateMax(new_val);
+            }
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
@@ -319,7 +319,7 @@ public:
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of
     // parent_counter_name.
-    // Returns NULL if the counter already exists.
+    // Returns nullptr if the counter already exists.
     DerivedCounter* add_derived_counter(const std::string& name, TUnit::type type,
                                         const DerivedCounterFunction& counter_fn,
                                         const std::string& parent_counter_name);
@@ -328,7 +328,7 @@ public:
     // that the caller can update.  The counter is owned by the RuntimeProfile object.
     ThreadCounters* add_thread_counters(const std::string& prefix);
 
-    // Gets the counter object with 'name'.  Returns NULL if there is no counter with
+    // Gets the counter object with 'name'.  Returns nullptr if there is no counter with
     // that name.
     Counter* get_counter(const std::string& name);
 
@@ -349,7 +349,7 @@ public:
     // TODO: EventSequences are not merged by Merge()
     EventSequence* add_event_sequence(const std::string& key);
 
-    // Returns a pointer to the info string value for 'key'.  Returns NULL if
+    // Returns a pointer to the info string value for 'key'.  Returns nullptr if
     // the key does not exist.
     const std::string* get_info_string(const std::string& key);
 
@@ -414,12 +414,6 @@ public:
     // Same as 'add_sampling_counter' above except the samples are taken by calling fn.
     Counter* add_sampling_counter(const std::string& name, SampleFn fn);
 
-    // Add a bucket of counters to store the sampled value of src_counter.
-    // The src_counter is sampled periodically and the buckets are updated.
-    void add_bucketing_counters(const std::string& name, const std::string& parent_counter_name,
-                                Counter* src_counter, int max_buckets,
-                                std::vector<Counter*>* buckets);
-
     /// Adds a high water mark counter to the runtime profile. Otherwise, same behavior
     /// as AddCounter().
     HighWaterMarkCounter* AddHighWaterMarkCounter(const std::string& name, TUnit::type unit,
@@ -428,22 +422,6 @@ public:
     // Only for create MemTracker(using profile's counter to calc consumption)
     std::shared_ptr<HighWaterMarkCounter> AddSharedHighWaterMarkCounter(
             const std::string& name, TUnit::type unit, const std::string& parent_counter_name = "");
-
-    // stops updating the value of 'rate_counter'. Rate counters are updated
-    // periodically so should be removed as soon as the underlying counter is
-    // no longer going to change.
-    void stop_rate_counters_updates(Counter* rate_counter);
-
-    // stops updating the value of 'sampling_counter'. Sampling counters are updated
-    // periodically so should be removed as soon as the underlying counter is
-    // no longer going to change.
-    void stop_sampling_counters_updates(Counter* sampling_counter);
-
-    // stops updating the bucket counter.
-    // If convert is true, convert the buckets from count to percentage.
-    // Sampling counters are updated periodically so should be removed as soon as the
-    // underlying counter is no longer going to change.
-    void stop_bucketing_counters_updates(std::vector<Counter*>* buckets, bool convert);
 
     // Recursively compute the fraction of the 'total_time' spent in this profile and
     // its children.
@@ -516,10 +494,6 @@ private:
     // of the total time in the entire profile tree.
     double _local_time_percent;
 
-    std::vector<Counter*> _rate_counters;
-
-    std::vector<Counter*> _sampling_counters;
-
     enum PeriodicCounterType {
         RATE_COUNTER = 0,
         SAMPLING_COUNTER,
@@ -544,41 +518,6 @@ private:
         // TODO: customize bucketing
     };
 
-    // This is a static singleton object that is used to update all rate counters and
-    // sampling counters.
-    struct PeriodicCounterUpdateState {
-        PeriodicCounterUpdateState();
-
-        // Tears down the update thread.
-        ~PeriodicCounterUpdateState();
-
-        // Lock protecting state below
-        std::mutex lock;
-
-        // If true, tear down the update thread.
-        volatile bool _done;
-
-        // Thread performing asynchronous updates.
-        boost::scoped_ptr<boost::thread> update_thread;
-
-        // A map of the dst (rate) counter to the src counter and elapsed time.
-        typedef std::map<Counter*, RateCounterInfo> RateCounterMap;
-        RateCounterMap rate_counters;
-
-        // A map of the dst (averages over samples) counter to the src counter (to be sampled)
-        // and number of samples taken.
-        typedef std::map<Counter*, SamplingCounterInfo> SamplingCounterMap;
-        SamplingCounterMap sampling_counters;
-
-        // Map from a bucket of counters to the src counter
-        typedef std::map<std::vector<Counter*>*, BucketCountersInfo> BucketCountersMap;
-        BucketCountersMap bucketing_counters;
-    };
-
-    // Singleton object that keeps track of all rate counters and the thread
-    // for updating them.
-    static PeriodicCounterUpdateState _s_periodic_counter_update_state;
-
     // update a subtree of profiles from nodes, rooted at *idx.
     // On return, *idx points to the node immediately following this subtree.
     void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx);
@@ -587,18 +526,6 @@ private:
     // this profile and its children.
     // Called recusively.
     void compute_time_in_profile(int64_t total_time);
-
-    // Registers a periodic counter to be updated by the update thread.
-    // Either sample_fn or dst_counter must be non-NULL.  When the periodic counter
-    // is updated, it either gets the value from the dst_counter or calls the sample
-    // function to get the value.
-    // dst_counter/sample fn is assumed to be compatible types with src_counter.
-    static void register_periodic_counter(Counter* src_counter, SampleFn sample_fn,
-                                          Counter* dst_counter, PeriodicCounterType type);
-
-    // Loop for periodic counter update thread.  This thread wakes up once in a while
-    // and updates all the added rate counters and sampling counters.
-    static void periodic_counter_update_loop();
 
     // Print the child counters of the given counter name
     static void print_child_counters(const std::string& prefix, const std::string& counter_name,
@@ -612,7 +539,7 @@ private:
 class ScopedCounter {
 public:
     ScopedCounter(RuntimeProfile::Counter* counter, int64_t val) : _val(val), _counter(counter) {
-        if (counter == NULL) {
+        if (counter == nullptr) {
             return;
         }
 
@@ -621,7 +548,7 @@ public:
 
     // Increment the counter when object is destroyed
     ~ScopedCounter() {
-        if (_counter != NULL) {
+        if (_counter != nullptr) {
             _counter->update(_val);
         }
     }
@@ -643,7 +570,7 @@ class ScopedTimer {
 public:
     ScopedTimer(RuntimeProfile::Counter* counter, const bool* is_cancelled = nullptr)
             : _counter(counter), _is_cancelled(is_cancelled) {
-        if (counter == NULL) {
+        if (counter == nullptr) {
             return;
         }
         DCHECK(counter->type() == TUnit::TIME_NS);
@@ -657,7 +584,7 @@ public:
     bool is_cancelled() { return _is_cancelled != nullptr && *_is_cancelled; }
 
     void UpdateCounter() {
-        if (_counter != NULL && !is_cancelled()) {
+        if (_counter != nullptr && !is_cancelled()) {
             _counter->update(_sw.elapsed_time());
         }
     }

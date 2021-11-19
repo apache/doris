@@ -63,7 +63,7 @@ Doris 从 0.12 版本开始支持 Json 格式的数据导入。
     
     这种方式通常用于 Stream Load 导入方式，以便在一批导入数据中表示多行数据。
     
-    这种方式必须配合设置 `stripe_outer_array=true` 使用。Doris在解析时会将数组展开，然后依次解析其中的每一个 Object 作为一行数据。
+    这种方式必须配合设置 `strip_outer_array=true` 使用。Doris在解析时会将数组展开，然后依次解析其中的每一个 Object 作为一行数据。
 
 2. 以 Object 表示的单行数据
 

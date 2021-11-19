@@ -76,14 +76,14 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     ASSERT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
     ASSERT_TRUE(std::filesystem::exists(src_file_name));
 
-    char* large_bytes2[(1 << 12)];
-    memset(large_bytes2, 0, sizeof(char) * ((1 << 12)));
+    char large_bytes2[(1 << 12)];
+    memset(&large_bytes2, 0, sizeof(large_bytes2));
     int i = 0;
     while (i < 1 << 10) {
-        src_file_handler.write(large_bytes2, ((1 << 12)));
+        src_file_handler.write(&large_bytes2, sizeof(large_bytes2));
         ++i;
     }
-    src_file_handler.write(large_bytes2, 13);
+    src_file_handler.write(&large_bytes2, 13);
     src_file_handler.close();
 
     std::string dst_file_name = _s_test_data_path + "/abcd123456.txt";

@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -34,6 +33,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,6 +94,7 @@ public class TableRef implements ParseNode, Writable {
     private ArrayList<String> joinHints;
     private ArrayList<String> sortHints;
     private ArrayList<String> commonHints; //The Hints is set by user
+    protected ArrayList<LateralViewRef> lateralViewRefs;
     private boolean isForcePreAggOpened;
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -141,19 +142,21 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public TableRef(TableName name, String alias, PartitionNames partitionNames) {
-        this(name, alias, partitionNames, null);
+        this(name, alias, partitionNames, null, null);
     }
 
-    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints,
+                    ArrayList<LateralViewRef> lateralViewRefs) {
         this.name = name;
         if (alias != null) {
-            aliases_ = new String[] { alias };
+            aliases_ = new String[]{alias};
             hasExplicitAlias_ = true;
         } else {
             hasExplicitAlias_ = false;
         }
         this.partitionNames = partitionNames;
         this.commonHints = commonHints;
+        this.lateralViewRefs = lateralViewRefs;
         isAnalyzed = false;
     }
     // Only used to clone
@@ -182,6 +185,7 @@ public class TableRef implements ParseNode, Writable {
         allMaterializedTupleIds_ = Lists.newArrayList(other.allMaterializedTupleIds_);
         correlatedTupleIds_ = Lists.newArrayList(other.correlatedTupleIds_);
         desc = other.desc;
+        lateralViewRefs = other.lateralViewRefs;
     }
 
     public PartitionNames getPartitionNames() {
@@ -327,6 +331,10 @@ public class TableRef implements ParseNode, Writable {
 
     public String getSortColumn() {
         return sortColumn;
+    }
+
+    public ArrayList<LateralViewRef> getLateralViewRefs() {
+        return lateralViewRefs;
     }
 
     protected void analyzeSortHints() throws AnalysisException {

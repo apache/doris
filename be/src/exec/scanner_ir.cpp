@@ -45,11 +45,11 @@ extern "C" double ir_string_to_double(const char* s, int len, StringParser::Pars
 }
 
 extern "C" bool ir_is_null_string(const char* data, int len) {
-    return data == NULL || (len == 2 && data[0] == '\\' && data[1] == 'N');
+    return data == nullptr || (len == 2 && data[0] == '\\' && data[1] == 'N');
 }
 
 extern "C" bool ir_generic_is_null_string(const char* s, int slen, const char* n, int nlen) {
-    return s == NULL || (slen == nlen && StringCompare(s, slen, n, nlen, slen) == 0);
+    return s == nullptr || (slen == nlen && StringCompare(s, slen, n, nlen, slen) == 0);
 }
 #endif
 }

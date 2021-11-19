@@ -105,12 +105,14 @@ set(EXEC_FILES
     assert_num_rows_node.cpp
     s3_reader.cpp
     s3_writer.cpp
+    hdfs_reader_writer.cpp
 )
 
 if (ARCH_AMD64)
     set(EXEC_FILES
         ${EXEC_FILES}
         hdfs_file_reader.cpp
+        hdfs_writer.cpp
         )
 endif()
 

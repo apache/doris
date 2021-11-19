@@ -77,7 +77,8 @@ void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) 
     *size = new_size;
 }
 
-void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                                bool* flags) const {
     if (!block->is_nullable() && _is_null) {
         memset(flags, true, size);
     } else {
@@ -89,7 +90,8 @@ void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size
     }
 }
 
-void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                                 bool* flags) const {
     if (!block->is_nullable() && _is_null) {
         return;
     } else {
@@ -103,9 +105,9 @@ void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t siz
 
 Status NullPredicate::evaluate(const Schema& schema,
                                const std::vector<BitmapIndexIterator*>& iterators,
-                               uint32_t num_rows, Roaring* roaring) const {
+                               uint32_t num_rows, roaring::Roaring* roaring) const {
     if (iterators[_column_id] != nullptr) {
-        Roaring null_bitmap;
+        roaring::Roaring null_bitmap;
         RETURN_IF_ERROR(iterators[_column_id]->read_null_bitmap(&null_bitmap));
         if (_is_null) {
             *roaring &= null_bitmap;

@@ -92,10 +92,10 @@ public class RoutineLoadSchedulerTest {
                 routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
                 minTimes = 0;
                 result = routineLoadJobList;
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(1L);
+                database.getTableNullable(1L);
                 minTimes = 0;
                 result = olapTable;
                 systemInfoService.getClusterBackendIds(clusterName, true);
@@ -151,7 +151,7 @@ public class RoutineLoadSchedulerTest {
                 catalog.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 systemInfoService.getBackendIds(true);

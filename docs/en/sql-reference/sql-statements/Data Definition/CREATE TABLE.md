@@ -52,6 +52,8 @@ Syntax:
     col_name: Name of column
     col_type: Type of column
     ```
+        BOOLEAN(1 Byte)
+            Range: {0,1}
         TINYINT(1 Byte)
             Range: -2^7 + 1 ~ 2^7 - 1
         SMALLINT(2 Bytes)
@@ -91,7 +93,7 @@ Syntax:
 
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION: Only for HLL type
-       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns.
+       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns .**It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string**.
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
     Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
@@ -142,7 +144,7 @@ Syntax:
         ```
     
         For different broker, the broker properties are different
-    Notice:
+        Notice:
         Files name in "path" is separated by ",". If file name includes ",", use "%2c" instead.     If file name includes "%", use "%25" instead.
         Support CSV and Parquet. Support GZ, BZ2, LZ4, LZO(LZOP)
     3) For hive, properties should include:
@@ -154,7 +156,7 @@ Syntax:
         )
         ```
         "database" is the name of the database corresponding to the hive table, "table" is the name of the hive table, and "hive.metastore.uris" is the hive metastore service address.
-        Notice: At present, hive external tables are only used for Spark Load and query is not supported.
+        
 4. key_desc
     Syntax:
         key_type(k1[,k2 ...])
@@ -185,7 +187,7 @@ Syntax:
             ...
             )
             ```
-
+        
         Explain:
             Use the specified key column and the specified range of values for partitioning.
             1) Partition name only support [A-z0-9_]
@@ -221,7 +223,7 @@ Syntax:
                 ...
                 )
             ```
-
+        
             Explain:
                 Use the specified key column and the formulated enumeration value for partitioning.
                 1) Partition name only support [A-z0-9_]
@@ -230,10 +232,10 @@ Syntax:
                 3) Partition is a collection of enumerated values, partition values cannot be duplicated between partitions
                 4) NULL values cannot be imported
                 5) partition values cannot be defaulted, at least one must be specified
-
+        
         2) Multi-column partition
             Syntax.
-
+        
             ```
                 PARTITION BY LIST(k1, k2)
                 (
@@ -242,7 +244,7 @@ Syntax:
                 ...
                 )
             ```
-
+        
             Explain:
                 1) the partition of a multi-column partition is a collection of tuple enumeration values
                 2) The number of tuple values per partition must be equal to the number of columns in the partition
@@ -250,9 +252,9 @@ Syntax:
 
 6. distribution_desc
     1) Hash
-    Syntax:
+       Syntax:
         `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
-    Explain:
+       Explain:
         The default buckets is 10.
 7. PROPERTIES
     1) If ENGINE type is olap. User can specify storage medium, cooldown time and replication   number:
@@ -261,7 +263,8 @@ Syntax:
         PROPERTIES (
             "storage_medium" = "[SSD|HDD]",
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
-            ["replication_num" = "3"]
+            ["replication_num" = "3"],
+			["replication_allocation" = "xxx"]
             )
         ```
     
@@ -271,6 +274,8 @@ Syntax:
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
         replication_num:        Replication number of a partition. Default is 3.
+        replication_allocation:     Specify the distribution of replicas according to the resource tag.
+
         If table is not range partitions. This property takes on Table level. Or it will takes on   Partition level.
         User can specify different properties for different partition by `ADD PARTITION` or     `MODIFY PARTITION` statements.
     2) If Engine type is olap, user can set bloom filter index for column.
@@ -311,6 +316,8 @@ Syntax:
        dynamic_partition.buckets: specifies the number of partition buckets that are automatically created
        dynamic_partition.create_history_partition: specifies whether create history partitions, default value is false
        dynamic_partition.history_partition_num: used to specify the number of history partitions when enable create_history_partition
+       dynamic_partition.reserved_history_periods: Used to specify the range of reserved history periods
+       
        ```
     5)  You can create multiple Rollups in bulk when building a table
     grammar:
@@ -319,9 +326,9 @@ Syntax:
                      [FROM from_index_name]
                       [PROPERTIES ("key"="value", ...)],...)
     ```
-
+    
     6) if you want to use the inmemory table feature, specify it in properties
-
+    
         ```
         PROPERTIES (
            "in_memory"="true"
@@ -334,13 +341,14 @@ Syntax:
     ```
     CREATE TABLE example_db.table_hash
     (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    k1 BOOLEAN,
+    k2 TINYINT,
+    k3 DECIMAL(10, 2) DEFAULT "10.5",
     v1 CHAR(10) REPLACE,
     v2 INT SUM
     )
     ENGINE=olap
-    AGGREGATE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2, k3)
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
@@ -682,12 +690,7 @@ Syntax:
         )
         ENGINE=olap
         DUPLICATE KEY(k1, k2, k3)
-        PARTITION BY RANGE (k1)
-        (
-        PARTITION p1 VALUES LESS THAN ("2014-01-01"),
-        PARTITION p2 VALUES LESS THAN ("2014-06-01"),
-        PARTITION p3 VALUES LESS THAN ("2014-12-01")
-        )
+        PARTITION BY RANGE (k1) ()
         DISTRIBUTED BY HASH(k2) BUCKETS 32
         PROPERTIES(
         "storage_medium" = "SSD",
@@ -750,6 +753,39 @@ Syntax:
       "table" = "hive_table_name",
       "hive.metastore.uris" = "thrift://127.0.0.1:9083"
     );
+```
+
+16. Specify the replica distribution of the table through replication_allocation
+
+```	
+    CREATE TABLE example_db.table_hash
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5"
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+	);
+
+    CREATE TABLE example_db.dynamic_partition
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+     );
 ```
 
 ## keyword

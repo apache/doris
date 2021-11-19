@@ -165,20 +165,14 @@ public class SmallFileMgr implements Writable {
 
     public void createFile(CreateFileStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         downloadAndAddFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(),
                 stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
     }
 
     public void dropFile(DropFileStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         removeFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(), false);
     }
 
@@ -459,11 +453,7 @@ public class SmallFileMgr implements Writable {
     }
 
     public List<List<String>> getInfo(String dbName) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-        
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         List<List<String>> infos = Lists.newArrayList();
         synchronized (files) {
             if (files.containsRow(db.getId())) {

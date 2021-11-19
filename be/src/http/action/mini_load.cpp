@@ -626,7 +626,7 @@ void MiniLoadAction::free_handler_ctx(void* param) {
             if (streaming_ctx->body_sink != nullptr) {
                 LOG(WARNING) << "cancel stream load " << streaming_ctx->id.to_string()
                              << " because sender failed";
-                streaming_ctx->body_sink->cancel();
+                streaming_ctx->body_sink->cancel("sender failed");
             }
             if (streaming_ctx->unref()) {
                 delete streaming_ctx;
@@ -935,7 +935,7 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel();
+            ctx->body_sink->cancel(ctx->status.get_error_msg());
         }
     }
 

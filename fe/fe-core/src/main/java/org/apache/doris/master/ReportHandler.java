@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
@@ -104,14 +105,14 @@ public class ReportHandler extends Daemon {
     }
 
     public ReportHandler() {
-        GaugeMetric<Long> gaugeQueueSize = new GaugeMetric<Long>(
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>(
                 "report_queue_size", MetricUnit.NOUNIT, "report queue size") {
             @Override
             public Long getValue() {
                 return (long) reportQueue.size();
             }
         };
-        MetricRepo.addMetric(gaugeQueueSize);
+        MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
     }
 
     public TMasterResult handleReport(TReportRequest request) throws TException {
@@ -398,7 +399,7 @@ public class ReportHandler extends Daemon {
                              long backendId, long backendReportVersion) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Long dbId : tabletSyncMap.keySet()) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -414,7 +415,7 @@ public class ReportHandler extends Daemon {
                 }
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null) {
                     continue;
                 }
@@ -528,7 +529,7 @@ public class ReportHandler extends Daemon {
         AgentBatchTask createReplicaBatchTask = new AgentBatchTask();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Long dbId : tabletDeleteFromMeta.keySet()) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -543,7 +544,7 @@ public class ReportHandler extends Daemon {
                 }
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null) {
                     continue;
                 }
@@ -555,7 +556,7 @@ public class ReportHandler extends Daemon {
                         continue;
                     }
 
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                    short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                     long indexId = tabletMeta.getIndexId();
                     MaterializedIndex index = partition.getIndex(indexId);
@@ -758,9 +759,19 @@ public class ReportHandler extends Daemon {
     private static void handleMigration(ListMultimap<TStorageMedium, Long> tabletMetaMigrationMap,
                                         long backendId) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Backend be = infoService.getBackend(backendId);
+        if (be == null) {
+            return;
+        }
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TStorageMedium storageMedium : tabletMetaMigrationMap.keySet()) {
             List<Long> tabletIds = tabletMetaMigrationMap.get(storageMedium);
+            if (!be.hasSpecifiedStorageMedium(storageMedium)) {
+                LOG.warn("no specified storage medium {} on backend {}, skip storage migration." +
+                        " sample tablet id: {}", storageMedium, backendId, tabletIds.isEmpty() ? "-1" : tabletIds.get(0));
+                continue;
+            }
             List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 long tabletId = tabletIds.get(i);
@@ -802,7 +813,7 @@ public class ReportHandler extends Daemon {
         BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo(backendId);
         backendTabletsInfo.setBad(true);
         for (Long dbId : tabletRecoveryMap.keySet()) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -815,7 +826,7 @@ public class ReportHandler extends Daemon {
                 }
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null) {
                     continue;
                 }
@@ -936,19 +947,15 @@ public class ReportHandler extends Daemon {
         long dataSize = backendTabletInfo.getDataSize();
         long rowCount = backendTabletInfo.getRowCount();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("db[" + dbId + "] does not exist");
-        }
-
-        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new MetaNotFoundException("partition[" + partitionId + "] does not exist");
             }
-            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+            ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
 
             MaterializedIndex materializedIndex = partition.getIndex(indexId);
             if (materializedIndex == null) {
@@ -984,7 +991,7 @@ public class ReportHandler extends Daemon {
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     db.getClusterName(), visibleVersion, visibleVersionHash,
-                    replicationNum, aliveBeIdsInCluster);
+                    replicaAlloc, aliveBeIdsInCluster);
 
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {
@@ -1037,7 +1044,7 @@ public class ReportHandler extends Daemon {
                     }
                 }
                 throw new MetaNotFoundException(
-                        "replica is enough[" + tablet.getReplicas().size() + "-" + replicationNum + "]");
+                        "replica is enough[" + tablet.getReplicas().size() + "-" + replicaAlloc.toCreateStmt() + "]");
             }
         } finally {
             olapTable.writeUnlock();

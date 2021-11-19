@@ -44,6 +44,10 @@ public class DropUserStmt extends DdlStmt {
         super.analyze(analyzer);
         userIdent.analyze(analyzer.getClusterName());
 
+        if (userIdent.isRootUser()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not drop root user");
+        }
+
         // only user with GLOBAL level's GRANT_PRIV can drop user.
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP USER");

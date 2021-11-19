@@ -33,7 +33,7 @@ public:
     SlotRef(const SlotDescriptor* desc);
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new SlotRef(*this)); }
 
-    // TODO: this is a hack to allow aggregation nodes to work around NULL slot
+    // TODO: this is a hack to allow aggregation nodes to work around nullptr slot
     // descriptors. Ideally the FE would dictate the type of the intermediate SlotRefs.
     SlotRef(const SlotDescriptor* desc, const TypeDescriptor& type);
 
@@ -87,8 +87,8 @@ inline bool SlotRef::vector_compute_fn(Expr* expr, VectorizedRowBatch* /* batch 
 inline void* SlotRef::get_value(Expr* expr, TupleRow* row) {
     SlotRef* ref = (SlotRef*)expr;
     Tuple* t = row->get_tuple(ref->_tuple_idx);
-    if (t == NULL || t->is_null(ref->_null_indicator_offset)) {
-        return NULL;
+    if (t == nullptr || t->is_null(ref->_null_indicator_offset)) {
+        return nullptr;
     }
     return t->get_slot(ref->_slot_offset);
 }

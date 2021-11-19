@@ -45,6 +45,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/histogram.h"
@@ -71,7 +72,8 @@ static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSha
 }
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(MemTracker::CreateTracker(-1, "TabletMeta", nullptr, false, false, MemTrackerLevel::OVERVIEW)),
+        : _mem_tracker(MemTracker::CreateTracker(-1, "TabletMeta", nullptr, false, false,
+                                                 MemTrackerLevel::OVERVIEW)),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1),
           _last_update_stat_ms(0) {
@@ -274,8 +276,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     TRACE("got base tablet");
 
     // set alter type to schema-change. it is useless
-    TabletSharedPtr tablet = _internal_create_tablet_unlocked(
-            request, is_schema_change, base_tablet.get(), stores);
+    TabletSharedPtr tablet =
+            _internal_create_tablet_unlocked(request, is_schema_change, base_tablet.get(), stores);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to create tablet. tablet_id=" << request.tablet_id;
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
@@ -289,8 +291,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 }
 
 TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
-        const TCreateTabletReq& request,
-        const bool is_schema_change, const Tablet* base_tablet,
+        const TCreateTabletReq& request, const bool is_schema_change, const Tablet* base_tablet,
         const std::vector<DataDir*>& data_dirs) {
     // If in schema-change state, base_tablet must also be provided.
     // i.e., is_schema_change and base_tablet are either assigned or not assigned
@@ -347,7 +348,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             // 2. Because the unit of second is unified in the olap engine code,
             //    if two operations (such as creating a table, and then immediately altering the table)
             //    is less than 1s, then the creation_time of the new table and the old table obtained by alter will be the same
-            // 
+            //
             // When the above two situations occur, in order to be able to distinguish between the new tablet
             // obtained by alter and the old tablet, the creation_time of the new tablet is set to
             // the creation_time of the old tablet increased by 1
@@ -553,7 +554,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
 
     if (tablet == nullptr) {
         if (err != nullptr) {
-            *err = "tablet does not exist";
+            *err = "tablet does not exist. " + BackendOptions::get_localhost();
         }
         return nullptr;
     }
@@ -561,7 +562,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
     if (!tablet->is_used()) {
         LOG(WARNING) << "tablet cannot be used. tablet=" << tablet_id;
         if (err != nullptr) {
-            *err = "tablet cannot be used";
+            *err = "tablet cannot be used. " + BackendOptions::get_localhost();
         }
         return nullptr;
     }
@@ -659,10 +660,10 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
                 if (now_ms - last_failure_ms <=
                     config::min_compaction_failure_interval_sec * 1000) {
-                    VLOG_DEBUG    << "Too often to check compaction, skip it. "
-                                  << "compaction_type=" << compaction_type_str
-                                  << ", last_failure_time_ms=" << last_failure_ms
-                                  << ", tablet_id=" << tablet_ptr->tablet_id();
+                    VLOG_DEBUG << "Too often to check compaction, skip it. "
+                               << "compaction_type=" << compaction_type_str
+                               << ", last_failure_time_ms=" << last_failure_ms
+                               << ", tablet_id=" << tablet_ptr->tablet_id();
                     continue;
                 }
 
@@ -1318,8 +1319,7 @@ OLAPStatus TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& r
     OLAPStatus res = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
                                         col_idx_to_unique_id, tablet_meta);
 
-    // TODO(lingbin): when beta-rowset is default, should remove it
-    if (request.__isset.storage_format && request.storage_format == TStorageFormat::V2) {
+    if (request.__isset.storage_format && request.storage_format != TStorageFormat::V1) {
         (*tablet_meta)->set_preferred_rowset_type(BETA_ROWSET);
     } else {
         (*tablet_meta)->set_preferred_rowset_type(ALPHA_ROWSET);

@@ -27,7 +27,7 @@ namespace doris {
 
 SelectNode::SelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
-          _child_row_batch(NULL),
+          _child_row_batch(nullptr),
           _child_row_idx(0),
           _child_eos(false) {}
 

@@ -27,8 +27,6 @@
 
 namespace doris {
 
-const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
-
 HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
                      const std::vector<ExprContext*>& probe_expr_ctxs, int num_build_tuples,
                      bool stores_nulls, const std::vector<bool>& finds_nulls, int32_t initial_seed,
@@ -93,8 +91,8 @@ void HashTable::close() {
 }
 
 bool HashTable::eval_row(TupleRow* row, const std::vector<ExprContext*>& ctxs) {
-    // Put a non-zero constant in the result location for NULL.
-    // We don't want(NULL, 1) to hash to the same as (0, 1).
+    // Put a non-zero constant in the result location for nullptr.
+    // We don't want(nullptr, 1) to hash to the same as (0, 1).
     // This needs to be as big as the biggest primitive type since the bytes
     // get copied directly.
 
@@ -107,7 +105,7 @@ bool HashTable::eval_row(TupleRow* row, const std::vector<ExprContext*>& ctxs) {
         void* loc = _expr_values_buffer + _expr_values_buffer_offsets[i];
         void* val = ctxs[i]->get_value(row);
 
-        if (val == NULL) {
+        if (val == nullptr) {
             // If the table doesn't store nulls, no reason to keep evaluating
             if (!_stores_nulls) {
                 return true;
@@ -120,7 +118,7 @@ bool HashTable::eval_row(TupleRow* row, const std::vector<ExprContext*>& ctxs) {
             _expr_value_null_bits[i] = false;
         }
 
-        RawValue::write(val, loc, _build_expr_ctxs[i]->root()->type(), NULL);
+        RawValue::write(val, loc, _build_expr_ctxs[i]->root()->type(), nullptr);
     }
 
     return has_null;
@@ -156,7 +154,7 @@ bool HashTable::equals(TupleRow* build_row) {
     for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
         void* val = _build_expr_ctxs[i]->get_value(build_row);
 
-        if (val == NULL) {
+        if (val == nullptr) {
             if (!(_stores_nulls && _finds_nulls[i])) {
                 return false;
             }
@@ -199,7 +197,7 @@ void HashTable::resize_buckets(int64_t num_buckets) {
     for (int i = 0; i < _num_buckets; ++i) {
         Bucket* bucket = &_buckets[i];
         Bucket* sister_bucket = &_buckets[i + old_num_buckets];
-        Node* last_node = NULL;
+        Node* last_node = nullptr;
         Node* node = bucket->_node;
 
         while (node != nullptr) {
@@ -207,7 +205,7 @@ void HashTable::resize_buckets(int64_t num_buckets) {
             uint32_t hash = node->_hash;
 
             bool node_must_move = true;
-            Bucket* move_to = NULL;
+            Bucket* move_to = nullptr;
 
             if (doubled_buckets) {
                 node_must_move = ((hash & old_num_buckets) != 0);
@@ -253,7 +251,7 @@ void HashTable::grow_node_array() {
 void HashTable::mem_limit_exceeded(int64_t allocation_size) {
     _mem_limit_exceeded = true;
     _exceeded_limit = true;
-    // if (_state != NULL) {
+    // if (_state != nullptr) {
     //     _state->set_mem_limit_exceeded(_mem_tracker, allocation_size);
     // }
 }
@@ -277,7 +275,7 @@ std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) 
                 ss << ",";
             }
 
-            if (desc == NULL) {
+            if (desc == nullptr) {
                 ss << node->_hash << "(" << (void*)node->data() << ")";
             } else {
                 ss << (void*)node->data() << " " << node->data()->to_string(*desc);

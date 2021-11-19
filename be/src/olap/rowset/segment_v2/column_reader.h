@@ -123,9 +123,7 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
-                                      std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-                                      RowRanges* row_ranges);
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition, RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges);
@@ -161,9 +159,7 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions,
-                               std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-                               std::vector<uint32_t>* page_indexes);
+    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions, std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
@@ -312,9 +308,6 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
-
-    // page indexes those are DEL_PARTIAL_SATISFIED
-    std::unordered_set<uint32_t> _delete_partial_satisfied_pages;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {

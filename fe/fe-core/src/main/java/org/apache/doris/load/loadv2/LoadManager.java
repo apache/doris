@@ -148,8 +148,7 @@ public class LoadManager implements Writable{
             cluster = request.getCluster();
         }
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
-        Table table = database.getTable(request.tbl);
-        checkTable(database, request.getTbl());
+        Table table = database.getTableOrDdlException(request.tbl);
         LoadJob loadJob = null;
         writeLock();
         try {
@@ -256,10 +255,16 @@ public class LoadManager implements Writable{
 
     // add load job and also add to to callback factory
     private void createLoadJob(LoadJob loadJob) {
+        if (loadJob.isExpired(System.currentTimeMillis())) {
+            // This can happen in replay logic.
+            return;
+        }
         addLoadJob(loadJob);
-        // add callback before txn created, because callback will be performed on replay without txn begin
+        // add callback before txn if load job is uncompleted, because callback will be performed on replay without txn begin
         // register txn state listener
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+        if (!loadJob.isCompleted()) {
+            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+        }
     }
 
     private void addLoadJob(LoadJob loadJob) {
@@ -275,19 +280,16 @@ public class LoadManager implements Writable{
         labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
     }
 
-    public void recordFinishedLoadJob(String label, String dbName, long tableId, EtlJobType jobType,
+    public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
             long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new MetaNotFoundException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
 
         LoadJob loadJob;
         switch (jobType) {
             case INSERT:
-                loadJob = new InsertLoadJob(label, db.getId(), tableId, createTimestamp, failMsg, trackingUrl);
+                loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg, trackingUrl);
                 break;
             default:
                 return;
@@ -298,10 +300,7 @@ public class LoadManager implements Writable{
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException, AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDbName());
 
         // List of load jobs waiting to be cancelled
         List<LoadJob> loadJobs = Lists.newArrayList();
@@ -355,10 +354,7 @@ public class LoadManager implements Writable{
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDbName());
 
         LoadJob loadJob = null;
         readLock();
@@ -446,9 +442,17 @@ public class LoadManager implements Writable{
                 LoadJob job = iter.next().getValue();
                 if (job.isExpired(currentTimeMs)) {
                     iter.remove();
-                    dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
+                    Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+                    List<LoadJob> list = map.get(job.getLabel());
+                    list.remove(job);
                     if (job instanceof SparkLoadJob) {
                         ((SparkLoadJob) job).clearSparkLauncherLog();
+                    }
+                    if (list.isEmpty()) {
+                        map.remove(job.getLabel());
+                    }
+                    if (map.isEmpty()) {
+                        dbIdToLabelToLoadJobs.remove(job.getDbId());
                     }
                 }
             }
@@ -615,26 +619,7 @@ public class LoadManager implements Writable{
     }
 
     private Database checkDb(String dbName) throws DdlException {
-        // get db
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            LOG.warn("Database {} does not exist", dbName);
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
-        return db;
-    }
-
-    /**
-     * Please don't lock any load lock before check table
-     * @param database
-     * @param tableName
-     * @throws DdlException
-     */
-    private void checkTable(Database database, String tableName) throws DdlException {
-        if (database.getTable(tableName) == null) {
-            LOG.info("Table {} is not belongs to database {}", tableName, database.getFullName());
-            throw new DdlException("Table[" + tableName + "] does not exist");
-        }
+        return Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
     }
 
     /**
@@ -805,9 +790,13 @@ public class LoadManager implements Writable{
     }
 
     public void readFields(DataInput in) throws IOException {
+        long currentTimeMs = System.currentTimeMillis();
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             LoadJob loadJob = LoadJob.read(in);
+            if (loadJob.isExpired(currentTimeMs)) {
+                continue;
+            }
             idToLoadJob.put(loadJob.getId(), loadJob);
             Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(loadJob.getDbId());
             if (map == null) {

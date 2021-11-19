@@ -20,7 +20,7 @@
 #include "runtime/string_value.hpp"
 
 namespace doris {
-int ir_string_compare(const char* s1, int n1, const char* s2, int n2) {
+int ir_string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2) {
     return string_compare(s1, n1, s2, n2, std::min(n1, n2));
 }
 } // namespace doris

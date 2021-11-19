@@ -39,12 +39,12 @@ import org.apache.logging.log4j.Logger;
  * 1. create user user@'ip' [identified by 'password']
  *      specify the user name at a certain ip(wildcard is accepted), with optional password.
  *      the user@ip must not exist in system
- *      
+ *
  * 2. create user user@['domain'] [identified by 'password']
  *      specify the user name at a certain domain, with optional password.
  *      the user@['domain'] must not exist in system
  *      the daemon thread will resolve this domain to user@'ip' format
- *      
+ *
  * 3. create user user@xx [identified by 'password'] role role_name
  *      not only create the specified user, but also grant all privs of the specified role to the user.
  */
@@ -108,6 +108,11 @@ public class CreateUserStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         userIdent.analyze(analyzer.getClusterName());
+
+        if (userIdent.isRootUser()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not create root user");
+        }
+
         // convert plain password to hashed password
         if (!Strings.isNullOrEmpty(password)) {
             if (isPlain) {

@@ -159,15 +159,15 @@ public class PartitionCacheTest {
                 minTimes = 0;
                 result = auth;
    
-                catalog.getDb(fullDbName);
+                catalog.getDbNullable(fullDbName);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(dbName);
+                catalog.getDbNullable(dbName);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(db.getId());
+                catalog.getDbNullable(db.getId());
                 minTimes = 0;
                 result = db;
 

@@ -75,7 +75,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     // Profile of this load job, including all tasks' profiles
     private RuntimeProfile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
-    private boolean isReportSuccess = false;
+    private boolean enableProfile = false;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -87,8 +87,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReportSucc()) {
-            isReportSuccess = true;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
+            enableProfile = true;
         }
     }
 
@@ -194,12 +194,12 @@ public class BrokerLoadJob extends BulkLoadJob {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                         isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
-                        getLoadParallelism(), isReportSuccess ? jobProfile : null);
+                        getLoadParallelism(), getSendBatchParallelism(), enableProfile ? jobProfile : null);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),
@@ -306,7 +306,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     private void writeProfile() {
-        if (!isReportSuccess) {
+        if (!enableProfile) {
             return;
         }
 

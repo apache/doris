@@ -21,14 +21,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <boost/bind.hpp>
+#include <functional>
 #include <iostream>
 
 #include "common/object_pool.h"
 #include "util/cpu_info.h"
 
 using namespace std;
-using namespace boost;
 
 namespace impala {
 
@@ -54,7 +53,7 @@ TEST(CountersTest, Basic) {
 
     // Updating/setting counter
     counter_a = profile_a.AddCounter("A", TCounterType::UNIT);
-    EXPECT_TRUE(counter_a != NULL);
+    EXPECT_TRUE(counter_a != nullptr);
     counter_a->Update(10);
     counter_a->Update(-5);
     EXPECT_EQ(counter_a->value(), 5);
@@ -62,14 +61,14 @@ TEST(CountersTest, Basic) {
     EXPECT_EQ(counter_a->value(), 1);
 
     counter_b = profile_a2.AddCounter("B", TCounterType::BYTES);
-    EXPECT_TRUE(counter_b != NULL);
+    EXPECT_TRUE(counter_b != nullptr);
 
     // Serialize/deserialize
     profile_a.ToThrift(&thrift_profile.nodes);
     RuntimeProfile* from_thrift = RuntimeProfile::CreateFromThrift(&pool, thrift_profile);
     counter_merged = from_thrift->GetCounter("A");
     EXPECT_EQ(counter_merged->value(), 1);
-    EXPECT_TRUE(from_thrift->GetCounter("Not there") == NULL);
+    EXPECT_TRUE(from_thrift->GetCounter("Not there") == nullptr);
 
     // Merge
     RuntimeProfile merged_profile(&pool, "Merged");
@@ -96,7 +95,7 @@ TEST(CountersTest, Basic) {
 
 void ValidateCounter(RuntimeProfile* profile, const string& name, int64_t value) {
     RuntimeProfile::Counter* counter = profile->GetCounter(name);
-    EXPECT_TRUE(counter != NULL);
+    EXPECT_TRUE(counter != nullptr);
     EXPECT_EQ(counter->value(), value);
 }
 
@@ -243,11 +242,11 @@ TEST(CountersTest, DerivedCounters) {
 TEST(CountersTest, InfoStringTest) {
     ObjectPool pool;
     RuntimeProfile profile(&pool, "Profile");
-    EXPECT_TRUE(profile.GetInfoString("Key") == NULL);
+    EXPECT_TRUE(profile.GetInfoString("Key") == nullptr);
 
     profile.AddInfoString("Key", "Value");
     const string* value = profile.GetInfoString("Key");
-    EXPECT_TRUE(value != NULL);
+    EXPECT_TRUE(value != nullptr);
     EXPECT_EQ(*value, "Value");
 
     // Convert it to thrift
@@ -257,14 +256,14 @@ TEST(CountersTest, InfoStringTest) {
     // Convert it back
     RuntimeProfile* from_thrift = RuntimeProfile::CreateFromThrift(&pool, tprofile);
     value = from_thrift->GetInfoString("Key");
-    EXPECT_TRUE(value != NULL);
+    EXPECT_TRUE(value != nullptr);
     EXPECT_EQ(*value, "Value");
 
     // Test update.
     RuntimeProfile update_dst_profile(&pool, "Profile2");
     update_dst_profile.Update(tprofile);
     value = update_dst_profile.GetInfoString("Key");
-    EXPECT_TRUE(value != NULL);
+    EXPECT_TRUE(value != nullptr);
     EXPECT_EQ(*value, "Value");
 
     // Update the original profile, convert it to thrift and update from the dst

@@ -82,6 +82,9 @@ public:
                uint64_t shard_id, const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType);
+    // If need add a filed in TableMeta, filed init copy in copy construct function
+    TabletMeta(const TabletMeta& tablet_meta);
+    TabletMeta(TabletMeta&& tablet_meta) = delete;
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
@@ -184,7 +187,9 @@ private:
     TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
 
     TabletState _tablet_state = TABLET_NOTREADY;
-    TabletSchema _schema;
+    // the reference of _schema may use in tablet, so here need keep
+    // the lifetime of tablemeta and _schema is same with tablet
+    std::shared_ptr<TabletSchema> _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
@@ -194,7 +199,7 @@ private:
 
     DelPredicateArray _del_pred_array;
     bool _in_restore_mode = false;
-    RowsetTypePB _preferred_rowset_type = ALPHA_ROWSET;
+    RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
     RWMutex _meta_lock;
 };
@@ -282,11 +287,11 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
 }
 
 inline const TabletSchema& TabletMeta::tablet_schema() const {
-    return _schema;
+    return *_schema;
 }
 
 inline TabletSchema* TabletMeta::mutable_tablet_schema() {
-    return &_schema;
+    return _schema.get();
 }
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {

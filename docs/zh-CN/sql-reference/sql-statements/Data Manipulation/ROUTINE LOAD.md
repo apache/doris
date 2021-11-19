@@ -179,7 +179,11 @@ under the License.
 
         9. json_root
 
-        json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+            json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+
+        10. send_batch_parallelism
+            
+            整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。 
 
     6. data_source
 

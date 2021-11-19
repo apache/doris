@@ -159,7 +159,7 @@ public class ShowExecutorTest {
                 db.readUnlock();
                 minTimes = 0;
 
-                db.getTable(anyString);
+                db.getTableNullable(anyString);
                 minTimes = 0;
                 result = table;
             }
@@ -172,11 +172,11 @@ public class ShowExecutorTest {
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
             {
-                catalog.getDb("testCluster:testDb");
+                catalog.getDbNullable("testCluster:testDb");
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb("testCluster:emptyDb");
+                catalog.getDbNullable("testCluster:emptyDb");
                 minTimes = 0;
                 result = null;
 
@@ -483,7 +483,7 @@ public class ShowExecutorTest {
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
 
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown table 'testCluster:emptyDb.testTable'");
+        expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
         executor.execute();
 
         // empty table
@@ -492,7 +492,7 @@ public class ShowExecutorTest {
         executor = new ShowExecutor(ctx, stmt);
 
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown table 'testCluster:testDb.emptyTable'");
+        expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
         executor.execute();
     }
 

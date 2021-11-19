@@ -83,6 +83,20 @@ doriswriter 插件依赖的 DataX 代码中的一些模块。而这些模块并�
 
         > hdfsreader, hdfswriter and oscarwriter 这三个插件需要额外的jar包。如果你并不需要这些插件，可以在 `DataX/pom.xml` 中删除这些插件的模块。
 
+	3. 编译错误
+
+		如遇到如下编译错误：
+
+		```
+		Could not find artifact com.alibaba.datax:datax-all:pom:0.0.1-SNAPSHOT ...
+		```
+
+		可尝试以下方式解决：
+
+		1. 下载 [alibaba-datax-maven-m2-20210928.tar.gz](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/alibaba-datax-maven-m2-20210928.tar.gz)
+		2. 解压后，将得到的 `alibaba/datax/` 目录，拷贝到所使用的 maven 对应的 `.m2/repository/com/alibaba/` 下。
+		3. 再次尝试编译。
+
 4. 按需提交修改。
 
 ### 示例

@@ -145,6 +145,9 @@ public:
     // get offsets for times
     Status get_offsets_for_times(const std::vector<PIntegerPair>& times,
             std::vector<PIntegerPair>* offsets);
+    // get latest offsets for partitions
+    Status get_latest_offsets_for_partitions(const std::vector<int32_t>& partition_ids,
+            std::vector<PIntegerPair>* offsets);
 
 private:
     std::string _brokers;

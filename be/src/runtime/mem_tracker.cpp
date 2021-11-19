@@ -229,12 +229,11 @@ int64_t MemTracker::GetPoolMemReserved() {
         std::shared_ptr<MemTracker> child = child_weak.lock();
         if (child) {
             int64_t child_limit = child->limit();
-            bool query_exec_finished = child->query_exec_finished_.load() != 0;
-            if (child_limit > 0 && !query_exec_finished) {
+            if (child_limit > 0) {
                 // Make sure we don't overflow if the query limits are set to ridiculous values.
                 mem_reserved += std::min(child_limit, MemInfo::physical_mem());
             } else {
-                DCHECK(query_exec_finished || child_limit == -1)
+                DCHECK(child_limit == -1)
                         << child->LogUsage(UNLIMITED_DEPTH);
                 mem_reserved += child->consumption();
             }
@@ -369,16 +368,19 @@ std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
     if (CheckLimitExceeded(MemLimit::HARD)) ss << " memory limit exceeded.";
     if (limit_ > 0) ss << " Limit=" << PrettyPrinter::print(limit_, TUnit::BYTES);
 
-    ReservationTrackerCounters* reservation_counters = reservation_counters_.load();
-    if (reservation_counters != nullptr) {
-        int64_t reservation = reservation_counters->peak_reservation->current_value();
-        ss << " Reservation=" << PrettyPrinter::print(reservation, TUnit::BYTES);
-        if (reservation_counters->reservation_limit != nullptr) {
-            int64_t limit = reservation_counters->reservation_limit->value();
-            ss << " ReservationLimit=" << PrettyPrinter::print(limit, TUnit::BYTES);
-        }
-        ss << " OtherMemory=" << PrettyPrinter::print(curr_consumption - reservation, TUnit::BYTES);
-    }
+    // TODO(zxy): ReservationTrackerCounters is not actually used in the current Doris. 
+    // Printing here ReservationTrackerCounters may cause BE crash when high concurrency.
+    // The memory tracker in Doris will be redesigned in the future.
+    // ReservationTrackerCounters* reservation_counters = reservation_counters_.load();
+    // if (reservation_counters != nullptr) {
+    //     int64_t reservation = reservation_counters->peak_reservation->current_value();
+    //     ss << " Reservation=" << PrettyPrinter::print(reservation, TUnit::BYTES);
+    //     if (reservation_counters->reservation_limit != nullptr) {
+    //         int64_t limit = reservation_counters->reservation_limit->value();
+    //         ss << " ReservationLimit=" << PrettyPrinter::print(limit, TUnit::BYTES);
+    //     }
+    //     ss << " OtherMemory=" << PrettyPrinter::print(curr_consumption - reservation, TUnit::BYTES);
+    // }
     ss << " Total=" << PrettyPrinter::print(curr_consumption, TUnit::BYTES);
     // Peak consumption is not accurate if the metric is lazily updated (i.e.
     // this is a non-root tracker that exists only for reporting purposes).
@@ -437,7 +439,6 @@ std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
 
 std::string MemTracker::LogTopNQueries(int limit) {
     if (limit == 0) return "";
-    if (this->is_query_mem_tracker_) return LogUsage(0);
     priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
                    std::greater<pair<int64_t, string>>>
             min_pq;
@@ -463,19 +464,14 @@ void MemTracker::GetTopNQueries(
     for (const auto& child_weak : children) {
         shared_ptr<MemTracker> child = child_weak.lock();
         if (child) {
-            if (!child->is_query_mem_tracker_) {
-                child->GetTopNQueries(min_pq, limit);
-            } else {
-                min_pq.push(pair<int64_t, string>(child->consumption(), child->LogUsage(0)));
-                if (min_pq.size() > limit) min_pq.pop();
-            }
+            child->GetTopNQueries(min_pq, limit);
         }
     }
 }
 
 MemTracker* MemTracker::GetQueryMemTracker() {
     MemTracker* tracker = this;
-    while (tracker != nullptr && !tracker->is_query_mem_tracker_) {
+    while (tracker != nullptr) {
         tracker = tracker->parent_.get();
     }
     return tracker;

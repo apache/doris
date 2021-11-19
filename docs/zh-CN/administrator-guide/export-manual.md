@@ -110,18 +110,20 @@ PARTITION (p1,p2)
 TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
+	"label" = "mylabel",
     "column_separator"=",",
-    "columns":"col1,col2"
+    "columns" = "col1,col2",
     "exec_mem_limit"="2147483648",
     "timeout" = "3600"
 )
 WITH BROKER "hdfs"
 (
 	"username" = "user",
-	"password" = "passwd",
+	"password" = "passwd"
 );
 ```
 
+* `label`：本次导出作业的标识。后续可以使用这个标识查看作业状态。
 * `column_separator`：列分隔符。默认为 `\t`。支持不可见字符，比如 '\x07'。
 * columns：要导出的列，使用英文状态逗号隔开，如果不填这个参数默认是导出表的所有列
 * `line_delimiter`：行分隔符。默认为 `\n`。支持不可见字符，比如 '\x07'。
@@ -133,6 +135,7 @@ WITH BROKER "hdfs"
 
 ```
      JobId: 14008
+     Label: mylabel
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
@@ -145,6 +148,7 @@ FinishTime: 2019-06-25 17:08:34
 ```
 
 * JobId：作业的唯一 ID
+* Label：自定义作业标识
 * State：作业状态：
     * PENDING：作业待调度
     * EXPORTING：数据导出中

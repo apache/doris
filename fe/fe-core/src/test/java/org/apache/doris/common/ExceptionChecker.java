@@ -67,6 +67,7 @@ public class ExceptionChecker {
         try {
             runnable.run();
         } catch (Throwable e) {
+            e.printStackTrace();
             if (expectedType.isInstance(e)) {
                 if (!Strings.isNullOrEmpty(exceptionMsg)) {
                     if (!e.getMessage().contains(exceptionMsg)) {

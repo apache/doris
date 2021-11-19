@@ -291,6 +291,11 @@ struct BloomFilterTypeTraits<TYPE_VARCHAR, BloomFilterAdaptor> {
     using FindOp = StringFindOp<BloomFilterAdaptor>;
 };
 
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_STRING, BloomFilterAdaptor> {
+    using FindOp = StringFindOp<BloomFilterAdaptor>;
+};
+
 template <PrimitiveType type, class BloomFilterAdaptor>
 class BloomFilterFunc final : public BloomFilterFuncBase<BloomFilterAdaptor> {
 public:

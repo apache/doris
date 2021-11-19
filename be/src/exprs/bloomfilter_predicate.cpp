@@ -40,31 +40,37 @@ IBloomFilterFuncBase* IBloomFilterFuncBase::create_bloom_filter(MemTracker* trac
         return new BloomFilterFunc<TYPE_INT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_BIGINT:
         return new BloomFilterFunc<TYPE_BIGINT, CurrentBloomFilterAdaptor>(tracker);
+    case TYPE_LARGEINT:
+        return new BloomFilterFunc<TYPE_LARGEINT, CurrentBloomFilterAdaptor>(tracker);
+
     case TYPE_FLOAT:
         return new BloomFilterFunc<TYPE_FLOAT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_DOUBLE:
         return new BloomFilterFunc<TYPE_DOUBLE, CurrentBloomFilterAdaptor>(tracker);
+
+    case TYPE_DECIMALV2:
+        return new BloomFilterFunc<TYPE_DECIMALV2, CurrentBloomFilterAdaptor>(tracker);
+
+    case TYPE_TIME:
+        return new BloomFilterFunc<TYPE_TIME, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_DATE:
         return new BloomFilterFunc<TYPE_DATE, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_DATETIME:
         return new BloomFilterFunc<TYPE_DATETIME, CurrentBloomFilterAdaptor>(tracker);
-    case TYPE_DECIMALV2:
-        return new BloomFilterFunc<TYPE_DECIMALV2, CurrentBloomFilterAdaptor>(tracker);
-    case TYPE_LARGEINT:
-        return new BloomFilterFunc<TYPE_LARGEINT, CurrentBloomFilterAdaptor>(tracker);
+
     case TYPE_CHAR:
         return new BloomFilterFunc<TYPE_CHAR, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_VARCHAR:
         return new BloomFilterFunc<TYPE_VARCHAR, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_STRING:
-        return new BloomFilterFunc<TYPE_STRING, CurrentBloomFilterAdaptor>(tracker); 
+        return new BloomFilterFunc<TYPE_STRING, CurrentBloomFilterAdaptor>(tracker);
+
     default:
-        return nullptr;
+        DCHECK(false) << "Invalid type.";
     }
 
     return nullptr;
 }
-
 BloomFilterPredicate::BloomFilterPredicate(const TExprNode& node)
         : Predicate(node),
           _is_prepare(false),
@@ -73,8 +79,8 @@ BloomFilterPredicate::BloomFilterPredicate(const TExprNode& node)
           _scan_rows(0) {}
 
 BloomFilterPredicate::~BloomFilterPredicate() {
-    LOG(INFO) << "bloom filter rows:" << _filtered_rows << ",scan_rows:" << _scan_rows
-              << ",rate:" << (double)_filtered_rows / _scan_rows;
+    VLOG_NOTICE << "bloom filter rows:" << _filtered_rows << ",scan_rows:" << _scan_rows
+                << ",rate:" << (double)_filtered_rows / _scan_rows;
 }
 
 BloomFilterPredicate::BloomFilterPredicate(const BloomFilterPredicate& other)
@@ -90,7 +96,7 @@ Status BloomFilterPredicate::prepare(RuntimeState* state, IBloomFilterFuncBase* 
         return Status::OK();
     }
     _filter.reset(filter);
-    if (NULL == _filter.get()) {
+    if (nullptr == _filter.get()) {
         return Status::InternalError("Unknown column type.");
     }
     _is_prepare = true;
@@ -108,7 +114,7 @@ BooleanVal BloomFilterPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row
         return BooleanVal(true);
     }
     const void* lhs_slot = ctx->get_value(_children[0], row);
-    if (lhs_slot == NULL) {
+    if (lhs_slot == nullptr) {
         return BooleanVal::null();
     }
     _scan_rows++;

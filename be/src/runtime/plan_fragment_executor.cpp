@@ -21,7 +21,6 @@
 
 #include <unordered_map>
 
-#include "common/logging.h"
 #include "common/object_pool.h"
 #include "exec/data_sink.h"
 #include "exec/exchange_node.h"
@@ -41,6 +40,7 @@
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
+#include "util/logging.h"
 
 namespace doris {
 
@@ -53,7 +53,6 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _done(false),
           _prepared(false),
           _closed(false),
-          _has_thread_token(false),
           _is_report_success(true),
           _is_report_on_cancel(true),
           _collect_query_statistics_with_every_batch(false) {}
@@ -67,18 +66,20 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
-                                     const QueryFragmentsCtx* fragments_ctx) {
+                                     QueryFragmentsCtx* fragments_ctx) {
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
-    LOG(INFO) << "Prepare(): query_id=" << print_id(_query_id)
-              << " fragment_instance_id=" << print_id(params.fragment_instance_id)
-              << " backend_num=" << request.backend_num;
+    TAG(LOG(INFO)).log("PlanFragmentExecutor::prepare")
+                  .query_id(_query_id).instance_id(params.fragment_instance_id)
+                  .tag("backend_num", std::to_string(request.backend_num))
+                  .tag("pthread_id", std::to_string((uintptr_t) pthread_self()));
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
             fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
+    _runtime_state->set_query_fragments_ctx(fragments_ctx);
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);
@@ -99,20 +100,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         _is_report_success = request.query_options.is_report_success;
     }
 
-    // Reserve one main thread from the pool
-    _runtime_state->resource_pool()->acquire_thread_token();
-    _has_thread_token = true;
-
-    _average_thread_tokens = profile()->add_sampling_counter(
-            "AverageThreadTokens",
-            std::bind<int64_t>(std::mem_fn(&ThreadResourceMgr::ResourcePool::num_threads),
-                               _runtime_state->resource_pool()));
-
-    // if (_exec_env->process_mem_tracker() != NULL) {
-    //     // we have a global limit
-    //     _runtime_state->mem_trackers()->push_back(_exec_env->process_mem_tracker());
-    // }
-
     int64_t bytes_limit = request.query_options.mem_limit;
     if (bytes_limit <= 0) {
         // sometimes the request does not set the query mem limit, we use default one.
@@ -132,7 +119,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _mem_tracker = MemTracker::CreateTracker(bytes_limit,
                                              "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
                                                      print_id(params.fragment_instance_id),
-                                             _exec_env->process_mem_tracker(), true, false, MemTrackerLevel::TASK);
+                                             _exec_env->process_mem_tracker(), true, false,
+                                             MemTrackerLevel::TASK);
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
@@ -160,7 +148,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                     _plan);
     }
 
-
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
     _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
@@ -170,7 +157,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         DCHECK_GT(num_senders, 0);
         if (_runtime_state->enable_vectorized_exec()) {
         } else {
-            static_cast<ExchangeNode *>(exch_node)->set_num_senders(num_senders);
+            static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
         }
     }
 
@@ -197,15 +184,15 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
-                                                   request.fragment.output_exprs, params,
-                                                   row_desc(), runtime_state()->enable_vectorized_exec(), &_sink));
+        RETURN_IF_ERROR(DataSink::create_data_sink(
+                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
+                row_desc(), runtime_state()->enable_vectorized_exec(), &_sink, *desc_tbl));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
 
-        if (sink_profile != NULL) {
-            profile()->add_child(sink_profile, true, NULL);
+        if (sink_profile != nullptr) {
+            profile()->add_child(sink_profile, true, nullptr);
         }
 
         _collect_query_statistics_with_every_batch =
@@ -213,12 +200,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                         ? params.send_query_statistics_with_every_batch
                         : false;
     } else {
-        // _sink is set to NULL
-        _sink.reset(NULL);
+        // _sink is set to nullptr
+        _sink.reset(nullptr);
     }
 
     // set up profile counters
-    profile()->add_child(_plan->runtime_profile(), true, NULL);
+    profile()->add_child(_plan->runtime_profile(), true, nullptr);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
@@ -229,17 +216,17 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _prepared = true;
 
     _query_statistics.reset(new QueryStatistics());
-    if (_sink.get() != NULL) {
+    if (_sink.get() != nullptr) {
         _sink->set_query_statistics(_query_statistics);
     }
     return Status::OK();
 }
 
 Status PlanFragmentExecutor::open() {
-    LOG(INFO) << "Open(): fragment_instance_id="
-              << print_id(_runtime_state->fragment_instance_id())
-              << ", Using query memory limit: "
-              << PrettyPrinter::print(_runtime_state->fragment_mem_tracker()->limit(), TUnit::BYTES);
+    int64_t mem_limit = _runtime_state->fragment_mem_tracker()->limit();
+    TAG(LOG(INFO)).log("PlanFragmentExecutor::open, using query memory limit: " + PrettyPrinter::print(mem_limit, TUnit::BYTES))
+                  .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id())
+                  .tag("mem_limit", std::to_string(mem_limit));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -247,7 +234,7 @@ Status PlanFragmentExecutor::open() {
     // at end, otherwise the coordinator hangs in case we finish w/ an error
     if (_is_report_success && _report_status_cb && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
-        _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
+        _report_thread = std::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
@@ -277,7 +264,7 @@ Status PlanFragmentExecutor::open_internal() {
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
     }
 
-    if (_sink.get() == NULL) {
+    if (_sink.get() == nullptr) {
         return Status::OK();
     }
     {
@@ -287,14 +274,14 @@ Status PlanFragmentExecutor::open_internal() {
 
     // If there is a sink, do all the work of driving it here, so that
     // when this returns the query has actually finished
-    RowBatch* batch = NULL;
+    RowBatch* batch = nullptr;
     while (true) {
         {
             SCOPED_CPU_TIMER(_fragment_cpu_timer);
             RETURN_IF_ERROR(get_next_internal(&batch));
         }
 
-        if (batch == NULL) {
+        if (batch == nullptr) {
             break;
         }
 
@@ -340,11 +327,9 @@ Status PlanFragmentExecutor::open_internal() {
         RETURN_IF_ERROR(status);
     }
 
-    // Setting to NULL ensures that the d'tor won't double-close the sink.
-    _sink.reset(NULL);
+    // Setting to nullptr ensures that the d'tor won't double-close the sink.
+    _sink.reset(nullptr);
     _done = true;
-
-    release_thread_token();
 
     stop_report_thread();
     send_report(true);
@@ -382,7 +367,8 @@ void PlanFragmentExecutor::report_profile() {
             _stop_report_thread_cv.wait_for(l,
                                             std::chrono::seconds(config::status_report_interval));
         } else {
-            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting reporting thread.";
+            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting "
+                            "reporting thread.";
             break;
         }
 
@@ -460,10 +446,9 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
     update_status(status);
 
     if (_done) {
-        LOG(INFO) << "Finished executing fragment query_id=" << print_id(_query_id)
-                  << " instance_id=" << print_id(_runtime_state->fragment_instance_id());
+        TAG(LOG(INFO)).log("PlanFragmentExecutor::get_next finished")
+                      .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id());
         // Query is done, return the thread token
-        release_thread_token();
         stop_report_thread();
         send_report(true);
     }
@@ -473,7 +458,7 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
 
 Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
     if (_done) {
-        *batch = NULL;
+        *batch = nullptr;
         return Status::OK();
     }
 
@@ -488,7 +473,7 @@ Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
             break;
         }
 
-        *batch = NULL;
+        *batch = nullptr;
     }
 
     return Status::OK();
@@ -520,8 +505,8 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
 }
 
 void PlanFragmentExecutor::cancel() {
-    LOG(INFO) << "cancel(): fragment_instance_id="
-              << print_id(_runtime_state->fragment_instance_id());
+    TAG(LOG(INFO)).log("PlanFragmentExecutor::cancel")
+                  .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id());
     DCHECK(_prepared);
     _runtime_state->set_is_cancelled(true);
     _runtime_state->exec_env()->stream_mgr()->cancel(_runtime_state->fragment_instance_id());
@@ -540,29 +525,21 @@ RuntimeProfile* PlanFragmentExecutor::profile() {
     return _runtime_state->runtime_profile();
 }
 
-void PlanFragmentExecutor::release_thread_token() {
-    if (_has_thread_token) {
-        _has_thread_token = false;
-        _runtime_state->resource_pool()->release_thread_token(true);
-        profile()->stop_sampling_counters_updates(_average_thread_tokens);
-    }
-}
-
 void PlanFragmentExecutor::close() {
     if (_closed) {
         return;
     }
 
-    _row_batch.reset(NULL);
+    _row_batch.reset(nullptr);
 
     // Prepare may not have been called, which sets _runtime_state
-    if (_runtime_state.get() != NULL) {
+    if (_runtime_state.get() != nullptr) {
         // _runtime_state init failed
         if (_plan != nullptr) {
             _plan->close(_runtime_state.get());
         }
 
-        if (_sink.get() != NULL) {
+        if (_sink.get() != nullptr) {
             if (_prepared) {
                 Status status;
                 {
@@ -587,7 +564,8 @@ void PlanFragmentExecutor::close() {
             _runtime_state->runtime_profile()->pretty_print(&ss);
             LOG(INFO) << ss.str();
         }
-		LOG(INFO) << "Close() fragment_instance_id=" << print_id(_runtime_state->fragment_instance_id());
+        LOG(INFO) << "Close() fragment_instance_id="
+                  << print_id(_runtime_state->fragment_instance_id());
     }
 
     // _mem_tracker init failed

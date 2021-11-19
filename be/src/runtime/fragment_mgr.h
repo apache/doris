@@ -83,8 +83,6 @@ public:
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
-    RuntimeFilterMergeController& runtimefilter_controller() { return _runtimefilter_controller; }
-
     Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
 
     Status merge_filter(const PMergeFilterRequest* request, const char* attach_data);
@@ -100,6 +98,8 @@ private:
     ExecEnv* _exec_env;
 
     std::mutex _lock;
+
+    std::condition_variable _cv;
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;

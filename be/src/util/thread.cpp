@@ -46,7 +46,7 @@ namespace doris {
 
 class ThreadMgr;
 
-__thread Thread* Thread::_tls = NULL;
+__thread Thread* Thread::_tls = nullptr;
 
 // Singleton instance of ThreadMgr. Only visible in this file, used only by Thread.
 // // The Thread class adds a reference to thread_manager while it is supervising a thread so
@@ -301,8 +301,25 @@ int64_t Thread::wait_for_tid() const {
     int loop_count = 0;
     while (true) {
         int64_t t = Acquire_Load(&_tid);
-        if (t != PARENT_WAITING_TID) return t;
-        boost::detail::yield(loop_count++);
+        if (t != PARENT_WAITING_TID) {
+            return t;
+        }
+        // copied from boost::detail::yield
+        int k = loop_count++;
+        if (k < 32 || k & 1) {
+            sched_yield();
+        } else {
+            // g++ -Wextra warns on {} or {0}
+            struct timespec rqtp = {0, 0};
+
+            // POSIX says that timespec has tv_sec and tv_nsec
+            // But it doesn't guarantee order or placement
+
+            rqtp.tv_sec = 0;
+            rqtp.tv_nsec = 1000;
+
+            nanosleep(&rqtp, 0);
+        }
     }
 }
 
@@ -336,7 +353,7 @@ Status Thread::start_thread(const std::string& category, const std::string& name
         t->Release();
     });
 
-    int ret = pthread_create(&t->_thread, NULL, &Thread::supervise_thread, t.get());
+    int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
     if (ret) {
         return Status::RuntimeError("Could not create thread", ret, strerror(ret));
     }
@@ -385,7 +402,7 @@ void* Thread::supervise_thread(void* arg) {
     t->_functor();
     pthread_cleanup_pop(true);
 
-    return NULL;
+    return nullptr;
 }
 
 void Thread::finish_thread(void* arg) {
@@ -470,7 +487,7 @@ Status ThreadJoiner::join() {
             // Unconditionally join before returning, to guarantee that any TLS
             // has been destroyed (pthread_key_create() destructors only run
             // after a pthread's user method has returned).
-            int ret = pthread_join(_thread->_thread, NULL);
+            int ret = pthread_join(_thread->_thread, nullptr);
             CHECK_EQ(ret, 0);
             _thread->_joinable = false;
             return Status::OK();

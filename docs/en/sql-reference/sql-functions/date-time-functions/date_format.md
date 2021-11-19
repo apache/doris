@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR DATE' FORMAT (DATETIME DATE, VARCHAR Format)'
+`VARCHAR DATE' FORMAT (DATETIME DATE, VARCHAR Format)`
 
 
 Convert the date type to a bit string according to the format type.

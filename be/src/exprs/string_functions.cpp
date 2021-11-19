@@ -16,8 +16,6 @@
 // under the License.
 
 #include "exprs/string_functions.h"
-#include "util/vectorized-tool/lower.h"
-#include "util/vectorized-tool/upper.h"
 
 #include <re2/re2.h>
 
@@ -30,6 +28,8 @@
 #include "runtime/string_value.hpp"
 #include "runtime/tuple_row.h"
 #include "util/url_parser.h"
+#include "util/vectorized-tool/lower.h"
+#include "util/vectorized-tool/upper.h"
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
@@ -120,6 +120,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
 //    string left(string input, int len)
 // This behaves identically to the mysql implementation.
 StringVal StringFunctions::left(FunctionContext* context, const StringVal& str, const IntVal& len) {
+    if (len.val >= str.len) return str;
     return substring(context, str, 1, len);
 }
 
@@ -217,7 +218,7 @@ StringVal StringFunctions::lpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -268,7 +269,7 @@ StringVal StringFunctions::rpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -319,8 +320,8 @@ StringVal StringFunctions::append_trailing_char_if_absent(
 
 // Implementation of LENGTH
 //   int length(string input)
-// Returns the length in bytes of input. If input == NULL, returns
-// NULL per MySQL
+// Returns the length in bytes of input. If input == nullptr, returns
+// nullptr per MySQL
 IntVal StringFunctions::length(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return IntVal::null();
@@ -330,8 +331,8 @@ IntVal StringFunctions::length(FunctionContext* context, const StringVal& str) {
 
 // Implementation of CHAR_LENGTH
 //   int char_utf8_length(string input)
-// Returns the length of characters of input. If input == NULL, returns
-// NULL per MySQL
+// Returns the length of characters of input. If input == nullptr, returns
+// nullptr per MySQL
 IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return IntVal::null();
@@ -543,19 +544,20 @@ bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::str
     return true;
 }
 
-// The caller owns the returned regex. Returns NULL if the pattern could not be compiled.
+// The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
 static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
                                const StringVal& match_parameter) {
     re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
     options.set_log_errors(false);
+    // ATTN(cmy): no set it, or the lazy mode of regex won't work. See Doris #6587
     // Return the leftmost longest match (rather than the first match).
-    options.set_longest_match(true);
+    // options.set_longest_match(true);
     options.set_dot_nl(true);
     if (!match_parameter.is_null &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
-        return NULL;
+        return nullptr;
     }
     re2::RE2* re = new re2::RE2(pattern_sp, options);
     if (!re->ok()) {
@@ -564,7 +566,7 @@ static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
            << "Error: " << re->error();
         *error_str = ss.str();
         delete re;
-        return NULL;
+        return nullptr;
     }
     return re;
 }
@@ -584,7 +586,7 @@ void StringFunctions::regexp_prepare(FunctionContext* context,
     }
     std::string error_str;
     re2::RE2* re = compile_regex(*pattern, &error_str, StringVal::null());
-    if (re == NULL) {
+    if (re == nullptr) {
         context->set_error(error_str.c_str());
         return;
     }
@@ -612,11 +614,11 @@ StringVal StringFunctions::regexp_extract(FunctionContext* context, const String
     re2::RE2* re = reinterpret_cast<re2::RE2*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     std::unique_ptr<re2::RE2> scoped_re; // destroys re if we have to locally compile it
-    if (re == NULL) {
+    if (re == nullptr) {
         DCHECK(!context->is_arg_constant(1));
         std::string error_str;
         re = compile_regex(pattern, &error_str, StringVal::null());
-        if (re == NULL) {
+        if (re == nullptr) {
             context->add_warning(error_str.c_str());
             return StringVal::null();
         }
@@ -648,12 +650,12 @@ StringVal StringFunctions::regexp_replace(FunctionContext* context, const String
 
     re2::RE2* re = reinterpret_cast<re2::RE2*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is NULL
-    if (re == NULL) {
+    std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
+    if (re == nullptr) {
         DCHECK(!context->is_arg_constant(1));
         std::string error_str;
         re = compile_regex(pattern, &error_str, StringVal::null());
-        if (re == NULL) {
+        if (re == nullptr) {
             context->add_warning(error_str.c_str());
             return StringVal::null();
         }
@@ -805,7 +807,7 @@ StringVal StringFunctions::parse_url(FunctionContext* ctx, const StringVal& url,
     StringVal newPart = AnyValUtil::from_string_temp(ctx, part_str);
     void* state = ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     UrlParser::UrlPart url_part;
-    if (state != NULL) {
+    if (state != nullptr) {
         url_part = *reinterpret_cast<UrlParser::UrlPart*>(state);
     } else {
         DCHECK(!ctx->is_arg_constant(1));
@@ -848,7 +850,7 @@ StringVal StringFunctions::parse_url_key(FunctionContext* ctx, const StringVal& 
     }
     void* state = ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     UrlParser::UrlPart url_part;
-    if (state != NULL) {
+    if (state != nullptr) {
         url_part = *reinterpret_cast<UrlParser::UrlPart*>(state);
     } else {
         DCHECK(!ctx->is_arg_constant(1));
@@ -890,7 +892,8 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
+    return do_money_format<int64_t, 26>(context, rounded.int_value(),
+                                        abs(rounded.frac_value() / 10000000));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
@@ -971,14 +974,19 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
     if (origStr.is_null || oldStr.is_null || newStr.is_null) {
         return StringVal::null();
     }
+    // Empty string is a substring of all strings.
+    // If old str is an empty string, the std::string.find(oldStr) is always return 0.
+    // With an empty old str, there is no need to do replace.
+    if (oldStr.len == 0) {
+        return origStr;
+    }
     std::string orig_str = std::string(reinterpret_cast<const char*>(origStr.ptr), origStr.len);
     std::string old_str = std::string(reinterpret_cast<const char*>(oldStr.ptr), oldStr.len);
     std::string new_str = std::string(reinterpret_cast<const char*>(newStr.ptr), newStr.len);
     std::string::size_type pos = 0;
     std::string::size_type oldLen = old_str.size();
     std::string::size_type newLen = new_str.size();
-    while ((pos = orig_str.find(old_str, pos))) {
-        if (pos == std::string::npos) break;
+    while ((pos = orig_str.find(old_str, pos)) != std::string::npos) {
         orig_str.replace(pos, oldLen, new_str);
         pos += newLen;
     }
@@ -986,8 +994,8 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
 }
 // Implementation of BIT_LENGTH
 //   int bit_length(string input)
-// Returns the length in bits of input. If input == NULL, returns
-// NULL per MySQL
+// Returns the length in bits of input. If input == nullptr, returns
+// nullptr per MySQL
 IntVal StringFunctions::bit_length(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return IntVal::null();

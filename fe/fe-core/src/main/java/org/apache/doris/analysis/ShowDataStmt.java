@@ -106,10 +106,7 @@ public class ShowDataStmt extends ShowStmt {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
         
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
 
         // order by
         if (orderByElements != null && !orderByElements.isEmpty()) {
@@ -231,7 +228,7 @@ public class ShowDataStmt extends ShowStmt {
                         tableName);
             }
 
-            OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
+            OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
             int i = 0;
             long totalSize = 0;
             long totalReplicaCount = 0;
