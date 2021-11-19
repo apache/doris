@@ -516,7 +516,7 @@ public class Load {
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
                     Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
                             beAddress.getPort());
-                    if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backend.getId())) {
+                    if (!Catalog.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
 

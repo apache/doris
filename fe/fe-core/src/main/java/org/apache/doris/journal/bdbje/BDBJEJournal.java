@@ -144,8 +144,10 @@ public class BDBJEJournal implements Journal {
                 // Parameter null means auto commit
                 if (currentJournalDB.put(null, theKey, theData) == OperationStatus.SUCCESS) {
                     writeSucceed = true;
-                    LOG.debug("master write journal {} finished. db name {}, current time {}",
-                              id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("master write journal {} finished. db name {}, current time {}",
+                                id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
+                    }
                     break;
                 }
             } catch (DatabaseException e) {

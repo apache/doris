@@ -195,7 +195,7 @@ public class SimpleScheduler {
     }
 
     public static boolean isAvailable(Backend backend) {
-        return (backend != null && backend.isAlive() && !blacklistBackends.containsKey(backend.getId()));
+        return (backend != null && backend.isQueryAvailable() && !blacklistBackends.containsKey(backend.getId()));
     }
     
     private static class UpdateBlacklistThread implements Runnable {

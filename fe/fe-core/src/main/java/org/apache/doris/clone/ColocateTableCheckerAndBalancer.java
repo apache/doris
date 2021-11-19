@@ -575,7 +575,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             return false;
         } else if (!be.getTag().equals(tag) || excludedBeIds.contains(be.getId())) {
             return false;
-        } else if (!be.isAvailable()) {
+        } else if (!be.isScheduleAvailable()) {
             // 1. BE is dead for a long time
             // 2. BE is under decommission
             if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > Config.tablet_repair_delay_factor_second * 1000 * 2)

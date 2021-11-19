@@ -1043,7 +1043,7 @@ public class Config extends ConfigBase {
      * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
-    public static int max_query_retry_time = 2;
+    public static int max_query_retry_time = 1;
 
     /**
      * The tryLock timeout configuration of catalog lock.

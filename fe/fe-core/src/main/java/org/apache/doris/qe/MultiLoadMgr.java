@@ -92,7 +92,8 @@ public class MultiLoadMgr {
             }
             MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(1,
-                    true, false, ConnectContext.get().getClusterName(), null, null);
+                    false, false, true, false,
+                    ConnectContext.get().getClusterName(), null, null);
             if (backendIds == null) {
                 throw new DdlException("No backend alive.");
             }

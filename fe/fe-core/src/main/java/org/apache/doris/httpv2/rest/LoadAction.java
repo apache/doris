@@ -129,7 +129,8 @@ public class LoadAction extends RestBaseController {
             } else {
                 // Choose a backend sequentially.
                 List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                        1, true, false, clusterName, null, null);
+                        1, false, false, true, false,
+                        clusterName, null, null);
                 if (backendIds == null) {
                     return new RestBaseResult("No backend alive.");
                 }

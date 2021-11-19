@@ -62,8 +62,8 @@ public class MultiLoadMgrTest {
         };
         new Expectations() {
             {
-                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, anyBoolean, anyBoolean, anyString,
-                        (TStorageMedium) any, (Tag) any);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, anyBoolean, anyBoolean, anyBoolean,
+                        anyBoolean, anyString, (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, boolean needAlive,

@@ -63,7 +63,8 @@ public class InsertStreamTxnExecutor {
         StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                1, true, false, txnEntry.getDb().getClusterName(), null, null);
+                1, false, true, true, false,
+                txnEntry.getDb().getClusterName(), null, null);
         if (beIds == null || beIds.isEmpty()) {
             throw new UserException("there is no scanNode Backend.");
         }

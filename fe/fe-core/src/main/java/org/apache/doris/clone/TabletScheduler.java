@@ -800,7 +800,7 @@ public class TabletScheduler extends MasterDaemon {
                 // this case should be handled in deleteBackendDropped()
                 continue;
             }
-            if (!be.isAvailable()) {
+            if (!be.isScheduleAvailable()) {
                 deleteReplicaInternal(tabletCtx, replica, "backend unavailable", force);
                 return true;
             }

@@ -117,7 +117,8 @@ public class LoadAction extends RestBaseAction {
         } else {
             // Choose a backend sequentially.
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                    1, true, false, clusterName, null, null);
+                    1, false, false, true, false,
+                    clusterName, null, null);
             if (backendIds == null) {
                 throw new DdlException("No backend alive.");
             }
