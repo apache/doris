@@ -141,7 +141,7 @@ public class AgentProcessImpl implements AgentProcess {
             //check parent task has skipped
             boolean parentTaskSkip = checkParentTaskSkip(installReq.getProcessId(), install.getHost(), TaskTypeEnum.INSTALL_AGENT);
             if (parentTaskSkip) {
-                log.info("host {} parent install agent task has skipped,so the current install {} task is also skipped", install.getHost(), install.getRole());
+                log.warn("host {} parent install agent task has skipped,so the current install {} task is also skipped", install.getHost(), install.getRole());
                 continue;
             }
 
@@ -227,6 +227,7 @@ public class AgentProcessImpl implements AgentProcess {
                 log.error("conf {} can not encoding:", deployConf.getConf(), e);
             }
             CommandRequest creq = new CommandRequest();
+            TaskTypeEnum parentTask = null;
             TaskInstanceEntity deployTask = new TaskInstanceEntity(process.getId(), deployConf.getHost(), ProcessTypeEnum.DEPLOY_CONFIG);
             if (ServiceRole.FE.name().equals(deployConf.getRole())) {
                 WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
@@ -235,6 +236,7 @@ public class AgentProcessImpl implements AgentProcess {
                 creq.setBody(JSON.toJSONString(feConf));
                 creq.setCommandType(CommandType.WRITE_FE_CONF.name());
                 deployTask.setTaskType(TaskTypeEnum.DEPLOY_FE_CONFIG);
+                parentTask = TaskTypeEnum.INSTALL_FE;
             } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
                 WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
                 beConf.setContent(deployConf.getConf());
@@ -242,14 +244,15 @@ public class AgentProcessImpl implements AgentProcess {
                 creq.setBody(JSON.toJSONString(beConf));
                 creq.setCommandType(CommandType.WRITE_BE_CONF.name());
                 deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
+                parentTask = TaskTypeEnum.INSTALL_BE;
             } else {
                 throw new ServerException("The service deploy config is not currently supported");
             }
 
             //check parent task skipped
-            boolean parentTaskSkip = checkParentTaskSkip(deployConfigReq.getProcessId(), deployConf.getHost(), TaskTypeEnum.DEPLOY_FE_CONFIG);
+            boolean parentTaskSkip = checkParentTaskSkip(deployConfigReq.getProcessId(), deployConf.getHost(), parentTask);
             if (parentTaskSkip) {
-                log.info("host {} parent install {} task has skipped,so the current deploy {} config task is also skipped", deployConf.getHost(), deployConf.getRole(), deployConf.getRole());
+                log.warn("host {} parent install {} task has skipped,so the current deploy {} config task is also skipped", deployConf.getHost(), deployConf.getRole(), deployConf.getRole());
                 continue;
             }
             handleAgentTask(deployTask, creq);
@@ -300,7 +303,7 @@ public class AgentProcessImpl implements AgentProcess {
             //check parent task has skipped
             boolean parentTaskSkip = checkParentTaskSkip(process.getId(), start.getHost(), parentTask);
             if (parentTaskSkip) {
-                log.info("host {} parent deploy config {} task has skipped,so the current start {} task is also skipped", start.getHost(), start.getRole(), start.getRole());
+                log.warn("host {} parent deploy config {} task has skipped,so the current start {} task is also skipped", start.getHost(), start.getRole(), start.getRole());
                 continue;
             }
             handleAgentTask(execTask, creq);
@@ -405,7 +408,7 @@ public class AgentProcessImpl implements AgentProcess {
             }
             boolean parentTaskSkip = checkParentTaskSkip(beJoinReq.getProcessId(), be, TaskTypeEnum.START_BE);
             if (parentTaskSkip) {
-                log.info("host {} parent start be task has skipped,so the current add be to cluster task is also skipped", be);
+                log.warn("host {} parent start be task has skipped,so the current add be to cluster task is also skipped", be);
                 continue;
             }
             BeJoin beJoin = new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort);

@@ -26,7 +26,6 @@ import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
-import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.component.TaskInstanceComponent;
 import org.apache.doris.stack.constants.ExecutionStatus;
@@ -77,9 +76,6 @@ public class ProcessTaskImpl implements ProcessTask {
 
     @Autowired
     private TaskExecuteRunner taskExecuteRunner;
-
-    @Autowired
-    private AgentComponent agentComponent;
 
     @Override
     public ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {

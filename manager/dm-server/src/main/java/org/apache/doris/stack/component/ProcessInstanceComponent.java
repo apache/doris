@@ -53,7 +53,7 @@ public class ProcessInstanceComponent {
         Preconditions.checkArgument(optional.isPresent(), "install process is not exist");
         ProcessInstanceEntity processEntity = optional.get();
         if (Flag.YES.equals(processEntity.getFinish())) {
-            throw new ServerException("install process " + processId + "is already finish");
+            throw new ServerException("install process " + processId + " is already finish");
         }
     }
 

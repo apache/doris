@@ -733,74 +733,7 @@
 }
 ```
 
-
-#### 12.链接测试
-
-**接口功能**
-
-> 安装agent前对服务器列表进行连通性测试,包括jdk检测
-
-**URL**
-
-> /api/server/test
-
-**支持格式**
-
-> JSON
-
-**HTTP请求方式**
-
-> POST
-
-**请求参数**
-> |返回字段|字段类型|说明                              |
-> |:-----   |:------|:-----------------------------   |                            |
-> |hosts    |true    |List|机器列表                          |
-> |user    |true    |String   |ssh 用户|
-> |port |true |int |ssh 端口|
-> |sshKey |true |String |ssh 私钥|
-
-**返回字段**
-
-> |返回字段|字段类型|说明                              |
-> |:-----   |:------|:-----------------------------   |
-> |msg   |String    |调用信息   |
-> |code  |String | 结果状态。0：正常  |
-> |data.host  |String |目标 host  |
-> |data.status  |Boolean |连通状态 true false |
-> |data.errorResponse  |String | 连接失败时，错误原因|
-
-**接口示例**
-
-> 地址：http://localhost:9601/api/server/test
-
-> 请求参数：
-```json
-{
-    "hosts":["10.220.147.155"],
-    "user":"root",
-    "sshPort":50028,
-    "sshKey": "-----BEGIN RSA PRIVATE KEY-----"
-}
-```
-
-> 返回参数：
-``` json
-{
-    "msg": "success",
-    "code": 0,
-    "data": [
-        {
-            "host": "10.220.147.155",
-            "status": true,
-            "errorResponse": null
-        }
-    ]
-}
-```
-
-
-#### 13.重试任务
+#### 12.重试任务
 
 **接口功能**
 
@@ -842,7 +775,7 @@
 }
 ```
 
-#### 14.跳过任务
+#### 13.跳过任务
 
 **接口功能**
 
@@ -873,49 +806,6 @@
 **接口示例**
 
 > 地址：http://localhost:9601/api/process/task/skip/1
-
-> 请求参数：无
-
-> 返回参数：
-``` json
-{
-    "msg": "success",
-    "code": 0
-}
-```
-
-
-#### 15.取消安装任务
-
-**接口功能**
-
-> 取消整体安装任务
-
-**URL**
-
-> /api/process/cancel/{processId}
-
-**支持格式**
-
-> JSON
-
-**HTTP请求方式**
-
-> POST
-
-**请求参数**
-无
-
-**返回字段**
-
-> |返回字段|字段类型|说明                              |
-> |:-----   |:------|:-----------------------------   |
-> |msg   |String    |调用信息   |
-> |code  |String | 结果状态。0：正常  |
-
-**接口示例**
-
-> 地址：http://localhost:9601/api/process/cancel/1
 
 > 请求参数：无
 
