@@ -1047,19 +1047,7 @@ public abstract class Type {
     }
 
     public static boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
-        if (t1 == PrimitiveType.DATE) {
-            if (t2 == PrimitiveType.DATE || t2.isStringType() || t2.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else if (t2 == PrimitiveType.DATE) {
-            if (t1.isStringType() || t1.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else {
-            return false;
-        }
+        return (t1 == PrimitiveType.DATE && t2 == PrimitiveType.DATE);
     }
 
     public static boolean canCompareDatetime(PrimitiveType t1, PrimitiveType t2) {
