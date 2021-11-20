@@ -63,7 +63,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         super.analyze(analyzer);
 
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), dbName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
 
         if (Strings.isNullOrEmpty(dbName)) {

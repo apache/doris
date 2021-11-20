@@ -15,30 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_PARTITIONS_SCANNER_H
+#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_PARTITIONS_SCANNER_H
 
-/**
- * Exception for meta info is null, like db table partition tablet replica job
- */
-public class MetaNotFoundException extends UserException {
-    public MetaNotFoundException(String msg) {
-        super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
-    }
+#include "exec/schema_scanner.h"
+#include "gen_cpp/FrontendService_types.h"
 
-    public MetaNotFoundException(String msg, ErrorCode mysqlErrorCode) {
-        super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
-        setMysqlErrorCode(mysqlErrorCode);
-    }
+namespace doris {
 
-    public MetaNotFoundException(InternalErrorCode errcode, String msg) {
-        super(errcode, msg);
-    }
+class SchemaPartitionsScanner : public SchemaScanner {
+public:
+    SchemaPartitionsScanner();
+    virtual ~SchemaPartitionsScanner();
 
-    public MetaNotFoundException(Throwable e) {
-        super(e);
-    }
+    virtual Status start(RuntimeState* state);
+    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
 
-    public MetaNotFoundException(String msg, Throwable e) {
-        super(msg, e);
-    }
-}
+    int _db_index;
+    int _table_index;
+    TGetDbsResult _db_result;
+    TListTableStatusResult _table_result;
+    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+};
+
+} // namespace doris
+
+#endif
