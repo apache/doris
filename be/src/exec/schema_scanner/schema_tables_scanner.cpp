@@ -20,8 +20,6 @@
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
-//#include "runtime/datetime_value.h"
-
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
