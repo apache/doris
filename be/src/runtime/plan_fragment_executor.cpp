@@ -238,7 +238,6 @@ Status PlanFragmentExecutor::open() {
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
-        _report_thread_active = true;
     }
     Status status = Status::OK();
     if (_runtime_state->enable_vectorized_exec()) {
@@ -346,9 +345,13 @@ void PlanFragmentExecutor::_collect_query_statistics() {
 void PlanFragmentExecutor::report_profile() {
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(_report_status_cb);
+
+    _report_thread_active = true;
+
     std::unique_lock<std::mutex> l(_report_thread_lock);
     // tell Open() that we started
     _report_thread_started_cv.notify_one();
+
 
     // Jitter the reporting time of remote fragments by a random amount between
     // 0 and the report_interval.  This way, the coordinator doesn't get all the
@@ -431,10 +434,7 @@ void PlanFragmentExecutor::stop_report_thread() {
         return;
     }
 
-    {
-        std::lock_guard<std::mutex> l(_report_thread_lock);
-        _report_thread_active = false;
-    }
+    _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
     _report_thread.join();
