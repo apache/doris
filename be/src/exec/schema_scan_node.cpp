@@ -170,8 +170,10 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         }
 
         if (_src_tuple_desc->slots()[j]->type().type != _dest_tuple_desc->slots()[i]->type().type) {
-            LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->type()
-                         << " and output is " << _dest_tuple_desc->slots()[i]->type();
+            LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->col_name()
+                         << "(" << _src_tuple_desc->slots()[j]->type() << ") and output is "
+                         << _dest_tuple_desc->slots()[i]->col_name() << "("
+                         << _dest_tuple_desc->slots()[i]->type() << ")";
             return Status::InternalError("schema not match.");
         }
         _index_map[i] = j;

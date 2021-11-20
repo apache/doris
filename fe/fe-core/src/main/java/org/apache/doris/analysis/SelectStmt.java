@@ -299,7 +299,7 @@ public class SelectStmt extends QueryStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
                 }
                 if (Strings.isNullOrEmpty(tableName)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR);
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
                 Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
                 Table table = db.getTableOrAnalysisException(tableName);
@@ -861,7 +861,7 @@ public class SelectStmt extends QueryStmt {
     private void expandStar(Analyzer analyzer, TableName tblName) throws AnalysisException {
         Collection<TupleDescriptor> descs = analyzer.getDescriptor(tblName);
         if (descs == null || descs.isEmpty()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName.getTbl());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tblName.getTbl(), tblName.getDb());
         }
         for (TupleDescriptor desc : descs) {
             expandStar(tblName, desc);
