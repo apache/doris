@@ -195,7 +195,7 @@ Sometimes the query fails and an error message of `The server is overcrowded` wi
 ### `brpc_request_rowbatch_max_bytes`
 
 * Type: int64
-* Description: This configuration is used to control the maximum length of RowBatch in the ProtoBuf Request. If it exceeds the maximum length, it will be transferred to Controller Attachment and sent through brpc.Need<=2G, otherwise an error will be reported: Bad request, error_text=[E1003]Fail to compress request.
+* Description: This configuration is used to control the maximum length of RowBatch in the ProtoBuf Request. If it exceeds the maximum length, it will be transferred to Controller Attachment. Note that when the length of ProtoBuf Request exceeds 2G, an error will be reported: Bad request, error_text=[E1003]Fail to compress request, so this value should not be greater than 2G.
 * Default value: 2G
 
 ### `brpc_num_threads`
