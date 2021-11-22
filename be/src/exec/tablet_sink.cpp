@@ -410,9 +410,9 @@ void NodeChannel::try_send_batch() {
         DCHECK(_pending_batches_num == 0);
     }
 
-    request_transfer_attachment<PTabletWriterAddBatchRequest,
-                                ReusableClosure<PTabletWriterAddBatchResult>>(&request,
-                                                                              _add_batch_closure);
+    request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
+                                          ReusableClosure<PTabletWriterAddBatchResult>>(
+            &request, _add_batch_closure);
     _add_batch_closure->set_in_flight();
     _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
                                    _add_batch_closure);

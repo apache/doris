@@ -61,11 +61,12 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " node=" << request->node_id();
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    attachment_transfer_request<PTransmitDataParams>(request, cntl);
+    attachment_transfer_request_row_batch<PTransmitDataParams>(request, cntl);
     auto st = _exec_env->stream_mgr()->transmit_data(request, &done);
     if (!st.ok()) {
         LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
-                     << ", fragment_instance_id=" << print_id(request->finst_id()) << ", node=" << request->node_id();
+                     << ", fragment_instance_id=" << print_id(request->finst_id())
+                     << ", node=" << request->node_id();
     }
     st.to_protobuf(response->mutable_status());
     if (done != nullptr) {
@@ -130,7 +131,7 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
             brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-            attachment_transfer_request<PTabletWriterAddBatchRequest>(request, cntl);
+            attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
             auto st = _exec_env->load_channel_mgr()->add_batch(*request,
                                                                response->mutable_tablet_vec());
             if (!st.ok()) {

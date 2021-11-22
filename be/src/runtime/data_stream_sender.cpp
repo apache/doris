@@ -145,8 +145,9 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 
     _closure->ref();
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
-    request_transfer_attachment<PTransmitDataParams, RefCountClosure<PTransmitDataResult>>(
-            &_brpc_request, _closure);
+    request_row_batch_transfer_attachment<PTransmitDataParams,
+                                          RefCountClosure<PTransmitDataResult>>(&_brpc_request,
+                                                                                _closure);
     _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     if (batch != nullptr) {
         _brpc_request.release_row_batch();

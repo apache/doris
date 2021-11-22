@@ -529,8 +529,9 @@ CONF_String(default_rowset_type, "BETA");
 CONF_Int64(brpc_max_body_size, "209715200");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
 CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
-// This configuration is used to control whether brpc transfers RowBatch in Proto Request to Controller Attachment.
-CONF_Bool(brpc_request_transfer_attachment, "false");
+// The maximum length of RowBatch in ProtoBuf Request,
+// if exceeded, will be transferred to Controller Attachment and sent through brpc.
+CONF_mInt64(brpc_request_rowbatch_max_bytes, "2147483648");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager

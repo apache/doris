@@ -186,11 +186,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，BE 日志中会出现 `The server is overcrowded` 的错误信息，表示连接上有过多的未发送数据。当查询需要发送较大的bitmap字段时，可能会遇到该问题，此时可能通过调大该配置避免该错误。
 
-### `brpc_request_transfer_attachment`
+### `brpc_request_rowbatch_max_bytes`
 
-* 类型：bool
-* 描述：该配置用来控制brpc是否将Proto Request中的RowBatch转移到Controller Attachment中。
-* 默认值：false
+* 类型：int64
+* 描述：该配置用来控制ProtoBuf Request中RowBatch的最大长度，超出后将转移到Controller Attachment后通过brpc发送。需要<=2G, 否则会报错： Bad request, error_text=[E1003]Fail to compress request.
+* 默认值：2G
 
 ### `brpc_num_threads`
 
