@@ -216,9 +216,7 @@ public:
               _cur_index(0) {}
 
     ~BitShufflePageDecoder() {
-        if (_chunk.size != 0) {
-            ChunkAllocator::instance()->free(_chunk);
-        }
+        ChunkAllocator::instance()->free_safely(_chunk);
     }
 
     Status init() override {

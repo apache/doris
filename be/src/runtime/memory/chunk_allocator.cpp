@@ -190,6 +190,12 @@ void ChunkAllocator::free(const Chunk& chunk) {
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
+void ChunkAllocator::free_safely(const Chunk& chunk) {
+    if (chunk.data != nullptr) {
+        DCHECK(chunk.size != 0);
+        free(chunk);
+    }
+}
 
 bool ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
     return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk);

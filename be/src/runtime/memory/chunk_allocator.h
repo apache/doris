@@ -69,6 +69,7 @@ public:
 
     // Free chunk allocated from this allocator
     void free(const Chunk& chunk);
+    void free_safely(const Chunk& chunk);
 
 private:
     static ChunkAllocator* _s_instance;
