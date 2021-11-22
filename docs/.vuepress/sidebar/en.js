@@ -633,7 +633,6 @@ module.exports = [
         "cpp-format-code",
         "commit-format-specification",
         "How-to-Share-blogs"
-		    "minidump"
     ],
   },
   {

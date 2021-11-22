@@ -217,7 +217,20 @@ public class Storage {
         Properties properties = new Properties();
         setFields(properties);
 
-        writePropertiesToFile(properties, VERSION_FILE);
+        RandomAccessFile file = new RandomAccessFile(new File(metaDir, VERSION_FILE), "rws");
+        FileOutputStream out = null;
+
+        try {
+            file.seek(0);
+            out = new FileOutputStream(file.getFD());
+            properties.store(out, null);
+            file.setLength(out.getChannel().position());
+        } finally {
+            if (out != null) {
+                out.close();
+            }
+            file.close();
+        }
     }
 
     public void writeFrontendRoleAndNodeName(FrontendNodeType role, String nameNode) throws IOException {
@@ -226,11 +239,7 @@ public class Storage {
         properties.setProperty(FRONTEND_ROLE, role.name());
         properties.setProperty(NODE_NAME, nameNode);
 
-        writePropertiesToFile(properties, ROLE_FILE);
-    }
-    
-    private void writePropertiesToFile(Properties properties, String fileName) throws IOException {
-        RandomAccessFile file = new RandomAccessFile(new File(metaDir, fileName), "rws");
+        RandomAccessFile file = new RandomAccessFile(new File(metaDir, ROLE_FILE), "rws");
         FileOutputStream out = null;
 
         try {

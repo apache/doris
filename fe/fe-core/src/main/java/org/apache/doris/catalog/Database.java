@@ -522,8 +522,7 @@ public class Database extends MetaObject implements Writable {
     }
 
     public Table getTableOrAnalysisException(String tableName) throws AnalysisException {
-        return getTableOrException(tableName, t -> new AnalysisException(ErrorCode.ERR_UNKNOWN_TABLE.formatErrorMsg(t
-                , fullQualifiedName)));
+        return getTableOrException(tableName, t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }
 
     public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {

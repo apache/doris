@@ -83,9 +83,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);
-    if (request.__isset.backend_id) {
-        _runtime_state->set_backend_id(request.backend_id);
-    }
     if (request.__isset.import_label) {
         _runtime_state->set_import_label(request.import_label);
     }
@@ -241,6 +238,7 @@ Status PlanFragmentExecutor::open() {
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
+        _report_thread_active = true;
     }
     Status status = Status::OK();
     if (_runtime_state->enable_vectorized_exec()) {
@@ -343,27 +341,14 @@ void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
     _plan->collect_query_statistics(_query_statistics.get());
     _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
-    if (_runtime_state->backend_id() != -1) {
-        _collect_node_statistics();
-    }
-}
-
-void PlanFragmentExecutor::_collect_node_statistics() {
-    DCHECK(_runtime_state->backend_id() != -1);
-    NodeStatistics* node_statistics = _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->add_peak_memory(_mem_tracker->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(_report_status_cb);
-
-    _report_thread_active = true;
-
     std::unique_lock<std::mutex> l(_report_thread_lock);
     // tell Open() that we started
     _report_thread_started_cv.notify_one();
-
 
     // Jitter the reporting time of remote fragments by a random amount between
     // 0 and the report_interval.  This way, the coordinator doesn't get all the
@@ -446,7 +431,10 @@ void PlanFragmentExecutor::stop_report_thread() {
         return;
     }
 
-    _report_thread_active = false;
+    {
+        std::lock_guard<std::mutex> l(_report_thread_lock);
+        _report_thread_active = false;
+    }
 
     _stop_report_thread_cv.notify_one();
     _report_thread.join();

@@ -247,8 +247,6 @@ private:
     const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
-
-    void _collect_node_statistics();
 };
 
 } // namespace doris
