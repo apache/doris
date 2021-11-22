@@ -635,6 +635,7 @@ module.exports = [
         "be-vscode-dev",
         "java-format-code",
         "cpp-format-code",
+        "commit-format-specification",
         "How-to-Share-blogs"
     ],
   },
