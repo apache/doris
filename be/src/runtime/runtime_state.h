@@ -200,6 +200,9 @@ public:
     int codegen_level() const { return _query_options.codegen_level; }
     void set_is_cancelled(bool v) { _is_cancelled = v; }
 
+    void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
+    int64_t backend_id() const { return _backend_id; }
+
     void set_be_number(int be_number) { _be_number = be_number; }
     int be_number(void) { return _be_number; }
 
@@ -450,6 +453,9 @@ private:
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
+
+    // The backend id on which this fragment instance runs
+    int64_t _backend_id = -1;
 
     // used as send id
     int _be_number;

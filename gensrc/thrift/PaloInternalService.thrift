@@ -322,6 +322,7 @@ struct TExecPlanFragmentParams {
   // If this field is unset or it set to false, all @Common components is set.
   16: optional bool is_simplified_param
   17: optional TTxnParams txn_conf
+  18: optional i64 backend_id
 }
 
 struct TExecPlanFragmentResult {

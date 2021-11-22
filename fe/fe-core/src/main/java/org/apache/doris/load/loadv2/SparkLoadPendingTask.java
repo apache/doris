@@ -543,7 +543,8 @@ public class SparkLoadPendingTask extends LoadTask {
         String functionName = fn.getFnName().getFunction();
         if (!functionName.equalsIgnoreCase("to_bitmap")
                 && !functionName.equalsIgnoreCase("bitmap_hash")
-                && !functionName.equalsIgnoreCase("bitmap_dict")) {
+                && !functionName.equalsIgnoreCase("bitmap_dict")
+                && !functionName.equalsIgnoreCase("binary_bitmap")) {
             throw new LoadException(msg);
         }
 
