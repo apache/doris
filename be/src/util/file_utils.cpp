@@ -49,7 +49,7 @@ Status FileUtils::create_dir(const std::string& dir_path) {
 }
 
 Status FileUtils::remove_all(const std::string& file_path) {
-    return remove_all(file_path, TStorageMedium::SSD);
+    return Env::Default()->delete_dir(path);
 }
 
 Status FileUtils::remove_all(const std::string& path, TStorageMedium::type storage_medium) {

@@ -63,7 +63,7 @@ namespace internal {
 // FileWritableBlock instances is expected to be low.
 class FileWritableBlock : public WritableBlock {
 public:
-    FileWritableBlock(FileBlockManager* block_manager, FilePathDesc path_desc,
+    FileWritableBlock(FileBlockManager* block_manager, const FilePathDesc& path_desc,
                       shared_ptr<WritableFile> writer);
 
     virtual ~FileWritableBlock();
@@ -117,11 +117,11 @@ private:
     size_t _bytes_appended;
 };
 
-FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager, FilePathDesc path_desc,
+FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager, const FilePathDesc& path_desc,
                                      shared_ptr<WritableFile> writer)
         : _block_manager(block_manager),
-          _path_desc(std::move(path_desc)),
-          _writer(std::move(writer)),
+          _path_desc(path_desc),
+          _writer(writer),
           _state(CLEAN),
           _bytes_appended(0) {
     if (_block_manager->_metrics) {
@@ -250,7 +250,7 @@ Status FileWritableBlock::_close(SyncMode mode) {
 // embed a FileBlockLocation, using the simpler BlockId instead.
 class FileReadableBlock : public ReadableBlock {
 public:
-    FileReadableBlock(FileBlockManager* block_manager, FilePathDesc path_desc,
+    FileReadableBlock(FileBlockManager* block_manager, const FilePathDesc& path_desc,
                       std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle);
 
     virtual ~FileReadableBlock();
@@ -291,11 +291,11 @@ private:
 };
 
 FileReadableBlock::FileReadableBlock(
-        FileBlockManager* block_manager, FilePathDesc path_desc,
+        FileBlockManager* block_manager, const FilePathDesc& path_desc,
         std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle)
         : _block_manager(block_manager),
-          _path_desc(std::move(path_desc)),
-          _file_handle(std::move(file_handle)),
+          _path_desc(path_desc),
+          _file_handle(file_handle),
           _closed(false) {
     if (_block_manager->_metrics) {
         _block_manager->_metrics->blocks_open_reading->increment(1);
@@ -397,14 +397,14 @@ Status FileBlockManager::create_block(const CreateBlockOptions& opts,
     shared_ptr<WritableFile> writer;
     WritableFileOptions wr_opts;
     wr_opts.mode = Env::MUST_CREATE;
-    RETURN_IF_ERROR(env_util::open_file_for_write(wr_opts, _env, opts.path_desc.filepath, &writer));
+    RETURN_IF_ERROR(env_util::open_file_for_write(wr_opts, _env, opts.path_desc, &writer));
 
     VLOG_CRITICAL << "Creating new block at " << opts.path_desc.filepath;
-    block->reset(new internal::FileWritableBlock(this, opts.path_desc.filepath, writer));
+    block->reset(new internal::FileWritableBlock(this, opts.path_desc, writer));
     return Status::OK();
 }
 
-Status FileBlockManager::open_block(FilePathDesc path_desc,
+Status FileBlockManager::open_block(const FilePathDesc& path_desc,
                                     std::unique_ptr<ReadableBlock>* block) {
     VLOG_CRITICAL << "Opening block with path at " << path_desc.filepath;
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle(

@@ -44,6 +44,7 @@ public:
     Status copy(const std::string& src, const std::string& dst) override;
     Status copy_dir(const std::string& src, const std::string& dst) override;
     Status mkdir(const std::string& path) override;
+    Status mkdirs(const std::string& path) override;
     Status exist(const std::string& path) override;
     Status exist_dir(const std::string& path) override;
 

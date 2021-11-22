@@ -42,9 +42,9 @@ class BloomFilter;
 
 class BloomFilterIndexReader {
 public:
-    explicit BloomFilterIndexReader(FilePathDesc path_desc,
+    explicit BloomFilterIndexReader(const FilePathDesc& path_desc,
                                     const BloomFilterIndexPB* bloom_filter_index_meta)
-            : _path_desc(std::move(path_desc)), _bloom_filter_index_meta(bloom_filter_index_meta) {
+            : _path_desc(path_desc), _bloom_filter_index_meta(bloom_filter_index_meta) {
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 

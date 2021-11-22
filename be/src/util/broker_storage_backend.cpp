@@ -341,6 +341,10 @@ Status BrokerStorageBackend::mkdir(const std::string& path) {
     return Status::NotSupported("mkdir not implemented!");
 }
 
+Status BrokerStorageBackend::mkdirs(const std::string& path) {
+    return Status::NotSupported("mkdirs not implemented!");
+}
+
 Status BrokerStorageBackend::exist(const std::string& path) {
     Status status = Status::OK();
     BrokerServiceConnection client(client_cache(_env), _broker_addr, config::thrift_rpc_timeout_ms,

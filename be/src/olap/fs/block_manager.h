@@ -236,7 +236,7 @@ public:
     // may fail.
     //
     // Does not modify 'block' on error.
-    virtual Status open_block(FilePathDesc path_desc, std::unique_ptr<ReadableBlock>* block) = 0;
+    virtual Status open_block(const FilePathDesc& path_desc, std::unique_ptr<ReadableBlock>* block) = 0;
 
     // Retrieves the IDs of all blocks under management by this block manager.
     // These include ReadableBlocks as well as WritableBlocks.

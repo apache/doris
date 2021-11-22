@@ -37,11 +37,11 @@ namespace segment_v2 {
 using strings::Substitute;
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                            uint64_t num_rows, FilePathDesc path_desc,
+                            uint64_t num_rows, const FilePathDesc& path_desc,
                             std::unique_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
         std::unique_ptr<ColumnReader> reader_local(
-                new ColumnReader(opts, meta, num_rows, std::move(path_desc)));
+                new ColumnReader(opts, meta, num_rows, path_desc));
         RETURN_IF_ERROR(reader_local->init());
         *reader = std::move(reader_local);
         return Status::OK();
@@ -92,7 +92,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                            uint64_t num_rows, FilePathDesc path_desc)
-        : _meta(meta), _opts(opts), _num_rows(num_rows), _path_desc(std::move(path_desc)) {}
+        : _meta(meta), _opts(opts), _num_rows(num_rows), _path_desc(path_desc) {}
 
 ColumnReader::~ColumnReader() = default;
 

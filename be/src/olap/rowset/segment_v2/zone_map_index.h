@@ -119,8 +119,8 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(FilePathDesc path_desc, const ZoneMapIndexPB* index_meta)
-            : _path_desc(std::move(path_desc)), _index_meta(index_meta) {}
+    explicit ZoneMapIndexReader(const FilePathDesc& path_desc, const ZoneMapIndexPB* index_meta)
+            : _path_desc(path_desc), _index_meta(index_meta) {}
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory);

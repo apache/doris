@@ -89,7 +89,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, FilePathDesc path_desc,
+                         uint64_t num_rows, const FilePathDesc& path_desc,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();

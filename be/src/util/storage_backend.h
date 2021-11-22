@@ -44,6 +44,7 @@ public:
     virtual Status rm(const std::string& remote) = 0;
     virtual Status rmdir(const std::string& remote) = 0;
     virtual Status mkdir(const std::string& path) = 0;
+    virtual Status mkdirs(const std::string& path) = 0;
     virtual Status exist(const std::string& path) = 0;
     virtual Status exist_dir(const std::string& path) = 0;
 

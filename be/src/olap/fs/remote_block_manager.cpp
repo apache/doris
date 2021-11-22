@@ -56,7 +56,7 @@ namespace internal {
 // RemoteWritableBlock instances is expected to be low.
 class RemoteWritableBlock : public WritableBlock {
 public:
-    RemoteWritableBlock(RemoteBlockManager* block_manager, FilePathDesc path_desc,
+    RemoteWritableBlock(RemoteBlockManager* block_manager, const FilePathDesc& path_desc,
                         shared_ptr<WritableFile> writer);
 
     virtual ~RemoteWritableBlock();
@@ -110,7 +110,7 @@ private:
     size_t _bytes_appended;
 };
 
-RemoteWritableBlock::RemoteWritableBlock(RemoteBlockManager* block_manager, FilePathDesc path_desc,
+RemoteWritableBlock::RemoteWritableBlock(RemoteBlockManager* block_manager, const FilePathDesc& path_desc,
                                          shared_ptr<WritableFile> local_writer) : _block_manager(block_manager),
                                                                                   _path_desc(path_desc), _local_writer(local_writer) {
 }
@@ -178,7 +178,7 @@ Status RemoteWritableBlock::_close(SyncMode mode) {
 // embed a FileBlockLocation, using the simpler BlockId instead.
 class RemoteReadableBlock : public ReadableBlock {
 public:
-    RemoteReadableBlock(RemoteBlockManager* block_manager, FilePathDesc path_desc,
+    RemoteReadableBlock(RemoteBlockManager* block_manager, const FilePathDesc& path_desc,
                         std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle);
 
     virtual ~RemoteReadableBlock();
@@ -219,7 +219,7 @@ private:
 };
 
 RemoteReadableBlock::RemoteReadableBlock(
-        RemoteBlockManager* block_manager, FilePathDesc path_desc,
+        RemoteBlockManager* block_manager, const FilePathDesc& path_desc,
         std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle) {
 }
 
@@ -288,7 +288,7 @@ Status RemoteBlockManager::create_block(const CreateBlockOptions& opts,
     return Status::OK();
 }
 
-Status RemoteBlockManager::open_block(FilePathDesc path_desc, std::unique_ptr<ReadableBlock>* block) {
+Status RemoteBlockManager::open_block(const FilePathDesc& path_desc, std::unique_ptr<ReadableBlock>* block) {
     VLOG_CRITICAL << "Opening remote block. local: "
                   << path_desc.filepath << ", remote: " << path_desc.remote_path;
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle;

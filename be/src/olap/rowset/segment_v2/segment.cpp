@@ -37,9 +37,9 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
-Status Segment::open(FilePathDesc path_desc, uint32_t segment_id, const TabletSchema* tablet_schema,
+Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema,
                      std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(std::move(path_desc), segment_id, tablet_schema));
+    std::shared_ptr<Segment> segment(new Segment(path_desc, segment_id, tablet_schema));
     if (!Env::get_env(path_desc.storage_medium)->is_remote_env()) {
         RETURN_IF_ERROR(segment->_open());
     }
@@ -47,8 +47,8 @@ Status Segment::open(FilePathDesc path_desc, uint32_t segment_id, const TabletSc
     return Status::OK();
 }
 
-Segment::Segment(FilePathDesc path_desc, uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _path_desc(std::move(path_desc)), _segment_id(segment_id),
+Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema)
+        : _path_desc(path_desc), _segment_id(segment_id),
           _tablet_schema(tablet_schema) {
 #ifndef BE_TEST
     _mem_tracker = MemTracker::CreateTracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);

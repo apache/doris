@@ -70,7 +70,7 @@ public:
 
     Status create_block(const CreateBlockOptions& opts,
                         std::unique_ptr<WritableBlock>* block) override;
-    Status open_block(FilePathDesc path_desc, std::unique_ptr<ReadableBlock>* block) override;
+    Status open_block(const FilePathDesc& path_desc, std::unique_ptr<ReadableBlock>* block) override;
 
     Status get_all_block_ids(std::vector<BlockId>* block_ids) override {
         // TODO(lingbin): to be implemented after we assign each block an id
