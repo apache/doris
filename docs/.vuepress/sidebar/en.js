@@ -636,6 +636,13 @@ module.exports = [
     ],
   },
   {
+    title: "FAQ",
+    directoryPath: "faq/",
+    children: [
+        "faq"
+    ],
+  },
+  {
     title: "Apache Community",
     directoryPath: "community/",
     children: [
