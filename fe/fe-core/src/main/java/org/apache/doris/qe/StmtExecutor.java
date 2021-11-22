@@ -1257,6 +1257,13 @@ public class StmtExecutor implements ProfileWriter {
                     }
                 }
 
+                if (filteredRows > 0 &&
+                        (1 / (1 + (double) loadedRows / filteredRows)) > Config.default_max_filter_ratio) {
+                    context.getState().setError("Insert has too many rows filtered, exceeds default_max_filter_ratio, tracking_url=" +
+                            coord.getTrackingUrl());
+                    return;
+                }
+
                 if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
                     // no need to add load job.
                     // MySQL table is already being inserted.
