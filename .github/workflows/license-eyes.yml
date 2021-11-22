@@ -15,21 +15,21 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-
 ---
-name: BE Code Fomatter
-on: pull_request
+name: License Check
+on:
+  pull_request:
+  push:
+    branches:
+      - master
 jobs:
-  clang-format:
-    name: "Clang Fomatter"
+  license-check:
+    name: "License Check"
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v2
-      - name: "Format it!"
-        uses: DoozyX/clang-format-lint-action@v0.13
-        id: be_clang_format
-        with:
-          source: 'be/src be/test'
-          clangFormatVersion: 10
-          inplace: False
+      - name: Check License
+        uses: apache/skywalking-eyes@v0.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
