@@ -54,16 +54,15 @@ fi
 
 if [ ! -d $DORIS_FE_HOME ]; then
     mkdir -p $DORIS_FE_HOME
+else
+    rm -rf $DORIS_FE_HOME/*
 fi
-
-cd $DORIS_FE_HOME
-rm -rf doris-fe.tar.gz
 if [ $? -ne 0 ] ;then exit 1;fi
 
+cd $DORIS_FE_HOME
 wget  $URL -O doris-fe.tar.gz --quiet
 if [ $? -ne 0 ] ;then exit 1;fi
 
-rm -rf $DORIS_FE_HOME/fetmp
 mkdir -p $DORIS_FE_HOME/fetmp
 if [ $? -ne 0 ] ;then exit 1;fi
 

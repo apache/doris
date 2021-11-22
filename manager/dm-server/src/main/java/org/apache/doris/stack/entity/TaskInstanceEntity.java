@@ -52,6 +52,9 @@ public class TaskInstanceEntity {
     @Column(name = "process_id")
     private int processId;
 
+    @Column(name = "task_json", columnDefinition = "LONGTEXT")
+    private String taskJson;
+
     @Column(name = "host", nullable = false)
     private String host;
 
@@ -83,6 +86,10 @@ public class TaskInstanceEntity {
     @Column(name = "finish", nullable = false)
     private Flag finish;
 
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "skip", nullable = false)
+    private Flag skip;
+
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;
@@ -91,19 +98,23 @@ public class TaskInstanceEntity {
         this.status = status;
         this.startTime = new Date();
         this.finish = Flag.NO;
+        this.skip = Flag.NO;
     }
 
-    public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType) {
+    public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;
         this.processType = processType;
         this.startTime = new Date();
         this.finish = Flag.NO;
+        this.skip = Flag.NO;
+        this.status = status;
     }
 
     public TaskInstanceEntity(String host) {
         this.host = host;
         this.startTime = new Date();
         this.finish = Flag.NO;
+        this.skip = Flag.NO;
     }
 }

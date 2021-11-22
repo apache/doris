@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.stack.model.task;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -26,7 +26,7 @@ import org.springframework.beans.BeanUtils;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class AgentInstall {
+public class AgentInstall extends TaskDesc {
 
     private String host;
 

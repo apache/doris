@@ -17,12 +17,10 @@
 
 package org.apache.doris.stack.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
@@ -37,12 +35,11 @@ import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
-import org.apache.doris.stack.model.AgentInstall;
+import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
-import org.apache.doris.stack.runner.TaskContext;
-import org.apache.doris.stack.runner.TaskExecCallback;
-import org.apache.doris.stack.runner.TaskExecuteThread;
+import org.apache.doris.stack.model.task.AgentInstall;
+import org.apache.doris.stack.runner.TaskExecuteRunner;
 import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,9 +47,10 @@ import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Date;
 import java.util.List;
-import java.util.concurrent.Executors;
 
 /**
  * server
@@ -60,11 +58,6 @@ import java.util.concurrent.Executors;
 @Service
 @Slf4j
 public class ServerProcessImpl implements ServerProcess {
-
-    /**
-     * thread executor service
-     */
-    private final ListeningExecutorService taskExecService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(10));
 
     @Autowired
     private AgentComponent agentComponent;
@@ -84,11 +77,21 @@ public class ServerProcessImpl implements ServerProcess {
     @Autowired
     private AuthenticationService authenticationService;
 
+    @Autowired
+    private TaskExecuteRunner taskExecuteRunner;
+
     @Override
     public int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(installReq.getHosts()), "host is empty!");
         Preconditions.checkArgument(StringUtils.isNotBlank(installReq.getInstallDir()), "agent install dir not empty!");
+        Preconditions.checkArgument(checkUrlConnection(installReq.getPackageUrl()), "Unable to get installation package");
+
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        checkAgentInstall(installReq);
         ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT, installReq.getPackageUrl(), installReq.getInstallDir());
+        if (installReq.getProcessId() > 0) {
+            processInstance.setId(installReq.getProcessId());
+        }
         int processId = processInstanceComponent.saveProcess(processInstance);
         //install agent for per host
         for (String host : installReq.getHosts()) {
@@ -96,15 +99,39 @@ public class ServerProcessImpl implements ServerProcess {
             if (installAgent == null) {
                 continue;
             }
-            TaskContext taskContext = new TaskContext(TaskTypeEnum.INSTALL_AGENT, installAgent, new AgentInstall(host, installReq));
-            ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));
-            Futures.addCallback(submit, new TaskExecCallback(taskContext));
-
+            AgentInstall agentInstall = new AgentInstall(host, installReq);
+            installAgent.setTaskJson(JSON.toJSONString(agentInstall));
+            taskExecuteRunner.execTask(installAgent, agentInstall);
             //save agent
             agentComponent.saveAgent(new AgentEntity(host, installReq.getInstallDir(), AgentStatus.INIT, installReq.getClusterId()));
             log.info("host {} installing agent.", host);
         }
         return processId;
+    }
+
+    private void checkAgentInstall(AgentInstallReq installReq) {
+        for (String host : installReq.getHosts()) {
+            if (agentCache.containsAgent(host)) {
+                log.error("host {} already install agent", host);
+                throw new ServerException("host " + host + " already install agent");
+            }
+        }
+    }
+
+    private boolean checkUrlConnection(String url) {
+        try {
+            URL urlObj = new URL(url);
+            HttpURLConnection oc = (HttpURLConnection) urlObj.openConnection();
+            oc.setUseCaches(false);
+            oc.setConnectTimeout(3000);
+            int status = oc.getResponseCode();
+            if (HttpURLConnection.HTTP_OK == status) {
+                return true;
+            }
+        } catch (Exception e) {
+            log.error("can not access url : {}", url, e);
+        }
+        return false;
     }
 
     @Override

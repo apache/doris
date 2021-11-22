@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.stack.model.task;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
- * be join cluster req
+ * deploy Config
  **/
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class BeJoin {
+public class DeployConfig {
 
-    private String feHost;
+    private List<String> hosts;
 
-    private int feQueryPort;
+    private String role;
 
-    private String beHost;
-
-    private int agentPort;
+    private String conf;
 }

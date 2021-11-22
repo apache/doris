@@ -38,7 +38,11 @@ public interface ProcessTask {
 
     void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
 
+    void cancelProcess(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
+
     void skipTask(int taskId);
+
+    void retryTask(int taskId);
 
     /**
      * Refresh the task status on the agent side again
@@ -54,4 +58,5 @@ public interface ProcessTask {
      * fetch log
      */
     Object taskLog(int taskId);
+
 }

@@ -36,6 +36,11 @@ public abstract class AbstractTask {
     /**
      * task handle
      */
-    public abstract void handle();
+    public abstract Object handle();
 
+    /**
+     * after task
+     */
+    public void after() {
+    }
 }

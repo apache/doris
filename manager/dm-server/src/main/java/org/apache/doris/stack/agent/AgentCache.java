@@ -18,8 +18,10 @@
 package org.apache.doris.stack.agent;
 
 import com.google.common.collect.Lists;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.entity.AgentEntity;
+import org.apache.doris.stack.exceptions.ServerException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +34,7 @@ import java.util.stream.Collectors;
 /**
  * agent host port cache
  **/
+@Slf4j
 @Component
 public class AgentCache {
 
@@ -48,7 +51,7 @@ public class AgentCache {
     private void loadAgents() {
         List<AgentEntity> agentEntities = agentComponent.queryAgentNodes(Lists.newArrayList());
         if (agentEntities != null && !agentEntities.isEmpty()) {
-            Map<String, AgentEntity> agentsMap = agentEntities.stream().collect(Collectors.toMap(AgentEntity::getHost, v -> v));
+            Map<String, AgentEntity> agentsMap = agentEntities.stream().collect(Collectors.toMap(AgentEntity::getHost, v -> v, (v1, v2) -> v1));
             hostAgentCache.putAll(agentsMap);
         }
     }
@@ -61,9 +64,35 @@ public class AgentCache {
     }
 
     /**
+     * get agent from cache by host
+     */
+    public Boolean containsAgent(String host) {
+        return hostAgentCache.containsKey(host);
+    }
+
+    /**
      * put agent to cache
      */
     public void putAgent(AgentEntity agent) {
         hostAgentCache.put(agent.getHost(), agent);
+    }
+
+    /**
+     * remove agent from cache
+     */
+    public void removeAgent(String host) {
+        hostAgentCache.remove(host);
+    }
+
+    /**
+     * query agent port by host
+     */
+    public int agentPort(String host) {
+        AgentEntity agent = agentInfo(host);
+        if (agent == null) {
+            log.error("failed query agent {} port", host);
+            throw new ServerException("query agent port fail");
+        }
+        return agent.getPort();
     }
 }

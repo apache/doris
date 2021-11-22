@@ -15,17 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.constants;
+package org.apache.doris.stack.model.task;
 
-public class Constants {
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-    public static final String KEY_DORIS_AGENT_START_SCRIPT = "bin/agent_start.sh";
-    public static final String KEY_FE_QUERY_PORT = "query_port";
-    public static final String KEY_FE_EDIT_LOG_PORT = "edit_log_port";
-    public static final String KEY_BE_HEARTBEAT_PORT = "heartbeat_service_port";
+/**
+ * be join cluster req
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BeJoin extends TaskDesc {
 
-    public static final String DORIS_DEFAULT_QUERY_USER = "root";
-    public static final String DORIS_DEFAULT_QUERY_PASSWORD = "";
-    public static final Integer DORIS_DEFAULT_FE_QUERY_PORT = 9030;
-    public static final Integer DORIS_DEFAULT_FE_EDIT_LOG_PORT = 9010;
+    private String feHost;
+
+    private int feQueryPort;
+
+    private String beHost;
+
+    private int agentPort;
 }

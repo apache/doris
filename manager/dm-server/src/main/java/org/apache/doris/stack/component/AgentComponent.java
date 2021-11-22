@@ -68,4 +68,12 @@ public class AgentComponent {
     public AgentEntity saveAgent(AgentEntity agent) {
         return agentRepository.save(agent);
     }
+
+    public void removeAgent(String agentHost) {
+        AgentEntity agentEntity = agentInfo(agentHost);
+        if (agentEntity != null) {
+            agentRepository.deleteById(agentEntity.getId());
+        }
+    }
+
 }

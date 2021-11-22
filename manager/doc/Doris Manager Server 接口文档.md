@@ -215,7 +215,7 @@
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
 > |processId|true|int|当前安装的流程ID，接口1返回的结果|
-> |deployConfigs.host |true |String |指定的机器|
+> |deployConfigs.hosts |true |List<String> |指定的机器列表|
 > |deployConfigs.role    |true    |String   |doris角色：FE、BE|
 > |deployConfigs.conf |true |String |配置文件内容|
 
@@ -235,11 +235,11 @@
 {
     "processId":"1",
     "deployConfigs":[{
-        "host":"10.220.147.155",
+        "host":["10.220.147.155"],
         "role":"FE",
         "conf":"LOG_DIR = ${DORIS_HOME}/log\nDATE = `date +%Y%m%d-%H%M%S`\nJAVA_OPTS=\"-Xmx4096m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$DORIS_HOME/log/fe.gc.log.$DATE\"\nJAVA_OPTS_FOR_JDK_9=\"-Xmx4096m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xlog:gc*:$DORIS_HOME/log/fe.gc.log.$DATE:time\"\nsys_log_level = INFO\nmeta_dir = /usr/local/doris/fe/doris-meta\nhttp_port = 8030\nrpc_port = 9020\nquery_port = 9030\nedit_log_port = 9010\nmysql_service_nio_enabled = true"
     },{
-        "host":"10.220.147.155",
+        "host":["10.220.147.155"],
         "role":"BE",
         "conf":"PPROF_TMPDIR=\"$DORIS_HOME/log/\"\nsys_log_level = INFO\nbe_port = 19060\nbe_rpc_port = 19070\nwebserver_port = 18040\nheartbeat_service_port = 19050\nbrpc_port = 18060\nstorage_root_path = /usr/local/doris/be/storage\n"
     }]
@@ -498,7 +498,7 @@
 > |data.id |int | 任务ID |
 > |data.processId |int | 流程id |
 > |data.host |String | 任务运行host |
-> |data.processType |String | 流程类型      |
+> |data.processType |String | 当前安装类型(进度)：INSTALL_AGENT 安装Agent,INSTALL_SERVICE 安装服务,DEPLOY_CONFIG 分发配置,START_SERVICE 启动服务,BUILD_CLUSTER 组件集群     |
 > |data.taskType |String | 任务类型 |
 > |data.status |String | 任务执行状态 |
 > |data.startTime |Date | 任务开始时间 |
@@ -581,8 +581,8 @@
 > |data.processId |int | 任务所属流程ID |
 > |data.host |Date | 任务执行host |
 > |data.processType |String | 安装类型      |
-> |data.taskType |String | 任务类型 |
-> |data.status |int | 任务返回状态。 |
+> |data.taskType |String | 任务类型。  |
+> |data.status |int | 任务返回状态。 SUBMITTED 已提交,RUNNING 运行中,SUCCESS 成功,FAILURE 失败 |
 > |data.startTime |Date | 任务开始时间 |
 > |data.endTime |Date | 任务结束时间 |
 > |data.result |String | 任务返回结果 |
@@ -696,7 +696,7 @@
 > |code  |String | 结果状态。0：正常  |
 > |data.host  |String |agent host  |
 > |data.role  |String |安装角色 FE BE |
-> |data.feNodeType  |String | 角色类型 FOLLOWer OBserveer|
+> |data.feNodeType  |String | 角色类型 FOLLOWer OBserver|
 > |data.register  |String | 安装后是否注册成功 |
 
 **接口示例**
@@ -730,5 +730,90 @@
             "register": "YES"
         }
     ]
+}
+```
+
+
+#### 13.重试任务
+
+**接口功能**
+
+> 任务执行失败时，重试任务
+
+**URL**
+
+> /api/process/task/retry/{taskId}
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+无
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/task/retry/1
+
+> 请求参数：无
+
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0
+}
+```
+
+#### 14.跳过任务
+
+**接口功能**
+
+> 任务执行失败时跳过任务，跳过任务
+
+**URL**
+
+> /api/process/task/skip/{taskId}
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+无
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/task/skip/1
+
+> 请求参数：无
+
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0
 }
 ```

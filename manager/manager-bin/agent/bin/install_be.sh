@@ -54,17 +54,15 @@ fi
 
 if [ ! -d $DORIS_BE_HOME ]; then
     mkdir -p $DORIS_BE_HOME
+else
+    rm -rf $DORIS_BE_HOME/*
 fi
-
-
-cd $DORIS_BE_HOME
-rm -rf doris-be.tar.gz
 if [ $? -ne 0 ] ;then exit 1;fi
 
+cd $DORIS_BE_HOME
 wget  $URL -O doris-be.tar.gz --quiet
 if [ $? -ne 0 ] ;then exit 1;fi
 
-rm -rf $DORIS_BE_HOME/betmp
 mkdir -p $DORIS_BE_HOME/betmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
