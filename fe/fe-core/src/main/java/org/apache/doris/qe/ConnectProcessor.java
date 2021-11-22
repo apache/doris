@@ -119,6 +119,7 @@ public class ConnectProcessor {
             .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
             .setScanRows(statistics == null ? 0 : statistics.getScanRows())
             .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+            .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
             .setReturnRows(ctx.getReturnRows())
             .setStmtId(ctx.getStmtId())
             .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
