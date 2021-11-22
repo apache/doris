@@ -170,6 +170,9 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
 }
 
 void ChunkAllocator::free(const Chunk& chunk) {
+    if (chunk.core_id == -1) {
+        return;
+    }
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -188,13 +191,6 @@ void ChunkAllocator::free(const Chunk& chunk) {
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
 
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
-}
-
-void ChunkAllocator::free_safely(const Chunk& chunk) {
-    if (chunk.data != nullptr) {
-        DCHECK(chunk.size != 0);
-        free(chunk);
-    }
 }
 
 bool ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
