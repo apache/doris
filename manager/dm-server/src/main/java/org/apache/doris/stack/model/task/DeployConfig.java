@@ -21,6 +21,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
  * deploy Config
  **/
@@ -29,7 +31,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class DeployConfig {
 
-    private String host;
+    private List<String> hosts;
 
     private String role;
 

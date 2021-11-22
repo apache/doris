@@ -18,6 +18,7 @@
 package org.apache.doris.stack.component;
 
 import com.alibaba.fastjson.JSON;
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.RResult;
@@ -68,6 +69,10 @@ public class TaskInstanceComponent {
             log.warn("task {} is already running on the host {}", taskType, host);
             return null;
         }
+    }
+
+    public TaskInstanceEntity saveTask(TaskInstanceEntity task) {
+        return saveTask(task.getProcessId(), task.getHost(), task.getProcessType(), task.getTaskType(), task.getStatus());
     }
 
     /**
@@ -129,5 +134,33 @@ public class TaskInstanceComponent {
             return optional.get();
         }
         return null;
+    }
+
+    /**
+     * query running task
+     */
+    public List<TaskInstanceEntity> queryRunningTasks(int processId, TaskTypeEnum taskType) {
+        List<TaskInstanceEntity> runningTask = Lists.newArrayList();
+        List<TaskInstanceEntity> tasks = taskInstanceRepository.queryTasks(processId, taskType);
+        for (TaskInstanceEntity task : tasks) {
+            if (task.getStatus().typeIsRunning()) {
+                runningTask.add(task);
+            }
+        }
+        return runningTask;
+    }
+
+    /**
+     * query success task
+     */
+    public List<TaskInstanceEntity> querySuccessTasks(int processId, TaskTypeEnum taskType) {
+        List<TaskInstanceEntity> successTask = Lists.newArrayList();
+        List<TaskInstanceEntity> tasks = taskInstanceRepository.queryTasks(processId, taskType);
+        for (TaskInstanceEntity task : tasks) {
+            if (task.getStatus().typeIsSuccess()) {
+                successTask.add(task);
+            }
+        }
+        return successTask;
     }
 }

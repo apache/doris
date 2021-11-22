@@ -101,13 +101,14 @@ public class TaskInstanceEntity {
         this.skip = Flag.NO;
     }
 
-    public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType) {
+    public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;
         this.processType = processType;
         this.startTime = new Date();
         this.finish = Flag.NO;
         this.skip = Flag.NO;
+        this.status = status;
     }
 
     public TaskInstanceEntity(String host) {

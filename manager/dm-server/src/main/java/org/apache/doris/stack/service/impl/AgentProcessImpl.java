@@ -73,12 +73,12 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -151,10 +151,38 @@ public class AgentProcessImpl implements AgentProcess {
             }
             installDir = installDir + install.getRole().toLowerCase();
             installDoris(process.getId(), install, process.getPackageUrl(), installDir);
-
-            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir, Flag.NO));
-            log.info("agent {} installing doris {}", install.getHost(), install.getRole());
         }
+    }
+
+    private void installDoris(int processId, DorisInstall install, String packageUrl, String installDir) {
+        CommandRequest creq = new CommandRequest();
+        TaskInstanceEntity installServiceTmp = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE, ExecutionStatus.SUBMITTED);
+        if (ServiceRole.FE.name().equals(install.getRole())) {
+            FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
+            feBody.setMkFeMetadir(true);
+            feBody.setPackageUrl(packageUrl);
+            feBody.setInstallDir(installDir);
+            creq.setCommandType(CommandType.INSTALL_FE.name());
+            creq.setBody(JSON.toJSONString(feBody));
+            installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_FE);
+        } else if (ServiceRole.BE.name().equals(install.getRole())) {
+            BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
+            beBody.setMkBeStorageDir(true);
+            beBody.setPackageUrl(packageUrl);
+            beBody.setInstallDir(installDir);
+            creq.setCommandType(CommandType.INSTALL_BE.name());
+            creq.setBody(JSON.toJSONString(beBody));
+            installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_BE);
+        } else {
+            throw new ServerException("The service installation is not currently supported");
+        }
+        TaskInstanceEntity installService = taskInstanceComponent.saveTask(installServiceTmp);
+        if (installService == null) {
+            return;
+        }
+        handleAgentTask(installService, creq);
+        agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir, Flag.NO));
+        log.info("agent {} installing doris {}", install.getHost(), install.getRole());
     }
 
     /**
@@ -171,36 +199,7 @@ public class AgentProcessImpl implements AgentProcess {
         return true;
     }
 
-    private void installDoris(int processId, DorisInstall install, String packageUrl, String installDir) {
-        CommandRequest creq = new CommandRequest();
-        TaskInstanceEntity installService = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE);
-        if (ServiceRole.FE.name().equals(install.getRole())) {
-            FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
-            feBody.setMkFeMetadir(true);
-            feBody.setPackageUrl(packageUrl);
-            feBody.setInstallDir(installDir);
-            creq.setCommandType(CommandType.INSTALL_FE.name());
-            creq.setBody(JSON.toJSONString(feBody));
-            installService.setTaskType(TaskTypeEnum.INSTALL_FE);
-        } else if (ServiceRole.BE.name().equals(install.getRole())) {
-            BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
-            beBody.setMkBeStorageDir(true);
-            beBody.setPackageUrl(packageUrl);
-            beBody.setInstallDir(installDir);
-            creq.setCommandType(CommandType.INSTALL_BE.name());
-            creq.setBody(JSON.toJSONString(beBody));
-            installService.setTaskType(TaskTypeEnum.INSTALL_BE);
-        } else {
-            throw new ServerException("The service installation is not currently supported");
-        }
-        handleAgentTask(installService, creq);
-    }
-
     private void handleAgentTask(TaskInstanceEntity taskInstance, CommandRequest creq) {
-        boolean isRunning = taskInstanceComponent.checkTaskRunning(taskInstance.getProcessId(), taskInstance.getHost(), taskInstance.getProcessType(), taskInstance.getTaskType());
-        if (isRunning) {
-            return;
-        }
         taskInstance.setTaskJson(JSON.toJSONString(creq));
         RResult result = taskExecuteRunner.execAgentTask(taskInstance, creq);
         taskInstanceComponent.refreshTask(taskInstance, result);
@@ -218,45 +217,59 @@ public class AgentProcessImpl implements AgentProcess {
         List<DeployConfig> deployConfigs = deployConfigReq.getDeployConfigs();
         for (DeployConfig deployConf : deployConfigs) {
             if (StringUtils.isBlank(deployConf.getConf())) {
-                return;
-            }
-            Base64.Encoder encoder = Base64.getEncoder();
-            try {
-                deployConf.setConf(new String(encoder.encode(deployConf.getConf().getBytes()), "UTF-8"));
-            } catch (UnsupportedEncodingException e) {
-                log.error("conf {} can not encoding:", deployConf.getConf(), e);
-            }
-            CommandRequest creq = new CommandRequest();
-            TaskTypeEnum parentTask = null;
-            TaskInstanceEntity deployTask = new TaskInstanceEntity(process.getId(), deployConf.getHost(), ProcessTypeEnum.DEPLOY_CONFIG);
-            if (ServiceRole.FE.name().equals(deployConf.getRole())) {
-                WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
-                feConf.setContent(deployConf.getConf());
-                feConf.setCreateMetaDir(true);
-                creq.setBody(JSON.toJSONString(feConf));
-                creq.setCommandType(CommandType.WRITE_FE_CONF.name());
-                deployTask.setTaskType(TaskTypeEnum.DEPLOY_FE_CONFIG);
-                parentTask = TaskTypeEnum.INSTALL_FE;
-            } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
-                WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
-                beConf.setContent(deployConf.getConf());
-                beConf.setCreateStorageDir(true);
-                creq.setBody(JSON.toJSONString(beConf));
-                creq.setCommandType(CommandType.WRITE_BE_CONF.name());
-                deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
-                parentTask = TaskTypeEnum.INSTALL_BE;
-            } else {
-                throw new ServerException("The service deploy config is not currently supported");
-            }
-
-            //check parent task skipped
-            boolean parentTaskSkip = checkParentTaskSkip(deployConfigReq.getProcessId(), deployConf.getHost(), parentTask);
-            if (parentTaskSkip) {
-                log.warn("host {} parent install {} task has skipped,so the current deploy {} config task is also skipped", deployConf.getHost(), deployConf.getRole(), deployConf.getRole());
                 continue;
             }
-            handleAgentTask(deployTask, creq);
-            log.info("agent {} deploy {} conf", deployConf.getHost(), deployConf.getRole());
+            String encodeConf = encodeConfig(deployConf.getConf());
+            for (String host : deployConf.getHosts()) {
+                CommandRequest creq = new CommandRequest();
+                TaskTypeEnum parentTask;
+                TaskInstanceEntity deployTaskTmp = new TaskInstanceEntity(process.getId(), host, ProcessTypeEnum.DEPLOY_CONFIG, ExecutionStatus.SUBMITTED);
+                if (ServiceRole.FE.name().equals(deployConf.getRole())) {
+                    WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
+                    feConf.setContent(encodeConf);
+                    feConf.setCreateMetaDir(true);
+                    creq.setBody(JSON.toJSONString(feConf));
+                    creq.setCommandType(CommandType.WRITE_FE_CONF.name());
+                    deployTaskTmp.setTaskType(TaskTypeEnum.DEPLOY_FE_CONFIG);
+                    parentTask = TaskTypeEnum.INSTALL_FE;
+                } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
+                    WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
+                    beConf.setContent(encodeConf);
+                    beConf.setCreateStorageDir(true);
+                    creq.setBody(JSON.toJSONString(beConf));
+                    creq.setCommandType(CommandType.WRITE_BE_CONF.name());
+                    deployTaskTmp.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
+                    parentTask = TaskTypeEnum.INSTALL_BE;
+                } else {
+                    throw new ServerException("The service deploy config is not currently supported");
+                }
+
+                TaskInstanceEntity deployTask = taskInstanceComponent.saveTask(deployTaskTmp);
+                if (deployTask == null) {
+                    continue;
+                }
+                //check parent task skipped
+                boolean parentTaskSkip = checkParentTaskSkip(deployConfigReq.getProcessId(), host, parentTask);
+                if (parentTaskSkip) {
+                    log.warn("host {} parent install {} task has skipped,so the current deploy {} config task is also skipped", host, deployConf.getRole(), deployConf.getRole());
+                    continue;
+                }
+                handleAgentTask(deployTask, creq);
+                log.info("agent {} deploy {} conf", host, deployConf.getRole());
+            }
+        }
+    }
+
+    private String encodeConfig(String conf) {
+        if (StringUtils.isBlank(conf)) {
+            return conf;
+        }
+        Base64.Encoder encoder = Base64.getEncoder();
+        try {
+            return new String(encoder.encode(conf.getBytes()), "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            log.error("conf {} can not encoding:", conf, e);
+            return conf;
         }
     }
 
@@ -269,36 +282,25 @@ public class AgentProcessImpl implements AgentProcess {
         Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
 
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
-        String leaderFe = getLeaderFeHostPort(process.getClusterId(), request);
         List<DorisStart> dorisStarts = dorisStart.getDorisStarts();
         for (DorisStart start : dorisStarts) {
-            CommandType commandType = transAgentCmd(CmdTypeEnum.START, ServiceRole.findByName(start.getRole()));
-            if (commandType == null) {
-                log.error("not support command {} {}", CmdTypeEnum.START, start.getRole());
+            TaskInstanceEntity execTaskTmp = new TaskInstanceEntity(process.getId(), start.getHost(), ProcessTypeEnum.START_SERVICE, ExecutionStatus.SUBMITTED);
+            TaskTypeEnum parentTask;
+            ServiceRole serviceRole = ServiceRole.findByName(start.getRole());
+            if (ServiceRole.FE.equals(serviceRole)) {
+                execTaskTmp.setTaskType(TaskTypeEnum.START_FE);
+                parentTask = TaskTypeEnum.DEPLOY_FE_CONFIG;
+            } else if (ServiceRole.BE.equals(serviceRole)) {
+                execTaskTmp.setTaskType(TaskTypeEnum.START_BE);
+                parentTask = TaskTypeEnum.DEPLOY_BE_CONFIG;
+            } else {
+                log.error("not support role {}", start.getRole());
                 continue;
             }
-            CommandRequest creq = new CommandRequest();
-            TaskInstanceEntity execTask = new TaskInstanceEntity(process.getId(), start.getHost(), ProcessTypeEnum.START_SERVICE);
-            TaskTypeEnum parentTask = null;
-            switch (commandType) {
-                case START_FE:
-                    FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
-                    if (StringUtils.isNotBlank(leaderFe)) {
-                        feBody.setHelpHostPort(leaderFe);
-                    }
-                    creq.setBody(JSON.toJSONString(feBody));
-                    execTask.setTaskType(TaskTypeEnum.START_FE);
-                    parentTask = TaskTypeEnum.DEPLOY_FE_CONFIG;
-                    break;
-                case START_BE:
-                    execTask.setTaskType(TaskTypeEnum.START_BE);
-                    parentTask = TaskTypeEnum.DEPLOY_BE_CONFIG;
-                    break;
-                default:
-                    log.error("not support command: {}", commandType.name());
-                    break;
+            TaskInstanceEntity execTask = taskInstanceComponent.saveTask(execTaskTmp);
+            if (execTask == null) {
+                continue;
             }
-            creq.setCommandType(commandType.name());
 
             //check parent task has skipped
             boolean parentTaskSkip = checkParentTaskSkip(process.getId(), start.getHost(), parentTask);
@@ -306,8 +308,100 @@ public class AgentProcessImpl implements AgentProcess {
                 log.warn("host {} parent deploy config {} task has skipped,so the current start {} task is also skipped", start.getHost(), start.getRole(), start.getRole());
                 continue;
             }
-            handleAgentTask(execTask, creq);
+            //start service
+            if (TaskTypeEnum.START_FE.equals(execTask.getTaskType())) {
+                List<TaskInstanceEntity> startFeTasks = taskInstanceComponent.queryRunningTasks(process.getId(), TaskTypeEnum.START_FE);
+                if (ObjectUtils.isEmpty(startFeTasks)) {
+                    continue;
+                }
+                if (startFeTasks.get(0).getId() == execTask.getId()) {
+                    //start master fe
+                    CommandRequest creq = buildStartCmd(ServiceRole.FE, null);
+                    handleAgentTask(execTask, creq);
+                } else {
+                    //wait master fe start success,then start no-master fe
+                    ExecutorService executor = Executors.newSingleThreadExecutor();
+                    executor.submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                String leaderFeHost;
+                                while (true) {
+                                    //Polling until there has a successful fe
+                                    List<TaskInstanceEntity> taskInstanceEntities = taskInstanceComponent.querySuccessTasks(process.getId(), TaskTypeEnum.START_FE);
+                                    if (!taskInstanceEntities.isEmpty()) {
+                                        leaderFeHost = taskInstanceEntities.get(0).getHost();
+                                        log.info("master fe {} start success", leaderFeHost);
+                                        break;
+                                    }
+                                    Thread.sleep(1000);
+                                    log.warn("waiting master fe start success");
+                                }
+
+                                Integer leaderFeQueryPort = getFeQueryPort(leaderFeHost, agentCache.agentPort(leaderFeHost));
+                                joinFe(leaderFeHost, leaderFeQueryPort, start.getHost());
+                                CommandRequest creq = buildStartCmd(ServiceRole.FE, leaderFeHost);
+                                handleAgentTask(execTask, creq);
+                            } catch (Exception e) {
+                                log.error("task execute error,", e);
+                                execTask.setStatus(ExecutionStatus.FAILURE);
+                                taskInstanceRepository.save(execTask);
+                            }
+                        }
+                    });
+                    executor.shutdown();
+                }
+            } else {
+                CommandRequest creq = buildStartCmd(ServiceRole.BE, null);
+                handleAgentTask(execTask, creq);
+            }
             log.info("agent {} starting {} ", start.getHost(), start.getRole());
+        }
+    }
+
+    private CommandRequest buildStartCmd(ServiceRole serviceRole, String leaderFeHost) {
+        CommandRequest creq = new CommandRequest();
+        CommandType commandType = transAgentCmd(CmdTypeEnum.START, serviceRole);
+        if (commandType == null) {
+            log.error("not support command {} {}", CmdTypeEnum.START, serviceRole.name());
+            return creq;
+        }
+        switch (commandType) {
+            case START_FE:
+                FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
+                if (StringUtils.isNotBlank(leaderFeHost)) {
+                    Integer leaderFeEditLogPort = getFeEditLogPort(leaderFeHost, agentCache.agentPort(leaderFeHost));
+                    feBody.setHelpHostPort(leaderFeHost + ":" + leaderFeEditLogPort);
+                }
+                creq.setBody(JSON.toJSONString(feBody));
+                break;
+            case START_BE:
+                break;
+            default:
+                log.error("not support command: {}", commandType.name());
+                break;
+        }
+        creq.setCommandType(commandType.name());
+        return creq;
+    }
+
+    /**
+     * add fe to cluster
+     */
+    private void joinFe(String leaderHost, int leaderQueryPort, String addFeHost) {
+        AgentRoleEntity agentRole = agentRoleComponent.queryByHostRole(addFeHost, ServiceRole.FE.name());
+        Integer addFePort = getFeEditLogPort(addFeHost, agentCache.agentPort(addFeHost));
+        Connection connection = null;
+        try {
+            connection = JdbcUtil.getConnection(leaderHost, leaderQueryPort);
+            String sql = "ALTER SYSTEM ADD %s \"%s:%s\"";
+            String joinFeSql = String.format(sql, agentRole.getFeNodeType().toUpperCase(), addFeHost, addFePort);
+            JdbcUtil.execute(connection, joinFeSql);
+            log.info("execute {}", joinFeSql);
+        } catch (SQLException ex) {
+            log.error("add fe to cluster failed:{}", addFeHost, ex);
+        } finally {
+            JdbcUtil.closeConn(connection);
         }
     }
 
@@ -320,8 +414,22 @@ public class AgentProcessImpl implements AgentProcess {
             Integer httpPort = Integer.valueOf(feConf.getProperty(Constants.KEY_FE_QUERY_PORT));
             return httpPort;
         } catch (NumberFormatException e) {
-            log.warn("get fe http port fail,return default port 8030");
-            return Constants.DORIS_DEFAULT_FE_HTTP_PORT;
+            log.warn("get fe query port fail,return default port 9030");
+            return Constants.DORIS_DEFAULT_FE_QUERY_PORT;
+        }
+    }
+
+    /**
+     * get fe edit log port
+     **/
+    public Integer getFeEditLogPort(String host, Integer port) {
+        Properties feConf = agentRest.roleConfig(host, port, ServiceRole.FE.name());
+        try {
+            Integer httpPort = Integer.valueOf(feConf.getProperty(Constants.KEY_FE_EDIT_LOG_PORT));
+            return httpPort;
+        } catch (NumberFormatException e) {
+            log.warn("get fe http port fail,return default port 9010");
+            return Constants.DORIS_DEFAULT_FE_EDIT_LOG_PORT;
         }
     }
 
@@ -339,43 +447,6 @@ public class AgentProcessImpl implements AgentProcess {
         }
         Preconditions.checkNotNull(aliveAgent, "no agent alive");
         return aliveAgent;
-    }
-
-    /**
-     * query leader fe host editLogPort
-     */
-    public String getLeaderFeHostPort(int clusterId, HttpServletRequest request) {
-        AgentEntity aliveAgent = getAliveAgent(clusterId);
-        Integer queryPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
-        //query leader fe
-        Connection conn = null;
-        PreparedStatement stmt = null;
-        ResultSet rs = null;
-        String leaderFe = null;
-        try {
-            conn = JdbcUtil.getConnection(aliveAgent.getHost(), queryPort);
-            stmt = conn.prepareStatement("SHOW FRONTENDS");
-            rs = stmt.executeQuery();
-            while (rs.next()) {
-                boolean isMaster = rs.getBoolean("IsMaster");
-                if (isMaster) {
-                    String ip = rs.getString("IP");
-                    String editLogPort = rs.getString("EditLogPort");
-                    leaderFe = ip + ":" + editLogPort;
-                    break;
-                }
-            }
-        } catch (SQLException e) {
-            log.error("query show frontends fail", e);
-        } finally {
-            JdbcUtil.closeStmt(stmt);
-            JdbcUtil.closeRs(rs);
-            JdbcUtil.closeConn(conn);
-        }
-        if (StringUtils.isBlank(leaderFe)) {
-            log.error("can not get leader fe");
-        }
-        return leaderFe;
     }
 
     /**
