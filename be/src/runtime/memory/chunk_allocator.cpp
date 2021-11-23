@@ -170,6 +170,9 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
 }
 
 void ChunkAllocator::free(const Chunk& chunk) {
+    if (chunk.core_id == -1) {
+        return;
+    }
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -189,7 +192,6 @@ void ChunkAllocator::free(const Chunk& chunk) {
 
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
-
 
 bool ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
     return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk);
