@@ -89,8 +89,10 @@ protected:
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
     // to filter src tuple directly
-	const std::vector<TExpr> _pre_filter_texprs;
-	std::vector<ExprContext*> _pre_filter_ctxs;
+    // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,
+    // and will be converted to `_pre_filter_ctxs` when scanner is open.
+    const std::vector<TExpr> _pre_filter_texprs;
+    std::vector<ExprContext*> _pre_filter_ctxs;
 
     bool _strict_mode;
 

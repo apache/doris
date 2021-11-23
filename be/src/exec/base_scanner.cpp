@@ -67,8 +67,6 @@ Status BaseScanner::open() {
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
-
-
     return Status::OK();
 }
 
@@ -103,6 +101,7 @@ Status BaseScanner::init_expr_ctxes() {
                                       std::vector<TupleId>({_params.src_tuple_id}),
                                       std::vector<bool>({false})));
 
+    // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
     if (!_pre_filter_texprs.empty()) {
         RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_ctxs));
         RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
@@ -243,7 +242,7 @@ void BaseScanner::free_expr_local_allocations() {
 }
 
 void BaseScanner::close() {
-    if (!_pre_filter_texprs.empty()) {
+    if (!_pre_filter_ctxs.empty()) {
         Expr::close(_pre_filter_ctxs, _state);
     }
 }
