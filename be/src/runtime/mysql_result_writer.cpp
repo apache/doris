@@ -32,11 +32,12 @@
 namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
-                                     const std::vector<ExprContext*>& output_expr_ctxs, RuntimeProfile* parent_profile)
+                                     const std::vector<ExprContext*>& output_expr_ctxs,
+                                     RuntimeProfile* parent_profile)
         : ResultWriter(),
           _sinker(sinker),
           _output_expr_ctxs(output_expr_ctxs),
-          _row_buffer(NULL),
+          _row_buffer(nullptr),
           _parent_profile(parent_profile) {}
 
 MysqlResultWriter::~MysqlResultWriter() {
@@ -45,12 +46,12 @@ MysqlResultWriter::~MysqlResultWriter() {
 
 Status MysqlResultWriter::init(RuntimeState* state) {
     _init_profile();
-    if (NULL == _sinker) {
-        return Status::InternalError("sinker is NULL pointer.");
+    if (nullptr == _sinker) {
+        return Status::InternalError("sinker is nullptr pointer.");
     }
 
-    _row_buffer = new(std::nothrow) MysqlRowBuffer();
-    if (NULL == _row_buffer) {
+    _row_buffer = new (std::nothrow) MysqlRowBuffer();
+    if (nullptr == _row_buffer) {
         return Status::InternalError("no memory to alloc.");
     }
 
@@ -123,7 +124,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     case TYPE_STRING: {
         const StringValue* string_val = (const StringValue*)(item);
 
-        if (string_val->ptr == NULL) {
+        if (string_val->ptr == nullptr) {
             if (string_val->len == 0) {
                 // 0x01 is a magic num, not useful actually, just for present ""
                 char* tmp_val = reinterpret_cast<char*>(0x01);
@@ -212,7 +213,7 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
 
 Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     SCOPED_TIMER(_append_row_batch_timer);
-    if (NULL == batch || 0 == batch->num_rows()) {
+    if (nullptr == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
 
@@ -240,7 +241,8 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     if (status.ok()) {
         SCOPED_TIMER(_result_send_timer);
         // push this batch to back
-        RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "fappend result batch to sink failed.");
+        RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result),
+                                       "fappend result batch to sink failed.");
         _written_rows += num_rows;
     }
     return Status::OK();

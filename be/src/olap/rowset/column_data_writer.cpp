@@ -39,10 +39,10 @@ ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group, bool is_push_wri
           _is_push_write(is_push_write),
           _compress_kind(compress_kind),
           _bloom_filter_fpp(bloom_filter_fpp),
-          _zone_maps(segment_group->get_num_zone_map_columns(), KeyRange(NULL, NULL)),
+          _zone_maps(segment_group->get_num_zone_map_columns(), KeyRange(nullptr, nullptr)),
           _row_index(0),
-          _row_block(NULL),
-          _segment_writer(NULL),
+          _row_block(nullptr),
+          _segment_writer(nullptr),
           _num_rows(0),
           _block_id(0),
           _max_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE),
@@ -79,7 +79,7 @@ OLAPStatus ColumnDataWriter::init() {
 
     _row_block = new (std::nothrow) RowBlock(&(_segment_group->get_tablet_schema()));
 
-    if (NULL == _row_block) {
+    if (nullptr == _row_block) {
         LOG(WARNING) << "fail to new RowBlock.";
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -91,7 +91,7 @@ OLAPStatus ColumnDataWriter::init() {
     }
 
     VLOG_NOTICE << "init ColumnData writer. segment_group_id=" << _segment_group->segment_group_id()
-            << ", block_row_number=" << _segment_group->get_num_rows_per_row_block();
+                << ", block_row_number=" << _segment_group->get_num_rows_per_row_block();
     RowBlockInfo block_info(0U, _segment_group->get_num_rows_per_row_block());
     block_info.null_supported = true;
 
@@ -232,7 +232,7 @@ OLAPStatus ColumnDataWriter::_flush_row_block(bool finalize) {
 OLAPStatus ColumnDataWriter::_add_segment() {
     std::string file_name;
 
-    if (NULL != _segment_writer) {
+    if (nullptr != _segment_writer) {
         OLAP_LOG_WARNING("previous segment is not finalized before add new segment.");
         return OLAP_ERR_WRITER_SEGMENT_NOT_FINALIZED;
     }
@@ -242,7 +242,7 @@ OLAPStatus ColumnDataWriter::_add_segment() {
             SegmentWriter(file_name, _segment_group, OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
                           _compress_kind, _bloom_filter_fpp);
 
-    if (NULL == _segment_writer) {
+    if (nullptr == _segment_writer) {
         OLAP_LOG_WARNING("fail to allocate SegmentWriter");
         return OLAP_ERR_MALLOC_ERROR;
     }

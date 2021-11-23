@@ -84,7 +84,7 @@ public class ConnectProcessor {
     private void handleInitDb() {
         String dbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
         if (Strings.isNullOrEmpty(ctx.getClusterName())) {
-            ctx.getState().setError("Please enter cluster");
+            ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
         }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
@@ -119,6 +119,7 @@ public class ConnectProcessor {
             .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
             .setScanRows(statistics == null ? 0 : statistics.getScanRows())
             .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+            .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
             .setReturnRows(ctx.getReturnRows())
             .setStmtId(ctx.getStmtId())
             .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
@@ -177,7 +178,7 @@ public class ConnectProcessor {
         } catch (UnsupportedEncodingException e) {
             // impossible
             LOG.error("UTF8 is not supported in this environment.");
-            ctx.getState().setError("Unsupported character set(UTF-8)");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_CHARACTER_SET, "Unsupported character set(UTF-8)");
             return;
         }
         String sqlHash = DigestUtils.md5Hex(originStmt);
@@ -186,7 +187,7 @@ public class ConnectProcessor {
             Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, sqlHash, ctx.getQualifiedUser());
         } catch (AnalysisException e) {
             LOG.warn(e.getMessage());
-            ctx.getState().setError(e.getMessage());
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
         ctx.getAuditEventBuilder().reset();
@@ -226,17 +227,18 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError("Doris process failed");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
         } catch (UserException e) {
             LOG.warn("Process one query failed because.", e);
-            ctx.getState().setError(e.getMessage());
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError(e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -296,17 +298,17 @@ public class ConnectProcessor {
             return;
         }
         if (Strings.isNullOrEmpty(tableName)) {
-            ctx.getState().setError("Empty tableName");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
         Database db = ctx.getCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
-            ctx.getState().setError("Unknown database(" + ctx.getDatabase() + ")");
+            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
         Table table = db.getTableNullable(tableName);
         if (table == null) {
-            ctx.getState().setError("Unknown table(" + tableName + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
             return;
         }
 
@@ -335,7 +337,7 @@ public class ConnectProcessor {
         MysqlCommand command = MysqlCommand.fromCode(code);
         if (command == null) {
             ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
-            ctx.getState().setError("Unknown command(" + command + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + command + ")");
             LOG.warn("Unknown command(" + command + ")");
             return;
         }
@@ -359,7 +361,7 @@ public class ConnectProcessor {
                 handlePing();
                 break;
             default:
-                ctx.getState().setError("Unsupported command(" + command + ")");
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");
                 break;
         }
@@ -480,7 +482,9 @@ public class ConnectProcessor {
             // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
             // return error directly.
             TMasterOpResult result = new TMasterOpResult();
-            ctx.getState().setError("Missing current user identity. You need to upgrade this Frontend to the same version as Master Frontend.");
+            ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Missing current user identity. You need to upgrade this Frontend " +
+                    "to the " +
+                    "same version as Master Frontend.");
             result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
             result.setPacket(getResultPacket());
             return result;
@@ -503,12 +507,12 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError("Doris process failed: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError("Unexpected exception: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.

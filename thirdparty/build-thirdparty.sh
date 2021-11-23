@@ -393,7 +393,7 @@ build_zstd() {
     check_if_source_exist $ZSTD_SOURCE
     cd $TP_SOURCE_DIR/$ZSTD_SOURCE/build/cmake
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -ZSTD_BUILD_STATIC=ON \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_STATIC=ON \
     -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF  -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
     ${BUILD_SYSTEM} -j $PARALLEL install
 }
@@ -882,8 +882,6 @@ build_hdfs3() {
     check_if_source_exist $HDFS3_SOURCE
     cd $TP_SOURCE_DIR/$HDFS3_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    # export CC=/opt/compiler/gcc-10/bin/gcc
-    # export CXX=/opt/compiler/gcc-10/bin/g++
     ../bootstrap --dependency=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR
     make -j $PARALLEL && make install
 }
@@ -901,6 +899,15 @@ build_benchmark() {
     mkdir $TP_INCLUDE_DIR/benchmark
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/include/benchmark/benchmark.h $TP_INCLUDE_DIR/benchmark/
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/build/src/libbenchmark.a $TP_LIB_DIR/
+}
+
+# breakpad
+build_breakpad() {
+    check_if_source_exist $BREAKPAD_SOURCE
+
+    cd $TP_SOURCE_DIR/$BREAKPAD_SOURCE
+    ./configure --prefix=$TP_INSTALL_DIR
+    make -j $PARALLEL && make install
 }
 
 build_libunixodbc
@@ -952,6 +959,7 @@ build_xml2
 build_gsasl
 build_hdfs3
 build_benchmark
+build_breakpad
 
 echo "Finished to build all thirdparties"
 

@@ -216,15 +216,12 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
-    title: "Benchmark & Bast Practices",
-    directoryPath: "best-practices/",
+    title: "Benchmark & Sample",
+    directoryPath: "benchmark/",
     children: [
       "star-schema-benchmark",
-      "fe-load-balance",
       "systemd",
-      "samples",
-      "datax-doris-writer",
-      "flink-cdc-to-doris"
+      "samples"
     ],
   },
   {
@@ -235,6 +232,7 @@ module.exports = [
       "doris-on-es",
       "logstash",
       "odbc-of-doris",
+      "hive-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
@@ -633,7 +631,8 @@ module.exports = [
         "be-vscode-dev",		
         "java-format-code",
         "cpp-format-code",
-        "How-to-Share-blogs"
+        "How-to-Share-blogs",
+		"minidump"
     ],
   },
   {

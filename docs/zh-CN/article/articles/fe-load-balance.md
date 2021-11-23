@@ -1,7 +1,14 @@
 ---
 {
-    "title": "FE负载均衡",
-    "language": "zh-CN"
+    "title": "Apache Doris FE负载均衡",
+    "description": "当部署多个 FE 节点时，用户可以在多个 FE 之上部署负载均衡层来实现 Doris 的高可用.",
+    "date": "2021-11-11",
+    "metaTitle": "Apache Doris FE负载均衡",
+    "isArticle": true,
+    "language": "zh-CN",
+    "author": "张家锋",
+    "layout": "Article",
+    "sidebar": false
 }
 ---
 
@@ -23,8 +30,6 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
-# FE负载均衡
 
 当部署多个 FE 节点时，用户可以在多个 FE 之上部署负载均衡层来实现 Doris 的高可用。
 

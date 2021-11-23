@@ -41,7 +41,7 @@ import org.json.JSONObject;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
-    static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
@@ -148,6 +148,9 @@ public class SessionVariable implements Serializable, Writable {
     // then the coordinator be will use the value of `max_send_batch_parallelism_per_job`
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
+    // turn off all automatic join reorder algorithms
+    public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
+
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
@@ -161,6 +164,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
+
+    public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -384,6 +389,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LATERAL_VIEW, needForward = true)
     public boolean enableLateralView = false;
 
+    @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
+    private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
+    public boolean sqlQuoteShowCreate = true;
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -514,6 +525,13 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean isSqlQuoteShowCreate() {
+        return sqlQuoteShowCreate;
+    }
+
+    public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
+        this.sqlQuoteShowCreate = sqlQuoteShowCreate;
+    }
     public void setLoadMemLimit(long loadMemLimit) {
         this.loadMemLimit = loadMemLimit;
     }
@@ -798,6 +816,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableLateralView(boolean enableLateralView) {
         this.enableLateralView = enableLateralView;
+    }
+
+    public boolean isDisableJoinReorder() {
+        return disableJoinReorder;
     }
 
     // Serialize to thrift object

@@ -344,6 +344,7 @@ public class Coordinator {
             }
             this.exportFiles.clear();
             this.needCheckBackendExecStates.clear();
+            this.alreadySentBackendIds.clear();
         } finally {
             lock.unlock();
         }
@@ -541,6 +542,7 @@ public class Coordinator {
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
+                    tParam.setBackendId(execState.backend.getId());
 
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
@@ -1411,17 +1413,45 @@ public class Coordinator {
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
                                           HashMap<TNetworkAddress, Long> assignedBytesPerHost,
                                           Reference<Long> backendIdRef) throws UserException {
+        if (!Config.enable_local_replica_selection) {
+            return selectBackendsByRoundRobin(seqLocation.getLocations(), assignedBytesPerHost, backendIdRef);
+        }
+
+        List<TScanRangeLocation> localLocations = new ArrayList<>();
+        List<TScanRangeLocation> nonlocalLocations = new ArrayList<>();
+        long localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
+        for (final TScanRangeLocation location : seqLocation.getLocations()) {
+            if (location.backend_id == localBeId) {
+                localLocations.add(location);
+            } else {
+                nonlocalLocations.add(location);
+            }
+        }
+
+        try {
+            return selectBackendsByRoundRobin(localLocations, assignedBytesPerHost, backendIdRef);
+        } catch (UserException ue) {
+            if (!Config.enable_local_replica_selection_fallback) {
+                throw ue;
+            }
+            return selectBackendsByRoundRobin(nonlocalLocations, assignedBytesPerHost, backendIdRef);
+        }
+    }
+
+    public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> locations,
+                                                         HashMap<TNetworkAddress, Long> assignedBytesPerHost,
+                                                         Reference<Long> backendIdRef) throws UserException {
         Long minAssignedBytes = Long.MAX_VALUE;
         TScanRangeLocation minLocation = null;
         Long step = 1L;
-        for (final TScanRangeLocation location : seqLocation.getLocations()) {
+        for (final TScanRangeLocation location : locations) {
             Long assignedBytes = findOrInsert(assignedBytesPerHost, location.server, 0L);
             if (assignedBytes < minAssignedBytes) {
                 minAssignedBytes = assignedBytes;
                 minLocation = location;
             }
         }
-        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, seqLocation.locations, this.idToBackend, backendIdRef);
+        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, locations, this.idToBackend, backendIdRef);
         if (assignedBytesPerHost.containsKey(location.server)) {
             assignedBytesPerHost.put(location.server,
                     assignedBytesPerHost.get(location.server) + step);

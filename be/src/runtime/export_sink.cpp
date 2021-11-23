@@ -180,7 +180,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
             case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
 
-                if (string_val->ptr == NULL) {
+                if (string_val->ptr == nullptr) {
                     if (string_val->len == 0) {
                     } else {
                         (*ss) << "\\N";
@@ -274,7 +274,7 @@ std::string ExportSink::gen_file_name() {
     const TUniqueId& id = _state->fragment_instance_id();
 
     struct timeval tv;
-    gettimeofday(&tv, NULL);
+    gettimeofday(&tv, nullptr);
 
     std::stringstream file_name;
     file_name << "export-data-" << print_id(id) << "-" << (tv.tv_sec * 1000 + tv.tv_usec / 1000);

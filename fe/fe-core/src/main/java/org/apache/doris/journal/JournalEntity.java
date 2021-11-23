@@ -73,6 +73,7 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
+import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -649,6 +650,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_SQL_BLOCK_RULE: {
                 data = DropSqlBlockRuleOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_ENGINE: {
+                data = ModifyTableEngineOperationLog.read(in);
                 isRead = true;
                 break;
             }

@@ -42,7 +42,7 @@ enum class MemLimit { HARD, SOFT };
 
 /// The Level use to decide whether to show it in web page
 /// each MemTracker have a Level equals to parent, only be set explicit
-enum class MemTrackerLevel {OVERVIEW = 0, TASK, VERBOSE};
+enum class MemTrackerLevel { OVERVIEW = 0, TASK, VERBOSE };
 
 class ObjectPool;
 class MemTracker;
@@ -92,11 +92,13 @@ public:
     static std::shared_ptr<MemTracker> CreateTracker(
             int64_t byte_limit = -1, const std::string& label = std::string(),
             std::shared_ptr<MemTracker> parent = std::shared_ptr<MemTracker>(),
-            bool log_usage_if_zero = true, bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
+            bool log_usage_if_zero = true, bool reset_label_name = true,
+            MemTrackerLevel level = MemTrackerLevel::VERBOSE);
 
     static std::shared_ptr<MemTracker> CreateTracker(
             RuntimeProfile* profile, int64_t byte_limit, const std::string& label = std::string(),
-            const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(), bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
+            const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
+            bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
 
     // this is used for creating an orphan mem tracker, or for unit test.
     // If a mem tracker has parent, it should be created by `CreateTracker()`
@@ -341,7 +343,7 @@ public:
     //void RegisterMetrics(MetricGroup* metrics, const std::string& prefix);
 
     /// Logs the usage of this tracker and optionally its children (recursively).
-    /// If 'logged_consumption' is non-NULL, sets the consumption value logged.
+    /// If 'logged_consumption' is non-nullptr, sets the consumption value logged.
     /// 'max_recursive_depth' specifies the maximum number of levels of children
     /// to include in the dump. If it is zero, then no children are dumped.
     /// Limiting the recursive depth reduces the cost of dumping, particularly
@@ -367,7 +369,7 @@ public:
     /// details of the allocation which caused the limit to be exceeded.
     /// If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
-    /// If 'state' is non-NULL, logs the error to 'state'.
+    /// If 'state' is non-nullptr, logs the error to 'state'.
     Status MemLimitExceeded(RuntimeState* state, const std::string& details,
                             int64_t failed_allocation = 0) WARN_UNUSED_RESULT {
         return MemLimitExceeded(this, state, details, failed_allocation);
@@ -409,7 +411,7 @@ public:
         return msg.str();
     }
 
-    bool is_consumption_metric_null() { return consumption_metric_ == nullptr; }
+    bool is_consumption_metric_null() const { return consumption_metric_ == nullptr; }
 
     static const std::string COUNTER_NAME;
 
@@ -469,7 +471,7 @@ private:
                         int limit);
 
     /// If an ancestor of this tracker is a query MemTracker, return that tracker.
-    /// Otherwise return NULL.
+    /// Otherwise return nullptr.
     MemTracker* GetQueryMemTracker();
 
     /// Increases/Decreases the consumption of this tracker and the ancestors up to (but
@@ -494,7 +496,7 @@ private:
     /// 0 if the query is still executing or 1 if it has finished executing. Before
     /// it has finished executing, the tracker limit is treated as "reserved memory"
     /// for the purpose of admission control - see GetPoolMemReserved().
-    std::atomic<int32_t> query_exec_finished_{0};
+    std::atomic<int32_t> query_exec_finished_ {0};
 
     /// Only valid for MemTrackers returned from GetRequestPoolMemTracker()
     std::string pool_name_;
@@ -516,12 +518,12 @@ private:
     /// in bytes
     std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> consumption_;
 
-    /// If non-NULL, used to measure consumption (in bytes) rather than the values provided
+    /// If non-nullptr, used to measure consumption (in bytes) rather than the values provided
     /// to Consume()/Release(). Only used for the process tracker, thus parent_ should be
-    /// NULL if consumption_metric_ is set.
+    /// nullptr if consumption_metric_ is set.
     IntGauge* consumption_metric_;
 
-    /// If non-NULL, counters from a corresponding ReservationTracker that should be
+    /// If non-nullptr, counters from a corresponding ReservationTracker that should be
     /// reported in logs and other diagnostics. Owned by this MemTracker. The counters
     /// are owned by the fragment's RuntimeProfile.
     AtomicPtr<ReservationTrackerCounters> reservation_counters_;

@@ -1,4 +1,34 @@
-# 使用 Flink CDC 实现 MySQL 数据实时入 Apache Doris
+---
+{
+    "title": "使用 Flink CDC 实现 MySQL 数据实时入 Apache Doris",
+    "description": "本文通过实例来演示怎么通过Flink CDC 结合Doris的Flink Connector实现从Mysql数据库中监听数据并实时入库到Doris数仓对应的表中.",
+    "date": "2021-11-11",
+    "metaTitle": "使用 Flink CDC 实现 MySQL 数据实时入 Apache Doris",
+    "isArticle": true,
+    "language": "zh-CN",
+    "author": "张家锋",
+    "layout": "Article",
+    "sidebar": false
+}
+---
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
 
 本文通过实例来演示怎么通过Flink CDC 结合Doris的Flink Connector实现从Mysql数据库中监听数据并实时入库到Doris数仓对应的表中。
 
@@ -146,7 +176,7 @@ https://repo1.maven.org/maven2/com/ververica/flink-connector-mysql-cdc/2.0.2/fli
 # wget https://github.com/hf200012/hf200012.github.io/raw/main/lib/doris-flink-1.0-SNAPSHOT.jar -P ./lib/
 ```
 
-![image-20211026095513892](/images/cdc/image-20211026095513892.png)
+<img src="/images/cdc/image-20211026095513892.png" alt="image-20210903134043421" style="zoom:50%;" />
 
 #### 4.2.2 启动Flink
 
@@ -161,7 +191,7 @@ Starting taskexecutor daemon on host doris01.
 
 我们通过web访问（默认端口是8081）启动起来Flink 集群，可以看到集群正常启动
 
-![image-20211025162831632](/images/cdc/image-20211025162831632.png)
+<img src="/images/cdc/image-20211025162831632.png" alt="image-20211025162831632" style="zoom:30%;" />
 
 ### 4.3 安装Apache Doris
 
@@ -227,7 +257,7 @@ CREATE TABLE `doris_test` (
 > set execution.result-mode=tableau;
 ```
 
-![image-20211025165547903](/images/cdc/image-20211025165547903.png)
+<img src="/images/cdc/image-20211025165547903.png" alt="image-20211025165547903" style="zoom:30%;" />
 
 #### 4.5.1 创建 Flink CDC Mysql 映射表
 
@@ -253,7 +283,7 @@ CREATE TABLE test_flink_cdc (
 select * from test_flink_cdc;
 ```
 
-![image-20211026100505972](/images/cdc/image-20211026100505972.png)
+<img src="/images/cdc/image-20211026100505972.png" alt="image-20211025165547903" style="zoom:30%;" />
 
 #### 4.5.2 创建Flink Doris Table 映射表
 
@@ -289,11 +319,11 @@ select * from doris_test_sink;
 INSERT INTO doris_test_sink select id,name from test_flink_cdc
 ```
 
-![image-20211026101004547](/images/cdc/image-20211026101004547.png)
+<img src="/images/cdc/image-20211026101004547.png" alt="image-20211025165547903" style="zoom:50%;" />
 
 提交成功之后我们在Flink的Web界面可以看到相关的Job任务信息
 
-![image-20211026100943474](/images/cdc/image-20211026100943474.png)
+<img src="/images/cdc/image-20211026100943474.png" alt="image-20211025165547903" style="zoom:30%;" />
 
 #### 4.5.3 向Mysql表中插入数据
 
@@ -322,7 +352,7 @@ INSERT INTO test_cdc VALUES (91233, 'zhangfeng_9');
 
 重新启动Insert into任务
 
-![image-20211025182341086](/images/cdc/image-20211025182341086.png)
+<img src="/images/cdc/image-20211025182341086.png" alt="image-20211025182341086" style="zoom:50%;" />
 
 修改Mysql表里的数据
 

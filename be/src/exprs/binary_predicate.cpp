@@ -58,7 +58,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DECIMALV2:
             return new EqDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::NE: {
@@ -89,7 +89,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DECIMALV2:
             return new NeDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::LT: {
@@ -120,7 +120,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DECIMALV2:
             return new LtDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::LE: {
@@ -151,7 +151,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DECIMALV2:
             return new LeDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::GT: {
@@ -182,7 +182,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DECIMALV2:
             return new GtDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::GE: {
@@ -213,7 +213,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DECIMALV2:
             return new GeDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::EQ_FOR_NULL: {
@@ -244,13 +244,13 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DECIMALV2:
             return new EqForNullDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     default:
-        return NULL;
+        return nullptr;
     }
-    return NULL;
+    return nullptr;
 }
 
 std::string BinaryPredicate::debug_string() const {

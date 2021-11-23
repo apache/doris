@@ -19,11 +19,9 @@
 #include <sys/file.h>
 #include <unistd.h>
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/recursive_mutex.hpp>
-#include <boost/thread/thread.hpp>
 #include <condition_variable>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 
 #if defined(LEAK_SANITIZER)
@@ -46,6 +44,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/minidump.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -75,6 +74,7 @@ static void thrift_output(const char* x) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
@@ -257,7 +257,16 @@ int main(int argc, char** argv) {
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting";
+        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status.get_error_msg();
+        doris::shutdown_logging();
+        exit(1);
+    }
+
+    // 5. init minidump
+    doris::Minidump minidump;
+    status = minidump.init();
+    if (!status.ok()) {
+        LOG(ERROR) << "Failed to initialize minidump: " << status.get_error_msg();
         doris::shutdown_logging();
         exit(1);
     }
@@ -268,6 +277,7 @@ int main(int argc, char** argv) {
 #endif
         sleep(10);
     }
+
     http_service.stop();
     brpc_service.join();
     daemon.stop();
@@ -276,6 +286,7 @@ int main(int argc, char** argv) {
     be_server->stop();
     be_server->join();
     engine->stop();
+    minidump.stop();
 
     delete be_server;
     be_server = nullptr;
@@ -294,3 +305,4 @@ static void help(const char* progname) {
     printf("  -v, --version      output version information, then exit\n");
     printf("  -?, --help         show this help, then exit\n");
 }
+

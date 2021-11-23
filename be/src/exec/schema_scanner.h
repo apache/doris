@@ -46,13 +46,13 @@ struct SchemaScannerParam {
     int64_t thread_id;
 
     SchemaScannerParam()
-            : db(NULL),
-              table(NULL),
-              wild(NULL),
-              user(NULL),
-              user_ip(NULL),
-              current_user_ident(NULL),
-              ip(NULL),
+            : db(nullptr),
+              table(nullptr),
+              wild(nullptr),
+              user(nullptr),
+              user_ip(nullptr),
+              current_user_ident(nullptr),
+              ip(nullptr),
               port(0) {}
 };
 

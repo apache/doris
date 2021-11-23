@@ -47,7 +47,7 @@ Status TupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& r
 BooleanVal TupleIsNullPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row) {
     int count = 0;
     for (int i = 0; i < _tuple_idxs.size(); ++i) {
-        count += row->get_tuple(_tuple_idxs[i]) == NULL;
+        count += row->get_tuple(_tuple_idxs[i]) == nullptr;
     }
     return BooleanVal(!_tuple_idxs.empty() && count == _tuple_idxs.size());
 }

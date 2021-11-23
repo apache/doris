@@ -27,6 +27,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
@@ -45,6 +46,7 @@ import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
 import org.apache.doris.analysis.TransactionStmt;
+import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
@@ -195,6 +197,13 @@ public class StmtExecutor implements ProfileWriter {
     private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
         long currentTimestamp = System.currentTimeMillis();
         long totalTimeMs = currentTimestamp - context.getStartTime();
+        RuntimeProfile queryProfile;
+        // when a query hits the sql cache, `coord` is null.
+        if (coord == null) {
+            queryProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(context.queryId()));
+        } else {
+            queryProfile = coord.getQueryProfile();
+        }
         if (profile == null) {
             profile = new RuntimeProfile("Query");
             summaryProfile = new RuntimeProfile("Summary");
@@ -216,7 +225,7 @@ public class StmtExecutor implements ProfileWriter {
 
             plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
             summaryProfile.addChild(plannerRuntimeProfile);
-            profile.addChild(coord.getQueryProfile());
+            profile.addChild(queryProfile);
         } else {
             summaryProfile.addInfoString(ProfileManager.END_TIME,
                     waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
@@ -227,8 +236,10 @@ public class StmtExecutor implements ProfileWriter {
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
-        coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
-        coord.endProfile(waiteBeReport);
+        queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
+        if (coord != null) {
+            coord.endProfile(waiteBeReport);
+        }
     }
 
     public Planner planner() {
@@ -389,25 +400,30 @@ public class StmtExecutor implements ProfileWriter {
                 handleKill();
             } else if (parsedStmt instanceof ExportStmt) {
                 handleExportStmt();
+            } else if (parsedStmt instanceof UnlockTablesStmt) {
+                handleUnlockTablesStmt();
+            } else if (parsedStmt instanceof LockTablesStmt) {
+                handleLockTablesStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
             } else {
-                context.getState().setError("Do not support this query.");
+                context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
             }
         } catch (IOException e) {
             LOG.warn("execute IOException ", e);
             // the exception happens when interact with client
             // this exception shows the connection is gone
-            context.getState().setError(e.getMessage());
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw e;
         } catch (UserException e) {
             // analysis exception only print message, not print the stack
             LOG.warn("execute Exception. {}", e.getMessage());
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
             LOG.warn("execute Exception", e);
-            context.getState().setError(e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -422,7 +438,7 @@ public class StmtExecutor implements ProfileWriter {
                 sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value.", e);
-                context.getState().setError(e.getMessage());
+                context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
             if (!context.isTxnModel() && parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
@@ -692,7 +708,7 @@ public class StmtExecutor implements ProfileWriter {
             executor.execute();
         } catch (DdlException e) {
             // Return error message to client.
-            context.getState().setError(e.getMessage());
+            context.getState().setError(ErrorCode.ERR_LOCAL_VARIABLE, e.getMessage());
             return;
         }
         context.getState().setOk();
@@ -1215,7 +1231,8 @@ public class StmtExecutor implements ProfileWriter {
                 // if in strict mode, insert will fail if there are filtered rows
                 if (context.getSessionVariable().getEnableInsertStrict()) {
                     if (filteredRows > 0) {
-                        context.getState().setError("Insert has filtered data in strict mode, tracking_url="
+                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT, "Insert has filtered data in strict mode, " +
+                                "tracking_url="
                                 + coord.getTrackingUrl());
                         return;
                     }
@@ -1262,7 +1279,7 @@ public class StmtExecutor implements ProfileWriter {
                     if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
                         sb.append(". url: " + coord.getTrackingUrl());
                     }
-                    context.getState().setError(sb.toString());
+                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
                     return;
                 }
 
@@ -1333,7 +1350,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             context.getCatalog().changeDb(context, useStmt.getDatabase());
         } catch (DdlException e) {
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
         context.getState().setOk();
@@ -1375,6 +1392,7 @@ public class StmtExecutor implements ProfileWriter {
         eofPacket.writeTo(serializer);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
+
     public void sendResult(ResultSet resultSet) throws IOException {
         context.updateReturnRows(resultSet.getResultRows().size());
         // Send meta data.
@@ -1411,6 +1429,10 @@ public class StmtExecutor implements ProfileWriter {
         sendResult(resultSet);
     }
 
+    private void handleUnlockTablesStmt() {
+    }
+    private void handleLockTablesStmt() {
+    }
     private void handleExplainStmt(String result) throws IOException {
         ShowResultSetMetaData metaData =
                 ShowResultSetMetaData.builder()
@@ -1436,11 +1458,11 @@ public class StmtExecutor implements ProfileWriter {
         } catch (UserException e) {
             // Return message to info client what happened.
             LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
         } catch (Exception e) {
             // Maybe our bug
             LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
-            context.getState().setError("Unexpected exception: " + e.getMessage());
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
     }
 
@@ -1451,7 +1473,7 @@ public class StmtExecutor implements ProfileWriter {
             context.getCatalog().changeCluster(context, enterStmt.getClusterName());
             context.setDatabase("");
         } catch (DdlException e) {
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
         context.getState().setOk();

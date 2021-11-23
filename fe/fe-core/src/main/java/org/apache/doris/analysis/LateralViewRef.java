@@ -98,6 +98,9 @@ public class LateralViewRef extends TableRef {
         if (originColumn == null) {
             throw new AnalysisException("The explode column must be a real column in table");
         }
+        if (!originColumn.getType().isStringType()) {
+           throw new AnalysisException("The explode column must be VARCHAR/CHAR/STRING type");
+        }
         // analyze lateral view
         desc = analyzer.registerTableRef(this);
         explodeSlotRef = new SlotRef(new TableName(null, viewName), columnName);

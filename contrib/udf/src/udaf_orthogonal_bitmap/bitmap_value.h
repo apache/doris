@@ -178,7 +178,7 @@ public:
     /**
      * Construct a roaring object from the C struct.
      *
-     * Passing a NULL point is unsafe.
+     * Passing a nullptr point is unsafe.
      */
     Roaring64Map(roaring_bitmap_t* s) { emplaceOrInsert(0, s); }
 
@@ -413,14 +413,14 @@ public:
         // we put std::numeric_limits<>::max/min in parenthesis
         // to avoid a clash with the Windows.h header under Windows
         return roarings.size() == ((size_t)(std::numeric_limits<uint32_t>::max)()) + 1
-                       ? std::all_of(roarings.cbegin(), roarings.cend(),
-                                     [](const std::pair<const uint32_t, Roaring>& roaring_map_entry) {
-                                         // roarings within map are saturated if cardinality
-                                         // is uint32_t max + 1
-                                         return roaring_map_entry.second.cardinality() ==
-                                                ((uint64_t)(std::numeric_limits<uint32_t>::max)()) +
-                                                        1;
-                                     })
+                       ? std::all_of(
+                                 roarings.cbegin(), roarings.cend(),
+                                 [](const std::pair<const uint32_t, Roaring>& roaring_map_entry) {
+                                     // roarings within map are saturated if cardinality
+                                     // is uint32_t max + 1
+                                     return roaring_map_entry.second.cardinality() ==
+                                            ((uint64_t)(std::numeric_limits<uint32_t>::max)()) + 1;
+                                 })
                        : false;
     }
 
@@ -591,7 +591,7 @@ public:
 
     /**
      * Iterate over the bitmap elements. The function iterator is called once
-     * for all the values with ptr (can be NULL) as the second parameter of each
+     * for all the values with ptr (can be nullptr) as the second parameter of each
      * call.
      *
      * roaring_iterator is simply a pointer to a function that returns bool
@@ -729,11 +729,12 @@ public:
         }
         // start with type code, map size and size of keys for each map entry
         size_t init = 1 + varint_length(roarings.size()) + roarings.size() * sizeof(uint32_t);
-        return std::accumulate(roarings.cbegin(), roarings.cend(), init,
-                               [=](size_t previous, const std::pair<const uint32_t, Roaring>& map_entry) {
-                                   // add in bytes used by each Roaring
-                                   return previous + map_entry.second.getSizeInBytes();
-                               });
+        return std::accumulate(
+                roarings.cbegin(), roarings.cend(), init,
+                [=](size_t previous, const std::pair<const uint32_t, Roaring>& map_entry) {
+                    // add in bytes used by each Roaring
+                    return previous + map_entry.second.getSizeInBytes();
+                });
     }
 
     /**
@@ -803,16 +804,17 @@ public:
                         return true;
                     },
                     (void*)&outer_iter_data);
-            std::for_each(
-                    ++map_iter, roarings.cend(), [](const std::pair<const uint32_t, Roaring>& map_entry) {
-                        map_entry.second.iterate(
-                                [](uint32_t low_bits, void* high_bits) -> bool {
-                                    std::printf(",%llu", (long long unsigned)uniteBytes(
-                                                                 *(uint32_t*)high_bits, low_bits));
-                                    return true;
-                                },
-                                (void*)&map_entry.first);
-                    });
+            std::for_each(++map_iter, roarings.cend(),
+                          [](const std::pair<const uint32_t, Roaring>& map_entry) {
+                              map_entry.second.iterate(
+                                      [](uint32_t low_bits, void* high_bits) -> bool {
+                                          std::printf(",%llu",
+                                                      (long long unsigned)uniteBytes(
+                                                              *(uint32_t*)high_bits, low_bits));
+                                          return true;
+                                      },
+                                      (void*)&map_entry.first);
+                          });
         } else
             std::printf("{");
         std::printf("}\n");
