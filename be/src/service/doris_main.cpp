@@ -46,6 +46,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/minidump.h"
+#include "runtime/tcmalloc_hook.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -75,7 +76,7 @@ static void thrift_output(const char* x) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-
+    init_hook();
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {

@@ -93,7 +93,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _extdatasource_client_cache =
             new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
-    _pool_mem_trackers = new PoolMemTrackerRegistry();
+    _query_mem_trackers = new QueryMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
     _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
                                                config::doris_scanner_thread_pool_queue_size);
@@ -177,6 +177,12 @@ Status ExecEnv::_init_mem_tracker() {
                                              MemTracker::GetRootTracker(), false, false,
                                              MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(query_mem_consumption, [this]() { return _mem_tracker->consumption(); });
+    // TODO(zxy): Will replace _mem_tracker as process_mem_tracker in future.
+    // The statistic memory consumption is duplicated with _mem_tracker,
+    // which will cause the RootTracker statistic value to be much larger than actual,
+    _hook_mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "TcmallocHook Process",
+                                                  MemTracker::GetRootTracker(), false, false,
+                                                  MemTrackerLevel::OVERVIEW);
     LOG(INFO) << "Using global memory limit: "
               << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
               << ", origin config value: " << config::mem_limit;
@@ -300,7 +306,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
-    SAFE_DELETE(_pool_mem_trackers);
+    SAFE_DELETE(_query_mem_trackers);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_extdatasource_client_cache);
     SAFE_DELETE(_frontend_client_cache);

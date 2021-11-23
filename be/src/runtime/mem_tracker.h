@@ -22,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <parallel_hashmap/phmap.h>
 #include <queue>
 #include <string>
 #include <unordered_map>
@@ -116,8 +117,6 @@ public:
 
     // Gets a shared_ptr to the "root" tracker, creating it if necessary.
     static std::shared_ptr<MemTracker> GetRootTracker();
-
-    // delete static CreateQueryMemTracker(), cuz it cannot use shared tracker
 
     /// Increases consumption of this tracker and its ancestors by 'bytes'.
     void Consume(int64_t bytes) {
@@ -311,6 +310,14 @@ public:
     }
     const std::string& label() const { return label_; }
 
+    std::string query_id() {
+        return query_id_;
+    }
+    void set_query_id(const std::string& query_id) {
+        query_id_ = query_id;
+        is_query_mem_tracker_ = true;
+    }
+
     /// Returns the lowest limit for this tracker and its ancestors. Returns
     /// -1 if there is no limit.
     int64_t GetLowestLimit(MemLimit mode) const;
@@ -431,7 +438,7 @@ private:
                const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero, MemTrackerLevel);
 
 private:
-    friend class PoolMemTrackerRegistry;
+    friend class QueryMemTrackerRegistry;
 
     // TODO(HW): remove later
     /// Closes this MemTracker. After closing it is invalid to consume memory on this
@@ -499,14 +506,11 @@ private:
     /// Lock to protect GcMemory(). This prevents many GCs from occurring at once.
     std::mutex gc_lock_;
 
-    /// Only used if 'is_query_mem_tracker_' is true.
-    /// 0 if the query is still executing or 1 if it has finished executing. Before
-    /// it has finished executing, the tracker limit is treated as "reserved memory"
-    /// for the purpose of admission control - see GetPoolMemReserved().
-    std::atomic<int32_t> query_exec_finished_ {0};
+    /// True if this is a Query MemTracker returned from RegisterQueryMemTracker().
+    bool is_query_mem_tracker_ = false;
 
-    /// Only valid for MemTrackers returned from GetRequestPoolMemTracker()
-    std::string pool_name_;
+    /// Only valid for MemTrackers returned from RegisterQueryMemTracker()
+    std::string query_id_;
 
     /// Hard limit on memory consumption, in bytes. May not be exceeded. If limit_ == -1,
     /// there is no consumption limit.
@@ -573,33 +577,32 @@ private:
     IntGauge* limit_metric_;
 };
 
-/// Global registry for query and pool MemTrackers. Owned by ExecEnv.
-class PoolMemTrackerRegistry {
+// Global registry for query MemTrackers. Owned by ExecEnv.
+class QueryMemTrackerRegistry {
 public:
-    /// Returns a MemTracker object for request pool 'pool_name'. Calling this with the same
-    /// 'pool_name' will return the same MemTracker object. This is used to track the local
-    /// memory usage of all requests executing in this pool. If 'create_if_not_present' is
-    /// true, the first time this is called for a pool, a new MemTracker object is created
-    /// with the process tracker as its parent. There is no explicit per-pool byte_limit
-    /// set at any particular impalad, so newly created trackers will always have a limit
-    /// of -1.
-    /// TODO(cmy): this function is not used for now. the memtracker returned from here is
-    ///            got from a shared_ptr in `pool_to_mem_trackers_`.
-    ///            This funtion is from
-    ///            https://github.com/cloudera/Impala/blob/495397101e5807c701df71ea288f4815d69c2c8a/be/src/runtime/mem-tracker.h#L497
-    ///            And in impala this function will return a raw pointer.
-    std::shared_ptr<MemTracker> GetRequestPoolMemTracker(const std::string& pool_name,
-                                                         bool create_if_not_present);
+    // Construct a MemTracker object for 'query_id' with 'mem_limit' as the memory limit.
+    // The MemTracker is a child of the process MemTracker, Calling this with the same
+    // 'query_id' will return the same MemTracker object. This is used to track the local
+    // memory usage of all querys executing. The first time this is called for a query,
+    // a new MemTracker object is created with the process tracker as its parent.
+    // Newly created trackers will always have a limit of -1.
+    std::shared_ptr<MemTracker> RegisterQueryMemTracker(const std::string& query_id,
+            int64_t mem_limit = -1);
 
 private:
-    /// All per-request pool MemTracker objects. It is assumed that request pools will live
-    /// for the entire duration of the process lifetime so MemTrackers are never removed
-    /// from this map. Protected by '_pool_to_mem_trackers_lock'
-    typedef std::unordered_map<std::string, std::shared_ptr<MemTracker>> PoolTrackersMap;
-    PoolTrackersMap pool_to_mem_trackers_;
-    /// IMPALA-3068: Use SpinLock instead of std::mutex so that the lock won't
-    /// automatically destroy itself as part of process teardown, which could cause races.
-    SpinLock pool_to_mem_trackers_lock_;
+    // All per-query MemTracker objects.
+    // The life cycle of Query memtracker in the process is the same as `query_timeout`,
+    // MemTrackers will be removed from this map after timeout.
+    using QueryTrackersMap = phmap::parallel_flat_hash_map<
+            std::string, std::shared_ptr<MemTracker>,
+            phmap::priv::hash_default_hash<std::string>,
+            phmap::priv::hash_default_eq<std::string>,
+            std::allocator<std::pair<const std::string, std::shared_ptr<MemTracker>>>,
+            12, std::mutex>;
+    QueryTrackersMap _query_mem_trackers;
+    // Use SpinLock instead of std::mutex so that the lock won't
+    // automatically destroy itself as part of process teardown, which could cause races.
+    SpinLock _query_mem_trackers_lock;
 };
 
 } // namespace doris

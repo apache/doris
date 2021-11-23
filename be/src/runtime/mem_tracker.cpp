@@ -57,8 +57,8 @@ namespace doris {
 
 const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
-// Name for request pool MemTrackers. '$0' is replaced with the pool name.
-const std::string REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT = "RequestPool=$0";
+// Name for query MemTrackers. '$0' is replaced with the query id.
+const std::string QUERY_MEM_TRACKER_LABEL_FORMAT = "queryId=$0";
 
 /// Calculate the soft limit for a MemTracker based on the hard limit 'limit'.
 static int64_t CalcSoftLimit(int64_t limit) {
@@ -213,8 +213,6 @@ void MemTracker::RefreshConsumptionFromMetric() {
 }
 
 int64_t MemTracker::GetPoolMemReserved() {
-    // Pool trackers should have a pool_name_ and no limit.
-    DCHECK(!pool_name_.empty());
     DCHECK_EQ(limit_, -1) << LogUsage(UNLIMITED_DEPTH);
 
     // Use cache to avoid holding child_trackers_lock_
@@ -242,23 +240,34 @@ int64_t MemTracker::GetPoolMemReserved() {
     return mem_reserved;
 }
 
-std::shared_ptr<MemTracker> PoolMemTrackerRegistry::GetRequestPoolMemTracker(
-        const string& pool_name, bool create_if_not_present) {
-    DCHECK(!pool_name.empty());
-    lock_guard<SpinLock> l(pool_to_mem_trackers_lock_);
-    PoolTrackersMap::iterator it = pool_to_mem_trackers_.find(pool_name);
-    if (it != pool_to_mem_trackers_.end()) {
+std::shared_ptr<MemTracker> QueryMemTrackerRegistry::RegisterQueryMemTracker(const std::string& query_id,
+        int64_t mem_limit) {
+    DCHECK(!query_id.empty());
+    if (mem_limit != -1) {
+        if (mem_limit > MemInfo::physical_mem()) {
+        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(mem_limit, TUnit::BYTES)
+                    << " exceeds physical memory of "
+                    << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES);
+        }
+        VLOG(2) << "Using query memory limit: "
+                << PrettyPrinter::print(mem_limit, TUnit::BYTES);
+    }
+
+    lock_guard<SpinLock> l(_query_mem_trackers_lock);
+    QueryTrackersMap::iterator it = _query_mem_trackers.find(query_id);
+    if (it != _query_mem_trackers.end()) {
         MemTracker* tracker = it->second.get();
-        DCHECK(pool_name == tracker->pool_name_);
+        DCHECK(query_id == tracker->query_id());
         return it->second;
     }
-    if (!create_if_not_present) return nullptr;
-    // First time this pool_name registered, make a new object.
+
+    // First time this query_id registered, make a new object.
     std::shared_ptr<MemTracker> tracker = MemTracker::CreateTracker(
-            -1, strings::Substitute(REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT, pool_name),
-            ExecEnv::GetInstance()->process_mem_tracker());
-    tracker->pool_name_ = pool_name;
-    pool_to_mem_trackers_.emplace(pool_name, std::shared_ptr<MemTracker>(tracker));
+            mem_limit, strings::Substitute(QUERY_MEM_TRACKER_LABEL_FORMAT, query_id),
+            ExecEnv::GetInstance()->hook_process_mem_tracker(), false, false,
+            MemTrackerLevel::OVERVIEW);
+    tracker->set_query_id(query_id);
+    _query_mem_trackers.emplace(query_id, std::shared_ptr<MemTracker>(tracker));
     return tracker;
 }
 
@@ -471,7 +480,7 @@ void MemTracker::GetTopNQueries(
 
 MemTracker* MemTracker::GetQueryMemTracker() {
     MemTracker* tracker = this;
-    while (tracker != nullptr) {
+    while (tracker != nullptr && !tracker->is_query_mem_tracker_) {
         tracker = tracker->parent_.get();
     }
     return tracker;

@@ -28,6 +28,7 @@
 #include "exec/scan_node.h"
 #include "exprs/expr.h"
 #include "runtime/data_stream_mgr.h"
+#include "runtime/thread_status.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
@@ -86,6 +87,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_query_fragments_ctx(fragments_ctx);
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
+    current_thread.attach_query(_query_id);
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);

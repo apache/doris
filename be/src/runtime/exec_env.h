@@ -45,7 +45,7 @@ class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
 class StorageEngine;
-class PoolMemTrackerRegistry;
+class QueryMemTrackerRegistry;
 class PriorityThreadPool;
 class ReservationTracker;
 class ResultBufferMgr;
@@ -96,6 +96,7 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
+    bool is_init() { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
@@ -116,7 +117,8 @@ public:
     }
 
     std::shared_ptr<MemTracker> process_mem_tracker() { return _mem_tracker; }
-    PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
+    std::shared_ptr<MemTracker> hook_process_mem_tracker() { return _hook_mem_tracker; }
+    QueryMemTrackerRegistry* query_mem_trackers() { return _query_mem_trackers; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
@@ -181,7 +183,8 @@ private:
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
     ClientCache<TExtDataSourceServiceClient>* _extdatasource_client_cache = nullptr;
     std::shared_ptr<MemTracker> _mem_tracker;
-    PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
+    std::shared_ptr<MemTracker> _hook_mem_tracker = nullptr;
+    QueryMemTrackerRegistry* _query_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
 
     // The following two thread pools are used in different scenarios.

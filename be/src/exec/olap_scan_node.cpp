@@ -29,6 +29,7 @@
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/thread_status.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -1501,6 +1502,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    current_thread.attach_query(scanner->runtime_state()->query_id());
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
@@ -1659,6 +1661,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // and transfer thread
     _scan_batch_added_cv.notify_one();
     _scan_thread_exit_cv.notify_one();
+    current_thread.update_mem_tracker(nullptr);
 }
 
 Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
