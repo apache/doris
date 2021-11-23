@@ -43,13 +43,13 @@ public:
     }
 
     Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const override {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
     Status read_all(std::string* content) const override {
         return _storage_backend->direct_download(_filename, content);
     }
     Status size(uint64_t* size) const override {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     const std::string& file_name() const override { return _filename; }
@@ -87,7 +87,7 @@ public:
     }
 
     Status pre_allocate(uint64_t size) override {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status close() override {
@@ -118,35 +118,35 @@ public:
     ~RemoteRandomRWFile() { WARN_IF_ERROR(close(), "Failed to close " + _path_desc.filepath); }
 
     virtual Status read_at(uint64_t offset, const Slice& result) const {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status write_at(uint64_t offset, const Slice& data) {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status writev_at(uint64_t offset, const Slice* data, size_t data_cnt) {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status flush(FlushMode mode, uint64_t offset, size_t length) {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status sync() {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status close() {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     Status size(uint64_t* size) const {
-        return Status::NotSupport("No support", 1, "");
+        return Status::NotSupported("No support", 1, "");
     }
 
     const string& filename() const { return _path_desc.filepath; }
@@ -246,7 +246,7 @@ Status RemoteEnv::create_dir_if_missing(const string& dirname, bool* created) {
         *created = true;
         return Status::OK();
     }
-    return storage_backend->mkdir(name);
+    return storage_backend->mkdir(dirname);
 }
 
 Status RemoteEnv::create_dirs(const string& dirname) {
