@@ -54,6 +54,7 @@ Note: For different versions of Doris, you need to download the corresponding mi
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x |
 | apache/incubator-doris:build-env-1.4.1 | [24d3861](https://github.com/apache/incubator-doris/commit/24d38614a0f21ed606462816a262c2e1d8273ace) or later | 1.15.0 or later |
+| apache/incubator-doris:build-env-1.4.2 | [00e653e](https://github.com/apache/incubator-doris/commit/00e653e812a769258f38e401ea7650b6aea5be51) or later | 1.15.0 or later |
 
 **note**:
 
