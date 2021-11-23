@@ -397,7 +397,7 @@ Status FileBlockManager::create_block(const CreateBlockOptions& opts,
     shared_ptr<WritableFile> writer;
     WritableFileOptions wr_opts;
     wr_opts.mode = Env::MUST_CREATE;
-    RETURN_IF_ERROR(env_util::open_file_for_write(wr_opts, _env, opts.path_desc, &writer));
+    RETURN_IF_ERROR(env_util::open_file_for_write(wr_opts, _env, opts.path_desc.filepath, &writer));
 
     VLOG_CRITICAL << "Creating new block at " << opts.path_desc.filepath;
     block->reset(new internal::FileWritableBlock(this, opts.path_desc, writer));
