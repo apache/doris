@@ -115,7 +115,8 @@ private:
 
     int _max_buffered_batches;
 
-    std::vector<ExprContext*> _pre_filter_ctxs;
+    // std::vector<ExprContext*> _pre_filter_ctxs;
+    std::vector<TExpr> _pre_filter_texprs;
 
     RuntimeProfile::Counter* _wait_scanner_timer;
 };

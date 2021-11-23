@@ -51,8 +51,8 @@ Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     auto& broker_scan_node = tnode.broker_scan_node;
 
     if (broker_scan_node.__isset.pre_filter_exprs) {
-        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, broker_scan_node.pre_filter_exprs,
-                                                &_pre_filter_ctxs));
+        // RETURN_IF_ERROR(Expr::create_expr_trees(_pool, broker_scan_node.pre_filter_exprs, &_pre_filter_ctxs));
+        _pre_filter_texprs = broker_scan_node.pre_filter_exprs;
     }
 
     return Status::OK();
@@ -80,9 +80,9 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
         }
     }
 
-    if (_pre_filter_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, state, row_desc(), expr_mem_tracker()));
-    }
+    //if (_pre_filter_ctxs.size() > 0) {
+        // RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, state, row_desc(), expr_mem_tracker()));
+    // }
 
     // Profile
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
@@ -96,9 +96,9 @@ Status BrokerScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
 
-    if (_pre_filter_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, state));
-    }
+    //if (_pre_filter_ctxs.size() > 0) {
+        // RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, state));
+    //}
 
     RETURN_IF_ERROR(start_scanners());
 
@@ -208,9 +208,9 @@ Status BrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    if (_pre_filter_ctxs.size() > 0) {
-        Expr::close(_pre_filter_ctxs, state);
-    }
+    //if (_pre_filter_ctxs.size() > 0) {
+        // Expr::close(_pre_filter_ctxs, state);
+    //}
 
     // Close
     _batch_queue.clear();
@@ -236,22 +236,22 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
     case TFileFormatType::FORMAT_PARQUET:
         scan = new ParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
                                   scan_range.ranges, scan_range.broker_addresses,
-                                  pre_filter_ctxs, counter);
+                                  _pre_filter_texprs, counter);
         break;
     case TFileFormatType::FORMAT_ORC:
         scan = new ORCScanner(_runtime_state, runtime_profile(), scan_range.params,
                               scan_range.ranges, scan_range.broker_addresses,
-                              pre_filter_ctxs, counter);
+                              _pre_filter_texprs, counter);
         break;
     case TFileFormatType::FORMAT_JSON:
         scan = new JsonScanner(_runtime_state, runtime_profile(), scan_range.params,
                                scan_range.ranges, scan_range.broker_addresses,
-                               pre_filter_ctxs, counter);
+                               _pre_filter_texprs, counter);
         break;
     default:
         scan = new BrokerScanner(_runtime_state, runtime_profile(), scan_range.params,
                                  scan_range.ranges, scan_range.broker_addresses,
-                                 pre_filter_ctxs, counter);
+                                 _pre_filter_texprs, counter);
     }
     std::unique_ptr<BaseScanner> scanner(scan);
     return scanner;
@@ -361,7 +361,7 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
 
     std::vector<ExprContext*> pre_filter_ctxs;
     if (status.ok()) {
-        status = Expr::clone_if_not_exists(_pre_filter_ctxs, _runtime_state, &pre_filter_ctxs);
+        // status = Expr::clone_if_not_exists(_pre_filter_ctxs, _runtime_state, &pre_filter_ctxs);
     }
 
     ScannerCounter counter;
