@@ -70,7 +70,8 @@ public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteR
                 return expr;
             }
             // Case C
-            return new NullLiteral();
+            throw new AnalysisException("date literal [" + dateStr + "] is invalid");
+            //return new NullLiteral();
         } else {
             if (valueExpr.contains(NOT_LITERAL_EXPR_PREDICATE)) {
                 return expr;
