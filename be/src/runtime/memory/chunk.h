@@ -27,9 +27,9 @@ namespace doris {
 // will result in recompilation of all files. So, we put it in a
 // file to keep this file simple and infrequently changed.
 struct Chunk {
-    uint8_t* data;
-    size_t size;
-    int core_id;
+    uint8_t* data = nullptr;
+    size_t size = 0;
+    int core_id = -1;
 };
 
 } // namespace doris
