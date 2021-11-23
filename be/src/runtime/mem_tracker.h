@@ -95,12 +95,13 @@ public:
             int64_t byte_limit = -1, const std::string& label = std::string(),
             std::shared_ptr<MemTracker> parent = std::shared_ptr<MemTracker>(),
             bool log_usage_if_zero = true, bool reset_label_name = true,
-            MemTrackerLevel level = MemTrackerLevel::VERBOSE);
+            MemTrackerLevel level = MemTrackerLevel::VERBOSE, std::string query_id = std::string());
 
     static std::shared_ptr<MemTracker> CreateTracker(
             RuntimeProfile* profile, int64_t byte_limit, const std::string& label = std::string(),
             const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
-            bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
+            bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE,
+            std::string query_id = std::string());
 
     // this is used for creating an orphan mem tracker, or for unit test.
     // If a mem tracker has parent, it should be created by `CreateTracker()`
@@ -314,8 +315,10 @@ public:
         return query_id_;
     }
     void set_query_id(const std::string& query_id) {
-        query_id_ = query_id;
-        is_query_mem_tracker_ = true;
+        if (query_id != std::string()) {
+            query_id_ = query_id;
+            is_query_mem_tracker_ = true;
+        }
     }
 
     /// Returns the lowest limit for this tracker and its ancestors. Returns
@@ -587,22 +590,21 @@ public:
     // a new MemTracker object is created with the process tracker as its parent.
     // Newly created trackers will always have a limit of -1.
     std::shared_ptr<MemTracker> RegisterQueryMemTracker(const std::string& query_id,
-            int64_t mem_limit = -1);
+                                                        int64_t mem_limit = -1);
+
+    void DeregisterQueryMemTracker(const std::string& query_id);
 
 private:
     // All per-query MemTracker objects.
-    // The life cycle of Query memtracker in the process is the same as `query_timeout`,
-    // MemTrackers will be removed from this map after timeout.
+    // The life cycle of query memtracker in the process is the same as query runtime state,
+    // MemTrackers will be removed from this map after query finish or cancel.
     using QueryTrackersMap = phmap::parallel_flat_hash_map<
-            std::string, std::shared_ptr<MemTracker>,
-            phmap::priv::hash_default_hash<std::string>,
+            std::string, std::shared_ptr<MemTracker>, phmap::priv::hash_default_hash<std::string>,
             phmap::priv::hash_default_eq<std::string>,
-            std::allocator<std::pair<const std::string, std::shared_ptr<MemTracker>>>,
-            12, std::mutex>;
+            std::allocator<std::pair<const std::string, std::shared_ptr<MemTracker>>>, 12,
+            std::mutex>;
+
     QueryTrackersMap _query_mem_trackers;
-    // Use SpinLock instead of std::mutex so that the lock won't
-    // automatically destroy itself as part of process teardown, which could cause races.
-    SpinLock _query_mem_trackers_lock;
 };
 
 } // namespace doris

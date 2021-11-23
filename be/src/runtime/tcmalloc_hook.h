@@ -19,8 +19,6 @@
 #include <gperftools/nallocx.h>
 #include <gperftools/tcmalloc.h>
 
-#include <cassert>
-
 #include "runtime/thread_status.h"
 
 static int new_hook_calls = 0;
@@ -37,11 +35,11 @@ void delete_hook(const void* ptr) {
 }
 
 void init_hook() {
-    assert(MallocHook::AddNewHook(&new_hook));
-    assert(MallocHook::AddDeleteHook(&delete_hook));
+    MallocHook::AddNewHook(&new_hook);
+    MallocHook::AddDeleteHook(&delete_hook);
 }
 
 void destroy_hook() {
-    assert(MallocHook::RemoveNewHook(&new_hook));
-    assert(MallocHook::RemoveDeleteHook(&delete_hook));
+    MallocHook::RemoveNewHook(&new_hook);
+    MallocHook::RemoveDeleteHook(&delete_hook);
 }

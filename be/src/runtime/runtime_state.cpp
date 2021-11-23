@@ -159,6 +159,7 @@ RuntimeState::~RuntimeState() {
     if (_buffer_reservation != nullptr) {
         _buffer_reservation->Close();
     }
+    _exec_env->query_mem_trackers()->DeregisterQueryMemTracker(doris::print_id(_query_id));
 }
 
 Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
