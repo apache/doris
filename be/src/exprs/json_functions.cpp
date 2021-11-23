@@ -349,7 +349,7 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     if (!json_state->document.IsNull()) {
         document = &json_state->document;
     } else {
-        document->Parse(json_string.c_str());
+        document->Parse(json_string.data(), json_string.length());
         //rapidjson::Document document;
         if (UNLIKELY(document->HasParseError())) {
             VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
