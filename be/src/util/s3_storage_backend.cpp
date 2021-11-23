@@ -26,6 +26,7 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <boost/algorithm/string.hpp>
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
