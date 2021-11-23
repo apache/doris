@@ -251,6 +251,11 @@ public class FEFunctions {
         return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
     }
 
+    @FEFunction(name = "current_date", argTypes = {}, returnType = "DATE")
+    public static DateLiteral currentDate() throws AnalysisException {
+        return curDate();
+    }
+
     @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
     public static FloatLiteral curTime() throws AnalysisException {
         DateLiteral now = now();
