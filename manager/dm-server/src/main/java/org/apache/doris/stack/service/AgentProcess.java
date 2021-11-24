@@ -18,6 +18,7 @@
 package org.apache.doris.stack.service;
 
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
+import org.apache.doris.manager.common.domain.HardwareInfo;
 import org.apache.doris.stack.model.request.BeJoinReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
@@ -55,4 +56,6 @@ public interface AgentProcess {
     List<Integer> execute(DorisExecReq dorisExec);
 
     Object log(String host, String type);
+
+    HardwareInfo hardwareInfo(String host);
 }

@@ -29,6 +29,7 @@ import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.FeStartCommandRequestBody;
+import org.apache.doris.manager.common.domain.HardwareInfo;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
@@ -559,5 +560,12 @@ public class AgentProcessImpl implements AgentProcess {
         } else {
             return "fetch log fail";
         }
+    }
+
+    @Override
+    public HardwareInfo hardwareInfo(String host) {
+        int port = agentCache.agentPort(host);
+        HardwareInfo hardwareInfo = agentRest.hardwareInfo(host, port);
+        return hardwareInfo;
     }
 }

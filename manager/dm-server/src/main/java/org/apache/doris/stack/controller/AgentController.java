@@ -119,4 +119,14 @@ public class AgentController {
     public RResult log(@RequestParam String host, @RequestParam String type) {
         return RResult.success(agentProcess.log(host, type));
     }
+
+    /**
+     * query hardware info
+     */
+    @ApiOperation(value = "query hardware info")
+    @RequestMapping(value = "/hardware", method = RequestMethod.GET)
+    public RResult hardwareInfo(@RequestParam String host) {
+        return RResult.success(agentProcess.hardwareInfo(host));
+    }
+
 }
