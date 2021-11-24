@@ -181,7 +181,9 @@ void HashTable::resize_buckets(int64_t num_buckets) {
 
     int64_t old_num_buckets = _num_buckets;
     int64_t delta_bytes = (num_buckets - old_num_buckets) * sizeof(Bucket);
-    if (!_mem_tracker->TryConsume(delta_bytes)) {
+    Status st = _mem_tracker->TryConsume(delta_bytes);
+    WARN_IF_ERROR(st, "resize bucket failed");
+    if (!st) {
         mem_limit_exceeded(delta_bytes);
         return;
     }
