@@ -344,6 +344,7 @@ public class Coordinator {
             }
             this.exportFiles.clear();
             this.needCheckBackendExecStates.clear();
+            this.alreadySentBackendIds.clear();
         } finally {
             lock.unlock();
         }
@@ -541,6 +542,7 @@ public class Coordinator {
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
+                    tParam.setBackendId(execState.backend.getId());
 
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
@@ -1536,8 +1538,8 @@ public class Coordinator {
 
         if (params.isSetLoadedRows()) {
             Catalog.getCurrentCatalog().getLoadManager().updateJobProgress(
-                    jobId, params.backend_id, params.query_id, params.fragment_instance_id, params.loaded_rows,
-                    params.done);
+                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
         }
     }
 

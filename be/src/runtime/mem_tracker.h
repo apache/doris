@@ -30,6 +30,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
+#include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
@@ -166,11 +167,16 @@ public:
     /// other callers that may not tolerate allocation failures have a better chance
     /// of success. Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
-    bool TryConsume(int64_t bytes, MemLimit mode = MemLimit::HARD) {
+    Status TryConsume(int64_t bytes, MemLimit mode = MemLimit::HARD) {
         // DCHECK_GE(bytes, 0);
         if (bytes <= 0) {
             Release(-bytes);
-            return true;
+            return Status::OK();
+        }
+        if (MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
+            return Status::MemoryLimitExceeded(fmt::format(
+                    "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
+                    label_, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
         }
         // if (UNLIKELY(bytes == 0)) return true;
         // if (UNLIKELY(bytes < 0)) return false; // needed in RELEASE, hits DCHECK in DEBUG
@@ -189,26 +195,27 @@ public:
                 while (true) {
                     if (LIKELY(tracker->consumption_->try_add(bytes, limit))) break;
 
-                    VLOG_RPC << "TryConsume failed, bytes=" << bytes
-                             << " consumption=" << tracker->consumption_->current_value()
-                             << " limit=" << limit << " attempting to GC";
                     if (UNLIKELY(tracker->GcMemory(limit - bytes))) {
                         DCHECK_GE(i, 0);
                         // Failed for this mem tracker. Roll back the ones that succeeded.
                         for (int j = all_trackers_.size() - 1; j > i; --j) {
                             all_trackers_[j]->consumption_->add(-bytes);
                         }
-                        return false;
+                        return Status::MemoryLimitExceeded(fmt::format(
+                                "{}: TryConsume failed, bytes={} consumption={}  imit={} "
+                                "attempting to GC",
+                                tracker->label(), bytes, tracker->consumption_->current_value(),
+                                limit));
                     }
-                    VLOG_RPC << "GC succeeded, TryConsume bytes=" << bytes
-                             << " consumption=" << tracker->consumption_->current_value()
-                             << " limit=" << limit;
+                    VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
+                                << " consumption=" << tracker->consumption_->current_value()
+                                << " limit=" << limit;
                 }
             }
         }
         // Everyone succeeded, return.
         DCHECK_EQ(i, -1);
-        return true;
+        return Status::OK();
     }
 
     /// Decreases consumption of this tracker and its ancestors by 'bytes'.
@@ -411,7 +418,7 @@ public:
         return msg.str();
     }
 
-    bool is_consumption_metric_null() { return consumption_metric_ == nullptr; }
+    bool is_consumption_metric_null() const { return consumption_metric_ == nullptr; }
 
     static const std::string COUNTER_NAME;
 

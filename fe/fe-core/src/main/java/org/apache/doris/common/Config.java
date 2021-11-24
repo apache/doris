@@ -1394,6 +1394,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long default_db_data_quota_bytes = 1024L * 1024 * 1024 * 1024 * 1024L; // 1PB
 
+    /**
+     * Used to set default db replica quota num.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
+
     /*
      * Maximum percentage of data that can be filtered (due to reasons such as data is irregularly)
      * The default value is 0.
@@ -1459,6 +1465,18 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int grpc_max_message_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
+
+    /**
+     * Used to set minimal number of replication per tablet.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static short min_replication_num_per_tablet = 1;
+
+    /**
+     * Used to set maximal number of replication per tablet.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static short max_replication_num_per_tablet = Short.MAX_VALUE;
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,

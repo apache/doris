@@ -90,8 +90,6 @@ public:
     virtual Status get_data(char** data, int* len) = 0;
     virtual MemTracker* tracker() = 0;
     virtual void light_copy(IBloomFilterFuncBase* other) = 0;
-
-    static IBloomFilterFuncBase* create_bloom_filter(MemTracker* tracker, PrimitiveType type);
 };
 
 template <class BloomFilterAdaptor>

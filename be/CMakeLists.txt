@@ -293,11 +293,14 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 add_library(aws-s2n STATIC IMPORTED)
 set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
 
-add_library(minzip STATIC IMPORTED)
-set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
+add_library(minizip STATIC IMPORTED)
+set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
 add_library(gsasl STATIC IMPORTED)
 set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+
+add_library(breakpad STATIC IMPORTED)
+set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
 
 if (ARCH_AMD64)
     # libhdfs3 only support x86 or amd64
@@ -435,6 +438,7 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
     ${THIRDPARTY_DIR}/include/thrift/
     ${THIRDPARTY_DIR}/include/event/
+    ${THIRDPARTY_DIR}/include/breakpad/
 )
 
 set(WL_START_GROUP "-Wl,--start-group")
@@ -514,7 +518,8 @@ set(COMMON_THIRDPARTY
     orc
     odbc
     cctz
-    minzip
+    minizip
+    breakpad
     ${AWS_LIBS}
 )
 

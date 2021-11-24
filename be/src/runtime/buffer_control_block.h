@@ -97,6 +97,13 @@ public:
         }
     }
 
+    void update_max_peak_memory_bytes() {
+        if (_query_statistics.get() != nullptr) {
+            int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();
+            _query_statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
+        }
+    }
+
 private:
     typedef std::list<std::unique_ptr<TFetchDataResult>> ResultQueue;
 

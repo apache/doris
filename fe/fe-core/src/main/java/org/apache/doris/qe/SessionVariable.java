@@ -165,6 +165,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
 
+    public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -390,6 +392,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
+    @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
+    public boolean sqlQuoteShowCreate = true;
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -520,6 +525,13 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean isSqlQuoteShowCreate() {
+        return sqlQuoteShowCreate;
+    }
+
+    public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
+        this.sqlQuoteShowCreate = sqlQuoteShowCreate;
+    }
     public void setLoadMemLimit(long loadMemLimit) {
         this.loadMemLimit = loadMemLimit;
     }

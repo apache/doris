@@ -201,7 +201,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     int64_t bytes_limit = has_query_mem_tracker ? _query_options.mem_limit : -1;
     // we do not use global query-map  for now, to avoid mem-exceeded different fragments
     // running on the same machine.
-    // TODO(lingbin): open it later. note that open with BufferedBlcokMgr's BlockMgrsMap
+    // TODO(lingbin): open it later. note that open with BufferedBlockMgr's BlockMgrsMap
     // at the same time.
 
     // _query_mem_tracker = MemTracker::get_query_mem_tracker(
