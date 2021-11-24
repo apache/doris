@@ -499,8 +499,8 @@
 > |data.processId |int | 流程id |
 > |data.host |String | 任务运行host |
 > |data.processType |String | 当前安装类型(进度)：INSTALL_AGENT 安装Agent,INSTALL_SERVICE 安装服务,DEPLOY_CONFIG 分发配置,START_SERVICE 启动服务,BUILD_CLUSTER 组件集群     |
-> |data.taskType |String | 任务类型 INSTALL_AGENT 安装Agent,INSTALL_FE 安装FE,INSTALL_BE 安装BE,DEPLOY_FE_CONFIG 分发FE配置,DEPLOY_BE_CONFIG 分发BE配置,START_FE 启动FE,START_BE 启动BE,JOIN_BE BE加入集群    |
-> |data.status |String | 任务执行状态  SUBMITTED 已提交,RUNNING 运行中,SUCCESS 成功,FAILURE 失败 |
+> |data.taskType |String | 任务类型 |
+> |data.status |String | 任务执行状态 |
 > |data.startTime |Date | 任务开始时间 |
 > |data.endTime |Date | 任务终止时间      |
 > |data.finish |int | 任务执行完成标志 |
@@ -733,6 +733,7 @@
 }
 ```
 
+
 #### 13.重试任务
 
 **接口功能**
@@ -814,5 +815,54 @@
 {
     "msg": "success",
     "code": 0
+}
+```
+
+
+#### 15.查看节点硬件信息
+
+**接口功能**
+
+> 查看节点硬件信息
+
+**URL**
+
+> /api/agent/hardware
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> GET
+
+**请求参数**
+无
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.cpu  |String | cpu  |
+> |data.totalMemory  |String | 总内存  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/agent/hardware
+
+> 请求参数：无
+
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0,
+    "data": {
+        "cpu": "Intel(R) Xeon(R) Silver 4116 CPU @ 2.10GHz",
+        "totalMemory": "15.5 GiB"
+    }
 }
 ```

@@ -48,6 +48,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * agent task service
@@ -101,7 +102,9 @@ public class ProcessTaskImpl implements ProcessTask {
         ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessById(processId);
         Preconditions.checkArgument(processEntity != null, "can not find processId " + processId);
         refreshAgentTaskStatus(processId);
-        return taskInstanceRepository.queryTasksByProcessStep(processId, processEntity.getProcessType());
+        List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessStep(processId, processEntity.getProcessType());
+        List<TaskInstanceEntity> resultTasks = taskEntities.stream().filter(m -> !m.getSkip().typeIsYes()).collect(Collectors.toList());
+        return resultTasks;
     }
 
     @Override
