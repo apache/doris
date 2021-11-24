@@ -48,7 +48,7 @@ ClientFactory& ClientFactory::instance() {
     return ret;
 }
 
-bool ClientFactory::is_conf_valid(const std::map<std::string, std::string>& prop) {
+bool ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& prop) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
     if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
         properties.find(S3_ENDPOINT) == properties.end() ||

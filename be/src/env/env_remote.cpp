@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "env/env.h"
@@ -161,9 +162,9 @@ bool RemoteEnv::init_conf() {
     storage_prop[S3_SK] = doris::config::s3_sk;
     storage_prop[S3_ENDPOINT] = doris::config::s3_endpoint;
     storage_prop[S3_REGION] = doris::config::s3_region;
-    storage_prop[S3_MAX_CONN_SIZE] = std::string(doris::config::s3_max_conn);
-    storage_prop[S3_REQUEST_TIMEOUT_MS] = std::string(doris::config::s3_request_timeout_ms);
-    storage_prop[S3_CONN_TIMEOUT_MS] = std::string(doris::config::s3_conn_timeout_ms);
+    storage_prop[S3_MAX_CONN_SIZE] = std::to_string(doris::config::s3_max_conn);
+    storage_prop[S3_REQUEST_TIMEOUT_MS] = std::to_string(doris::config::s3_request_timeout_ms);
+    storage_prop[S3_CONN_TIMEOUT_MS] = std::to_string(doris::config::s3_conn_timeout_ms);
 
     if (ClientFactory::is_s3_conf_valid(storage_prop)) {
         _storage_backend.reset(new S3StorageBackend(storage_prop));
