@@ -38,7 +38,6 @@ import java.util.Properties;
  */
 public class DorisStreamSinkExample {
 
-
     public void testJsonString() throws Exception {
         /*
          * Example for JsonString element
@@ -61,6 +60,34 @@ public class DorisStreamSinkExample {
                                 DorisOptions.builder()
                                         .setFenodes("FE_IP:8030")
                                         .setTableIdentifier("db.table")
+                                        .setUsername("root")
+                                        .setPassword("").build()
+                        ));
+        env.execute("doris stream sink example");
+    }
+
+    public void testJsonStringWithMergeType() throws Exception {
+        /*
+         * Example for JsonString element
+         */
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\",\"flag\":1}")
+                .addSink(
+                        DorisSink.sink(
+                                DorisReadOptions.builder().build(),
+                                DorisExecutionOptions.builder()
+                                        .setBatchSize(3)
+                                        .setBatchIntervalMs(0l)
+                                        .setMaxRetries(3)
+                                        .setJsonFormat()
+                                        .setMergeType(DorisExecutionOptions.MergeType.MERGE)
+                                        .setDeleteLabel("flag=1")
+                                        .build(),
+                                DorisOptions.builder()
+                                        .setFenodes("FE_IP:8030")
+                                        .setTableIdentifier("doris_db.doris_table")
                                         .setUsername("root")
                                         .setPassword("").build()
                         ));
