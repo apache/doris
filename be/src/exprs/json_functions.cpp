@@ -419,7 +419,7 @@ rapidjson::Value* JsonFunctions::get_json_object_from_parsed_json(
     return root;
 }
 
-void JsonFunctions::json_function_prepare(doris_udf::FunctionContext* context,
+void JsonFunctions::json_path_prepare(doris_udf::FunctionContext* context,
                                       doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
@@ -428,13 +428,16 @@ void JsonFunctions::json_function_prepare(doris_udf::FunctionContext* context,
     if (!context->is_arg_constant(0) && !context->is_arg_constant(1)) {
         return;
     }
-    StringVal* json_str = reinterpret_cast<StringVal*>(context->get_constant_arg(0));
-    std::string json_string((char*)json_str->ptr, json_str->len);
-    StringVal* path = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
 
     JsonState* json_state = new JsonState;
 
-    if (!path->is_null) {
+    StringVal* json_str = reinterpret_cast<StringVal*>(context->get_constant_arg(0));
+    if (json_str != nullptr && !json_str->is_null) {
+        std::string json_string((char*)json_str->ptr, json_str->len);
+        json_state->document.Parse(json_string.c_str());
+    }
+    StringVal* path = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
+    if (path != nullptr && !path->is_null) {
         std::string path_str(reinterpret_cast<char*>(path->ptr), path->len);
         boost::tokenizer<boost::escaped_list_separator<char>> tok(
                 path_str, boost::escaped_list_separator<char>("\\", ".", "\""));
@@ -442,15 +445,11 @@ void JsonFunctions::json_function_prepare(doris_udf::FunctionContext* context,
         get_parsed_paths(path_exprs, &json_state->json_paths);
     }
 
-    if (!json_str->is_null) {
-        json_state->document.Parse(json_string.c_str());
-    }
-
     context->set_function_state(scope, json_state);
     VLOG_TRACE << "prepare json path. size: " << json_state->json_paths.size();
 }
 
-void JsonFunctions::json_function_close(doris_udf::FunctionContext* context,
+void JsonFunctions::json_path_close(doris_udf::FunctionContext* context,
                                     doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
