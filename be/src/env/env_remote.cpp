@@ -29,12 +29,10 @@ namespace doris {
 using std::string;
 using strings::Substitute;
 
-std::map<std::string, std::string> RemoteEnv::_storage_prop;
-
 class RemoteRandomAccessFile : public RandomAccessFile {
 public:
-    RemoteRandomAccessFile(std::string filename, std::map<std::string, std::string> storage_prop)
-            : _filename(std::move(filename)), _storage_backend(new S3StorageBackend(storage_prop)) {}
+    RemoteRandomAccessFile(std::string filename, std::shared_ptr<StorageBackend> storage_backend)
+            : _filename(std::move(filename)), _storage_backend(storage_backend) {}
     ~RemoteRandomAccessFile() {
     }
 
@@ -61,9 +59,9 @@ private:
 
 class RemoteWritableFile : public WritableFile {
 public:
-    RemoteWritableFile(std::string filename, std::map<std::string, std::string> storage_prop, uint64_t filesize)
+    RemoteWritableFile(std::string filename, std::shared_ptr<StorageBackend> storage_backend, uint64_t filesize)
             : _filename(std::move(filename)),
-              _storage_backend(new S3StorageBackend(storage_prop)),
+              _storage_backend(storage_backend),
               _filesize(filesize) {}
 
     ~RemoteWritableFile() override {
@@ -179,7 +177,7 @@ Status RemoteEnv::new_random_access_file(const std::string& fname,
 
 Status RemoteEnv::new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
                                          std::unique_ptr<RandomAccessFile>* result) {
-    result->reset(new RemoteRandomAccessFile(fname, _storage_prop));
+    result->reset(new RemoteRandomAccessFile(fname, _storage_backend));
     return Status::OK();
 }
 
@@ -193,7 +191,7 @@ Status RemoteEnv::new_writable_file(const WritableFileOptions& opts, const std::
     if (opts.mode == MUST_EXIST) {
         RETURN_IF_ERROR(get_file_size(fname, &file_size));
     }
-    result->reset(new RemoteWritableFile(fname, _storage_prop, file_size));
+    result->reset(new RemoteWritableFile(fname, _storage_backend, file_size));
     return Status::OK();
 }
 
