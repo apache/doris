@@ -66,6 +66,13 @@ public class DateLiteral extends LiteralExpr {
     private static final int MAX_MICROSECOND = 999999;
     private static final int DATETIME_TO_MINUTE_STRING_LENGTH = 16;
     private static final int DATETIME_TO_HOUR_STRING_LENGTH = 13;
+    /*
+     * A long value datetime in the form of 'yyyyMMddHHmmss' divided by BASIC_ZERO_TIME
+     * should obtain a long value date in the form of 'yyyyMMdd'.
+     * Conversely, a long value date in the form of 'yyyyMMdd' times BASIC_ZERO_TIME
+     * should obtain a long value datetime in the form of 'yyyyMMddHHmmss', means zero o'clock of that day.
+     */
+    public static final long BASIC_ZERO_TIME = 1000000L;
 
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
@@ -366,9 +373,9 @@ public class DateLiteral extends LiteralExpr {
         long otherExprLongValue = expr.getLongValue();
         if (!getType().equals(expr.getType())) {
             if (getType().equals(Type.DATE)) {
-                thisExprLongValue *= 1000000;
+                thisExprLongValue *= BASIC_ZERO_TIME;
             } else {
-                otherExprLongValue *= 1000000;
+                otherExprLongValue *= BASIC_ZERO_TIME;
             }
         }
         // date time will not overflow when doing addition and subtraction
