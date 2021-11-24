@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Splitter;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -54,6 +55,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -1799,4 +1801,34 @@ public class QueryPlanTest {
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
 
+    @Test
+    public void testCurDateQuery() throws Exception {
+        // test date format 'yyyy-MM-dd', length is 10
+        String sql1 = "select curdate();";
+        testCurDateQueryPlan(sql1, 10);
+
+        // test date format 'yyyyMMdd', length is 8
+        String sql2 = "select curdate() + 0;";
+        testCurDateAddZeroQueryPlan(sql2, 8);
+
+        // test date format 'yyyy-MM-dd', length is 10
+        String sql3 = "select current_date();";
+        testCurDateQueryPlan(sql3, 10);
+
+        // test date format 'yyyyMMdd', length is 8
+        String sql4 = "select current_date() + 0;";
+        testCurDateAddZeroQueryPlan(sql4, 8);
+    }
+
+    public static void testCurDateQueryPlan(String sql, int constLength) throws Exception {
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        List<String> explainLines = Splitter.on("\n").trimResults().omitEmptyStrings().splitToList(explainString);
+        Assert.assertEquals(explainLines.get(explainLines.size() - 1).replaceAll("'", "").length(), constLength);
+    }
+
+    public static void testCurDateAddZeroQueryPlan(String sql, int constLength) throws Exception {
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        List<String> explainLines = Splitter.on("\n").trimResults().omitEmptyStrings().splitToList(explainString);
+        Assert.assertEquals(new BigDecimal(explainLines.get(explainLines.size() - 1)).toPlainString().length(), constLength);
+    }
 }
