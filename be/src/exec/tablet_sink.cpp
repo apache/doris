@@ -707,13 +707,15 @@ Status OlapTableSink::open(RuntimeState* state) {
 
 Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     SCOPED_TIMER(_profile->total_time_counter());
-    _number_input_rows += input_batch->num_rows();
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
-    state->update_num_rows_load_total(input_batch->num_rows());
-    state->update_num_bytes_load_total(input_batch->total_byte_size());
-    DorisMetrics::instance()->load_rows->increment(input_batch->num_rows());
-    DorisMetrics::instance()->load_bytes->increment(input_batch->total_byte_size());
+    int64_t num_rows = input_batch->num_rows();
+    int64_t num_bytes = input_batch->total_byte_size();
+    _number_input_rows += num_rows;
+    state->update_num_rows_load_total(num_rows);
+    state->update_num_bytes_load_total(num_bytes);
+    DorisMetrics::instance()->load_rows->increment(num_rows);
+    DorisMetrics::instance()->load_bytes->increment(num_bytes);
     RowBatch* batch = input_batch;
     if (!_output_expr_ctxs.empty()) {
         SCOPED_RAW_TIMER(&_convert_batch_ns);
