@@ -357,7 +357,7 @@ TEST_F(HashTableTest, GrowTableTest2) {
     int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::CreateTracker(1024 * 1024, "hash-table-grow2-tracker", _tracker);
+            MemTracker::CreateTracker(1024 * 1024 * 1024, "hash-table-grow2-tracker", _tracker);
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
@@ -396,6 +396,12 @@ TEST_F(HashTableTest, GrowTableTest2) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!doris::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     doris::CpuInfo::init();
+    doris::MemInfo::init();
     return RUN_ALL_TESTS();
 }

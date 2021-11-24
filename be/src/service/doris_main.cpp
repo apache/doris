@@ -275,6 +275,10 @@ int main(int argc, char** argv) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
+
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+        doris::MemInfo::refresh_current_mem();
+#endif
         sleep(10);
     }
 
