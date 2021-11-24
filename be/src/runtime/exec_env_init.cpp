@@ -70,8 +70,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::N
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(etl_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "query"}}));
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
+                                   Labels({{"type", "query"}}));
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -95,20 +95,20 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
     _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                          config::doris_scanner_thread_pool_queue_size);
+                                               config::doris_scanner_thread_pool_queue_size);
 
     ThreadPoolBuilder("LimitedScanThreadPool")
-            .set_min_threads(1)    
+            .set_min_threads(1)
             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-            .build(&_limited_scan_thread_pool);    
+            .build(&_limited_scan_thread_pool);
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(1)
             .set_max_threads(config::send_batch_thread_pool_thread_num)
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
-    
+
     _etl_thread_pool = new PriorityThreadPool(config::etl_thread_pool_size,
                                               config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
@@ -158,26 +158,28 @@ Status ExecEnv::_init_mem_tracker() {
     int64_t global_memory_limit_bytes = 0;
     bool is_percent = false;
     std::stringstream ss;
-    global_memory_limit_bytes = ParseUtil::parse_mem_spec(config::mem_limit, -1, &is_percent);
+    global_memory_limit_bytes =
+            ParseUtil::parse_mem_spec(config::mem_limit, -1, MemInfo::physical_mem(), &is_percent);
     if (global_memory_limit_bytes <= 0) {
         ss << "Failed to parse mem limit from '" + config::mem_limit + "'.";
         return Status::InternalError(ss.str());
     }
 
     if (global_memory_limit_bytes > MemInfo::physical_mem()) {
-        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
+        LOG(WARNING) << "Memory limit "
+                     << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
                      << " exceeds physical memory of "
                      << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES)
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "Process", MemTracker::GetRootTracker(),
-                    false, false, MemTrackerLevel::OVERVIEW);
-    REGISTER_HOOK_METRIC(query_mem_consumption, [this]() {
-      return _mem_tracker->consumption();
-    });
-    LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
-            << ", origin config value: " << config::mem_limit;
+    _mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "Process",
+                                             MemTracker::GetRootTracker(), false, false,
+                                             MemTrackerLevel::OVERVIEW);
+    REGISTER_HOOK_METRIC(query_mem_consumption, [this]() { return _mem_tracker->consumption(); });
+    LOG(INFO) << "Using global memory limit: "
+              << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
+              << ", origin config value: " << config::mem_limit;
 
     // 2. init buffer pool
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
@@ -185,7 +187,9 @@ Status ExecEnv::_init_mem_tracker() {
         return Status::InternalError(ss.str());
     }
 
-    int64_t buffer_pool_limit = ParseUtil::parse_mem_spec(config::buffer_pool_limit, global_memory_limit_bytes, &is_percent);
+    int64_t buffer_pool_limit =
+            ParseUtil::parse_mem_spec(config::buffer_pool_limit, global_memory_limit_bytes,
+                                      MemInfo::physical_mem(), &is_percent);
     if (buffer_pool_limit <= 0) {
         ss << "Invalid config buffer_pool_limit value, must be a percentage or "
               "positive bytes value or percentage: "
@@ -201,7 +205,8 @@ Status ExecEnv::_init_mem_tracker() {
     }
 
     int64_t clean_pages_limit =
-            ParseUtil::parse_mem_spec(config::buffer_pool_clean_pages_limit, buffer_pool_limit, &is_percent);
+            ParseUtil::parse_mem_spec(config::buffer_pool_clean_pages_limit, buffer_pool_limit,
+                                      MemInfo::physical_mem(), &is_percent);
     if (clean_pages_limit <= 0) {
         ss << "Invalid buffer_pool_clean_pages_limit value, must be a percentage or "
               "positive bytes value or percentage: "
@@ -213,22 +218,25 @@ Status ExecEnv::_init_mem_tracker() {
         clean_pages_limit = clean_pages_limit / 2;
     }
     _init_buffer_pool(config::min_buffer_size, buffer_pool_limit, clean_pages_limit);
-    LOG(INFO) << "Buffer pool memory limit: " << PrettyPrinter::print(buffer_pool_limit, TUnit::BYTES)
-            << ", origin config value: " << config::buffer_pool_limit
-            << ". clean pages limit: " << PrettyPrinter::print(clean_pages_limit, TUnit::BYTES)
-            << ", origin config value: " << config::buffer_pool_clean_pages_limit;
+    LOG(INFO) << "Buffer pool memory limit: "
+              << PrettyPrinter::print(buffer_pool_limit, TUnit::BYTES)
+              << ", origin config value: " << config::buffer_pool_limit
+              << ". clean pages limit: " << PrettyPrinter::print(clean_pages_limit, TUnit::BYTES)
+              << ", origin config value: " << config::buffer_pool_clean_pages_limit;
 
     // 3. init storage page cache
     int64_t storage_cache_limit =
-            ParseUtil::parse_mem_spec(config::storage_page_cache_limit, global_memory_limit_bytes, &is_percent);
+            ParseUtil::parse_mem_spec(config::storage_page_cache_limit, global_memory_limit_bytes,
+                                      MemInfo::physical_mem(), &is_percent);
     while (!is_percent && storage_cache_limit > global_memory_limit_bytes / 2) {
         // Reason same as buffer_pool_limit
         storage_cache_limit = storage_cache_limit / 2;
     }
     int32_t index_page_cache_percentage = config::index_page_cache_percentage;
     StoragePageCache::create_global_cache(storage_cache_limit, index_page_cache_percentage);
-    LOG(INFO) << "Storage page cache memory limit: " << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
-            << ", origin config value: " << config::storage_page_cache_limit;
+    LOG(INFO) << "Storage page cache memory limit: "
+              << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::storage_page_cache_limit;
 
     SegmentLoader::create_global_instance(config::segment_cache_capacity);
 
@@ -250,21 +258,17 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
 }
 
 void ExecEnv::_register_metrics() {
-    REGISTER_HOOK_METRIC(scanner_thread_pool_queue_size, [this]() {
-        return _scan_thread_pool->get_queue_size();
-    });
+    REGISTER_HOOK_METRIC(scanner_thread_pool_queue_size,
+                         [this]() { return _scan_thread_pool->get_queue_size(); });
 
-    REGISTER_HOOK_METRIC(etl_thread_pool_queue_size, [this]() {
-        return _etl_thread_pool->get_queue_size();
-    });
+    REGISTER_HOOK_METRIC(etl_thread_pool_queue_size,
+                         [this]() { return _etl_thread_pool->get_queue_size(); });
 
-    REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num, [this]() {
-        return _send_batch_thread_pool->num_threads();
-    });
+    REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
+                         [this]() { return _send_batch_thread_pool->num_threads(); });
 
-    REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size, [this]() {
-        return _send_batch_thread_pool->get_queue_size();
-    });
+    REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
+                         [this]() { return _send_batch_thread_pool->get_queue_size(); });
 }
 
 void ExecEnv::_deregister_metrics() {
