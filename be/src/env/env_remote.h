@@ -32,10 +32,9 @@ struct RandomRWFileOptions;
 
 class RemoteEnv : public Env {
 public:
-    void init_s3_conf(const std::string& ak, const std::string& sk, const std::string& endpoint,
-                             const std::string& region, const std::string& backend_pool_size);
     ~RemoteEnv() override {}
 
+    bool init_conf(const std::map<std::string, std::string>& storage_prop);
     Status new_sequential_file(const std::string& fname,
                                std::unique_ptr<SequentialFile>* result) override;
 
@@ -101,8 +100,6 @@ public:
     std::shared_ptr<StorageBackend> get_storage_backend();
 
 private:
-    std::map<std::string, std::string> _storage_prop;
-
     std::shared_ptr<StorageBackend> _storage_backend;
 };
 

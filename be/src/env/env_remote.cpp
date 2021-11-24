@@ -155,13 +155,11 @@ private:
     bool _closed = false;
 };
 
-void RemoteEnv::init_s3_conf(const std::string& ak, const std::string& sk, const std::string& endpoint,
-                             const std::string& region, const std::string& backend_pool_size) {
-    _storage_prop[S3_AK] = ak;
-    _storage_prop[S3_SK] = sk;
-    _storage_prop[S3_ENDPOINT] = endpoint;
-    _storage_prop[S3_REGION] = region;
-    _storage_prop[S3_MAX_CONN_SIZE] = backend_pool_size;
+bool RemoteEnv::init_conf(const std::map<std::string, std::string>& storage_prop) {
+    if (ClientFactory::is_s3_conf_valid(storage_prop)) {
+        _storage_backend.reset(new S3StorageBackend(storage_prop));
+    }
+    return true;
 }
 
 Status RemoteEnv::new_sequential_file(const std::string& fname,

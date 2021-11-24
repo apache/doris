@@ -639,6 +639,15 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 // So the value of this config should corresponding to the number of rowsets on this BE.
 CONF_mInt32(segment_cache_capacity, "1000000");
 
+// s3 config
+CONF_String(s3_ak, "");
+CONF_String(s3_sk, "");
+CONF_String(s3_endpoint, "");
+CONF_String(s3_region, "");
+CONF_mInt32(s3_max_conn, "50");
+CONF_mInt32(s3_request_timeout_ms, "3000");
+CONF_mInt32(s3_conn_timeout_ms, "1000");
+
 } // namespace config
 
 } // namespace doris

@@ -195,6 +195,8 @@ public:
     // RETURNS:
     //  Status::OK()      if create directory success or directory already exists
     virtual Status create_dirs(const std::string& dirname) = 0;
+
+    static bool init();
 };
 
 struct FilePathDesc {

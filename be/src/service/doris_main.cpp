@@ -145,6 +145,8 @@ int main(int argc, char** argv) {
     }
 #endif
 
+    Env::init();
+
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (olap_res != doris::OLAP_SUCCESS) {

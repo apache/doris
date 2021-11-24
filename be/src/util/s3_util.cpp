@@ -48,14 +48,22 @@ ClientFactory& ClientFactory::instance() {
     return ret;
 }
 
-std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
-        const std::map<std::string, std::string>& prop) {
-    StringCaseMap<std::string> properties(prop.begin(), prop.end());
+bool ClientFactory::is_s3_conf_valid(const StringCaseMap<std::string>& properties) {
     if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
         properties.find(S3_ENDPOINT) == properties.end() ||
         properties.find(S3_REGION) == properties.end()) {
         DCHECK(false) << "aws properties is incorrect.";
         LOG(ERROR) << "aws properties is incorrect.";
+        return false;
+    }
+    return true;
+}
+
+std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
+        const std::map<std::string, std::string>& prop) {
+    StringCaseMap<std::string> properties(prop.begin(), prop.end());
+    if (!is_conf_valid(properties)) {
+        return std::make_shared<Aws::S3::S3Client>();
     }
     Aws::Auth::AWSCredentials aws_cred(properties.find(S3_AK)->second,
                                        properties.find(S3_SK)->second);
@@ -66,6 +74,12 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
     aws_config.region = properties.find(S3_REGION)->second;
     if (properties.find(S3_MAX_CONN_SIZE) != properties.end()) {
         aws_config.maxConnections = std::atoi(properties.find(S3_MAX_CONN_SIZE)->second.c_str());
+    }
+    if (properties.find(S3_REQUEST_TIMEOUT_MS) != properties.end()) {
+        aws_config.requestTimeoutMs = std::atoi(properties.find(S3_REQUEST_TIMEOUT_MS)->second.c_str());
+    }
+    if (properties.find(S3_CONN_TIMEOUT_MS) != properties.end()) {
+        aws_config.connectTimeoutMs = std::atoi(properties.find(S3_CONN_TIMEOUT_MS)->second.c_str());
     }
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
