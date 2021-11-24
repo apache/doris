@@ -361,8 +361,18 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+
+        long thisExprLongValue = getLongValue();
+        long otherExprLongValue = expr.getLongValue();
+        if (!getType().equals(expr.getType())) {
+            if (getType().equals(Type.DATE)) {
+                thisExprLongValue *= 1000000;
+            } else {
+                otherExprLongValue *= 1000000;
+            }
+        }
         // date time will not overflow when doing addition and subtraction
-        return Long.signum(getLongValue() - expr.getLongValue());
+        return Long.signum(thisExprLongValue - otherExprLongValue);
     }
 
     @Override
