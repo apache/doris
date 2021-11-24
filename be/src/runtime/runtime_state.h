@@ -123,7 +123,7 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
     const std::vector<std::shared_ptr<MemTracker>>& mem_trackers() { return _mem_trackers; }
     std::shared_ptr<MemTracker> fragment_mem_tracker() { return _fragment_mem_tracker; }
-
+    std::shared_ptr<MemTracker> query_mem_tracker() { return _query_mem_tracker; }
     std::shared_ptr<MemTracker> instance_mem_tracker() { return _instance_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
