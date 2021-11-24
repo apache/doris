@@ -249,6 +249,23 @@ View configuration
 show data （Detail：HELP SHOW DATA）
 ```
 
+### default_db_replica_quota_size
+
+Default: 1073741824
+
+IsMutable：true
+
+MasterOnly：true
+
+Used to set the default database replica quota. To set the quota size of a single database, you can use: 
+
+```
+Set the database replica quota
+ALTER DATABASE db_name SET REPLICA QUOTA quota;
+View configuration
+show data （Detail：HELP SHOW DATA）
+```
+
 ### enable_batch_delete_by_default
 
 Default：false
