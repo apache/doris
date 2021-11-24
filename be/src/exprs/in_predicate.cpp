@@ -85,7 +85,8 @@ Status InPredicate::prepare(RuntimeState* state, const RowDescriptor& row_desc,
     if (_children.size() < 1) {
         return Status::InternalError("no Function operator in.");
     }
-    _hybrid_set.reset(HybridSetBase::create_set(_children[0]->type().type));
+
+    _hybrid_set.reset(create_set(_children[0]->type().type));
     if (nullptr == _hybrid_set.get()) {
         return Status::InternalError("Unknown column type.");
     }

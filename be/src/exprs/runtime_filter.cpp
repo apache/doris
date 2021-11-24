@@ -24,11 +24,13 @@
 #include "exec/hash_join_node.h"
 #include "exprs/binary_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/in_predicate.h"
 #include "exprs/literal.h"
+#include "exprs/minmax_predicate.h"
 #include "exprs/predicate.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/types.pb.h"
@@ -40,145 +42,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-// only used in Runtime Filter
-class MinMaxFuncBase {
-public:
-    virtual void insert(const void* data) = 0;
-    virtual bool find(void* data) = 0;
-    virtual bool is_empty() = 0;
-    virtual void* get_max() = 0;
-    virtual void* get_min() = 0;
-    // assign minmax data
-    virtual Status assign(void* min_data, void* max_data) = 0;
-    // merge from other minmax_func
-    virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
-    // create min-max filter function
-    static MinMaxFuncBase* create_minmax_filter(PrimitiveType type);
-};
-
-template <class T>
-class MinMaxNumFunc : public MinMaxFuncBase {
-public:
-    MinMaxNumFunc() = default;
-    ~MinMaxNumFunc() = default;
-    virtual void insert(const void* data) {
-        if (data == nullptr) return;
-        const T val_data = *reinterpret_cast<const T*>(data);
-        if (_empty) {
-            _min = val_data;
-            _max = val_data;
-            _empty = false;
-            return;
-        }
-        if (val_data < _min) {
-            _min = val_data;
-        } else if (val_data > _max) {
-            _max = val_data;
-        }
-    }
-
-    virtual bool find(void* data) {
-        if (data == nullptr) {
-            return false;
-        }
-        T val_data = *reinterpret_cast<T*>(data);
-        return val_data >= _min && val_data <= _max;
-    }
-
-    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) {
-        if constexpr (std::is_same_v<T, StringValue>) {
-            MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
-
-            if (other_minmax->_min < _min) {
-                auto& other_min = other_minmax->_min;
-                auto str = pool->add(new std::string(other_min.ptr, other_min.len));
-                _min.ptr = str->data();
-                _min.len = str->length();
-            }
-            if (other_minmax->_max > _max) {
-                auto& other_max = other_minmax->_max;
-                auto str = pool->add(new std::string(other_max.ptr, other_max.len));
-                _max.ptr = str->data();
-                _max.len = str->length();
-            }
-        } else {
-            MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
-            if (other_minmax->_min < _min) {
-                _min = other_minmax->_min;
-            }
-            if (other_minmax->_max > _max) {
-                _max = other_minmax->_max;
-            }
-        }
-
-        return Status::OK();
-    }
-
-    virtual bool is_empty() { return _empty; }
-
-    virtual void* get_max() { return &_max; }
-
-    virtual void* get_min() { return &_min; }
-
-    virtual Status assign(void* min_data, void* max_data) {
-        _min = *(T*)min_data;
-        _max = *(T*)max_data;
-        return Status::OK();
-    }
-
-private:
-    T _max = type_limit<T>::min();
-    T _min = type_limit<T>::max();
-    // we use _empty to avoid compare twice
-    bool _empty = true;
-};
-
-MinMaxFuncBase* MinMaxFuncBase::create_minmax_filter(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-        return new (std::nothrow) MinMaxNumFunc<bool>();
-
-    case TYPE_TINYINT:
-        return new (std::nothrow) MinMaxNumFunc<int8_t>();
-
-    case TYPE_SMALLINT:
-        return new (std::nothrow) MinMaxNumFunc<int16_t>();
-
-    case TYPE_INT:
-        return new (std::nothrow) MinMaxNumFunc<int32_t>();
-
-    case TYPE_BIGINT:
-        return new (std::nothrow) MinMaxNumFunc<int64_t>();
-
-    case TYPE_LARGEINT:
-        return new (std::nothrow) MinMaxNumFunc<__int128>();
-
-    case TYPE_FLOAT:
-        return new (std::nothrow) MinMaxNumFunc<float>();
-
-    case TYPE_TIME:
-    case TYPE_DOUBLE:
-        return new (std::nothrow) MinMaxNumFunc<double>();
-
-    case TYPE_DECIMALV2:
-        return new (std::nothrow) MinMaxNumFunc<DecimalV2Value>();
-
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-        return new (std::nothrow) MinMaxNumFunc<DateTimeValue>();
-
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-        return new (std::nothrow) MinMaxNumFunc<StringValue>();
-
-    default:
-        DCHECK(false) << "Invalid type.";
-    }
-
-    return nullptr;
-}
-
 // PrimitiveType->TExprNodeType
 // TODO: use constexpr if we use c++14
 TExprNodeType::type get_expr_node_type(PrimitiveType type) {
@@ -463,16 +326,15 @@ public:
     Status init(const RuntimeFilterParams* params) {
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            _hybrid_set.reset(HybridSetBase::create_set(_column_return_type));
+            _hybrid_set.reset(create_set(_column_return_type));
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
-            _minmax_func.reset(MinMaxFuncBase::create_minmax_filter(_column_return_type));
+            _minmax_func.reset(create_minmax_filter(_column_return_type));
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _bloomfilter_func.reset(
-                    IBloomFilterFuncBase::create_bloom_filter(_tracker, _column_return_type));
+            _bloomfilter_func.reset(create_bloom_filter(_tracker, _column_return_type));
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         default:
@@ -594,8 +456,7 @@ public:
         DCHECK(_tracker != nullptr);
         // we won't use this class to insert or find any data
         // so any type is ok
-        _bloomfilter_func.reset(
-                IBloomFilterFuncBase::create_bloom_filter(_tracker, PrimitiveType::TYPE_INT));
+        _bloomfilter_func.reset(create_bloom_filter(_tracker, PrimitiveType::TYPE_INT));
         return _bloomfilter_func->assign(data, bloom_filter->filter_length());
     }
 
@@ -604,7 +465,7 @@ public:
     Status assign(const PMinMaxFilter* minmax_filter) {
         DCHECK(_tracker != nullptr);
         PrimitiveType type = to_primitive_type(minmax_filter->column_type());
-        _minmax_func.reset(MinMaxFuncBase::create_minmax_filter(type));
+        _minmax_func.reset(create_minmax_filter(type));
         switch (type) {
         case TYPE_BOOLEAN: {
             bool min_val;
