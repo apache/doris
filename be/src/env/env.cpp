@@ -40,16 +40,7 @@ Env* Env::get_env(TStorageMedium::type storage_medium) {
 }
 
 bool Env::init() {
-    std::map<std::string, std::string> storage_prop;
-    storage_prop[S3_AK] = doris::config::s3_ak;
-    storage_prop[S3_SK] = doris::config::s3_sk;
-    storage_prop[S3_ENDPOINT] = doris::config::s3_endpoint;
-    storage_prop[S3_REGION] = doris::config::s3_region;
-    storage_prop[S3_MAX_CONN_SIZE] = std::string(doris::config::s3_max_conn);
-    storage_prop[S3_REQUEST_TIMEOUT_MS] = std::string(doris::config::s3_request_timeout_ms);
-    storage_prop[S3_CONN_TIMEOUT_MS] = std::string(doris::config::s3_conn_timeout_ms);
-
-    return reinterpret_cast<RemoteEnv>(get_env(TStorageMedium::S3))->init(storage_prop);
+    return reinterpret_cast<RemoteEnv*>(get_env(TStorageMedium::S3))->init();
 }
 
 } // end namespace doris

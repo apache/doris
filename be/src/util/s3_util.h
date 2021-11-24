@@ -47,7 +47,7 @@ public:
 
     std::shared_ptr<Aws::S3::S3Client> create(const std::map<std::string, std::string>& prop);
 
-    static bool is_s3_conf_valid(const StringCaseMap<std::string>& properties);
+    static bool is_s3_conf_valid(const std::map<std::string, std::string>& prop);
 private:
     ClientFactory();
 

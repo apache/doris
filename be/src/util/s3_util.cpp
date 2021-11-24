@@ -48,7 +48,8 @@ ClientFactory& ClientFactory::instance() {
     return ret;
 }
 
-bool ClientFactory::is_s3_conf_valid(const StringCaseMap<std::string>& properties) {
+bool ClientFactory::is_conf_valid(const std::map<std::string, std::string>& prop) {
+    StringCaseMap<std::string> properties(prop.begin(), prop.end());
     if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
         properties.find(S3_ENDPOINT) == properties.end() ||
         properties.find(S3_REGION) == properties.end()) {
@@ -62,8 +63,11 @@ bool ClientFactory::is_s3_conf_valid(const StringCaseMap<std::string>& propertie
 std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
         const std::map<std::string, std::string>& prop) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    if (!is_conf_valid(properties)) {
-        return std::make_shared<Aws::S3::S3Client>();
+    if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
+        properties.find(S3_ENDPOINT) == properties.end() ||
+        properties.find(S3_REGION) == properties.end()) {
+        DCHECK(false) << "aws properties is incorrect.";
+        LOG(ERROR) << "aws properties is incorrect.";
     }
     Aws::Auth::AWSCredentials aws_cred(properties.find(S3_AK)->second,
                                        properties.find(S3_SK)->second);

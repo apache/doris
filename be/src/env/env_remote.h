@@ -34,7 +34,7 @@ class RemoteEnv : public Env {
 public:
     ~RemoteEnv() override {}
 
-    bool init_conf(const std::map<std::string, std::string>& storage_prop);
+    bool init_conf();
     Status new_sequential_file(const std::string& fname,
                                std::unique_ptr<SequentialFile>* result) override;
 
