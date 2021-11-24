@@ -64,6 +64,9 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
     Aws::Client::ClientConfiguration aws_config;
     aws_config.endpointOverride = properties.find(S3_ENDPOINT)->second;
     aws_config.region = properties.find(S3_REGION)->second;
+    if (properties.find(S3_MAX_CONN_SIZE) != properties.end()) {
+        aws_config.maxConnections = std::atoi(aws_config.properties.find(S3_MAX_CONN_SIZE)->second.c_str());
+    }
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
     bool use_virtual_addressing = true;

@@ -56,7 +56,7 @@ public:
 
 private:
     const std::string _filename;
-    std::unique_ptr<StorageBackend> _storage_backend;
+    std::shared_ptr<StorageBackend> _storage_backend;
 };
 
 class RemoteWritableFile : public WritableFile {
@@ -107,7 +107,7 @@ public:
 
 private:
     std::string _filename;
-    std::unique_ptr<StorageBackend> _storage_backend;
+    std::shared_ptr<StorageBackend> _storage_backend;
     uint64_t _filesize = 0;
 };
 
@@ -158,11 +158,12 @@ private:
 };
 
 void RemoteEnv::init_s3_conf(const std::string& ak, const std::string& sk, const std::string& endpoint,
-                             const std::string& region) {
+                             const std::string& region, const std::string& backend_pool_size) {
     _storage_prop[S3_AK] = ak;
     _storage_prop[S3_SK] = sk;
     _storage_prop[S3_ENDPOINT] = endpoint;
     _storage_prop[S3_REGION] = region;
+    _storage_prop[S3_MAX_CONN_SIZE] = backend_pool_size;
 }
 
 Status RemoteEnv::new_sequential_file(const std::string& fname,
@@ -206,7 +207,7 @@ Status RemoteEnv::new_random_rw_file(const RandomRWFileOptions& opts, const std:
 }
 
 Status RemoteEnv::path_exists(const std::string& fname, bool is_dir) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = Status::OK();
     if (is_dir) {
         status = storage_backend->exist_dir(fname);
@@ -228,7 +229,7 @@ Status RemoteEnv::iterate_dir(const std::string& dir,
 }
 
 Status RemoteEnv::delete_file(const std::string& fname) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rm(fname);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
             "delete_file failed: $0, err=$1", fname, status.to_string()));
@@ -236,12 +237,12 @@ Status RemoteEnv::delete_file(const std::string& fname) {
 }
 
 Status RemoteEnv::create_dir(const std::string& name) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     return storage_backend->mkdir(name);
 }
 
 Status RemoteEnv::create_dir_if_missing(const string& dirname, bool* created) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     if (storage_backend->exist_dir(dirname)) {
         *created = true;
         return Status::OK();
@@ -250,13 +251,13 @@ Status RemoteEnv::create_dir_if_missing(const string& dirname, bool* created) {
 }
 
 Status RemoteEnv::create_dirs(const string& dirname) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     return storage_backend->mkdirs(dirname);
 }
 
 // Delete the specified directory.
 Status RemoteEnv::delete_dir(const std::string& dirname) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rmdir(dirname);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
             "delete_dir failed: $0, err=$1", dirname, status.to_string()));
@@ -268,7 +269,7 @@ Status RemoteEnv::sync_dir(const string& dirname) {
 }
 
 Status RemoteEnv::is_directory(const std::string& path, bool* is_dir) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->exist(path);
     if (status.ok()) {
         *is_dir = false;
@@ -310,7 +311,7 @@ Status RemoteEnv::copy_path(const std::string& src, const std::string& target) {
 }
 
 Status RemoteEnv::rename_file(const std::string& src, const std::string& target) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rename(src, target);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
             "rename_file failed: from $0 to $1, err=$2", src, target, status.to_string()));
@@ -318,7 +319,7 @@ Status RemoteEnv::rename_file(const std::string& src, const std::string& target)
 }
 
 Status RemoteEnv::rename_dir(const std::string& src, const std::string& target) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rename_dir(src, target);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
             "rename_dir failed: from $0 to $1, err=$2", src, target, status.to_string()));
@@ -326,7 +327,7 @@ Status RemoteEnv::rename_dir(const std::string& src, const std::string& target) 
 }
 
 Status RemoteEnv::link_file(const std::string& old_path, const std::string& new_path) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
+    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->copy(old_path, new_path);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
             "link_file failed: from $0 to $1, err=$2", old_path, new_path, status.to_string()));
@@ -339,9 +340,8 @@ Status RemoteEnv::get_space_info(const std::string& path, int64_t* capacity, int
     return Status::OK();
 }
 
-std::unique_ptr<StorageBackend> RemoteEnv::get_storage_backend() {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
-    return storage_backend;
+std::shared_ptr<StorageBackend> RemoteEnv::get_storage_backend() {
+    return _storage_backend;
 }
 
 } // end namespace doris

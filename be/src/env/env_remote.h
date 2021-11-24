@@ -33,7 +33,7 @@ struct RandomRWFileOptions;
 class RemoteEnv : public Env {
 public:
     static void init_s3_conf(const std::string& ak, const std::string& sk, const std::string& endpoint,
-                             const std::string& region);
+                             const std::string& region, const std::string& backend_pool_size);
     ~RemoteEnv() override {}
 
     Status new_sequential_file(const std::string& fname,
@@ -98,10 +98,12 @@ public:
         return true;
     }
 
-    std::unique_ptr<StorageBackend> get_storage_backend();
+    std::shared_ptr<StorageBackend> get_storage_backend();
 
 private:
     static std::map<std::string, std::string> _storage_prop;
+
+    static std::shared_ptr<StorageBackend> _storage_backend;
 };
 
 } // namespace doris
