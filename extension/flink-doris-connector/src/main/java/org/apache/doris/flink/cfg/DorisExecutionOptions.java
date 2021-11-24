@@ -111,9 +111,9 @@ public class DorisExecutionOptions implements Serializable {
             return this;
         }
 
-        public Builder setJsonFormat() {
+        public Builder setJsonFormat(boolean stripOuterArray) {
             this.streamLoadProp.setProperty("format", "json");
-            this.streamLoadProp.setProperty("strip_outer_array", "true");
+            this.streamLoadProp.setProperty("strip_outer_array", String.valueOf(stripOuterArray));
             return this;
         }
 
