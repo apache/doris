@@ -238,7 +238,11 @@ public class PartitionRange {
         }
 
         private Date getDateValue(LiteralExpr expr) {
-            value = expr.getLongValue() / 1000000;
+            if (expr.getType().equals(Type.DATE)) {
+                value = expr.getLongValue();
+            } else {
+                value = expr.getLongValue() / 1000000;
+            }
             Date dt = null;
             try {
                 dt = df8.parse(String.valueOf(value));
