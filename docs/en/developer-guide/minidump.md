@@ -62,9 +62,9 @@ There are two ways to generate Minidump:
     
     ```
     Minidump created at: /doris/be/Minidump/4f8d4fe5-15f8-40a3-843109b3-d49993f3.dmp
-*** Aborted at 1636970042 (unix time) try "date -d @1636970042" if you are using GNU date ***
-PC: @ 0x1b184e4 doris::OlapScanNode::scanner_thread()
-*** SIGSEGV (@0x0) received by PID 71567 (TID 0x7f173a5df700) from PID 0; stack trace: ***
+    *** Aborted at 1636970042 (unix time) try "date -d @1636970042" if you are using GNU date ***
+    PC: @ 0x1b184e4 doris::OlapScanNode::scanner_thread()
+    *** SIGSEGV (@0x0) received by PID 71567 (TID 0x7f173a5df700) from PID 0; stack trace: ***
     @ 0x220c992 google::(anonymous namespace)::FailureSignalHandler()
     @ 0x7f174fb5e1d0 (unknown)
     @ 0x1b184e4 doris::OlapScanNode::scanner_thread()
