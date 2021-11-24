@@ -307,9 +307,11 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     if (runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(runtime_state->num_rows_load_total());
+        params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
     } else {
         if (runtime_state->query_options().query_type == TQueryType::LOAD) {
             params.__set_loaded_rows(runtime_state->num_rows_load_total());
+            params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
         }
         if (profile == nullptr) {
             params.__isset.profile = false;
@@ -373,11 +375,9 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
         try {
             coord->reportExecStatus(res, params);
         } catch (TTransportException& e) {
-            LOG(WARNING) << "Retrying ReportExecStatus. query id: "
-                         << print_id(_query_id) << ", instance id: "
-                         << print_id(_fragment_instance_id)
-                         << " to " << _coord_addr
-                         << ", err: " << e.what();
+            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_query_id)
+                         << ", instance id: " << print_id(_fragment_instance_id) << " to "
+                         << _coord_addr << ", err: " << e.what();
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {
@@ -452,9 +452,11 @@ FragmentMgr::~FragmentMgr() {
 static void empty_function(PlanFragmentExecutor* exec) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
-    TAG(LOG(INFO)).log("PlanFragmentExecutor::_exec_actual")
-            .query_id(exec_state->query_id()).instance_id(exec_state->fragment_instance_id())
-            .tag("pthread_id", std::to_string((uintptr_t) pthread_self()));
+    TAG(LOG(INFO))
+            .log("PlanFragmentExecutor::_exec_actual")
+            .query_id(exec_state->query_id())
+            .instance_id(exec_state->fragment_instance_id())
+            .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();

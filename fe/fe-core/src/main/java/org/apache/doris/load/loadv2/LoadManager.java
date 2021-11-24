@@ -675,10 +675,10 @@ public class LoadManager implements Writable{
     }
 
     public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
-                                  long scannedRows, boolean isDone) {
+                                  long scannedRows, long scannedBytes, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateProgress(beId, loadId, fragmentId, scannedRows, isDone);
+            job.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
         }
     }
 
