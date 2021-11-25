@@ -32,7 +32,7 @@ function start() {
 }
 
 function stop() {
-    echo "stop Apache Doris Frontend"
+    echo "stop Apache Doris Backend"
     sh $DORIS_HOME/bin/stop_be.sh
     if [ -f "$DORIS_HOME/bin/be.pid" ]; then
        echo "Apache Doris Backend stop fail!"
