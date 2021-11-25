@@ -527,6 +527,10 @@ private:
     bool _closed = false;
 };
 
+Status PosixEnv::init_conf() {
+    return Status::OK();
+}
+
 Status PosixEnv::new_sequential_file(const string& fname,
                                      std::unique_ptr<SequentialFile>* result) {
     FILE* f;

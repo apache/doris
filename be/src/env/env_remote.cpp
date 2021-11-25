@@ -156,7 +156,7 @@ private:
     bool _closed = false;
 };
 
-bool RemoteEnv::init_conf() {
+Status RemoteEnv::init_conf() {
     std::map<std::string, std::string> storage_prop;
     storage_prop[S3_AK] = doris::config::s3_ak;
     storage_prop[S3_SK] = doris::config::s3_sk;
@@ -169,7 +169,7 @@ bool RemoteEnv::init_conf() {
     if (ClientFactory::is_s3_conf_valid(storage_prop)) {
         _storage_backend.reset(new S3StorageBackend(storage_prop));
     }
-    return true;
+    return Status::OK();
 }
 
 Status RemoteEnv::new_sequential_file(const std::string& fname,

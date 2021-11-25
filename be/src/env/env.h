@@ -196,7 +196,13 @@ public:
     //  Status::OK()      if create directory success or directory already exists
     virtual Status create_dirs(const std::string& dirname) = 0;
 
-    static bool init();
+    static Status init();
+
+    virtual Status init_conf() = 0;
+
+private:
+    static std::shared_ptr<PosixEnv> _posix_env;
+    static std::shared_ptr<RemoteEnv> _remote_env;
 };
 
 struct FilePathDesc {

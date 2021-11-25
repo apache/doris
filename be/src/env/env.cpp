@@ -23,15 +23,13 @@ namespace doris {
 
 // Default Posix Env
 Env *Env::Default() {
-    static PosixEnv default_env;
-    return &default_env;
+    return _posix_env.get();
 }
 
 Env* Env::get_env(TStorageMedium::type storage_medium) {
     switch (storage_medium) {
         case TStorageMedium::S3:
-            static RemoteEnv remote_env;
-            return &remote_env;
+            return _remote_env.get();
         case TStorageMedium::SSD:
         case TStorageMedium::HDD:
         default:
@@ -39,8 +37,11 @@ Env* Env::get_env(TStorageMedium::type storage_medium) {
     }
 }
 
-bool Env::init() {
-    return reinterpret_cast<RemoteEnv*>(get_env(TStorageMedium::S3))->init();
+Status Env::init() {
+    RETURN_WITH_WARN_IF_ERROR(_posix_env->init_conf());
+    RETURN_WITH_WARN_IF_ERROR(_remote_env->init_conf());
+    LOG(INFO) << "Env init successfully.";
+    return Status::OK();
 }
 
 } // end namespace doris
