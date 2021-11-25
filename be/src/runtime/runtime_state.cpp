@@ -31,7 +31,7 @@
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/bufferpool/reservation_util.h"
-#include "runtime/thread_status.h"
+#include "runtime/thread_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/initial_reservations.h"
@@ -159,7 +159,6 @@ RuntimeState::~RuntimeState() {
     if (_buffer_reservation != nullptr) {
         _buffer_reservation->Close();
     }
-    _exec_env->query_mem_trackers()->DeregisterQueryMemTracker(doris::print_id(_query_id));
 }
 
 Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
