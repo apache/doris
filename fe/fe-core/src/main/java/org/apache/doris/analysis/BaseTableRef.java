@@ -79,7 +79,7 @@ public class BaseTableRef extends TableRef {
             return;
         }
         for (LateralViewRef lateralViewRef : lateralViewRefs) {
-            lateralViewRef.setRelatedTable(table);
+            lateralViewRef.setRelatedTable(this);
             lateralViewRef.analyze(analyzer);
         }
     }

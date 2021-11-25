@@ -244,6 +244,10 @@ public class SlotRef extends Expr {
         return tblName;
     }
 
+    public TableName getOriginTableName() {
+        return tblName;
+    }
+
     @Override
     public String toColumnLabel() {
         // return tblName == null ? col : tblName.getTbl() + "." + col;
