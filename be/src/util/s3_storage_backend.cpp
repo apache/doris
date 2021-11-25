@@ -217,15 +217,12 @@ Status S3StorageBackend::rmdir(const std::string& remote) {
     if (!normal_path.empty() && normal_path.at(normal_path.size() - 1) != '/') {
         normal_path += '/';
     }
-    LOG(INFO) << "Remove S3 dir: " << normal_path;
+    LOG(INFO) << "Remove S3 dir: " << remote;
     RETURN_IF_ERROR(list(normal_path, false, true, &files));
 
     for (auto &file : files) {
         std::string file_path = normal_path + file.second.name;
         RETURN_IF_ERROR(rm(file_path));
-    }
-    if (exist_dir(normal_path)) {
-        rm(normal_path);
     }
     return Status::OK();
 }
@@ -258,26 +255,14 @@ Status S3StorageBackend::copy_dir(const std::string& src, const std::string& dst
     return Status::OK();
 }
 
+// dir is not supported by s3, it will cause something confusion.
 Status S3StorageBackend::mkdir(const std::string& path) {
-    std::string normal_path(path);
-    if (!normal_path.empty() && normal_path.at(normal_path.size() - 1) != '/') {
-        normal_path += '/';
-    }
-    CHECK_S3_CLIENT(_client);
-    CHECK_S3_PATH(uri, normal_path);
-    Aws::S3::Model::PutObjectRequest request;
-    request.WithBucket(uri.get_bucket()).WithKey(uri.get_key()).WithContentLength(0);
-    Aws::S3::Model::PutObjectOutcome response = _client->PutObject(request);
-    RETRUN_S3_STATUS(response);
+    return Status::OK();
 }
 
+// dir is not supported by s3, it will cause something confusion.
 Status S3StorageBackend::mkdirs(const std::string& path) {
-    std::filesystem::path dir_path(path);
-    std::string parent_path = dir_path.parent_path().string();
-    if (exist_dir(parent_path).ok()) {
-        return mkdir(path);
-    }
-    return mkdirs(parent_path);
+    return Status::OK();
 }
 
 Status S3StorageBackend::exist(const std::string& path) {
@@ -296,19 +281,12 @@ Status S3StorageBackend::exist(const std::string& path) {
 }
 
 Status S3StorageBackend::exist_dir(const std::string& path) {
-    std::string normal_path(path);
-    if (!normal_path.empty() && normal_path.at(normal_path.size() - 1) != '/') {
-        normal_path += '/';
-    }
     std::map<std::string, FileStat> files;
-    RETURN_IF_ERROR(list(normal_path, false, true, &files));
+    RETURN_IF_ERROR(list(path, false, true, &files));
     if (files.size() > 0) {
         return Status::OK();
     }
-    if (exist(normal_path)) {
-        return Status::OK();
-    }
-    return Status::NotFound(normal_path + " not exists!");
+    return Status::NotFound(path + " not exists!");
 }
 
 Status S3StorageBackend::upload_with_checksum(const std::string& local, const std::string& remote,
