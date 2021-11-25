@@ -374,7 +374,7 @@ public class DateLiteral extends LiteralExpr {
         if (!getType().equals(expr.getType())) {
             if (getType().equals(Type.DATE)) {
                 thisExprLongValue *= BASIC_ZERO_TIME;
-            } else {
+            } else if (expr.getType().equals(Type.DATE)) {
                 otherExprLongValue *= BASIC_ZERO_TIME;
             }
         }
