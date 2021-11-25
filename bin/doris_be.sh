@@ -27,7 +27,7 @@ function start() {
       sleep 1s
       pid=`cat $DORIS_HOME/bin/be.pid`
       echo "Doris Be pid : ${pid}"
-      echo "Apache Doris Backend start success!"
+      echo "Apache Doris Backend successfully started!"
     fi
 }
 
