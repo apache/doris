@@ -928,7 +928,7 @@ public:
     const_iterator end() const;
 
 private:
-    phmap::btree_map<uint32_t, roaring::Roaring> roarings {};
+    std::map<uint32_t, roaring::Roaring> roarings {};
     bool copyOnWrite {false};
     static uint32_t highBytes(const uint64_t in) { return uint32_t(in >> 32); }
     static uint32_t lowBytes(const uint64_t in) { return uint32_t(in); }
@@ -1066,9 +1066,9 @@ public:
     }
 
 protected:
-    const phmap::btree_map<uint32_t, roaring::Roaring>& p;
-    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_iter {};
-    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_end {};
+    const std::map<uint32_t, roaring::Roaring>& p;
+    std::map<uint32_t, roaring::Roaring>::const_iterator map_iter {};
+    std::map<uint32_t, roaring::Roaring>::const_iterator map_end {};
     roaring::api::roaring_uint32_iterator_t i {};
 };
 
@@ -1118,7 +1118,7 @@ public:
     }
 
 protected:
-    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_begin;
+    std::map<uint32_t, roaring::Roaring>::const_iterator map_begin;
 };
 
 inline Roaring64MapSetBitForwardIterator Roaring64Map::begin() const {
