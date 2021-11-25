@@ -251,6 +251,7 @@ public class RowBatch {
                     case "DATETIME":
                     case "CHAR":
                     case "VARCHAR":
+                    case "STRING":
                         Preconditions.checkArgument(mt.equals(Types.MinorType.VARCHAR),
                                 typeMismatchMessage(currentType, mt));
                         VarCharVector varCharVector = (VarCharVector) curFieldVector;

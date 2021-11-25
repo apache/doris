@@ -138,6 +138,18 @@ Default：1G
 
 Used to set the initial flow window size of the GRPC client channel, and also used to max message size.  When the result set is large, you may need to increase this value.
 
+### min_replication_num_per_tablet
+
+Default: 1
+
+Used to set minimal number of replication per tablet.
+
+### max_replication_num_per_tablet
+
+Default: 32767
+
+Used to set maximal number of replication per tablet.
+
 ### enable_outfile_to_local
 
 Default：false
@@ -233,6 +245,23 @@ Used to set the default database data quota size. To set the quota size of a sin
 ```
 Set the database data quota, the unit is:B/K/KB/M/MB/G/GB/T/TB/P/PB
 ALTER DATABASE db_name SET DATA QUOTA quota;
+View configuration
+show data （Detail：HELP SHOW DATA）
+```
+
+### default_db_replica_quota_size
+
+Default: 1073741824
+
+IsMutable：true
+
+MasterOnly：true
+
+Used to set the default database replica quota. To set the quota size of a single database, you can use: 
+
+```
+Set the database replica quota
+ALTER DATABASE db_name SET REPLICA QUOTA quota;
 View configuration
 show data （Detail：HELP SHOW DATA）
 ```
@@ -783,7 +812,15 @@ If set to true, Planner will try to select replica of tablet on same host as thi
 -  N hosts with N Backends and N Frontends deployed. 
 - The data has N replicas. 
 -  High concurrency queries are syyuyuient to all Frontends evenly 
--  In this case, all Frontends can only use local replicas to do the query.
+-  In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to nonlocal replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
+
+### enable_local_replica_selection_fallback
+
+Default：false
+
+IsMutable：true
+
+Used with enable_local_replica_selection. If the local replicas is not available, fallback to the nonlocal replicas.
 
 ### max_unfinished_load_job
 

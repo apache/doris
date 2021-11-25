@@ -65,6 +65,8 @@ public:
     // Otherwise return false.
     bool allocate(size_t size, Chunk* chunk);
 
+    bool allocate_align(size_t size, Chunk* chunk);
+
     // Free chunk allocated from this allocator
     void free(const Chunk& chunk);
 

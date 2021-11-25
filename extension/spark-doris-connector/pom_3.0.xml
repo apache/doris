@@ -26,7 +26,7 @@
 
     <groupId>org.apache</groupId>
     <artifactId>doris-spark</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0-spark-${spark.version}_${scala.version}</version>
 
     <properties>
         <scala.version>2.12</scala.version>
@@ -37,7 +37,7 @@
         <maven-javadoc-plugin.version>3.3.0</maven-javadoc-plugin.version>
         <maven-source-plugin.version>3.2.1</maven-source-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+        <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
     </properties>
 
     <profiles>
@@ -161,6 +161,12 @@
             <version>4.1.27.Final</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+            <scope>test</scope>
+        </dependency>
 
     </dependencies>
 
@@ -192,6 +198,7 @@
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
                 <configuration>
+                    <thriftExecutable>${doris.thirdparty}/installed/bin/thrift</thriftExecutable>
                     <generator>java:fullcamel</generator>
                 </configuration>
                 <executions>

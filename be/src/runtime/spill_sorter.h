@@ -157,7 +157,7 @@ private:
 
     // In memory sorter and less-than comparator.
     TupleRowComparator _compare_less_than;
-    boost::scoped_ptr<TupleSorter> _in_mem_tuple_sorter;
+    std::unique_ptr<TupleSorter> _in_mem_tuple_sorter;
 
     // Block manager object used to allocate, pin and release runs. Not owned by SpillSorter.
     BufferedBlockMgr2* _block_mgr;
@@ -184,7 +184,7 @@ private:
     // The current unsorted run that is being collected. Is sorted and added to
     // _sorted_runs after it is full (i.e. number of blocks allocated == max available
     // buffers) or after the input is complete. Owned and placed in _obj_pool.
-    // When it is added to _sorted_runs, it is set to NULL.
+    // When it is added to _sorted_runs, it is set to nullptr.
     Run* _unsorted_run;
 
     // List of sorted runs that have been produced but not merged. _unsorted_run is added
@@ -195,7 +195,7 @@ private:
     // Merger object (intermediate or final) currently used to produce sorted runs.
     // Only one merge is performed at a time. Will never be used if the input fits in
     // memory.
-    boost::scoped_ptr<SortedRunMerger> _merger;
+    std::unique_ptr<SortedRunMerger> _merger;
 
     // Runs that are currently processed by the _merge.
     // These runs can be deleted when we are done with the current merge.

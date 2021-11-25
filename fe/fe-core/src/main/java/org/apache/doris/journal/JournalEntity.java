@@ -48,7 +48,6 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
@@ -74,6 +73,7 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
+import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -106,7 +106,7 @@ import java.io.IOException;
 
 // this is the value written to bdb or local edit files. key is an auto-increasing long.
 public class JournalEntity implements Writable {
-    public static final Logger LOG = LogManager.getLogger(Checkpoint.class);
+    public static final Logger LOG = LogManager.getLogger(JournalEntity.class);
 
     private short opCode;
     private Writable data;
@@ -650,6 +650,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_SQL_BLOCK_RULE: {
                 data = DropSqlBlockRuleOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_ENGINE: {
+                data = ModifyTableEngineOperationLog.read(in);
                 isRead = true;
                 break;
             }

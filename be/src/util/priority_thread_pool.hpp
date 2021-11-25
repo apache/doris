@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
 
-#include <boost/bind/mem_fn.hpp>
-#include <boost/thread.hpp>
 #include <mutex>
+#include <thread>
 
 #include "util/blocking_priority_queue.hpp"
+#include "util/thread_group.h"
 
 namespace doris {
 
@@ -137,7 +137,7 @@ private:
     BlockingPriorityQueue<Task> _work_queue;
 
     // Collection of worker threads that process work from the queue.
-    boost::thread_group _threads;
+    ThreadGroup _threads;
 
     // Guards _empty_cv
     std::mutex _lock;

@@ -84,7 +84,7 @@ public class Column implements Writable {
     private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
     // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
-    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being relayed.
+    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
     private Expr defineExpr; // use to define column in materialize view
     @SerializedName(value = "visible")
     private boolean visible;
@@ -344,13 +344,13 @@ public class Column implements Writable {
         tColumn.setVisible(visible);
         tColumn.setChildrenColumn(new ArrayList<>());
         toChildrenThrift(this, tColumn);
-
-        // The define expr does not need to be serialized here for now.
-        // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
-        // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
-        if (this.defineExpr != null) {
-            tColumn.setDefineExpr(this.defineExpr.treeToThrift());
-        }
+        
+        // ATTN:
+        // Currently, this `toThrift()` method is only used from CreateReplicaTask.
+        // And CreateReplicaTask does not need `defineExpr` field.
+        // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in `AlterReplicaTask`.
+        // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
+        // If we need to use `defineExpr` and call defineExpr.treeToThrift(), make sure it is analyzed, or NPE will thrown.
         return tColumn;
     }
 

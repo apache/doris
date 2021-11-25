@@ -30,6 +30,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
+#include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
@@ -42,7 +43,7 @@ enum class MemLimit { HARD, SOFT };
 
 /// The Level use to decide whether to show it in web page
 /// each MemTracker have a Level equals to parent, only be set explicit
-enum class MemTrackerLevel {OVERVIEW = 0, TASK, VERBOSE};
+enum class MemTrackerLevel { OVERVIEW = 0, TASK, VERBOSE };
 
 class ObjectPool;
 class MemTracker;
@@ -92,11 +93,13 @@ public:
     static std::shared_ptr<MemTracker> CreateTracker(
             int64_t byte_limit = -1, const std::string& label = std::string(),
             std::shared_ptr<MemTracker> parent = std::shared_ptr<MemTracker>(),
-            bool log_usage_if_zero = true, bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
+            bool log_usage_if_zero = true, bool reset_label_name = true,
+            MemTrackerLevel level = MemTrackerLevel::VERBOSE);
 
     static std::shared_ptr<MemTracker> CreateTracker(
             RuntimeProfile* profile, int64_t byte_limit, const std::string& label = std::string(),
-            const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(), bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
+            const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
+            bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
 
     // this is used for creating an orphan mem tracker, or for unit test.
     // If a mem tracker has parent, it should be created by `CreateTracker()`
@@ -127,13 +130,13 @@ public:
             return;
         }
 
-        if (consumption_metric_ != nullptr) {
+        if (UNLIKELY(consumption_metric_ != nullptr)) {
             RefreshConsumptionFromMetric();
             return; // TODO(yingchun): why return not update tracker?
         }
         for (auto& tracker : all_trackers_) {
             tracker->consumption_->add(bytes);
-            if (tracker->consumption_metric_ == nullptr) {
+            if (LIKELY(tracker->consumption_metric_ == nullptr)) {
                 DCHECK_GE(tracker->consumption_->current_value(), 0);
             }
         }
@@ -164,15 +167,20 @@ public:
     /// other callers that may not tolerate allocation failures have a better chance
     /// of success. Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
-    bool TryConsume(int64_t bytes, MemLimit mode = MemLimit::HARD) {
+    Status TryConsume(int64_t bytes, MemLimit mode = MemLimit::HARD) {
         // DCHECK_GE(bytes, 0);
         if (bytes <= 0) {
             Release(-bytes);
-            return true;
+            return Status::OK();
+        }
+        if (MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
+            return Status::MemoryLimitExceeded(fmt::format(
+                    "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
+                    label_, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
         }
         // if (UNLIKELY(bytes == 0)) return true;
         // if (UNLIKELY(bytes < 0)) return false; // needed in RELEASE, hits DCHECK in DEBUG
-        if (consumption_metric_ != nullptr) RefreshConsumptionFromMetric();
+        if (UNLIKELY(consumption_metric_ != nullptr)) RefreshConsumptionFromMetric();
         int i;
         // Walk the tracker tree top-down.
         for (i = all_trackers_.size() - 1; i >= 0; --i) {
@@ -187,26 +195,27 @@ public:
                 while (true) {
                     if (LIKELY(tracker->consumption_->try_add(bytes, limit))) break;
 
-                    VLOG_RPC << "TryConsume failed, bytes=" << bytes
-                             << " consumption=" << tracker->consumption_->current_value()
-                             << " limit=" << limit << " attempting to GC";
                     if (UNLIKELY(tracker->GcMemory(limit - bytes))) {
                         DCHECK_GE(i, 0);
                         // Failed for this mem tracker. Roll back the ones that succeeded.
                         for (int j = all_trackers_.size() - 1; j > i; --j) {
                             all_trackers_[j]->consumption_->add(-bytes);
                         }
-                        return false;
+                        return Status::MemoryLimitExceeded(fmt::format(
+                                "{}: TryConsume failed, bytes={} consumption={}  imit={} "
+                                "attempting to GC",
+                                tracker->label(), bytes, tracker->consumption_->current_value(),
+                                limit));
                     }
-                    VLOG_RPC << "GC succeeded, TryConsume bytes=" << bytes
-                             << " consumption=" << tracker->consumption_->current_value()
-                             << " limit=" << limit;
+                    VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
+                                << " consumption=" << tracker->consumption_->current_value()
+                                << " limit=" << limit;
                 }
             }
         }
         // Everyone succeeded, return.
         DCHECK_EQ(i, -1);
-        return true;
+        return Status::OK();
     }
 
     /// Decreases consumption of this tracker and its ancestors by 'bytes'.
@@ -223,7 +232,7 @@ public:
 
         // if (UNLIKELY(bytes <= 0)) return; // < 0 needed in RELEASE, hits DCHECK in DEBUG
 
-        if (consumption_metric_ != nullptr) {
+        if (UNLIKELY(consumption_metric_ != nullptr)) {
             RefreshConsumptionFromMetric();
             return;
         }
@@ -235,7 +244,7 @@ public:
             /// metric. Don't blow up in this case. (Note that this doesn't affect non-process
             /// trackers since we can enforce that the reported memory usage is internally
             /// consistent.)
-            if (tracker->consumption_metric_ == nullptr) {
+            if (LIKELY(tracker->consumption_metric_ == nullptr)) {
                 DCHECK_GE(tracker->consumption_->current_value(), 0)
                         << std::endl
                         << tracker->LogUsage(UNLIMITED_DEPTH);
@@ -341,7 +350,7 @@ public:
     //void RegisterMetrics(MetricGroup* metrics, const std::string& prefix);
 
     /// Logs the usage of this tracker and optionally its children (recursively).
-    /// If 'logged_consumption' is non-NULL, sets the consumption value logged.
+    /// If 'logged_consumption' is non-nullptr, sets the consumption value logged.
     /// 'max_recursive_depth' specifies the maximum number of levels of children
     /// to include in the dump. If it is zero, then no children are dumped.
     /// Limiting the recursive depth reduces the cost of dumping, particularly
@@ -367,7 +376,7 @@ public:
     /// details of the allocation which caused the limit to be exceeded.
     /// If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
-    /// If 'state' is non-NULL, logs the error to 'state'.
+    /// If 'state' is non-nullptr, logs the error to 'state'.
     Status MemLimitExceeded(RuntimeState* state, const std::string& details,
                             int64_t failed_allocation = 0) WARN_UNUSED_RESULT {
         return MemLimitExceeded(this, state, details, failed_allocation);
@@ -377,11 +386,6 @@ public:
     static Status MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
                                    const std::string& details,
                                    int64_t failed_allocation = 0) WARN_UNUSED_RESULT;
-
-    void set_query_exec_finished() {
-        DCHECK(is_query_mem_tracker_);
-        query_exec_finished_.store(1);
-    }
 
     static void update_limits(int64_t bytes,
                               const std::vector<std::shared_ptr<MemTracker>>& trackers) {
@@ -414,7 +418,7 @@ public:
         return msg.str();
     }
 
-    bool is_consumption_metric_null() { return consumption_metric_ == nullptr; }
+    bool is_consumption_metric_null() const { return consumption_metric_ == nullptr; }
 
     static const std::string COUNTER_NAME;
 
@@ -474,7 +478,7 @@ private:
                         int limit);
 
     /// If an ancestor of this tracker is a query MemTracker, return that tracker.
-    /// Otherwise return NULL.
+    /// Otherwise return nullptr.
     MemTracker* GetQueryMemTracker();
 
     /// Increases/Decreases the consumption of this tracker and the ancestors up to (but
@@ -495,17 +499,11 @@ private:
     /// Lock to protect GcMemory(). This prevents many GCs from occurring at once.
     std::mutex gc_lock_;
 
-    /// True if this is a Query MemTracker returned from CreateQueryMemTracker().
-    bool is_query_mem_tracker_ = false;
-
     /// Only used if 'is_query_mem_tracker_' is true.
     /// 0 if the query is still executing or 1 if it has finished executing. Before
     /// it has finished executing, the tracker limit is treated as "reserved memory"
     /// for the purpose of admission control - see GetPoolMemReserved().
-    std::atomic<int32_t> query_exec_finished_{0};
-
-    /// Only valid for MemTrackers returned from CreateQueryMemTracker()
-    TUniqueId query_id_;
+    std::atomic<int32_t> query_exec_finished_ {0};
 
     /// Only valid for MemTrackers returned from GetRequestPoolMemTracker()
     std::string pool_name_;
@@ -527,12 +525,12 @@ private:
     /// in bytes
     std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> consumption_;
 
-    /// If non-NULL, used to measure consumption (in bytes) rather than the values provided
+    /// If non-nullptr, used to measure consumption (in bytes) rather than the values provided
     /// to Consume()/Release(). Only used for the process tracker, thus parent_ should be
-    /// NULL if consumption_metric_ is set.
+    /// nullptr if consumption_metric_ is set.
     IntGauge* consumption_metric_;
 
-    /// If non-NULL, counters from a corresponding ReservationTracker that should be
+    /// If non-nullptr, counters from a corresponding ReservationTracker that should be
     /// reported in logs and other diagnostics. Owned by this MemTracker. The counters
     /// are owned by the fragment's RuntimeProfile.
     AtomicPtr<ReservationTrackerCounters> reservation_counters_;

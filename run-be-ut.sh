@@ -117,10 +117,20 @@ if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
 
+# get specified ut file if set
+RUN_FILE=
+if [ $# == 1 ]; then
+    RUN_FILE=$1
+    echo "=== Run test: $RUN_FILE ==="
+else
+    # run all ut
+    echo "=== Running All tests ==="
+fi
+
 cd ${CMAKE_BUILD_DIR}
 ${CMAKE_CMD} -G "${GENERATOR}" ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
     -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY}
-${BUILD_SYSTEM} -j ${PARALLEL}
+${BUILD_SYSTEM} -j ${PARALLEL} $RUN_FILE
 
 if [ ${RUN} -ne 1 ]; then
     echo "Finished"
@@ -159,16 +169,6 @@ cp -r ${DORIS_HOME}/be/test/plugin/plugin_test ${DORIS_TEST_BINARY_DIR}/plugin/
 
 # find all executable test files
 test_files=`find ${DORIS_TEST_BINARY_DIR} -type f -perm -111 -name "*test"`
-
-# get specified ut file if set
-RUN_FILE=
-if [ $# == 1 ]; then
-    RUN_FILE=$1
-    echo "=== Run test: $RUN_FILE ==="
-else
-    # run all ut
-    echo "=== Running All tests ==="
-fi
 
 for test in ${test_files[@]}
 do

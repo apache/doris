@@ -23,10 +23,10 @@
 #include <sys/time.h>
 #include <zlib.h>
 
-#include <filesystem>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <iterator>
 #include <limits>
 #include <list>
@@ -207,7 +207,7 @@ OLAPStatus read_write_test_file(const std::string& test_file_path);
 //转换两个list
 template <typename T1, typename T2>
 void static_cast_assign_vector(std::vector<T1>* v1, const std::vector<T2>& v2) {
-    if (NULL != v1) {
+    if (nullptr != v1) {
         //GCC3.4的模板展开貌似有问题， 这里如果使用迭代器会编译失败
         for (size_t i = 0; i < v2.size(); i++) {
             v1->push_back(static_cast<T1>(v2[i]));
@@ -239,7 +239,7 @@ inline bool is_io_error(OLAPStatus status) {
 // 检查int8_t, int16_t, int32_t, int64_t的值是否溢出
 template <typename T>
 bool valid_signed_number(const std::string& value_str) {
-    char* endptr = NULL;
+    char* endptr = nullptr;
     errno = 0;
     int64_t value = strtol(value_str.c_str(), &endptr, 10);
 
@@ -265,7 +265,7 @@ bool valid_unsigned_number(const std::string& value_str) {
         return false;
     }
 
-    char* endptr = NULL;
+    char* endptr = nullptr;
     errno = 0;
     uint64_t value = strtoul(value_str.c_str(), &endptr, 10);
 

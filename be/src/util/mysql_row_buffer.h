@@ -31,7 +31,7 @@ namespace doris {
  * <--------A column--------><--------A column--------><-.....->
  *
  * The flag means value's length or null value:
- * If value is NULL, flag is 251
+ * If value is nullptr, flag is 251
  * If value's length < 251, flag is the value's length
  * If 251 <= value's length < 65536, flag is 252 and the next two byte is length
  * If 65536 <= value's length < 16777216 , flag is 253 and the next three byte is length

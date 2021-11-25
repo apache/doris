@@ -33,7 +33,7 @@ void AggregationNode::process_row_batch_no_grouping(RowBatch* batch, MemPool* po
 void AggregationNode::process_row_batch_with_grouping(RowBatch* batch, MemPool* pool) {
     for (int i = 0; i < batch->num_rows(); ++i) {
         TupleRow* row = batch->get_row(i);
-        Tuple* agg_tuple = NULL;
+        Tuple* agg_tuple = nullptr;
         HashTable::Iterator it = _hash_tbl->find(row);
 
         if (it.at_end()) {

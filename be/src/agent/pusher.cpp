@@ -53,7 +53,7 @@ AgentStatus Pusher::init() {
     // Check replica exist
     OLAPTablePtr olap_table;
     olap_table = _engine->get_table(_push_req.tablet_id, _push_req.schema_hash);
-    if (olap_table.get() == NULL) {
+    if (olap_table.get() == nullptr) {
         OLAP_LOG_WARNING("get tables failed. tablet_id: %ld, schema_hash: %ld", _push_req.tablet_id,
                          _push_req.schema_hash);
         return DORIS_PUSH_INVALID_TABLE;
@@ -94,10 +94,10 @@ AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_
 
     if (!std::filesystem::exists(full_path)) {
         LOG(INFO) << "download dir not exist: " << *download_path;
-        boost::system::error_code error_code;
+        std::error_code error_code;
         std::filesystem::create_directories(*download_path, error_code);
 
-        if (0 != error_code) {
+        if (error_code) {
             status = DORIS_ERROR;
             LOG(WARNING) << "create download dir failed.path: " << *download_path
                          << ", error code: " << error_code;
@@ -130,7 +130,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
         bool is_timeout = false;
         auto download_cb = [this, estimate_time_out, file_size, &is_timeout](HttpClient* client) {
             // Check timeout and set timeout
-            time_t now = time(NULL);
+            time_t now = time(nullptr);
             if (_push_req.timeout > 0 && _push_req.timeout < now) {
                 // return status to break this callback
                 VLOG_NOTICE << "check time out. time_out:" << _push_req.timeout << ", now:" << now;
@@ -191,9 +191,9 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
 
     if (status == DORIS_SUCCESS) {
         // Load delta file
-        time_t push_begin = time(NULL);
+        time_t push_begin = time(nullptr);
         OLAPStatus push_status = _engine->push(_push_req, tablet_infos);
-        time_t push_finish = time(NULL);
+        time_t push_finish = time(nullptr);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             status = DORIS_PUSH_HAD_LOADED;

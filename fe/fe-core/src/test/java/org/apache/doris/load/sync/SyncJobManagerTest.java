@@ -405,5 +405,41 @@ public class SyncJobManagerTest {
         Assert.assertEquals(MsgType.USER_CANCEL, canalSyncJob.getFailMsg().getMsgType());
     }
 
+    @Test
+    public void testCleanOldSyncJobs() {
+        SyncJob canalSyncJob = new CanalSyncJob(jobId, jobName, dbId);
+        // change sync job state to cancelled
+        try {
+            canalSyncJob.updateState(JobState.CANCELLED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
+        Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
+
+        SyncJobManager manager = new SyncJobManager();
+
+        // add a sync job to manager
+        Map<Long, SyncJob> idToSyncJob = Maps.newHashMap();
+        idToSyncJob.put(jobId, canalSyncJob);
+        Map<Long, Map<String, List<SyncJob>>> dbIdToJobNameToSyncJobs = Maps.newHashMap();
+        Map<String, List<SyncJob>> jobNameToSyncJobs = Maps.newHashMap();
+        jobNameToSyncJobs.put(jobName, Lists.newArrayList(canalSyncJob));
+        dbIdToJobNameToSyncJobs.put(dbId, jobNameToSyncJobs);
+
+        Deencapsulation.setField(manager, "idToSyncJob", idToSyncJob);
+        Deencapsulation.setField(manager, "dbIdToJobNameToSyncJobs", dbIdToJobNameToSyncJobs);
+
+        new Expectations(canalSyncJob) {
+            {
+                canalSyncJob.isExpired(anyLong);
+                result = true;
+            }
+        };
+        manager.cleanOldSyncJobs();
+
+        Assert.assertEquals(0, idToSyncJob.size());
+        Assert.assertEquals(0, dbIdToJobNameToSyncJobs.size());
+    }
+
 
 }

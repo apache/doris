@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "gen_cpp/PlanNodes_types.h"
@@ -65,7 +64,7 @@ private:
     TDescriptorTable _t_desc_table;
     DescriptorTbl* _desc_tbl;
     TPlanNode _tnode;
-    boost::scoped_ptr<ExecEnv> _env;
+    std::unique_ptr<ExecEnv> _env;
     RuntimeState* _state;
 }; // end class CsvScanNodeTest
 
@@ -418,10 +417,10 @@ TEST_F(CsvScanNodeTest, wrong_fix_len_string_format_test) {
     ASSERT_TRUE(!scan_node.close(_state).ok());
 }
 
-// 待补充测试case
-// 1. 字符串导入
-// 2. 不指定有默认值的列
-// 3. 文件中有但表中没有的列，导入命令中跳过该列
+// To be added test case
+// 1. String import
+// 2. Do not specify columns with default values
+// 3. If there is a column in the file but not in the table, the column is skipped in the import command
 // 4. max_filter_ratio
 
 } // end namespace doris

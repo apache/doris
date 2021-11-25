@@ -137,6 +137,18 @@ FE 的配置项有两种方式进行配置：
 
 用于设置 GRPC 客户端通道的初始流窗口大小，也用于设置最大消息大小。当结果集较大时，可能需要增大该值。
 
+### min_replication_num_per_tablet
+
+默认值：1
+
+用于设置单个tablet的最小replication数量。
+
+### max_replication_num_per_tablet
+
+默认值：32767
+
+用于设置单个tablet的最大replication数量。
+
 ### enable_outfile_to_local
 
 默认值：false
@@ -227,6 +239,23 @@ workers 线程池默认不做设置，根据自己需要进行设置
 ```
 设置数据库数据量配额，单位为B/K/KB/M/MB/G/GB/T/TB/P/PB
 ALTER DATABASE db_name SET DATA QUOTA quota;
+查看配置
+show data （其他用法：HELP SHOW DATA）
+```
+
+### default_db_replica_quota_size
+
+默认值：1073741824
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+用于设置默认数据库Replica数量配额大小，设置单个数据库配额大小可以使用：
+
+```
+设置数据库Replica数量配额
+ALTER DATABASE db_name SET REPLICA QUOTA quota;
 查看配置
 show data （其他用法：HELP SHOW DATA）
 ```
@@ -775,7 +804,15 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 3. 高并发查询均匀发送到所有 Frontends
 
-在这种情况下，所有 Frontends 只能使用本地副本进行查询。
+在这种情况下，所有 Frontends 只能使用本地副本进行查询。如果想当本地副本不可用时，使用非本地副本服务查询，请将 enable_local_replica_selection_fallback 设置为 true
+
+### enable_local_replica_selection_fallback
+
+默认值：false
+
+是否可以动态配置：true
+
+与 enable_local_replica_selection 配合使用，当本地副本不可用时，使用非本地副本服务查询。
 
 ### max_unfinished_load_job
 

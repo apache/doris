@@ -22,16 +22,16 @@
 #include <stdlib.h>
 
 #include "common/logging.h"
+#include "date_func.h"
 #include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
-#include "date_func.h"
 
 namespace doris {
 
 // the first byte:
 // <= 250: length
-// = 251: NULL
+// = 251: nullptr
 // = 252: the next two byte is length
 // = 253: the next three byte is length
 // = 254: the next eighth byte is length
@@ -41,7 +41,7 @@ static char* pack_vlen(char* packet, uint64_t length) {
         return packet + 1;
     }
 
-    /* 251 is reserved for NULL */
+    /* 251 is reserved for nullptr */
     if (length < 65536ULL) {
         *packet++ = 252;
         int2store(packet, length);
@@ -105,7 +105,7 @@ int MysqlRowBuffer::reserve(int size) {
     int alloc_size = std::max(need_size, _buf_size * 2);
     char* new_buf = new (std::nothrow) char[alloc_size];
 
-    if (NULL == new_buf) {
+    if (nullptr == new_buf) {
         LOG(ERROR) << "alloc memory failed. size = " << alloc_size;
         return -1;
     }
@@ -172,7 +172,8 @@ static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mod
     return pos + length;
 }
 
-static char* add_decimal(const DecimalV2Value& data, int round_scale, char* pos, bool dynamic_mode) {
+static char* add_decimal(const DecimalV2Value& data, int round_scale, char* pos,
+                         bool dynamic_mode) {
     int length = data.to_buffer(pos + !dynamic_mode, round_scale);
     if (!dynamic_mode) {
         int1store(pos++, length);
@@ -325,8 +326,8 @@ int MysqlRowBuffer::push_decimal(const DecimalV2Value& data, int round_scale) {
 
 int MysqlRowBuffer::push_string(const char* str, int length) {
     // 9 for length pack max, 1 for sign, other for digits
-    if (NULL == str) {
-        LOG(ERROR) << "input string is NULL.";
+    if (nullptr == str) {
+        LOG(ERROR) << "input string is nullptr.";
         return -1;
     }
 
@@ -368,7 +369,7 @@ char* MysqlRowBuffer::reserved(int size) {
 
     if (0 != ret) {
         LOG(ERROR) << "mysql row buffer reserve failed.";
-        return NULL;
+        return nullptr;
     }
 
     char* old_buf = _pos;

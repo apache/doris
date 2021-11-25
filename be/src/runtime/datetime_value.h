@@ -151,10 +151,10 @@ constexpr size_t max_char_length(const char* const* name, size_t end) {
 
 static constexpr const char* s_month_name[] = {
         "",     "January", "February",  "March",   "April",    "May",      "June",
-        "July", "August",  "September", "October", "November", "December", NULL};
+        "July", "August",  "September", "October", "November", "December", nullptr};
 
 static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
-                                             "Friday", "Saturday", "Sunday",    NULL};
+                                             "Friday", "Saturday", "Sunday",    nullptr};
 
 static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
 static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
@@ -167,18 +167,18 @@ public:
     DateTimeValue()
             : _neg(0),
               _type(TIME_DATETIME),
-              _second(0),
-              _minute(0),
               _hour(0),
-              _day(0),
-              _month(0),
+              _minute(0),
+              _second(0),
               _year(0),
+              _month(0),
+              _day(0),
               _microsecond(0) {}
 
     explicit DateTimeValue(int64_t t) { from_date_int64(t); }
 
-    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint32_t microsecond);
+    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
+                  uint32_t second, uint32_t microsecond);
 
     // Converted from Olap Date or Datetime
     bool from_olap_datetime(uint64_t datetime) {
@@ -187,7 +187,8 @@ public:
         uint64_t date = datetime / 1000000;
         uint64_t time = datetime % 1000000;
 
-        auto [year, month, day, hour, minute, second, microsecond] = std::tuple{0,0,0,0,0,0,0};
+        auto [year, month, day, hour, minute, second, microsecond] =
+                std::tuple {0, 0, 0, 0, 0, 0, 0};
         year = date / 10000;
         date %= 10000;
         month = date / 100;
@@ -211,7 +212,8 @@ public:
         _neg = 0;
         _type = TIME_DATE;
 
-        auto [year, month, day, hour, minute, second, microsecond] = std::tuple{0,0,0,0,0,0,0};
+        auto [year, month, day, hour, minute, second, microsecond] =
+                std::tuple {0, 0, 0, 0, 0, 0, 0};
 
         day = date & 0x1f;
         date >>= 5;
@@ -275,7 +277,7 @@ public:
 
     // Return true if range or date is invalid
     static bool check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type);
+                            uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type);
 
     static bool check_date(uint32_t year, uint32_t month, uint32_t day);
 
@@ -346,7 +348,8 @@ public:
     int64_t to_int64() const;
 
     bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type) {
+                                  uint32_t minute, uint32_t second, uint32_t microsecond,
+                                  uint16_t type) {
         if (check_range(year, month, day, hour, minute, second, microsecond, type)) {
             return false;
         }
@@ -555,8 +558,10 @@ public:
 
     int type() const { return _type; }
 
-    bool is_valid_date() const { return !check_range(_year, _month, _day,
-            _hour, _minute, _second, _microsecond, _type) && _month > 0 && _day > 0; }
+    bool is_valid_date() const {
+        return !check_range(_year, _month, _day, _hour, _minute, _second, _microsecond, _type) &&
+               _month > 0 && _day > 0;
+    }
 
 private:
     // Used to make sure sizeof DateTimeValue
@@ -625,15 +630,17 @@ private:
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
 
-    // 1 bits for neg. 3 bits for type. 12bit for second
+    // NOTICE: it's dangerous if you want to modify the memory structure of datetime
+    // which will cause problem in serialization/deserialization of RowBatch.
+    // 1 bits for neg. 3 bits for type. 12bit for hour
     uint16_t _neg : 1;  // Used for time value.
     uint16_t _type : 3; // Which type of this value.
-    uint16_t _second : 12;
+    uint16_t _hour : 12;
     uint8_t _minute;
-    uint8_t _hour;
-    uint8_t _day;
-    uint8_t _month;
+    uint8_t _second;
     uint16_t _year;
+    uint8_t _month;
+    uint8_t _day;
     // TODO(zc): used for nothing
     uint64_t _microsecond;
 
@@ -641,12 +648,12 @@ private:
                   uint32_t microsecond, uint16_t year, uint8_t month, uint8_t day)
             : _neg(neg),
               _type(type),
-              _second(second),
-              _minute(minute),
               _hour(hour),
-              _day(day),
-              _month(month),
+              _minute(minute),
+              _second(second),
               _year(year),
+              _month(month),
+              _day(day),
               _microsecond(microsecond) {}
 
     // RE2 obj is thread safe

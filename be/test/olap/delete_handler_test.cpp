@@ -259,7 +259,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(tablet.get() != NULL);
+        ASSERT_TRUE(tablet.get() != nullptr);
         _tablet_path = tablet->tablet_path();
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
@@ -267,7 +267,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(
                 _create_dup_tablet.tablet_id, _create_dup_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(dup_tablet.get() != NULL);
+        ASSERT_TRUE(dup_tablet.get() != nullptr);
         _dup_tablet_path = tablet->tablet_path();
     }
 
@@ -430,7 +430,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(tablet.get() != NULL);
+        ASSERT_TRUE(tablet.get() != nullptr);
         _tablet_path = tablet->tablet_path();
     }
 

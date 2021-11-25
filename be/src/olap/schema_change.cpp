@@ -57,7 +57,7 @@ public:
     explicit RowBlockSorter(RowBlockAllocator* allocator);
     virtual ~RowBlockSorter();
     size_t num_rows() { 
-        return _swap_row_block->capacity(); 
+        return _swap_row_block != nullptr ? _swap_row_block->capacity() : 0;
     }
 
     bool sort(RowBlock** row_block);
@@ -1520,6 +1520,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     reader_context.return_columns = &return_columns;
     // for schema change, seek_columns is the same to return_columns
     reader_context.seek_columns = &return_columns;
+    reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
 
     auto mem_tracker = MemTracker::CreateTracker(-1, "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-"
         + std::to_string(new_tablet->tablet_id()), _mem_tracker, true, false, MemTrackerLevel::TASK);
@@ -1740,6 +1741,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     reader_context.delete_handler = &delete_handler;
     reader_context.return_columns = &return_columns;
     reader_context.seek_columns = &return_columns;
+    reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(_mem_tracker, &rowset_reader));

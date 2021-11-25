@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
 #define DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
 
-#include <boost/shared_ptr.hpp>
-
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "util/mem_util.hpp"
@@ -178,7 +176,7 @@ public:
     // 返回ByteBuffer内部的char数组
     const char* array() const { return _array; }
     const char* array(size_t position) const {
-        return position >= _limit ? NULL : &_array[position];
+        return position >= _limit ? nullptr : &_array[position];
     }
     char* array() { return _array; }
 
@@ -202,7 +200,7 @@ private:
     StorageByteBuffer();
 
 private:
-    boost::shared_ptr<char> _buf; // 托管的内存
+    std::shared_ptr<char> _buf; // 托管的内存
     char* _array;
     uint64_t _capacity;
     uint64_t _limit;

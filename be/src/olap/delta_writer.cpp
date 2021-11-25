@@ -343,6 +343,11 @@ OLAPStatus DeltaWriter::cancel() {
 }
 
 int64_t DeltaWriter::mem_consumption() const {
+    if (_mem_tracker == nullptr) {
+        // This method may be called before this writer is initialized.
+        // So _mem_tracker may be null.
+        return 0;
+    }
     return _mem_tracker->consumption();
 }
 

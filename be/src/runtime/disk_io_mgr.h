@@ -18,11 +18,10 @@
 #ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 #define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/thread.hpp>
 #include <condition_variable>
 #include <list>
 #include <mutex>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -36,6 +35,7 @@
 #include "util/internal_queue.h"
 #include "util/metrics.h"
 #include "util/runtime_profile.h"
+#include "util/thread_group.h"
 
 namespace doris {
 
@@ -217,7 +217,7 @@ public:
         // is evicted.
         static void release(HdfsCachedFileHandle** h);
 
-        bool ok() const { return _hdfs_file != NULL; }
+        bool ok() const { return _hdfs_file != nullptr; }
 
     private:
         hdfsFS _fs;
@@ -281,7 +281,7 @@ public:
         // true if the current scan range is complete
         bool _eosr;
 
-        // Status of the read to this buffer. if status is not ok, 'buffer' is NULL
+        // Status of the read to this buffer. if status is not ok, 'buffer' is nullptr
         Status _status;
 
         int64_t _scan_range_offset;
@@ -308,7 +308,7 @@ public:
         RequestType::type request_type() const { return _request_type; }
 
     protected:
-        // Hadoop filesystem that contains _file, or set to NULL for local filesystem.
+        // Hadoop filesystem that contains _file, or set to nullptr for local filesystem.
         hdfsFS _fs;
 
         // Path to file being read or written.
@@ -345,7 +345,7 @@ public:
         // must fall within the file bounds (offset >= 0 and offset + len <= file_length).
         // Resets this scan range object with the scan range description.
         void reset(hdfsFS fs, const char* file, int64_t len, int64_t offset, int disk_id,
-                   bool try_cache, bool expected_local, int64_t mtime, void* metadata = NULL);
+                   bool try_cache, bool expected_local, int64_t mtime, void* metadata = nullptr);
 
         void* meta_data() const { return _meta_data; }
         // bool try_cache() const { return _try_cache; }
@@ -354,7 +354,7 @@ public:
 
         // Returns the next buffer for this scan range. buffer is an output parameter.
         // This function blocks until a buffer is ready or an error occurred. If this is
-        // called when all buffers have been returned, *buffer is set to NULL and Status::OK()
+        // called when all buffers have been returned, *buffer is set to nullptr and Status::OK()
         // is returned.
         // Only one thread can be in get_next() at any time.
         Status get_next(BufferDescriptor** buffer);
@@ -591,7 +591,7 @@ public:
     // Returns the next unstarted scan range for this reader. When the range is returned,
     // the disk threads in the IoMgr will already have started reading from it. The
     // caller is expected to call ScanRange::get_next on the returned range.
-    // If there are no more unstarted ranges, NULL is returned.
+    // If there are no more unstarted ranges, nullptr is returned.
     // This call is blocking.
     Status get_next_range(RequestContext* reader, ScanRange** range);
 
@@ -666,7 +666,7 @@ public:
     bool validate() const;
 
     // Given a FS handle, name and last modified time of the file, tries to open that file
-    // and return an instance of HdfsCachedFileHandle. In case of an error returns NULL.
+    // and return an instance of HdfsCachedFileHandle. In case of an error returns nullptr.
     // HdfsCachedFileHandle* OpenHdfsFile(const hdfsFS& fs, const char* fname, int64_t mtime);
 
     // When the file handle is no longer in use by the scan range, return it and try to
@@ -707,7 +707,7 @@ private:
 
     // Thread group containing all the worker threads.
     // ThreadGroup _disk_thread_group;
-    boost::thread_group _disk_thread_group;
+    ThreadGroup _disk_thread_group;
 
     // Options object for cached hdfs reads. Set on startup and never modified.
     struct hadoopRzOptions* _cached_read_options;
@@ -726,7 +726,7 @@ private:
     // active as well as those in the process of being cancelled. This is a cache
     // of context objects that get recycled to minimize object allocations and lock
     // contention.
-    boost::scoped_ptr<RequestContextCache> _request_context_cache;
+    std::unique_ptr<RequestContextCache> _request_context_cache;
 
     // Protects _free_buffers and _free_buffer_descs
     std::mutex _free_buffers_lock;
@@ -798,7 +798,7 @@ private:
     // if buffer was acquired via get_free_buffer() (which it should have been).
     void return_free_buffer(char* buffer, int64_t buffer_size);
 
-    // Returns the buffer in desc (cannot be NULL), sets buffer to NULL and clears the
+    // Returns the buffer in desc (cannot be nullptr), sets buffer to nullptr and clears the
     // mem tracker.
     void return_free_buffer(BufferDescriptor* desc);
 

@@ -235,6 +235,7 @@ Status OlapScanner::_init_return_columns() {
         _return_columns.push_back(index);
         _query_slots.push_back(slot);
     }
+
     // expand the sequence column
     if (_tablet->tablet_schema().has_sequence_col()) {
         bool has_replace_col = false;
@@ -245,8 +246,9 @@ Status OlapScanner::_init_return_columns() {
                 break;
             }
         }
-        if (has_replace_col) {
-            _return_columns.push_back(_tablet->tablet_schema().sequence_col_idx());
+        if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) == _return_columns.end()) {
+            _return_columns.push_back(sequence_col_idx);
         }
     }
 

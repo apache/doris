@@ -25,16 +25,16 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "gen_cpp/data.pb.h" // for PRowBatch
 #include "gen_cpp/BackendService.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/data.pb.h" // for PRowBatch
 #include "gen_cpp/internal_service.pb.h"
-#include "util/runtime_profile.h"
-#include "util/ref_count_closure.h"
-#include "util/uid_util.h"
-#include "service/brpc.h"
 #include "service/backend_options.h"
+#include "service/brpc.h"
+#include "util/ref_count_closure.h"
+#include "util/runtime_profile.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -165,18 +165,18 @@ protected:
         bool is_local() { return _is_local; }
 
         inline Status _wait_last_brpc() {
-                if (_closure == nullptr) return Status::OK();
-                auto cntl = &_closure->cntl;
-                brpc::Join(cntl->call_id());
-                if (cntl->Failed()) {
-                    std::stringstream ss;
-                    ss << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
-                       << ", error_text=" << cntl->ErrorText()
-                       << ", client: " << BackendOptions::get_localhost();
-                    LOG(WARNING) << ss.str();
-                    return Status::ThriftRpcError(ss.str());
-                }
-                return Status::OK();
+            if (_closure == nullptr) return Status::OK();
+            auto cntl = &_closure->cntl;
+            brpc::Join(cntl->call_id());
+            if (cntl->Failed()) {
+                std::stringstream ss;
+                ss << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
+                   << ", error_text=" << cntl->ErrorText()
+                   << ", client: " << BackendOptions::get_localhost();
+                LOG(WARNING) << ss.str();
+                return Status::ThriftRpcError(ss.str());
+            }
+            return Status::OK();
         }
         // Serialize _batch into _thrift_batch and send via send_batch().
         // Returns send_batch() status.
@@ -195,7 +195,7 @@ protected:
         int64_t _packet_seq;
 
         // we're accumulating rows into this batch
-        boost::scoped_ptr<RowBatch> _batch;
+        std::unique_ptr<RowBatch> _batch;
 
         bool _need_close;
         int _be_number;
@@ -206,7 +206,7 @@ protected:
         PUniqueId _finst_id;
         PRowBatch _pb_batch;
         PTransmitDataParams _brpc_request;
-        PBackendService_Stub* _brpc_stub = nullptr;
+        std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
         RefCountClosure<PTransmitDataResult>* _closure = nullptr;
         int32_t _brpc_timeout_ms = 500;
         // whether the dest can be treated as query statistics transfer chain.

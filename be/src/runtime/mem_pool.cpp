@@ -116,7 +116,9 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
     if (check_limits) {
-        if (!mem_tracker_->TryConsume(chunk_size)) return false;
+        Status st = mem_tracker_->TryConsume(chunk_size);
+        WARN_IF_ERROR(st, "try to allocate a new buffer failed");
+        if (!st) return false;
     } else {
         mem_tracker_->Consume(chunk_size);
     }

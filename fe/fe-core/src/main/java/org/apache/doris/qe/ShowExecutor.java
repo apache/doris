@@ -1110,7 +1110,7 @@ public class ShowExecutor {
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
                                                                    PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                                                     ConnectContext.get().getQualifiedUser(),
                                                     db.getFullName());
             }
@@ -1483,7 +1483,8 @@ public class ShowExecutor {
                     Long id = olapTable.getIndexIdByName(indexName);
                     if (id == null) {
                         // invalid indexName
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getIndexName());
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, showStmt.getIndexName(),
+                                showStmt.getDbName());
                     }
                     indexId = id;
                 }
@@ -1755,23 +1756,15 @@ public class ShowExecutor {
     private void handleAdminShowConfig() throws AnalysisException {
         AdminShowConfigStmt showStmt = (AdminShowConfigStmt) stmt;
         List<List<String>> results;
-        try {
-            PatternMatcher matcher = null;
-            if (showStmt.getPattern() != null) {
-                matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                        CaseSensibility.CONFIG.getCaseSensibility());
-            }
-            results = ConfigBase.getConfigInfo(matcher);
-            // Sort all configs by config key.
-            Collections.sort(results, new Comparator<List<String>>() {
-                @Override
-                public int compare(List<String> o1, List<String> o2) {
-                    return o1.get(0).compareTo(o2.get(0));
-                }
-            });
-        } catch (DdlException e) {
-            throw new AnalysisException(e.getMessage());
+
+        PatternMatcher matcher = null;
+        if (showStmt.getPattern() != null) {
+            matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                    CaseSensibility.CONFIG.getCaseSensibility());
         }
+        results = ConfigBase.getConfigInfo(matcher);
+        // Sort all configs by config key.
+        results.sort(Comparator.comparing(o -> o.get(0)));
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 

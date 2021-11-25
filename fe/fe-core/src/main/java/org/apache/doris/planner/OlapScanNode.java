@@ -45,7 +45,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -53,7 +52,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -455,8 +453,7 @@ public class OlapScanNode extends ScanNode {
 
     private void addScanRangeLocations(Partition partition,
                                        MaterializedIndex index,
-                                       List<Tablet> tablets,
-                                       long localBeId) throws UserException {
+                                       List<Tablet> tablets) throws UserException {
         int logNum = 0;
         int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
         String schemaHashStr = String.valueOf(schemaHash);
@@ -484,11 +481,9 @@ public class OlapScanNode extends ScanNode {
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
-            List<Replica> allQueryableReplicas = Lists.newArrayList();
-            List<Replica> localReplicas = Lists.newArrayList();
-            tablet.getQueryableReplicas(allQueryableReplicas, localReplicas,
-                    visibleVersion, visibleVersionHash, localBeId, schemaHash);
-            if (allQueryableReplicas.isEmpty()) {
+            List<Replica> replicas = Lists.newArrayList();
+            tablet.getQueryableReplicas(replicas, visibleVersion, visibleVersionHash, schemaHash);
+            if (replicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet {}. visible version {}-{}",
                         tabletId, visibleVersion, visibleVersionHash);
                 if (LOG.isDebugEnabled()) {
@@ -497,13 +492,6 @@ public class OlapScanNode extends ScanNode {
                     }
                 }
                 throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
-            }
-
-            List<Replica> replicas = null;
-            if (!localReplicas.isEmpty()) {
-                replicas = localReplicas;
-            } else {
-                replicas = allQueryableReplicas;
             }
 
             Collections.shuffle(replicas);
@@ -621,10 +609,6 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void computeTabletInfo() throws UserException {
-        long localBeId = -1;
-        if (Config.enable_local_replica_selection) {
-            localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
-        }
         /**
          * The tablet info could be computed only once.
          * So the scanBackendIds should be empty in the beginning.
@@ -655,7 +639,7 @@ public class OlapScanNode extends ScanNode {
 
             totalTabletsNum += selectedTable.getTablets().size();
             selectedTabletsNum += tablets.size();
-            addScanRangeLocations(partition, selectedTable, tablets, localBeId);
+            addScanRangeLocations(partition, selectedTable, tablets);
         }
     }
 

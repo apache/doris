@@ -45,7 +45,8 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     return execute_plan_fragment(ctx, nullptr);
 }
 
-Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx, std::shared_ptr<StreamLoadPipe> pipe) {
+Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx,
+                                                 std::shared_ptr<StreamLoadPipe> pipe) {
     DorisMetrics::instance()->txn_exec_plan_total->increment(1);
 // submit this params
 #ifndef BE_TEST
@@ -217,7 +218,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     // rollback this transaction
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg()
+        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg() << ", "
                      << ctx->brief();
         if (status.code() == TStatusCode::PUBLISH_TIMEOUT) {
             ctx->need_rollback = false;

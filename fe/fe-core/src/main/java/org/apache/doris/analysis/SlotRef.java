@@ -404,6 +404,7 @@ public class SlotRef extends Expr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkNotNull(desc);
         return desc.getIsNullable();
     }
 }

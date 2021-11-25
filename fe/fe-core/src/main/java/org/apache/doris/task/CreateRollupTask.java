@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+@Deprecated
 public class CreateRollupTask extends AgentTask {
 
     private long baseTableId;

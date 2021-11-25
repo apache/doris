@@ -1692,10 +1692,14 @@ public class SingleNodePlanner {
             case ELASTICSEARCH:
                 scanNode = new EsScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
                 break;
+            case HIVE:
+                scanNode = new HiveScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
+                        null, -1);
+                break;
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode) {
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode) {
             PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             scanNode.setSortColumn(tblRef.getSortColumn());
         }
@@ -1878,12 +1882,10 @@ public class SingleNodePlanner {
             throws UserException {
         Preconditions.checkNotNull(lateralViewRefs);
         Preconditions.checkState(lateralViewRefs.size() > 0);
-        for (LateralViewRef lateralViewRef: lateralViewRefs) {
-            TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
-                    lateralViewRef);
-            tableFunctionNode.init(analyzer);
-            inputNode = tableFunctionNode;
-        }
+        TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
+                lateralViewRefs);
+        tableFunctionNode.init(analyzer);
+        inputNode = tableFunctionNode;
         return inputNode;
     }
 

@@ -30,13 +30,13 @@
 
 #include <boost/utility/binary.hpp>
 
+#include "test_util/test_util.h"
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
 #include "util/debug_util.h"
 #include "util/faststring.h"
 #include "util/rle_encoding.h"
-#include "test_util/test_util.h"
 
 using std::string;
 using std::vector;
@@ -47,7 +47,7 @@ const int kMaxWidth = 64;
 
 class TestRle : public testing::Test {};
 // Validates encoding of values by encoding and decoding them.  If
-// expected_encoding != NULL, also validates that the encoded buffer is
+// expected_encoding != nullptr, also validates that the encoded buffer is
 // exactly 'expected_encoding'.
 // if expected_len is not -1, it will validate the encoded size is correct.
 template <typename T>

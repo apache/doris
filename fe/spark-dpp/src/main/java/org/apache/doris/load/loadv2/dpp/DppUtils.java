@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 import java.util.zip.CRC32;
 
 public class DppUtils {
@@ -193,6 +194,19 @@ public class DppUtils {
             hashValue.update(buffer.array(), 0, buffer.limit());
         }
         return hashValue.getValue();
+    }
+
+    public static StructType replaceBinaryColsInSchema(Set<String> binaryColumns, StructType dstSchema) {
+        List<StructField> fields = new ArrayList<>();
+        for (StructField originField : dstSchema.fields()) {
+            if (binaryColumns.contains(originField.name())) {
+                fields.add(DataTypes.createStructField(originField.name(), DataTypes.BinaryType, originField.nullable()));
+            } else {
+                fields.add(DataTypes.createStructField(originField.name(), originField.dataType(), originField.nullable()));
+            }
+        }
+        StructType ret = DataTypes.createStructType(fields);
+        return ret;
     }
 
     public static StructType createDstTableSchema(List<EtlJobConfig.EtlColumn> columns, boolean addBucketIdColumn, boolean regardDistinctColumnAsBinary) {

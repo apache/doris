@@ -61,8 +61,10 @@ public:
                                       const StringVal& dst);
     static BigIntVal bitmap_min(FunctionContext* ctx, const StringVal& str);
 
-    static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);
-    static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);
+    static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs,
+                                      const StringVal& rhs);
+    static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs,
+                                     const StringVal& rhs);
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
@@ -79,7 +81,7 @@ public:
     // Example:
     //      "" will be converted to an empty Bitmap
     //      "1,2,3" will be converted to Bitmap with its Bit 1, 2, 3 set.
-    //      "-1, 1" will get NULL, because -1 is not a valid bit for Bitmap
+    //      "-1, 1" will get nullptr, because -1 is not a valid bit for Bitmap
     static StringVal bitmap_from_string(FunctionContext* ctx, const StringVal& input);
     static BooleanVal bitmap_contains(FunctionContext* ctx, const StringVal& src,
                                       const BigIntVal& input);
@@ -104,8 +106,14 @@ public:
     template <typename T>
     static BigIntVal bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_max(FunctionContext* ctx, const StringVal& str);
-    static StringVal bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src, 
-                                            const BigIntVal& range_start, const BigIntVal& range_end);
+    static StringVal bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src,
+                                            const BigIntVal& range_start,
+                                            const BigIntVal& range_end);
+    static StringVal bitmap_subset_limit(FunctionContext* ctx, const StringVal& src,
+                                         const BigIntVal& range_start,
+                                         const BigIntVal& cardinality_limit);
+    static StringVal sub_bitmap(FunctionContext* ctx, const StringVal& src, const BigIntVal& offset,
+                                const BigIntVal& cardinality_limit);
 };
 } // namespace doris
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H

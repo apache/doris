@@ -399,6 +399,10 @@ public class CacheAnalyzer {
             groupbyCount += 1;
             boolean matched = false;
             for (Expr groupExpr : groupExprs) {
+                if (!(groupExpr instanceof SlotRef)) {
+                    continue;
+                }
+
                 SlotRef slot = (SlotRef) groupExpr;
                 if (partColumn.getName().equals(slot.getColumnName())) {
                     matched = true;

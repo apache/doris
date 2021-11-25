@@ -207,11 +207,6 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
             }
             ++merged_count;
             cur_delete_flag = _next_delete_flag;
-            // if has sequence column, the higher version need to merge the lower versions
-            if (_has_sequence_col) {
-                agg_update_row_with_sequence(_value_cids, row_cursor, *_next_key,
-                                             _sequence_col_idx);
-            }
         }
 
         // if reader needs to filter delete row and current delete_flag is ture,

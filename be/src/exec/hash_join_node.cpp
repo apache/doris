@@ -39,8 +39,8 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _join_op(tnode.hash_join_node.join_op),
           _probe_counter(0),
           _probe_eos(false),
-          _process_probe_batch_fn(NULL),
-          _anti_join_last_pos(NULL) {
+          _process_probe_batch_fn(nullptr),
+          _anti_join_last_pos(nullptr) {
     _match_all_probe =
             (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
     _match_one_build = (_join_op == TJoinOp::LEFT_SEMI_JOIN);
@@ -53,7 +53,7 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
 
 HashJoinNode::~HashJoinNode() {
     // _probe_batch must be cleaned up in close() to ensure proper resource freeing.
-    DCHECK(_probe_batch == NULL);
+    DCHECK(_probe_batch == nullptr);
 }
 
 Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -62,7 +62,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
 
     for (int i = 0; i < eq_join_conjuncts.size(); ++i) {
-        ExprContext* ctx = NULL;
+        ExprContext* ctx = nullptr;
         RETURN_IF_ERROR(Expr::create_expr_tree(_pool, eq_join_conjuncts[i].left, &ctx));
         _probe_expr_ctxs.push_back(ctx);
         RETURN_IF_ERROR(Expr::create_expr_tree(_pool, eq_join_conjuncts[i].right, &ctx));
@@ -158,12 +158,12 @@ Status HashJoinNode::close(RuntimeState* state) {
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     // Must reset _probe_batch in close() to release resources
-    _probe_batch.reset(NULL);
+    _probe_batch.reset(nullptr);
 
-    if (_hash_tbl.get() != NULL) {
+    if (_hash_tbl.get() != nullptr) {
         _hash_tbl->close();
     }
-    if (_build_pool.get() != NULL) {
+    if (_build_pool.get() != nullptr) {
         _build_pool->free_all();
     }
 
@@ -179,7 +179,7 @@ Status HashJoinNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-void HashJoinNode::build_side_thread(RuntimeState* state, boost::promise<Status>* status) {
+void HashJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
     status->set_value(construct_hash_table(state));
 }
 
@@ -233,17 +233,16 @@ Status HashJoinNode::open(RuntimeState* state) {
     // thread, so that the left child can do any initialisation in parallel.
     // Only do this if we can get a thread token.  Otherwise, do this in the
     // main thread
-    boost::promise<Status> thread_status;
+    std::promise<Status> thread_status;
     add_runtime_exec_option("Hash Table Built Asynchronously");
-    boost::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status));
+    std::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status)).detach();
 
     if (!_runtime_filter_descs.empty()) {
         RuntimeFilterSlots runtime_filter_slots(_probe_expr_ctxs, _build_expr_ctxs,
                                                 _runtime_filter_descs);
 
         RETURN_IF_ERROR(thread_status.get_future().get());
-        RETURN_IF_ERROR(runtime_filter_slots.init(state, _pool, expr_mem_tracker().get(),
-                                                  _hash_tbl->size()));
+        RETURN_IF_ERROR(runtime_filter_slots.init(state, _hash_tbl->size()));
         {
             SCOPED_TIMER(_push_compute_timer);
             auto func = [&](TupleRow* row) { runtime_filter_slots.insert(row); };
@@ -252,7 +251,7 @@ Status HashJoinNode::open(RuntimeState* state) {
         COUNTER_UPDATE(_build_timer, _push_compute_timer->value());
         {
             SCOPED_TIMER(_push_down_timer);
-            runtime_filter_slots.publish(this);
+            runtime_filter_slots.publish();
         }
         Status open_status = child(0)->open(state);
         RETURN_IF_ERROR(open_status);
@@ -422,7 +421,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
         if (_match_all_probe && !_matched_probe) {
             int row_idx = out_batch->add_row();
             TupleRow* out_row = out_batch->get_row(row_idx);
-            create_output_row(out_row, _current_probe_row, NULL);
+            create_output_row(out_row, _current_probe_row, nullptr);
 
             if (eval_conjuncts(conjunct_ctxs, num_conjunct_ctxs, out_row)) {
                 out_batch->commit_last_row();
@@ -498,9 +497,9 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     *eos = true;
     if (_match_all_build || _join_op == TJoinOp::RIGHT_ANTI_JOIN) {
         // output remaining unmatched build rows
-        TupleRow* build_row = NULL;
+        TupleRow* build_row = nullptr;
         if (_join_op == TJoinOp::RIGHT_ANTI_JOIN) {
-            if (_anti_join_last_pos != NULL) {
+            if (_anti_join_last_pos != nullptr) {
                 _hash_tbl_iterator = *_anti_join_last_pos;
             } else {
                 _hash_tbl_iterator = _hash_tbl->begin();
@@ -523,7 +522,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
             int row_idx = out_batch->add_row();
             TupleRow* out_row = out_batch->get_row(row_idx);
-            create_output_row(out_row, NULL, build_row);
+            create_output_row(out_row, nullptr, build_row);
             if (eval_conjuncts(conjunct_ctxs, num_conjunct_ctxs, out_row)) {
                 out_batch->commit_last_row();
                 VLOG_ROW << "match row: " << out_row->to_string(row_desc());
@@ -607,7 +606,7 @@ std::string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
                 std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
 
         if (is_build_tuple != _build_tuple_idx_ptr + _build_tuple_size) {
-            out << Tuple::to_string(NULL, *row_desc().tuple_descriptors()[i]);
+            out << Tuple::to_string(nullptr, *row_desc().tuple_descriptors()[i]);
         } else {
             out << Tuple::to_string(probe_row->get_tuple(i), *row_desc().tuple_descriptors()[i]);
         }
@@ -633,13 +632,13 @@ void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) c
 // This function is replaced by codegen
 void HashJoinNode::create_output_row(TupleRow* out, TupleRow* probe, TupleRow* build) {
     uint8_t* out_ptr = reinterpret_cast<uint8_t*>(out);
-    if (probe == NULL) {
+    if (probe == nullptr) {
         memset(out_ptr, 0, _probe_tuple_row_size);
     } else {
         memcpy(out_ptr, probe, _probe_tuple_row_size);
     }
 
-    if (build == NULL) {
+    if (build == nullptr) {
         memset(out_ptr + _probe_tuple_row_size, 0, _build_tuple_row_size);
     } else {
         memcpy(out_ptr + _probe_tuple_row_size, build, _build_tuple_row_size);
