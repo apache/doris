@@ -19,7 +19,7 @@
 export DORIS_HOME=`cd "$curdir"; pwd`
 export PID_DIR=`cd "$curdir"; pwd`
 function start() {
-    echo "Starting Apache Doris Frontend"
+    echo "Starting Apache Doris Backend"
     sh $DORIS_HOME/bin/start_be.sh --daemon
     if [ -f "$DORIS_HOME/bin/be.pid" ]; then
        echo "Apache Doris Backend start fail!"
