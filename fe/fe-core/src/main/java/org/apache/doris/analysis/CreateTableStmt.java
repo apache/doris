@@ -406,6 +406,12 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
             distributionDesc.analyze(columnSet);
+            List<String> distributionColNames = ((HashDistributionDesc)distributionDesc).getDistributionColumnNames();
+            if (partitionDesc != null) {
+                if (checkIsDuplicate(partitionDesc.partitionColNames, distributionColNames)) {
+                    throw new AnalysisException("Partition column and bucket column should not have duplicates");
+                }
+            }
         } else if (engineName.equalsIgnoreCase("elasticsearch")) {
             EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {
@@ -485,6 +491,17 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Do not support external table with engine name = olap");
             }
         }
+    }
+    
+    private boolean checkIsDuplicate(List<String> partitionColNames, List<String> distributionColNames) {
+        for (String partitionColName : partitionColNames) {
+            for (String distributionColName : distributionColNames) {
+                if (partitionColName.equals(distributionColName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public static CreateTableStmt read(DataInput in) throws IOException {
