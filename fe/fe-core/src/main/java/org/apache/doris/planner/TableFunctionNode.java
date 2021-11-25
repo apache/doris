@@ -31,12 +31,12 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TTableFunctionNode;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import com.clearspring.analytics.util.Lists;
-import org.glassfish.jersey.internal.guava.Sets;
 
 public class TableFunctionNode extends PlanNode {
 
