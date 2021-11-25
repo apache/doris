@@ -297,7 +297,9 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
                    ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/ \
                    ${DORIS_OUTPUT}/fe/spark-dpp/
 
-        cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
+        cp -r -p ${DORIS_HOME}/bin/start_fe.sh ${DORIS_OUTPUT}/fe/bin/
+        cp -r -p ${DORIS_HOME}/bin/stop_fe.sh ${DORIS_OUTPUT}/fe/bin/
+        cp -r -p ${DORIS_HOME}/bin/doris_fe.sh ${DORIS_OUTPUT}/fe/bin/
         cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
         rm -rf ${DORIS_OUTPUT}/fe/lib/*
         cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
