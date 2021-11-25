@@ -48,8 +48,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.doris.analysis.DateLiteral.BASIC_ZERO_TIME;
-
 /**
  * Convert the range of the partition to the list
  * all partition by day/week/month split to day list
@@ -243,7 +241,7 @@ public class PartitionRange {
             if (expr.getType().equals(Type.DATE)) {
                 value = expr.getLongValue();
             } else {
-                value = expr.getLongValue() / BASIC_ZERO_TIME;
+                value = expr.getLongValue() / DateLiteral.BASIC_ZERO_TIME;
             }
             Date dt = null;
             try {

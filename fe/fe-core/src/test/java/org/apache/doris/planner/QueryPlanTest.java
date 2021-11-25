@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Splitter;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -47,6 +46,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
+import com.google.common.base.Splitter;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
