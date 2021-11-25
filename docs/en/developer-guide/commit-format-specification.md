@@ -49,7 +49,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * performance: Performance optimization
         * test: Addition or repair of unit test
         * chore: Modification of build tool
-        * revert: Revert a pull request
+        * revert: Revert a previous commit
         * deps: Modification of third-party dependency Library
 
         Some tips：
