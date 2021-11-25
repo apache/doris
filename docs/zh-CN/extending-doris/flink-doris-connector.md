@@ -257,7 +257,7 @@ outputFormat.close();
 | doris.deserialize.queue.size     | 64                | 异步转换Arrow格式的内部处理队列，当doris.deserialize.arrow.async为true时生效        |
 | doris.read.field            | --            | 读取Doris表的列名列表，多列之间使用逗号分隔                  |
 | doris.filter.query          | --            | 过滤读取数据的表达式，此表达式透传给Doris。Doris使用此表达式完成源端数据过滤。 |
-| sink.batch.size     | 100                | 单次写BE的最大行数        |
+| sink.batch.size     | 100                | 单次写doris的最大行数   |
 | sink.max-retries     | 1                | 写BE失败之后的重试次数       |
 | sink.batch.interval     | 1s                | flush 间隔时间，超过该时间后异步线程将 缓存中数据写入BE。 默认值为1秒，支持时间单位ms、s、min、h和d。设置为0表示关闭定期写入。|
 | sink.properties.*     | --               | Stream load 的导入参数。例如:'sink.properties.column_separator' = ','等。如果需要特殊字符作为分隔符, 可以加上参数'sink.properties.escape_delimiters' = 'true', '\\x01'会被转换为二进制的0x01<br /> 支持JSON格式导入，需要同时开启'sink.properties.format' = 'json'和'sink.properties.strip_outer_array' = 'true' |
