@@ -182,8 +182,6 @@ TEST_F(S3StorageBackendTest, s3_mkdir) {
     ASSERT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/dir");
     ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
-    status = _s3->exist(_s3_base_path + "/dir/");
-    ASSERT_TRUE(status.ok());
 }
 
 } // end namespace doris

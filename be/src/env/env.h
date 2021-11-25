@@ -235,7 +235,7 @@ public:
         return *this;
     }
     FilePathDescStream& operator<<(uint64_t val) {
-        _filepath_stream << val
+        _filepath_stream << val;
         if (Env::get_env(_storage_medium)->is_remote_env()) {
             _remote_path_stream << val;
         }
