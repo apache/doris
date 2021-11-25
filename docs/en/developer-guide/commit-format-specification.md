@@ -39,18 +39,18 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
 
         The types of this pull request are limited to the following types (all lowercase)
         
-        * fix：Bug fix
-        * feat-new：New function
-        * feat-opt：Optimization and improvement of original functions
-        * docs：Documents
-        * style：Code style adjustment
-        * typo：Code or Document correction
-        * refactor：Code refactoring (no function changes involved)
-        * optimize：Performance optimization
-        * test：Addition or repair of unit test
-        * chore：Modification of build tool
-        * revert：revert
-        * deps：Modification of third-party dependency Library
+        * fix: Bug fix
+        * feature: New feature
+        * improvement: Optimization and improvement of original functions
+        * docs: Documents
+        * style: Code style adjustment
+        * typo: Code or Document correction
+        * refactor: Code refactoring (no function changes involved)
+        * performance: Performance optimization
+        * test: Addition or repair of unit test
+        * chore: Modification of build tool
+        * revert: Revert a pull request
+        * deps: Modification of third-party dependency Library
 
         Some tips：
         
