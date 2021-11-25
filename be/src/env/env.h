@@ -30,6 +30,8 @@ class RandomAccessFile;
 class RandomRWFile;
 class WritableFile;
 class SequentialFile;
+class PosixEnv;
+class RemoteEnv;
 struct FilePathDesc;
 struct WritableFileOptions;
 struct RandomAccessFileOptions;
