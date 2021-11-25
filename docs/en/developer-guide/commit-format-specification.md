@@ -41,7 +41,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         
         * fix: Bug fix
         * feature: New feature
-        * improvement: Optimization and improvement of original functions
+        * improvement: Optimization and improvement for the original feature. 
         * docs: Documents
         * style: Code style adjustment
         * typo: Code or Document correction
