@@ -598,7 +598,7 @@ public:
             if (iter->second.isEmpty()) {
                 // empty Roarings are 84 bytes
                 savedBytes += 88;
-                roarings.erase(iter++);
+                iter = roarings.erase(iter);
             } else {
                 savedBytes += iter->second.shrinkToFit();
                 iter++;
