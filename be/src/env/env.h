@@ -221,39 +221,53 @@ class FilePathDescStream {
 public:
     FilePathDescStream& operator<<(const FilePathDesc& val) {
         _filepath_stream << val.filepath;
-        _remote_path_stream << val.remote_path;
         _storage_medium = val.storage_medium;
+        if (Env::get_env(_storage_medium)->is_remote_env()) {
+            _remote_path_stream << val.remote_path;
+        }
         return *this;
     }
     FilePathDescStream& operator<<(const std::string& val) {
         _filepath_stream << val;
-        _remote_path_stream << val;
+        if (Env::get_env(_storage_medium)->is_remote_env()) {
+            _remote_path_stream << val;
+        }
         return *this;
     }
     FilePathDescStream& operator<<(uint64_t val) {
-        _filepath_stream << val;
-        _remote_path_stream << val;
+        _filepath_stream << val
+        if (Env::get_env(_storage_medium)->is_remote_env()) {
+            _remote_path_stream << val;
+        }
         return *this;
     }
     FilePathDescStream& operator<<(int64_t val) {
         _filepath_stream << val;
-        _remote_path_stream << val;
+        if (Env::get_env(_storage_medium)->is_remote_env()) {
+            _remote_path_stream << val;
+        }
         return *this;
     }
     FilePathDescStream& operator<<(uint32_t val) {
         _filepath_stream << val;
-        _remote_path_stream << val;
+        if (Env::get_env(_storage_medium)->is_remote_env()) {
+            _remote_path_stream << val;
+        }
         return *this;
     }
     FilePathDescStream& operator<<(int32_t val) {
         _filepath_stream << val;
-        _remote_path_stream << val;
+        if (Env::get_env(_storage_medium)->is_remote_env()) {
+            _remote_path_stream << val;
+        }
         return *this;
     }
     FilePathDesc path_desc() {
         FilePathDesc path_desc(_filepath_stream.str());
         path_desc.storage_medium = _storage_medium;
-        path_desc.remote_path = _remote_path_stream.str();
+        if (Env::get_env(_storage_medium)->is_remote_env()) {
+            path_desc.remote_path = _remote_path_stream.str();
+        }
         return path_desc;
     }
 private:
