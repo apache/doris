@@ -54,7 +54,7 @@ public interface ConfigurationOptions {
     int DORIS_BATCH_SIZE_DEFAULT = 1024;
 
     String SINK_BATCH_SIZE = "sink.batch.size";
-    int SINK_BATCH_SIZE_DEFAULT = 100;
+    int SINK_BATCH_SIZE_DEFAULT = 10000;
     
     String DORIS_EXEC_MEM_LIMIT = "doris.exec.mem.limit";
     long DORIS_EXEC_MEM_LIMIT_DEFAULT = 2147483648L;
