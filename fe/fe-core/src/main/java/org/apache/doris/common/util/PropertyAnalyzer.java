@@ -461,7 +461,7 @@ public class PropertyAnalyzer {
 
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key, Boolean defaultValue) throws AnalysisException {
         if (properties.containsKey(key)) {
-            String value = properties.remove(PropertyAnalyzer.PROPERTIES_DISABLE_QUERY);
+            String value = properties.remove(key);
             return Boolean.valueOf(value);
         }
         return defaultValue;
