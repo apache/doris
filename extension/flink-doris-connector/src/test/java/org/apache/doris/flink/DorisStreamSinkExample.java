@@ -30,7 +30,6 @@ import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.types.logical.DoubleType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.VarCharType;
-import org.junit.Test;
 
 import java.util.Properties;
 
@@ -67,7 +66,6 @@ public class DorisStreamSinkExample {
         env.execute("doris stream sink example");
     }
 
-    @Test
     public void testJsonStringWithMergeType() throws Exception {
         /*
          * Example for JsonString element
