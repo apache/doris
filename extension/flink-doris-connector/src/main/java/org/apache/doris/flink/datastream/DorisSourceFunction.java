@@ -20,12 +20,13 @@ import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.doris.flink.cfg.DorisStreamOptions;
 import org.apache.doris.flink.deserialization.DorisDeserializationSchema;
+import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.rest.PartitionDefinition;
 import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
+import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +37,7 @@ import java.util.List;
  * DorisSource
  **/
 
-public class DorisSourceFunction extends RichSourceFunction<List<?>> implements ResultTypeQueryable<List<?>> {
+public class DorisSourceFunction extends RichParallelSourceFunction<List<?>> implements ResultTypeQueryable<List<?>> {
 
     private static final Logger logger = LoggerFactory.getLogger(DorisSourceFunction.class);
 
@@ -45,23 +46,49 @@ public class DorisSourceFunction extends RichSourceFunction<List<?>> implements 
     private final DorisReadOptions readOptions;
     private transient volatile boolean isRunning;
     private List<PartitionDefinition> dorisPartitions;
+    private List<PartitionDefinition> taskDorisPartitions;
 
     public DorisSourceFunction(DorisStreamOptions streamOptions, DorisDeserializationSchema<List<?>> deserializer) {
         this.deserializer = deserializer;
         this.options = streamOptions.getOptions();
         this.readOptions = streamOptions.getReadOptions();
+        try {
+            this.dorisPartitions = RestService.findPartitions(options, readOptions, logger);
+        } catch (DorisException e) {
+            throw new RuntimeException("can not fetch partitions");
+        }
     }
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         this.isRunning = true;
-        this.dorisPartitions = RestService.findPartitions(options, readOptions, logger);
+        assignTaskPartitions();
+    }
+
+    /**
+     * Assign patitions to each task.
+     */
+    private void assignTaskPartitions() {
+        int taskIndex = getRuntimeContext().getIndexOfThisSubtask();
+        int totalTasks = getRuntimeContext().getNumberOfParallelSubtasks();
+        logger.info("doris partitions {},total task {}", dorisPartitions.size(), totalTasks);
+
+        int taskParts = dorisPartitions.size() / totalTasks;
+        int remainder = dorisPartitions.size() % totalTasks;
+        int subSize = taskParts;
+        int start = taskIndex * subSize + remainder;
+        //Cannot evenly assign partitions to tasks
+        if (taskIndex < remainder) {
+            subSize = taskParts + 1;
+            start = taskIndex * subSize;
+        }
+        taskDorisPartitions = dorisPartitions.subList(start, Math.min(start + subSize, dorisPartitions.size()));
     }
 
     @Override
     public void run(SourceContext<List<?>> sourceContext) {
-        for (PartitionDefinition partitions : dorisPartitions) {
+        for (PartitionDefinition partitions : taskDorisPartitions) {
             try (ScalaValueReader scalaValueReader = new ScalaValueReader(partitions, options, readOptions)) {
                 while (isRunning && scalaValueReader.hasNext()) {
                     List<?> next = scalaValueReader.next();
