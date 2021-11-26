@@ -38,13 +38,13 @@ Commit 分为“标题”和“内容”。原则上标题全部小写。内容�
         本次提交的类型，限定在以下类型（全小写）
         
         * fix：bug修复
-        * feat-new：新增功能
-        * feat-opt：原有功能的优化和改进
+        * feature：新增功能
+        * improvement：原有功能的优化和改进
         * docs：文档
         * style：代码风格调整
         * typo：代码或文档勘误
         * refactor：代码重构（不涉及功能变动）
-        * optimize：性能优化
+        * performance：性能优化
         * test：单元测试的添加或修复
         * chore：构建工具的修改
         * revert：回滚
