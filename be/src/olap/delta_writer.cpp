@@ -24,6 +24,8 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "runtime/row_batch.h"
+#include "runtime/tuple_row.h"
 
 namespace doris {
 
@@ -153,7 +155,7 @@ OLAPStatus DeltaWriter::init() {
 }
 
 OLAPStatus DeltaWriter::write(Tuple* tuple) {
-    std::lock_guard<SpinLock> l(_lock); 
+    std::lock_guard<std::mutex> l(_lock);
     if (!_is_init && !_is_cancelled) {
         RETURN_NOT_OK(init());
     }
@@ -179,6 +181,28 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row_idxs) {
+    std::lock_guard<std::mutex> l(_lock);
+    if (!_is_init && !_is_cancelled) {
+        RETURN_NOT_OK(init());
+    }
+
+    if (_is_cancelled) {
+        return OLAP_ERR_ALREADY_CANCELLED;
+    }
+
+    for (const auto& row_idx : row_idxs) {
+        _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
+    }
+
+    if (_mem_table->memory_usage() >= config::write_buffer_size) {
+        RETURN_NOT_OK(_flush_memtable_async());
+        _reset_mem_table();
+    }
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus DeltaWriter::_flush_memtable_async() {
     if (++_segment_counter > config::max_segment_num_per_rowset) {
         return OLAP_ERR_TOO_MANY_SEGMENTS;
@@ -187,7 +211,7 @@ OLAPStatus DeltaWriter::_flush_memtable_async() {
 }
 
 OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
-    std::lock_guard<SpinLock> l(_lock); 
+    std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
         // This writer is not initialized before flushing. Do nothing
         // But we return OLAP_SUCCESS instead of OLAP_ERR_ALREADY_CANCELLED,
@@ -220,7 +244,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 }
 
 OLAPStatus DeltaWriter::wait_flush() {
-    std::lock_guard<SpinLock> l(_lock); 
+    std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
         // return OLAP_SUCCESS instead of OLAP_ERR_ALREADY_CANCELLED for same reason
         // as described in flush_memtable_and_wait()
@@ -240,7 +264,7 @@ void DeltaWriter::_reset_mem_table() {
 }
 
 OLAPStatus DeltaWriter::close() {
-    std::lock_guard<SpinLock> l(_lock); 
+    std::lock_guard<std::mutex> l(_lock);
     if (!_is_init && !_is_cancelled) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
@@ -260,7 +284,7 @@ OLAPStatus DeltaWriter::close() {
 }
 
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
-    std::lock_guard<SpinLock> l(_lock); 
+    std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
 
@@ -328,7 +352,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 }
 
 OLAPStatus DeltaWriter::cancel() {
-    std::lock_guard<SpinLock> l(_lock); 
+    std::lock_guard<std::mutex> l(_lock);
     if (!_is_init || _is_cancelled) {
         return OLAP_SUCCESS;
     }
