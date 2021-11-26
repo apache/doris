@@ -239,7 +239,7 @@ outputFormat.close();
 
 | Key                              | Default Value     | Comment                                                      |
 | -------------------------------- | ----------------- | ------------------------------------------------------------ |
-| fenodes                    | --                | Doris FE http address, support multiple addresses, separated by commas            |
+| fenodes                    | --                | Doris FE http address + FE http_port, for example: 192.168.1.123:8030, multiple addresses are separated by English status commas |
 | table.identifier           | --                | Doris table identifier, eg, db1.tbl1                                 |
 | username                            | --            | Doris username                                            |
 | password                        | --            | Doris password                                              |

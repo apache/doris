@@ -242,7 +242,7 @@ outputFormat.close();
 
 | Key                              | Default Value     | Comment                                                      |
 | -------------------------------- | ----------------- | ------------------------------------------------------------ |
-| fenodes                    | --                | Doris FE http 地址             |
+| fenodes                    | --                | Doris FE http 地址 + FE http_port,例如：192.168.1.123:8030 ，多个地址用英文状态逗号隔开 |
 | table.identifier           | --                | Doris 表名，如：db1.tbl1                                 |
 | username                            | --            | 访问Doris的用户名                                            |
 | password                        | --            | 访问Doris的密码                                              |
