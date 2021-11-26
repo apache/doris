@@ -71,6 +71,28 @@ public class SystemInfoService {
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
+    public static class BeAvailablePredicate {
+        private boolean scheduleAvailable;
+
+        private boolean queryAvailable;
+
+        private boolean loadAvailable;
+
+        public BeAvailablePredicate(boolean scheduleAvailable, boolean queryAvailable, boolean loadAvailable) {
+            this.scheduleAvailable = scheduleAvailable;
+            this.queryAvailable = queryAvailable;
+            this.loadAvailable = loadAvailable;
+        }
+
+        public boolean isMatch(Backend backend) {
+            if (scheduleAvailable && !backend.isScheduleAvailable() || queryAvailable && !backend.isQueryAvailable() ||
+                    loadAvailable && !backend.isLoadAvailable()) {
+                return false;
+            }
+            return true;
+        }
+    }
+
     private volatile ImmutableMap<Long, Backend> idToBackendRef;
     private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef;
 
@@ -760,9 +782,10 @@ public class SystemInfoService {
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
+        BeAvailablePredicate beAvailablePredicate = new BeAvailablePredicate(true, false, false);
         for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
             List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(entry.getValue(),
-                    true, false, false, true, clusterName, storageMedium, entry.getKey());
+                    beAvailablePredicate, true, clusterName, storageMedium, entry.getKey());
             if (beIds == null) {
                 throw new DdlException("Failed to find enough host with storage medium and tag("
                         + (storageMedium == null ? "NaN" : storageMedium) + "/" + entry.getKey()
@@ -775,8 +798,7 @@ public class SystemInfoService {
         return chosenBackendIds;
     }
 
-    public List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, boolean scheduleAvailable,
-                                                               boolean queryAvailable, boolean loadAvailable,
+    public List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, BeAvailablePredicate beAvailablePredicate,
                                                                boolean isCreate, String clusterName,
                                                                TStorageMedium storageMedium, Tag tag) {
         Stream<Backend> beStream = getClusterBackends(clusterName).stream();
@@ -789,14 +811,14 @@ public class SystemInfoService {
             beStream = beStream.filter(v -> v.getTag().equals(tag));
         }
         final List<Backend> backends = beStream.collect(Collectors.toList());
-        return seqChooseBackendIds(backendNum, scheduleAvailable, queryAvailable, loadAvailable, isCreate, clusterName, backends);
+        return seqChooseBackendIds(backendNum, beAvailablePredicate, isCreate, clusterName, backends);
     }
 
     // choose backends by round robin
     // return null if not enough backend
     // use synchronized to run serially
-    public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean scheduleAvailable, boolean queryAvailable,
-                                                       boolean loadAvailable, boolean isCreate, String clusterName,
+    public synchronized List<Long> seqChooseBackendIds(int backendNum, BeAvailablePredicate beAvailablePredicate,
+                                                       boolean isCreate, String clusterName,
                                                        final List<Backend> srcBackends) {
         long lastBackendId;
 
@@ -881,8 +903,7 @@ public class SystemInfoService {
                 break;
             }
 
-            if (scheduleAvailable && !backend.isScheduleAvailable() || queryAvailable && !backend.isQueryAvailable() ||
-                loadAvailable && !backend.isLoadAvailable()) {
+            if (!beAvailablePredicate.isMatch(backend)) {
                 continue;
             }
 

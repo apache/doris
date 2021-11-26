@@ -17,12 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;

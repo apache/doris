@@ -26,6 +26,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -62,8 +63,10 @@ public class InsertStreamTxnExecutor {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+        SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                new SystemInfoService.BeAvailablePredicate(false, true, true);
         List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                1, false, true, true, false,
+                1, beAvailablePredicate, false,
                 txnEntry.getDb().getClusterName(), null, null);
         if (beIds == null || beIds.isEmpty()) {
             throw new UserException("there is no scanNode Backend.");

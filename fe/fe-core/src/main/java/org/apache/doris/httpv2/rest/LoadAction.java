@@ -25,6 +25,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
@@ -128,9 +129,10 @@ public class LoadAction extends RestBaseController {
                 }
             } else {
                 // Choose a backend sequentially.
+                SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                        new SystemInfoService.BeAvailablePredicate(false, false, true);
                 List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                        1, false, false, true, false,
-                        clusterName, null, null);
+                        1, beAvailablePredicate, false, clusterName, null, null);
                 if (backendIds == null) {
                     return new RestBaseResult("No backend alive.");
                 }
