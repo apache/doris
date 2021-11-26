@@ -28,7 +28,7 @@
 #include "exec/scan_node.h"
 #include "exprs/expr.h"
 #include "runtime/data_stream_mgr.h"
-#include "runtime/thread_status.h"
+#include "runtime/thread_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
@@ -60,6 +60,8 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _closed(false),
           _is_report_success(true),
           _is_report_on_cancel(true),
+          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
+          _cancel_msg(""),
           _collect_query_statistics_with_every_batch(false) {}
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -87,7 +89,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_query_fragments_ctx(fragments_ctx);
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
-    current_thread.attach_query(_query_id);
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -262,6 +263,12 @@ Status PlanFragmentExecutor::open() {
         // fetch results (e.g. insert) may not receive the message directly and can
         // only retrieve the log.
         _runtime_state->log_error(status.get_error_msg());
+    }
+
+    if (status.is_cancelled()) {
+        if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_EXCEED_LIMIT) {
+            status = Status::MemoryLimitExceeded(_cancel_msg);
+        }
     }
 
     update_status(status);
@@ -612,10 +619,12 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
     send_report(true);
 }
 
-void PlanFragmentExecutor::cancel() {
+void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     TAG(LOG(INFO)).log("PlanFragmentExecutor::cancel")
                   .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id());
     DCHECK(_prepared);
+    _cancel_reason = reason;
+    _cancel_msg = msg;
     _runtime_state->set_is_cancelled(true);
 
     // must close stream_mgr to avoid dead lock in Exchange Node

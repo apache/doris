@@ -19,8 +19,11 @@
 
 #include <string>
 
+#include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "service/backend_options.h"
 
 namespace doris {
 
@@ -31,68 +34,135 @@ public:
               _global_hook_tracker(MemTracker::GetGlobalHookTracker()) {}
     ~TheadContext() { update_query_mem_tracker(); }
 
-    void attach_query(const doris::TUniqueId& query_id) {
-        _query_id = doris::print_id(query_id);
-        update_query_mem_tracker(ExecEnv::GetInstance()->query_mem_trackers()->RegisterQueryMemTracker(
-                doris::print_id(query_id)));
+    void attach_query(const TUniqueId& query_id,
+                      const TUniqueId& fragment_instance_id = TUniqueId()) {
+        _query_id = query_id;
+        _fragment_instance_id = fragment_instance_id;
+        update_query_mem_tracker(ExecEnv::GetInstance()->query_mem_tracker_registry()->GetQueryMemTracker(
+                print_id(query_id)));
     }
 
     void unattach_query() {
-        _query_id = "";
+        _query_id = TUniqueId();
+        _fragment_instance_id = TUniqueId();
         update_query_mem_tracker();
     }
 
     void update_query_mem_tracker(
             std::weak_ptr<MemTracker> mem_tracker = std::weak_ptr<MemTracker>()) {
-        if (_untracked_mem != 0 && !_query_mem_tracker.expired()) {
-            if (!_query_mem_tracker.lock()->TryConsume(_untracked_mem)) {
-                return; // add call back
-            }
+        if (_untracked_mem != 0) {
+            consume();
             _untracked_mem = 0;
         }
         _query_mem_tracker = mem_tracker;
     }
 
-    void consume(int64_t size) {
-        _untracked_mem += size;
-        if (_untracked_mem >= _untracked_mem_limit || _untracked_mem <= -_untracked_mem_limit) {
-            // TODO(zxy): _untracked_mem <0 means that there is the same block of memory,
-            // tracker A calls consume, and tracker B calls release. This will make the memory
-            // statistics inaccurate and should be avoided as much as possible. 
-            // This DCHECK should be turned on in the future.
-            // DCHECK(_untracked_mem >= 0); 
+    void query_mem_limit_exceeded(int64_t mem_usage) {
+        if (_query_id != TUniqueId() && _fragment_instance_id != TUniqueId() &&
+            ExecEnv::GetInstance()->is_init() &&
+            ExecEnv::GetInstance()->fragment_mgr()->is_canceling(_fragment_instance_id).ok()) {
+            std::string detail = "Query Memory exceed limit in TCMalloc Hook New.";
+            auto st = _query_mem_tracker.lock()->MemLimitExceeded(nullptr, detail, mem_usage);
+            detail += ", Backend: " + BackendOptions::get_localhost() +
+                      ", Fragment: " + print_id(_fragment_instance_id) +
+                      ", Used: " + std::to_string(_query_mem_tracker.lock()->consumption()) +
+                      ", Limit: " + std::to_string(_query_mem_tracker.lock()->limit()) +
+                      ". You can change the limit by session variable exec_mem_limit.";
+            ExecEnv::GetInstance()->fragment_mgr()->cancel(
+                    _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_EXCEED_LIMIT, detail);
+            _fragment_instance_id = TUniqueId(); // Make sure it will only be canceled once
+        }
+    }
 
-            // There is no default tracker to avoid repeated releases of MemTacker.
-            // When the consume is called on the child MemTracker,
-            // after the release is called on the parent MemTracker, 
-            // the child ~MemTracker will cause repeated releases.
-            if (!_query_mem_tracker.expired()) {
-                if (!_query_mem_tracker.lock()->TryConsume(_untracked_mem)) {
-                    return; // add call back
+    void global_mem_limit_exceeded(int64_t mem_usage) {
+        std::string detail = "Global Memory exceed limit in TCMalloc Hook New.";
+        auto st = _query_mem_tracker.lock()->MemLimitExceeded(nullptr, detail, mem_usage);
+    }
+
+    // Note that, If call the memory allocation operation in TCMalloc new/delete Hook,
+    // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
+    // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
+    void consume() {
+        // Query_mem_tracker and global_hook_tracker are counted separately,
+        // in order to ensure that the process memory counted by global_hook_tracker is accurate enough.
+        //
+        // Otherwise, if query_mem_tracker is the child of global_hook_tracker and global_hook_tracker
+        // is the default tracker, it may be the same block of memory. Consume is called in query_mem_tracker,
+        // and release is called in global_hook_tracker, which is repeatedly released after ~query_mem_tracker.
+        if (!_query_mem_tracker.expired()) {
+            if (_query_mem_limit_exceeded == false) {
+                if (!_query_mem_tracker.lock()->TryConsume(_missed_query_tracker_mem +
+                                                           _untracked_mem)) {
+                    _query_mem_limit_exceeded = true;
+                    query_mem_limit_exceeded(_missed_query_tracker_mem + _untracked_mem);
+                    _query_mem_limit_exceeded = false;
+                    _missed_query_tracker_mem += _untracked_mem;
+                } else {
+                    _missed_query_tracker_mem = 0;
                 }
+            } else {
+                _missed_query_tracker_mem += _untracked_mem;
             }
-            if (!_global_hook_tracker->TryConsume(_untracked_mem)) {
-                return; // add call back
+        }
+
+        // The first time GetGlobalHookTracker is called after the main thread starts, == nullptr
+        if (_global_hook_tracker != nullptr) {
+            if (_global_mem_limit_exceeded == false) {
+                if (!_global_hook_tracker->TryConsume(_missed_global_tracker_mem + _untracked_mem)) {
+                    _global_mem_limit_exceeded = true;
+                    global_mem_limit_exceeded(_missed_global_tracker_mem + _untracked_mem);
+                    _global_mem_limit_exceeded = false;
+                    _missed_global_tracker_mem += _untracked_mem;
+                } else {
+                    _missed_global_tracker_mem = 0;
+                }
+            } else {
+                _missed_global_tracker_mem += _untracked_mem;
             }
+        } else {
+            _missed_global_tracker_mem += _untracked_mem;
+        }
+    }
+
+    void try_consume(int64_t size) {
+        _untracked_mem += size;
+        // When some threads `0 <_untracked_mem <_untracked_mem_limit`
+        // and some threads `_untracked_mem <= -_untracked_mem_limit` trigger consumption(),
+        // it will cause tracker->consumption to be temporarily less than 0.
+        if (_untracked_mem >= _untracked_mem_limit || _untracked_mem <= -_untracked_mem_limit) {
+            consume();
             _untracked_mem = 0;
         }
     }
 
-    void consume_mem(int64_t size) { consume(size); }
+    void consume_mem(int64_t size) { try_consume(size); }
 
-    void release_mem(int64_t size) { consume(-size); }
+    void release_mem(int64_t size) { try_consume(-size); }
 
-    const std::string& query_id() { return _query_id; }
+    const TUniqueId& query_id() { return _query_id; }
     const std::thread::id& thread_id() { return _thread_id; }
 
 private:
     std::thread::id _thread_id;
-    std::string _query_id;
+    TUniqueId _query_id;
+    TUniqueId _fragment_instance_id;
     std::weak_ptr<MemTracker> _query_mem_tracker;
     std::shared_ptr<MemTracker> _global_hook_tracker = nullptr;
+
+    // The memory size that is not tracker is used to control batch trackers,
+    // avoid frequent consume/release.
     int64_t _untracked_mem = 0;
-    int64_t _untracked_mem_limit = 1 * 1024 * 1024;
-};
+    int64_t _untracked_mem_limit = config::untracked_mem_limit;
+
+    // Memory size of tracker failure after mem limit exceeded,
+    // expect to be successfully consumed later.
+    int64_t _missed_query_tracker_mem = 0;
+    int64_t _missed_global_tracker_mem = 0;
+
+    // After mem limit exceeded, avoid entering infinite recursion.
+    bool _query_mem_limit_exceeded = false;
+    bool _global_mem_limit_exceeded = false;
+}; // namespace doris
 
 inline thread_local TheadContext thread_local_ctx;
 } // namespace doris

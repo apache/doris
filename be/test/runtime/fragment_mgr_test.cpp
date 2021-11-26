@@ -47,7 +47,8 @@ Status PlanFragmentExecutor::open() {
     return s_open_status;
 }
 
-void PlanFragmentExecutor::cancel() {}
+void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
+}
 
 void PlanFragmentExecutor::set_abort() {
     LOG(INFO) << "Plan Aborted";

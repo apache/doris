@@ -70,7 +70,10 @@ public:
         return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
     }
 
-    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason);
+    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                  const std::string& msg = "");
+
+    Status is_canceling(const TUniqueId& fragment_id);
 
     void cancel_worker();
 

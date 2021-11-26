@@ -19,19 +19,14 @@
 #include <gperftools/nallocx.h>
 #include <gperftools/tcmalloc.h>
 
-#include "runtime/thread_status.h"
-
-static int new_hook_calls = 0;
-static int delete_hook_calls = 0;
+#include "runtime/thread_context.h"
 
 void new_hook(const void* ptr, size_t size) {
-    new_hook_calls++;
-    doris::current_thread.consume_mem(tc_nallocx(size, 0));
+    doris::thread_local_ctx.consume_mem(tc_nallocx(size, 0));
 }
 
 void delete_hook(const void* ptr) {
-    delete_hook_calls++;
-    doris::current_thread.release_mem(tc_malloc_size(const_cast<void*>(ptr)));
+    doris::thread_local_ctx.release_mem(tc_malloc_size(const_cast<void*>(ptr)));
 }
 
 void init_hook() {

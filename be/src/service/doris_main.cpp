@@ -286,6 +286,7 @@ int main(int argc, char** argv) {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_current_mem();
 #endif
+        doris::ExecEnv::GetInstance()->query_mem_tracker_registry()->DeregisterQueryMemTracker();
         sleep(10);
     }
 

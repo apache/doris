@@ -95,13 +95,13 @@ public:
             int64_t byte_limit = -1, const std::string& label = std::string(),
             std::shared_ptr<MemTracker> parent = std::shared_ptr<MemTracker>(),
             bool log_usage_if_zero = true, bool reset_label_name = true,
-            MemTrackerLevel level = MemTrackerLevel::VERBOSE, std::string query_id = std::string());
+            MemTrackerLevel level = MemTrackerLevel::VERBOSE, const std::string& query_id = std::string());
 
     static std::shared_ptr<MemTracker> CreateTracker(
             RuntimeProfile* profile, int64_t byte_limit, const std::string& label = std::string(),
             const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
             bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE,
-            std::string query_id = std::string());
+            const std::string& query_id = std::string());
 
     // this is used for creating an orphan mem tracker, or for unit test.
     // If a mem tracker has parent, it should be created by `CreateTracker()`
@@ -118,6 +118,9 @@ public:
 
     // Gets a shared_ptr to the "root" tracker, creating it if necessary.
     static std::shared_ptr<MemTracker> GetRootTracker();
+
+    // Gets a shared_ptr to the "global_hook" tracker, creating it if necessary.
+    static std::shared_ptr<MemTracker> GetGlobalHookTracker();
 
     /// Increases consumption of this tracker and its ancestors by 'bytes'.
     void Consume(int64_t bytes) {
@@ -137,7 +140,7 @@ public:
         for (auto& tracker : all_trackers_) {
             tracker->consumption_->add(bytes);
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
-                DCHECK_GE(tracker->consumption_->current_value(), 0);
+                DCHECK_GE(tracker->consumption_->current_value(), -config::untracked_mem_limit * 10);
             }
         }
     }
@@ -245,7 +248,17 @@ public:
             /// trackers since we can enforce that the reported memory usage is internally
             /// consistent.)
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
-                DCHECK_GE(tracker->consumption_->current_value(), 0)
+                // A small range of negative values is allowed, because TCMalloc Hook consume/release
+                // MemTracker may cause tracker->consumption to be temporarily less than 0.
+                //
+                // Note that, this may obscure other errors.
+                // consumption_ < 0 will make the memory statistics inaccurate, so it should be avoided.
+                // 1. The released memory is not consumed.
+                // 2. The same block of memory, tracker A calls consume, and tracker B calls release.
+                // 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
+                //    after the release is called on the parent MemTracker,
+                //    the child ~MemTracker will cause repeated releases.
+                DCHECK_GE(tracker->consumption_->current_value(), -config::untracked_mem_limit * 10)
                         << std::endl
                         << tracker->LogUsage(UNLIMITED_DEPTH);
             }
@@ -317,8 +330,16 @@ public:
     void set_query_id(const std::string& query_id) {
         if (query_id != std::string()) {
             query_id_ = query_id;
-            is_query_mem_tracker_ = true;
+            _is_query_mem_tracker = true;
         }
+    }
+
+    bool exist_transfer_control() {
+        return _exist_transfer_control;
+    }
+
+    void set_exist_transfer_control() {
+        _exist_transfer_control = true;
     }
 
     /// Returns the lowest limit for this tracker and its ancestors. Returns
@@ -506,11 +527,14 @@ private:
     // Creates the root tracker.
     static void CreateRootTracker();
 
+    // Creates the global hook tracker.
+    static void CreateGlobalHookTracker();
+
     /// Lock to protect GcMemory(). This prevents many GCs from occurring at once.
     std::mutex gc_lock_;
 
     /// True if this is a Query MemTracker returned from RegisterQueryMemTracker().
-    bool is_query_mem_tracker_ = false;
+    bool _is_query_mem_tracker = false;
 
     /// Only valid for MemTrackers returned from RegisterQueryMemTracker()
     std::string query_id_;
@@ -522,6 +546,10 @@ private:
     /// Soft limit on memory consumption, in bytes. Can be exceeded but callers to
     /// TryConsume() can opt not to exceed this limit. If -1, there is no consumption limit.
     const int64_t soft_limit_;
+
+    // Whether memory control transfer occurs, between mem trackers.
+    // The current tracker calls consume/release, and other threads call release/consume.
+    bool _exist_transfer_control = false;
 
     std::string label_;
 
@@ -592,7 +620,9 @@ public:
     std::shared_ptr<MemTracker> RegisterQueryMemTracker(const std::string& query_id,
                                                         int64_t mem_limit = -1);
 
-    void DeregisterQueryMemTracker(const std::string& query_id);
+    std::shared_ptr<MemTracker> GetQueryMemTracker(const std::string& query_id);
+
+    void DeregisterQueryMemTracker();
 
 private:
     // All per-query MemTracker objects.

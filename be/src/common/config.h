@@ -602,6 +602,11 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 // the level equal or lower than mem_tracker_level will show in web page
 CONF_Int16(mem_tracker_level, "0");
 
+// The maximum buffer length allowed when TCMalloc Hook consumes/releases MemTracker,
+// that is, the minimum batch of consume/release, specified as number of bytes.
+// Increasing this value will increase the frequency of consume/release.
+CONF_mInt32(untracked_mem_limit, "4194304");
+
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.
 // And as the new version is written and the old version is deleted,

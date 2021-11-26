@@ -222,7 +222,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
             MemTracker::CreateTracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
                                       _exec_env->process_mem_tracker(), true, false);
     _hook_query_mem_tracker =
-            _exec_env->query_mem_trackers()->RegisterQueryMemTracker(doris::print_id(query_id), bytes_limit);
+            _exec_env->query_mem_tracker_registry()->RegisterQueryMemTracker(print_id(query_id), bytes_limit);
 
     _instance_mem_tracker =
             MemTracker::CreateTracker(&_profile, -1, "RuntimeState:instance:", _query_mem_tracker);

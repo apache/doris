@@ -24,6 +24,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/datetime_value.h"
 #include "runtime/query_fragments_ctx.h"
 #include "runtime/query_statistics.h"
@@ -127,7 +128,8 @@ public:
     void set_abort();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel();
+    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
+                const std::string& msg = "");
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -176,6 +178,10 @@ private:
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
+
+    // Record the cancel information when calling the cancel() method, return it to FE
+    PPlanFragmentCancelReason _cancel_reason;
+    std::string _cancel_msg;
 
     // Overall execution status. Either ok() or set to the first error status that
     // was encountered.

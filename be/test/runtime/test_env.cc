@@ -37,7 +37,7 @@ TestEnv::TestEnv()
     _exec_env = ExecEnv::GetInstance();
     _exec_env->_thread_mgr = new ThreadResourceMgr(2);
     _exec_env->_buffer_reservation = new ReservationTracker();
-    _exec_env->_mem_tracker = MemTracker::CreateTracker(-1, "TestEnv");
+    _exec_env->_process_mem_tracker = MemTracker::CreateTracker(-1, "TestEnv");
     _exec_env->_disk_io_mgr = new DiskIoMgr(1, 1, 1, 10);
     _exec_env->disk_io_mgr()->init(_io_mgr_tracker);
     _exec_env->_scan_thread_pool = new PriorityThreadPool(1, 16);

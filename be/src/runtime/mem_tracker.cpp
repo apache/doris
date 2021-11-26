@@ -62,7 +62,15 @@ const std::string QUERY_MEM_TRACKER_LABEL_FORMAT = "queryId=$0";
 
 /// Calculate the soft limit for a MemTracker based on the hard limit 'limit'.
 static int64_t CalcSoftLimit(int64_t limit) {
-    if (limit < 0) return -1;
+    if (limit < 0) {
+        return -1;
+    }
+    if (limit > MemInfo::physical_mem()) {
+        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(limit, TUnit::BYTES)
+                     << " exceeds physical memory of "
+                     << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES);
+        limit = MemInfo::physical_mem();
+    }
     double frac = std::max(0.0, std::min(1.0, config::soft_mem_limit_frac));
     return static_cast<int64_t>(limit * frac);
 }
@@ -76,9 +84,20 @@ void MemTracker::CreateRootTracker() {
     root_tracker->Init();
 }
 
+// An independent tracker, no parent and child,
+// used in tcmalloc new/delete hook to count the real memory of the process
+static std::shared_ptr<MemTracker> global_hook_mem_tracker;
+static GoogleOnceType global_hook_mem_tracker_once = GOOGLE_ONCE_INIT;
+
+void MemTracker::CreateGlobalHookTracker() {
+    global_hook_mem_tracker.reset(new MemTracker(nullptr, -1, "Global Hook", nullptr, true, MemTrackerLevel::OVERVIEW));
+    global_hook_mem_tracker->Init();
+}
+
 std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, int64_t byte_limit,
                                                       const std::string& label, const std::shared_ptr<MemTracker>& parent,
-                                                      bool reset_label_name, MemTrackerLevel level, std::string query_id) {
+                                                      bool reset_label_name, MemTrackerLevel level,
+                                                      const std::string& query_id) {
     std::shared_ptr<MemTracker> real_parent;
     std::string label_name;
     // if parent is not null, reset label name to query id.
@@ -112,7 +131,7 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, i
 
 std::shared_ptr<MemTracker> MemTracker::CreateTracker(int64_t byte_limit, const std::string& label,
         std::shared_ptr<MemTracker> parent, bool log_usage_if_zero, bool reset_label_name,
-        MemTrackerLevel level, std::string query_id) {
+        MemTrackerLevel level, const std::string& query_id) {
     std::shared_ptr<MemTracker> real_parent;
     std::string label_name;
     // if parent is not null, reset label name to query id.
@@ -246,41 +265,51 @@ int64_t MemTracker::GetPoolMemReserved() {
 std::shared_ptr<MemTracker> QueryMemTrackerRegistry::RegisterQueryMemTracker(
         const std::string& query_id, int64_t mem_limit) {
     DCHECK(!query_id.empty());
-    if (mem_limit != -1) {
-        if (mem_limit > MemInfo::physical_mem()) {
-            LOG(WARNING) << "Memory limit " << PrettyPrinter::print(mem_limit, TUnit::BYTES)
-                         << " exceeds physical memory of "
-                         << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES);
-        }
-        VLOG(2) << "Using query memory limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
-    }
+    VLOG(2) << "Register query memory tracker, query id: " << query_id
+            << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
 
     // First time this query_id registered, make a new object, otherwise do nothing.
+    // Combine CreateTracker and emplace into one operation to avoid the use of locks
     _query_mem_trackers.try_emplace_l(
             query_id, [](std::shared_ptr<MemTracker>) {},
             MemTracker::CreateTracker(mem_limit,
                                       strings::Substitute(QUERY_MEM_TRACKER_LABEL_FORMAT, query_id),
-                                      ExecEnv::GetInstance()->hook_process_mem_tracker(), false,
+                                      ExecEnv::GetInstance()->all_query_mem_tracker(), false,
                                       false, MemTrackerLevel::OVERVIEW, query_id));
-
-    std::shared_ptr<MemTracker> tracker = nullptr;
-    _query_mem_trackers.if_contains(query_id,
-                                    [&tracker](std::shared_ptr<MemTracker> v) { tracker = v; });
+    std::shared_ptr<MemTracker> tracker = GetQueryMemTracker(query_id);
+    // tracker->set_exist_transfer_control();
     return tracker;
 }
 
-void QueryMemTrackerRegistry::DeregisterQueryMemTracker(const std::string& query_id) {
-    DCHECK(!query_id.empty());
-    _query_mem_trackers.erase_if(query_id, [](std::shared_ptr<MemTracker>) { return true; });
-    LOG(WARNING) << "DeregisterQueryMemTracker " << query_id << " len " << _query_mem_trackers.size();
+std::shared_ptr<MemTracker> QueryMemTrackerRegistry::GetQueryMemTracker(const std::string& query_id) {
+    std::shared_ptr<MemTracker> tracker = nullptr;
+    QueryTrackersMap::iterator it = _query_mem_trackers.find(query_id);
+    if (it != _query_mem_trackers.end()) {
+        DCHECK(query_id == it->second->query_id());
+        tracker = it->second;
+    }
+    return tracker;
+}
+
+void QueryMemTrackerRegistry::DeregisterQueryMemTracker() {
+    for (auto it = _query_mem_trackers.begin(); it != _query_mem_trackers.end();) {
+        // No RuntimeState uses this query MemTracker, it is only referenced by this map, delete it
+        if (it->second.use_count() == 1) {
+            VLOG(2) << "Deregister query memory tracker, query id: " << it->first;
+            _query_mem_trackers.erase(it->first);
+        }
+        it++;
+    }
 }
 
 MemTracker::~MemTracker() {
     delete reservation_counters_.load();
 
     if (parent()) {
-        DCHECK(consumption() == 0) << "Memory tracker " << debug_string()
-                                   << " has unreleased consumption " << consumption();
+        if (!exist_transfer_control()) {
+            DCHECK(consumption() == 0) << "Memory tracker " << debug_string()
+                                       << " has unreleased consumption " << consumption();
+        }
         parent_->Release(consumption());
 
         lock_guard<SpinLock> l(parent_->child_trackers_lock_);
@@ -295,6 +324,7 @@ void MemTracker::ListTrackers(vector<shared_ptr<MemTracker>>* trackers) {
     trackers->clear();
     deque<shared_ptr<MemTracker>> to_process;
     to_process.push_front(GetRootTracker());
+    to_process.push_front(GetGlobalHookTracker());
     while (!to_process.empty()) {
         shared_ptr<MemTracker> t = to_process.back();
         to_process.pop_back();
@@ -484,7 +514,7 @@ void MemTracker::GetTopNQueries(
 
 MemTracker* MemTracker::GetQueryMemTracker() {
     MemTracker* tracker = this;
-    while (tracker != nullptr && !tracker->is_query_mem_tracker_) {
+    while (tracker != nullptr && !tracker->_is_query_mem_tracker) {
         tracker = tracker->parent_.get();
     }
     return tracker;
@@ -580,6 +610,11 @@ bool MemTracker::GcMemory(int64_t max_consumption) {
 std::shared_ptr<MemTracker> MemTracker::GetRootTracker() {
     GoogleOnceInit(&root_tracker_once, &MemTracker::CreateRootTracker);
     return root_tracker;
+}
+
+std::shared_ptr<MemTracker> MemTracker::GetGlobalHookTracker() {
+    GoogleOnceInit(&global_hook_mem_tracker_once, &MemTracker::CreateGlobalHookTracker);
+    return global_hook_mem_tracker;
 }
 
 } // namespace doris

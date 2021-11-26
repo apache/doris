@@ -43,7 +43,7 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_pipe.h"
-#include "runtime/thread_status.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -83,6 +83,7 @@ public:
     FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
                       ExecEnv* exec_env, const TNetworkAddress& coord_addr);
 
+    ~FragmentExecState();
 
     Status prepare(const TExecPlanFragmentParams& params);
 
@@ -95,7 +96,7 @@ public:
 
     Status cancel_before_execute();
 
-    Status cancel(const PPlanFragmentCancelReason& reason);
+    Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
 
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
@@ -135,6 +136,10 @@ public:
         return false;
     }
 
+    bool is_canceling() const { return _is_canceling; }
+
+    void set_is_canceling() { _is_canceling = true; }
+
     int get_timeout_second() const { return _timeout_second; }
 
     std::shared_ptr<QueryFragmentsCtx> get_fragments_ctx() { return _fragments_ctx; }
@@ -156,6 +161,7 @@ private:
 
     PlanFragmentExecutor _executor;
     DateTimeValue _start_time;
+    bool _is_canceling = false;
 
     std::mutex _status_lock;
     Status _exec_status;
@@ -166,6 +172,7 @@ private:
 
     int _timeout_second;
 
+    std::unique_ptr<std::thread> _exec_thread;
 
     // This context is shared by all fragments of this host in a query
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
@@ -208,6 +215,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
     _start_time = DateTimeValue::local_time();
 }
 
+FragmentExecState::~FragmentExecState() {}
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
@@ -251,13 +259,13 @@ Status FragmentExecState::cancel_before_execute() {
     return Status::OK();
 }
 
-Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason) {
+Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     std::lock_guard<std::mutex> l(_status_lock);
     RETURN_IF_ERROR(_exec_status);
     if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
         _executor.set_is_report_on_cancel(false);
     }
-    _executor.cancel();
+    _executor.cancel(reason, msg);
     if (_pipe != nullptr) {
         _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
     }
@@ -462,7 +470,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
-    current_thread.attach_query(exec_state->query_id());
+    thread_local_ctx.attach_query(exec_state->query_id(), exec_state->fragment_instance_id());
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
@@ -483,7 +491,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
 
     // Callback after remove from this id
     cb(exec_state->executor());
-    current_thread.update_mem_tracker(nullptr);
+    thread_local_ctx.unattach_query();
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
@@ -646,7 +654,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     return Status::OK();
 }
 
-Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason) {
+Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                           const std::string& msg) {
     std::shared_ptr<FragmentExecState> exec_state;
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -656,10 +665,28 @@ Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCanc
             return Status::OK();
         }
         exec_state = iter->second;
+        exec_state->set_is_canceling();
     }
-    exec_state->cancel(reason);
+    exec_state->cancel(reason, msg);
 
     return Status::OK();
+}
+
+Status FragmentMgr::is_canceling(const TUniqueId& fragment_id) {
+    std::shared_ptr<FragmentExecState> exec_state;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(fragment_id);
+        if (iter != _fragment_map.end()) {
+            exec_state = iter->second;
+            if (exec_state->is_canceling()) {
+                return Status::Cancelled("Canceling");
+            } else {
+                return Status::OK();
+            }
+        }
+    }
+    return Status::InternalError("FragmentID not found");
 }
 
 void FragmentMgr::cancel_worker() {

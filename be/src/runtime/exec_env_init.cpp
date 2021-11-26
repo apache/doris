@@ -93,7 +93,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _extdatasource_client_cache =
             new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
-    _query_mem_trackers = new QueryMemTrackerRegistry();
+    _query_mem_tracker_registry = new QueryMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
     _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
                                                config::doris_scanner_thread_pool_queue_size);
@@ -146,7 +146,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
 
-    RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
+    RETURN_IF_ERROR(_load_channel_mgr->init(_process_mem_tracker->limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
     _is_init = true;
@@ -173,16 +173,14 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "Process",
-                                             MemTracker::GetRootTracker(), false, false,
-                                             MemTrackerLevel::OVERVIEW);
-    REGISTER_HOOK_METRIC(query_mem_consumption, [this]() { return _mem_tracker->consumption(); });
-    // TODO(zxy): Will replace _mem_tracker as process_mem_tracker in future.
-    // The statistic memory consumption is duplicated with _mem_tracker,
-    // which will cause the RootTracker statistic value to be much larger than actual,
-    _hook_mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "TcmallocHook Process",
-                                                  MemTracker::GetRootTracker(), false, false,
-                                                  MemTrackerLevel::OVERVIEW);
+    _process_mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "Process",
+                                                     MemTracker::GetRootTracker(), false, false,
+                                                     MemTrackerLevel::OVERVIEW);
+    REGISTER_HOOK_METRIC(query_mem_consumption,
+                         [this]() { return _process_mem_tracker->consumption(); });
+    _all_query_mem_tracker =
+            MemTracker::CreateTracker(global_memory_limit_bytes, "All Query", _process_mem_tracker,
+                                      false, false, MemTrackerLevel::OVERVIEW);
     LOG(INFO) << "Using global memory limit: "
               << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
               << ", origin config value: " << config::mem_limit;
@@ -247,7 +245,7 @@ Status ExecEnv::_init_mem_tracker() {
     SegmentLoader::create_global_instance(config::segment_cache_capacity);
 
     // 4. init other managers
-    RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
+    RETURN_IF_ERROR(_disk_io_mgr->init(_process_mem_tracker));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
 
     // TODO(zc): The current memory usage configuration is a bit confusing,
@@ -306,7 +304,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
-    SAFE_DELETE(_query_mem_trackers);
+    SAFE_DELETE(_query_mem_tracker_registry);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_extdatasource_client_cache);
     SAFE_DELETE(_frontend_client_cache);

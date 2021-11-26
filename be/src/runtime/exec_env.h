@@ -96,7 +96,7 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    bool is_init() { return _is_init; }
+    const bool is_init() { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
@@ -116,9 +116,9 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<MemTracker> process_mem_tracker() { return _mem_tracker; }
-    std::shared_ptr<MemTracker> hook_process_mem_tracker() { return _hook_mem_tracker; }
-    QueryMemTrackerRegistry* query_mem_trackers() { return _query_mem_trackers; }
+    std::shared_ptr<MemTracker> process_mem_tracker() { return _process_mem_tracker; }
+    std::shared_ptr<MemTracker> all_query_mem_tracker() { return _all_query_mem_tracker; }
+    QueryMemTrackerRegistry* query_mem_tracker_registry() { return _query_mem_tracker_registry; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
@@ -182,9 +182,12 @@ private:
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
     ClientCache<TExtDataSourceServiceClient>* _extdatasource_client_cache = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker;
-    std::shared_ptr<MemTracker> _hook_mem_tracker = nullptr;
-    QueryMemTrackerRegistry* _query_mem_trackers = nullptr;
+    // The ancestor of all trackers in the process. It is the only child of the root tracker.
+    // All manually created trackers should specify the process tracker as the parent.
+    std::shared_ptr<MemTracker> _process_mem_tracker = nullptr;
+    // The ancestor for all querys tracker.
+    std::shared_ptr<MemTracker> _all_query_mem_tracker = nullptr;
+    QueryMemTrackerRegistry* _query_mem_tracker_registry = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
 
     // The following two thread pools are used in different scenarios.
