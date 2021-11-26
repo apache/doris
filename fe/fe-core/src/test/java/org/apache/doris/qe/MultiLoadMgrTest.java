@@ -66,9 +66,9 @@ public class MultiLoadMgrTest {
                         anyBoolean, anyString, (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = new Delegate() {
-                    public synchronized List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, boolean needAlive,
-                                                                                            boolean isCreate, String clusterName, TStorageMedium medium,
-                                                                                            Tag tag) {
+                    public synchronized List<Long> seqChooseBackendIdsByStorageMediumAndTag(
+                            int backendNum, SystemInfoService.BeAvailablePredicate availablePredicate,
+                            boolean isCreate, String clusterName, TStorageMedium medium, Tag tag) {
                         List<Long> beIds = Lists.newArrayList();
                         beIds.add(CatalogMocker.BACKEND1_ID);
                         beIds.add(CatalogMocker.BACKEND2_ID);
