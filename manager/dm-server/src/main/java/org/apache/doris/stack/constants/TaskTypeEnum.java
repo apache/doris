@@ -30,7 +30,11 @@ public enum TaskTypeEnum {
     START_BE,
     STOP_FE,
     STOP_BE,
-    JOIN_BE;
+    JOIN_BE,
+    INSTALL_BROKER,
+    DEPLOY_BROKER_CONFIG,
+    START_BROKER,
+    STOP_BROKER;
 
     /**
      * agent side task

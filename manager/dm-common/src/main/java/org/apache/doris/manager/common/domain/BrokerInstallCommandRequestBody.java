@@ -17,37 +17,24 @@
 
 package org.apache.doris.manager.common.domain;
 
-public enum CommandType {
-    INSTALL_FE,
+public class BrokerInstallCommandRequestBody {
+    private String installDir;
 
-    INSTALL_BE,
+    private String packageUrl;
 
-    START_FE,
+    public String getPackageUrl() {
+        return packageUrl;
+    }
 
-    STOP_FE,
+    public void setPackageUrl(String packageUrl) {
+        this.packageUrl = packageUrl;
+    }
 
-    START_BE,
+    public String getInstallDir() {
+        return installDir;
+    }
 
-    STOP_BE,
-
-    WRITE_FE_CONF,
-
-    WRITE_BE_CONF,
-
-    INSTALL_BROKER,
-
-    START_BROKER,
-
-    STOP_BROKER,
-
-    WRITE_BROKER_CONF;
-
-    public static CommandType findByName(String name) {
-        for (CommandType type : CommandType.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
-        }
-        return null;
+    public void setInstallDir(String installDir) {
+        this.installDir = installDir;
     }
 }

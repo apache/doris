@@ -17,37 +17,14 @@
 
 package org.apache.doris.manager.common.domain;
 
-public enum CommandType {
-    INSTALL_FE,
+public class WriteBrokerConfCommandRequestBody {
+    private String content;
 
-    INSTALL_BE,
+    public String getContent() {
+        return content;
+    }
 
-    START_FE,
-
-    STOP_FE,
-
-    START_BE,
-
-    STOP_BE,
-
-    WRITE_FE_CONF,
-
-    WRITE_BE_CONF,
-
-    INSTALL_BROKER,
-
-    START_BROKER,
-
-    STOP_BROKER,
-
-    WRITE_BROKER_CONF;
-
-    public static CommandType findByName(String name) {
-        for (CommandType type : CommandType.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
-        }
-        return null;
+    public void setContent(String content) {
+        this.content = content;
     }
 }

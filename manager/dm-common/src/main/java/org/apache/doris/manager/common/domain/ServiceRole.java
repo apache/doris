@@ -18,8 +18,15 @@
 package org.apache.doris.manager.common.domain;
 
 public enum ServiceRole {
-    FE,
-    BE;
+    FE("fe"),
+    BE("be"),
+    BROKER("apache_hdfs_broker");
+
+    private String installName;
+
+    ServiceRole(String installName) {
+        this.installName = installName;
+    }
 
     public static ServiceRole findByName(String name) {
         for (ServiceRole type : ServiceRole.values()) {
@@ -28,5 +35,9 @@ public enum ServiceRole {
             }
         }
         return null;
+    }
+
+    public String getInstallName() {
+        return installName;
     }
 }

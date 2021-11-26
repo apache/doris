@@ -25,6 +25,7 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BrokerInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
@@ -33,6 +34,7 @@ import org.apache.doris.manager.common.domain.HardwareInfo;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
+import org.apache.doris.manager.common.domain.WriteBrokerConfCommandRequestBody;
 import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
@@ -145,24 +147,21 @@ public class AgentProcessImpl implements AgentProcess {
                 log.warn("host {} parent install agent task has skipped,so the current install {} task is also skipped", install.getHost(), install.getRole());
                 continue;
             }
-
-            String installDir = process.getInstallDir();
-            if (!installDir.endsWith(File.separator)) {
-                installDir = installDir + File.separator;
-            }
-            installDir = installDir + install.getRole().toLowerCase();
-            installDoris(process.getId(), install, process.getPackageUrl(), installDir);
+            installDoris(process.getId(), install, process.getPackageUrl(), process.getInstallDir());
         }
     }
 
     private void installDoris(int processId, DorisInstall install, String packageUrl, String installDir) {
+        if (!installDir.endsWith(File.separator)) {
+            installDir = installDir + File.separator;
+        }
         CommandRequest creq = new CommandRequest();
         TaskInstanceEntity installServiceTmp = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE, ExecutionStatus.SUBMITTED);
         if (ServiceRole.FE.name().equals(install.getRole())) {
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
             feBody.setMkFeMetadir(true);
             feBody.setPackageUrl(packageUrl);
-            feBody.setInstallDir(installDir);
+            feBody.setInstallDir(installDir + ServiceRole.FE.getInstallName());
             creq.setCommandType(CommandType.INSTALL_FE.name());
             creq.setBody(JSON.toJSONString(feBody));
             installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_FE);
@@ -170,10 +169,17 @@ public class AgentProcessImpl implements AgentProcess {
             BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
             beBody.setMkBeStorageDir(true);
             beBody.setPackageUrl(packageUrl);
-            beBody.setInstallDir(installDir);
+            beBody.setInstallDir(installDir + ServiceRole.BE.getInstallName());
             creq.setCommandType(CommandType.INSTALL_BE.name());
             creq.setBody(JSON.toJSONString(beBody));
             installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_BE);
+        } else if (ServiceRole.BROKER.name().equals(install.getRole())) {
+            BrokerInstallCommandRequestBody broker = new BrokerInstallCommandRequestBody();
+            broker.setInstallDir(installDir + ServiceRole.BROKER.getInstallName());
+            broker.setPackageUrl(packageUrl);
+            creq.setCommandType(CommandType.INSTALL_BROKER.name());
+            creq.setBody(JSON.toJSONString(broker));
+            installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_BROKER);
         } else {
             throw new ServerException("The service installation is not currently supported");
         }
@@ -241,6 +247,13 @@ public class AgentProcessImpl implements AgentProcess {
                     creq.setCommandType(CommandType.WRITE_BE_CONF.name());
                     deployTaskTmp.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
                     parentTask = TaskTypeEnum.INSTALL_BE;
+                } else if (ServiceRole.BROKER.name().equals(deployConf.getRole())) {
+                    WriteBrokerConfCommandRequestBody brokerConf = new WriteBrokerConfCommandRequestBody();
+                    brokerConf.setContent(encodeConf);
+                    creq.setBody(JSON.toJSONString(brokerConf));
+                    creq.setCommandType(CommandType.WRITE_BROKER_CONF.name());
+                    deployTaskTmp.setTaskType(TaskTypeEnum.DEPLOY_BROKER_CONFIG);
+                    parentTask = TaskTypeEnum.INSTALL_BROKER;
                 } else {
                     throw new ServerException("The service deploy config is not currently supported");
                 }
@@ -294,6 +307,9 @@ public class AgentProcessImpl implements AgentProcess {
             } else if (ServiceRole.BE.equals(serviceRole)) {
                 execTaskTmp.setTaskType(TaskTypeEnum.START_BE);
                 parentTask = TaskTypeEnum.DEPLOY_BE_CONFIG;
+            } else if (ServiceRole.BROKER.equals(serviceRole)) {
+                execTaskTmp.setTaskType(TaskTypeEnum.START_BROKER);
+                parentTask = TaskTypeEnum.DEPLOY_BROKER_CONFIG;
             } else {
                 log.error("not support role {}", start.getRole());
                 continue;
