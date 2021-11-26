@@ -1156,6 +1156,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return !exprSlotIds.retainAll(slotIds);
     }
 
+    // Get all the slotRefs that are bound to the tupleIds.
+    // As long as it is bound to one tuple
+    // Recursively call all levels of expr
+    public void getSlotRefsBoundByTupleIds(List<TupleId> tupleIds, Set<SlotRef> boundSlotRefs) {
+        for (Expr child : children) {
+            child.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
+        }
+    }
+
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
