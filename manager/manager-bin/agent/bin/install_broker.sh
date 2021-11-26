@@ -69,7 +69,7 @@ if [ $? -ne 0 ] ;then exit 1;fi
 tar -zxvf doris-broker.tar.gz --strip-components=1 -C $DORIS_BROKER_HOME/brokertmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
-mv $DORIS_BROKER_HOME/brokertmp/apache_hdfs_broker/* $DORIS_BROKER_HOME/
+mv $DORIS_BROKER_HOME/brokertmp/apache_hdfs_broker/output/apache_hdfs_broker/* $DORIS_BROKER_HOME/
 if [ $? -ne 0 ] ;then exit 1;fi
 
 rm -rf $DORIS_BROKER_HOME/brokertmp

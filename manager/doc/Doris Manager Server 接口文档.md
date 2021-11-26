@@ -153,7 +153,7 @@
 > |:-----  |:-------|:-----|-----                               |
 > |processId|true|int|当前安装的流程ID，接口1返回的结果|
 > |installInfos.host    |ture    | String  |指定安装doris的机器                          |
-> |installInfos.role    |true    |String   |doris角色：FE、BE|
+> |installInfos.role    |true    |String   |doris角色：FE、BE、BROKER|
 > |installInfos.feNodeType    |false    |String   |角色为FE时:FOLLOWER / OBSERVER|
 
 **返回字段**
@@ -216,7 +216,7 @@
 > |:-----  |:-------|:-----|-----                               |
 > |processId|true|int|当前安装的流程ID，接口1返回的结果|
 > |deployConfigs.hosts |true |List<String> |指定的机器列表|
-> |deployConfigs.role    |true    |String   |doris角色：FE、BE|
+> |deployConfigs.role    |true    |String   |doris角色：FE、BE、BROKER|
 > |deployConfigs.conf |true |String |配置文件内容|
 
 **返回字段**
@@ -277,7 +277,7 @@
 > |:-----  |:-------|:-----|-----                               |
 > |processId|true|int|当前安装的流程ID，接口1返回的结果|
 > |dorisStarts.host    |true    |String   |指定机器|
-> |dorisStarts.role |true |String |doris角色：FE、BE|
+> |dorisStarts.role |true |String |doris角色：FE、BE、BROKER|
 
 **返回字段**
 
@@ -695,7 +695,7 @@
 > |msg   |String    |调用信息   |
 > |code  |String | 结果状态。0：正常  |
 > |data.host  |String |agent host  |
-> |data.role  |String |安装角色 FE BE |
+> |data.role  |String |安装角色 FE BE BROKER |
 > |data.feNodeType  |String | 角色类型 FOLLOWer OBserver|
 > |data.register  |String | 安装后是否注册成功 |
 

@@ -23,9 +23,11 @@ public class Constants {
     public static final String KEY_FE_QUERY_PORT = "query_port";
     public static final String KEY_FE_EDIT_LOG_PORT = "edit_log_port";
     public static final String KEY_BE_HEARTBEAT_PORT = "heartbeat_service_port";
+    public static final String KEY_BROKER_IPC_PORT = "broker_ipc_port";
 
     public static final String DORIS_DEFAULT_QUERY_USER = "root";
     public static final String DORIS_DEFAULT_QUERY_PASSWORD = "";
     public static final Integer DORIS_DEFAULT_FE_QUERY_PORT = 9030;
     public static final Integer DORIS_DEFAULT_FE_EDIT_LOG_PORT = 9010;
+    public static final Integer DORIS_DEFAULT_BROKER_IPC_PORT = 8000;
 }

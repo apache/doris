@@ -80,8 +80,9 @@ import java.sql.SQLException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -91,27 +92,22 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AgentProcessImpl implements AgentProcess {
 
+    private static ThreadPoolExecutor threadPoolExecutor =
+            new ThreadPoolExecutor(10, 20, 60L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
     @Autowired
     private AgentRest agentRest;
-
     @Autowired
     private AgentCache agentCache;
-
     @Autowired
     private AgentRoleComponent agentRoleComponent;
-
     @Autowired
     private ProcessInstanceComponent processInstanceComponent;
-
     @Autowired
     private TaskInstanceComponent taskInstanceComponent;
-
     @Autowired
     private TaskInstanceRepository taskInstanceRepository;
-
     @Autowired
     private AuthenticationService authenticationService;
-
     @Autowired
     private TaskExecuteRunner taskExecuteRunner;
 
@@ -258,14 +254,15 @@ public class AgentProcessImpl implements AgentProcess {
                     throw new ServerException("The service deploy config is not currently supported");
                 }
 
-                TaskInstanceEntity deployTask = taskInstanceComponent.saveTask(deployTaskTmp);
-                if (deployTask == null) {
-                    continue;
-                }
                 //check parent task skipped
                 boolean parentTaskSkip = checkParentTaskSkip(deployConfigReq.getProcessId(), host, parentTask);
                 if (parentTaskSkip) {
                     log.warn("host {} parent install {} task has skipped,so the current deploy {} config task is also skipped", host, deployConf.getRole(), deployConf.getRole());
+                    continue;
+                }
+
+                TaskInstanceEntity deployTask = taskInstanceComponent.saveTask(deployTaskTmp);
+                if (deployTask == null) {
                     continue;
                 }
                 handleAgentTask(deployTask, creq);
@@ -314,15 +311,16 @@ public class AgentProcessImpl implements AgentProcess {
                 log.error("not support role {}", start.getRole());
                 continue;
             }
-            TaskInstanceEntity execTask = taskInstanceComponent.saveTask(execTaskTmp);
-            if (execTask == null) {
-                continue;
-            }
 
             //check parent task has skipped
             boolean parentTaskSkip = checkParentTaskSkip(process.getId(), start.getHost(), parentTask);
             if (parentTaskSkip) {
                 log.warn("host {} parent deploy config {} task has skipped,so the current start {} task is also skipped", start.getHost(), start.getRole(), start.getRole());
+                continue;
+            }
+
+            TaskInstanceEntity execTask = taskInstanceComponent.saveTask(execTaskTmp);
+            if (execTask == null) {
                 continue;
             }
             //start service
@@ -336,25 +334,12 @@ public class AgentProcessImpl implements AgentProcess {
                     CommandRequest creq = buildStartCmd(ServiceRole.FE, null);
                     handleAgentTask(execTask, creq);
                 } else {
-                    //wait master fe start success,then start no-master fe
-                    ExecutorService executor = Executors.newSingleThreadExecutor();
-                    executor.submit(new Runnable() {
+                    //wait master fe start success,then start non-master fe
+                    threadPoolExecutor.execute(new Runnable() {
                         @Override
                         public void run() {
                             try {
-                                String leaderFeHost;
-                                while (true) {
-                                    //Polling until there has a successful fe
-                                    List<TaskInstanceEntity> taskInstanceEntities = taskInstanceComponent.querySuccessTasks(process.getId(), TaskTypeEnum.START_FE);
-                                    if (!taskInstanceEntities.isEmpty()) {
-                                        leaderFeHost = taskInstanceEntities.get(0).getHost();
-                                        log.info("master fe {} start success", leaderFeHost);
-                                        break;
-                                    }
-                                    Thread.sleep(1000);
-                                    log.warn("waiting master fe start success");
-                                }
-
+                                String leaderFeHost = waitMasterFeStart(process.getId());
                                 Integer leaderFeQueryPort = getFeQueryPort(leaderFeHost, agentCache.agentPort(leaderFeHost));
                                 joinFe(leaderFeHost, leaderFeQueryPort, start.getHost());
                                 CommandRequest creq = buildStartCmd(ServiceRole.FE, leaderFeHost);
@@ -366,14 +351,46 @@ public class AgentProcessImpl implements AgentProcess {
                             }
                         }
                     });
-                    executor.shutdown();
                 }
+            } else if (TaskTypeEnum.START_BROKER.equals(execTask.getTaskType())) {
+                threadPoolExecutor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            String aliveFeHost = waitMasterFeStart(process.getId());
+                            Integer aliveFePort = getFeQueryPort(aliveFeHost, agentCache.agentPort(aliveFeHost));
+                            joinBroker(aliveFeHost, aliveFePort, execTask.getHost());
+                            CommandRequest creq = buildStartCmd(ServiceRole.BROKER, null);
+                            handleAgentTask(execTask, creq);
+                        } catch (Exception e) {
+                            log.error("task execute error,", e);
+                            execTask.setStatus(ExecutionStatus.FAILURE);
+                            taskInstanceRepository.save(execTask);
+                        }
+                    }
+                });
             } else {
                 CommandRequest creq = buildStartCmd(ServiceRole.BE, null);
                 handleAgentTask(execTask, creq);
             }
             log.info("agent {} starting {} ", start.getHost(), start.getRole());
         }
+    }
+
+    private String waitMasterFeStart(int processId) throws InterruptedException {
+        String masterFeHost;
+        while (true) {
+            //Polling until there has a successful fe
+            List<TaskInstanceEntity> taskInstanceEntities = taskInstanceComponent.querySuccessTasks(processId, TaskTypeEnum.START_FE);
+            if (!taskInstanceEntities.isEmpty()) {
+                masterFeHost = taskInstanceEntities.get(0).getHost();
+                log.info("master fe {} start success", masterFeHost);
+                break;
+            }
+            Thread.sleep(1000);
+            log.warn("waiting master fe start success");
+        }
+        return masterFeHost;
     }
 
     private CommandRequest buildStartCmd(ServiceRole serviceRole, String leaderFeHost) {
@@ -393,6 +410,7 @@ public class AgentProcessImpl implements AgentProcess {
                 creq.setBody(JSON.toJSONString(feBody));
                 break;
             case START_BE:
+            case START_BROKER:
                 break;
             default:
                 log.error("not support command: {}", commandType.name());
@@ -400,6 +418,25 @@ public class AgentProcessImpl implements AgentProcess {
         }
         creq.setCommandType(commandType.name());
         return creq;
+    }
+
+    /**
+     * add broker to cluster
+     */
+    private void joinBroker(String aliveFeHost, int aliveFePort, String addBrokerHost) {
+        Integer brokerIpcPort = getBrokerIpcPort(addBrokerHost, agentCache.agentPort(addBrokerHost));
+        Connection connection = null;
+        try {
+            connection = JdbcUtil.getConnection(aliveFeHost, aliveFePort);
+            String sql = "ALTER SYSTEM ADD BROKER broker_name \"%s:%s\"";
+            String joinBrokerSql = String.format(sql, addBrokerHost, brokerIpcPort);
+            JdbcUtil.execute(connection, joinBrokerSql);
+            log.info("execute {}", joinBrokerSql);
+        } catch (SQLException ex) {
+            log.error("add broker to cluster failed:{}", addBrokerHost, ex);
+        } finally {
+            JdbcUtil.closeConn(connection);
+        }
     }
 
     /**
@@ -451,6 +488,20 @@ public class AgentProcessImpl implements AgentProcess {
     }
 
     /**
+     * get broker ipc port
+     **/
+    public Integer getBrokerIpcPort(String host, Integer port) {
+        Properties brokerConf = agentRest.roleConfig(host, port, ServiceRole.BROKER.name());
+        try {
+            Integer ipcPort = Integer.valueOf(brokerConf.getProperty(Constants.KEY_BROKER_IPC_PORT));
+            return ipcPort;
+        } catch (NumberFormatException e) {
+            log.warn("get broker ipc port fail,return default port 8000");
+            return Constants.DORIS_DEFAULT_BROKER_IPC_PORT;
+        }
+    }
+
+    /**
      * get alive agent
      */
     public AgentEntity getAliveAgent(int cluserId) {
@@ -489,16 +540,16 @@ public class AgentProcessImpl implements AgentProcess {
         AgentEntity aliveAgent = getAliveAgent(process.getClusterId());
         Integer queryPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
         for (String be : beJoinReq.getHosts()) {
-            int agentPort = agentCache.agentPort(be);
-            TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(process.getId(), be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
-            if (joinBeTask == null) {
-                return;
-            }
             boolean parentTaskSkip = checkParentTaskSkip(beJoinReq.getProcessId(), be, TaskTypeEnum.START_BE);
             if (parentTaskSkip) {
                 log.warn("host {} parent start be task has skipped,so the current add be to cluster task is also skipped", be);
                 continue;
             }
+            TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(process.getId(), be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
+            if (joinBeTask == null) {
+                return;
+            }
+            int agentPort = agentCache.agentPort(be);
             BeJoin beJoin = new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort);
             joinBeTask.setTaskJson(JSON.toJSONString(beJoin));
             taskExecuteRunner.execTask(joinBeTask, beJoin);
@@ -513,12 +564,12 @@ public class AgentProcessImpl implements AgentProcess {
             throw new ServerException("can not register " + agentReg.getHost() + " role " + agentReg.getRole());
         } else if (Flag.NO.equals(agent.getRegister())) {
             agent.setRegister(Flag.YES);
+            AgentRoleEntity agentRoleEntity = agentRoleComponent.saveAgentRole(agent);
+            return agentRoleEntity != null;
         } else {
             log.info("agent {} role {} already register.", agentReg.getHost(), agentReg.getRole());
+            return true;
         }
-
-        AgentRoleEntity agentRoleEntity = agentRoleComponent.saveAgentRole(agent);
-        return agentRoleEntity != null;
     }
 
     @Override
@@ -555,6 +606,12 @@ public class AgentProcessImpl implements AgentProcess {
                 break;
             case STOP_BE:
                 execTask.setTaskType(TaskTypeEnum.STOP_BE);
+                break;
+            case START_BROKER:
+                execTask.setTaskType(TaskTypeEnum.START_BROKER);
+                break;
+            case STOP_BROKER:
+                execTask.setTaskType(TaskTypeEnum.STOP_BROKER);
                 break;
             default:
                 log.error("not support command: {}", command.name());
