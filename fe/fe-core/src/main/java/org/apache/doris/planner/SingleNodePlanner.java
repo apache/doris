@@ -550,8 +550,8 @@ public class SingleNodePlanner {
                         continue;
                     }
                     if (col.isKey()) {
-                        if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX")
-                                && aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN")) {
+                        if ((!aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX"))
+                                && (!aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN"))) {
                             returnColumnValidate = false;
                             turnOffReason = "the type of agg on StorageEngine's Key column should only be MAX or MIN."
                                     + "agg expr: " + aggExpr.toSql();
