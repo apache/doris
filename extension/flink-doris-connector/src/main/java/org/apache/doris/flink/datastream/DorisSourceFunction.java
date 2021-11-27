@@ -74,13 +74,12 @@ public class DorisSourceFunction extends RichParallelSourceFunction<List<?>> imp
         int totalTasks = getRuntimeContext().getNumberOfParallelSubtasks();
         logger.info("doris partitions {},total task {}", dorisPartitions.size(), totalTasks);
 
-        int taskParts = dorisPartitions.size() / totalTasks;
+        int subSize = dorisPartitions.size() / totalTasks;
         int remainder = dorisPartitions.size() % totalTasks;
-        int subSize = taskParts;
         int start = taskIndex * subSize + remainder;
         //Cannot evenly assign partitions to tasks
         if (taskIndex < remainder) {
-            subSize = taskParts + 1;
+            subSize = subSize + 1;
             start = taskIndex * subSize;
         }
         taskDorisPartitions = dorisPartitions.subList(start, Math.min(start + subSize, dorisPartitions.size()));
