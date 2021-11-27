@@ -379,11 +379,6 @@ public class DatabaseTransactionMgr {
             LOG.debug("transaction is already committed: {}", transactionId);
             return;
         }
-
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
-            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-        }
-
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
             transactionState.setTxnCommitAttachment(txnCommitAttachment);
@@ -439,12 +434,6 @@ public class DatabaseTransactionMgr {
             }
             tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
         }
-
-        if (tableToPartition.isEmpty()) {
-            // table or all partitions are being dropped
-            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-        }
-
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
