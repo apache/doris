@@ -122,12 +122,12 @@ public class LoadAction extends RestBaseAction {
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
                     1, beAvailablePredicate, false, clusterName, null, null);
             if (backendIds == null) {
-                throw new DdlException("No backend alive.");
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
 
             Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
             if (backend == null) {
-                throw new DdlException("No backend alive.");
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
 
             redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());

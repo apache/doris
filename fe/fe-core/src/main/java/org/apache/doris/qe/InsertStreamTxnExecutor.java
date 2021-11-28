@@ -69,7 +69,7 @@ public class InsertStreamTxnExecutor {
                 1, beAvailablePredicate, false,
                 txnEntry.getDb().getClusterName(), null, null);
         if (beIds == null || beIds.isEmpty()) {
-            throw new UserException("there is no scanNode Backend.");
+            throw new UserException("there is no backend load available or scanNode backend available.");
         }
 
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());

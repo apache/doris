@@ -97,7 +97,7 @@ public class MultiLoadMgr {
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(1,
                     beAvailablePredicate, false, ConnectContext.get().getClusterName(), null, null);
             if (backendIds == null) {
-                throw new DdlException("No backend alive.");
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
             multiLoadDesc.setBackendId(backendIds.get(0));
             infoMap.put(multiLabel, multiLoadDesc);

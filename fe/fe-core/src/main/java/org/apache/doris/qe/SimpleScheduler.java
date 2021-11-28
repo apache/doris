@@ -87,7 +87,7 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException("there is no scanNode Backend. " +
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
                 getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
@@ -119,7 +119,7 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException("there is no scanNode Backend. " +
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
                 getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
@@ -161,7 +161,7 @@ public class SimpleScheduler {
             }
         }
         // no backend returned
-        throw new UserException("there is no scanNode Backend. "
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
                 + getBackendErrorMsg(Lists.newArrayList(backends.keySet()), backends, 3));
     }
 
@@ -178,6 +178,8 @@ public class SimpleScheduler {
             } else if (blacklistBackends.containsKey(beId)) {
                 Pair<Integer, String> pair = blacklistBackends.get(beId);
                 res.add(beId + ": in black list(" + (pair == null ? "unknown" : pair.second) + ")");
+            } else if (!be.isQueryAvailable()) {
+                res.add(beId + ": disable query");
             } else {
                 res.add(beId + ": unknown");
             }

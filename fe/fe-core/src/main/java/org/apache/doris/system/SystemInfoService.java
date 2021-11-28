@@ -71,6 +71,10 @@ public class SystemInfoService {
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
+    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG = "No backend load available.";
+
+    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
+
     public static class BeAvailablePredicate {
         private boolean scheduleAvailable;
 
