@@ -131,7 +131,7 @@ under the License.
         
         ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
         
-    11. 禁止 BE 的导入禁用属性
+    11. 修改 BE 的导入禁用属性
        
         ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true"); 
        
