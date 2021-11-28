@@ -176,7 +176,8 @@ public:
             Release(-bytes);
             return Status::OK();
         }
-        if (MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
+        // TCMalloc new/delete hook will call consume before MemInfo is initialized.
+        if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
                     label_, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
@@ -547,7 +548,7 @@ private:
     /// TryConsume() can opt not to exceed this limit. If -1, there is no consumption limit.
     const int64_t soft_limit_;
 
-    // Whether memory control transfer occurs, between mem trackers.
+    // Whether memory control transfer occurs, between mem trackers. Happened at:
     // The current tracker calls consume/release, and other threads call release/consume.
     bool _exist_transfer_control = false;
 

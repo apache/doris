@@ -65,7 +65,7 @@ static int64_t CalcSoftLimit(int64_t limit) {
     if (limit < 0) {
         return -1;
     }
-    if (limit > MemInfo::physical_mem()) {
+    if (MemInfo::initialized() && limit > MemInfo::physical_mem()) {
         LOG(WARNING) << "Memory limit " << PrettyPrinter::print(limit, TUnit::BYTES)
                      << " exceeds physical memory of "
                      << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES);
@@ -277,28 +277,33 @@ std::shared_ptr<MemTracker> QueryMemTrackerRegistry::RegisterQueryMemTracker(
                                       ExecEnv::GetInstance()->all_query_mem_tracker(), false,
                                       false, MemTrackerLevel::OVERVIEW, query_id));
     std::shared_ptr<MemTracker> tracker = GetQueryMemTracker(query_id);
-    // tracker->set_exist_transfer_control();
-    return tracker;
-}
-
-std::shared_ptr<MemTracker> QueryMemTrackerRegistry::GetQueryMemTracker(const std::string& query_id) {
-    std::shared_ptr<MemTracker> tracker = nullptr;
-    QueryTrackersMap::iterator it = _query_mem_trackers.find(query_id);
-    if (it != _query_mem_trackers.end()) {
-        DCHECK(query_id == it->second->query_id());
-        tracker = it->second;
+    if (tracker != nullptr) {
+        tracker->set_exist_transfer_control();
     }
     return tracker;
 }
 
+std::shared_ptr<MemTracker> QueryMemTrackerRegistry::GetQueryMemTracker(const std::string& query_id) {
+    DCHECK(!query_id.empty());
+    std::shared_ptr<MemTracker> tracker = nullptr;
+    // Avoid using locks to resolve erase conflicts
+    _query_mem_trackers.if_contains(query_id,
+                                    [&tracker](std::shared_ptr<MemTracker> v) { tracker = v; });
+    return tracker;
+}
+
 void QueryMemTrackerRegistry::DeregisterQueryMemTracker() {
-    for (auto it = _query_mem_trackers.begin(); it != _query_mem_trackers.end();) {
+    std::vector<std::string> expired_querys;
+    for (auto it = _query_mem_trackers.begin(); it != _query_mem_trackers.end(); it++) {
         // No RuntimeState uses this query MemTracker, it is only referenced by this map, delete it
         if (it->second.use_count() == 1) {
-            VLOG(2) << "Deregister query memory tracker, query id: " << it->first;
-            _query_mem_trackers.erase(it->first);
+           expired_querys.emplace_back(it->first);
         }
-        it++;
+    }
+    for (auto qid: expired_querys) {
+        DCHECK(_query_mem_trackers[qid].use_count() == 1);
+        _query_mem_trackers.erase(qid);
+        VLOG(2) << "Deregister query memory tracker, query id: " << qid;
     }
 }
 

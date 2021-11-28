@@ -38,8 +38,15 @@ public:
                       const TUniqueId& fragment_instance_id = TUniqueId()) {
         _query_id = query_id;
         _fragment_instance_id = fragment_instance_id;
-        update_query_mem_tracker(ExecEnv::GetInstance()->query_mem_tracker_registry()->GetQueryMemTracker(
-                print_id(query_id)));
+#ifdef BE_TEST
+        if (ExecEnv::GetInstance()->query_mem_tracker_registry() == nullptr) {
+            return;
+        }
+#endif
+        update_query_mem_tracker(
+                ExecEnv::GetInstance()->query_mem_tracker_registry()->GetQueryMemTracker(
+                        print_id(query_id)));
+
     }
 
     void unattach_query() {
@@ -90,16 +97,16 @@ public:
         // is the default tracker, it may be the same block of memory. Consume is called in query_mem_tracker,
         // and release is called in global_hook_tracker, which is repeatedly released after ~query_mem_tracker.
         if (!_query_mem_tracker.expired()) {
-            if (_query_mem_limit_exceeded == false) {
+            if (_query_mem_consuming == false) {
+                _query_mem_consuming = true;
                 if (!_query_mem_tracker.lock()->TryConsume(_missed_query_tracker_mem +
                                                            _untracked_mem)) {
-                    _query_mem_limit_exceeded = true;
                     query_mem_limit_exceeded(_missed_query_tracker_mem + _untracked_mem);
-                    _query_mem_limit_exceeded = false;
                     _missed_query_tracker_mem += _untracked_mem;
                 } else {
                     _missed_query_tracker_mem = 0;
                 }
+                _query_mem_consuming = false;
             } else {
                 _missed_query_tracker_mem += _untracked_mem;
             }
@@ -107,15 +114,16 @@ public:
 
         // The first time GetGlobalHookTracker is called after the main thread starts, == nullptr
         if (_global_hook_tracker != nullptr) {
-            if (_global_mem_limit_exceeded == false) {
-                if (!_global_hook_tracker->TryConsume(_missed_global_tracker_mem + _untracked_mem)) {
-                    _global_mem_limit_exceeded = true;
+            if (_global_mem_consuming == false) {
+                _global_mem_consuming = true;
+                if (!_global_hook_tracker->TryConsume(_missed_global_tracker_mem +
+                                                      _untracked_mem)) {
                     global_mem_limit_exceeded(_missed_global_tracker_mem + _untracked_mem);
-                    _global_mem_limit_exceeded = false;
                     _missed_global_tracker_mem += _untracked_mem;
                 } else {
                     _missed_global_tracker_mem = 0;
                 }
+                _global_mem_consuming = false;
             } else {
                 _missed_global_tracker_mem += _untracked_mem;
             }
@@ -159,10 +167,10 @@ private:
     int64_t _missed_query_tracker_mem = 0;
     int64_t _missed_global_tracker_mem = 0;
 
-    // After mem limit exceeded, avoid entering infinite recursion.
-    bool _query_mem_limit_exceeded = false;
-    bool _global_mem_limit_exceeded = false;
-}; // namespace doris
+    // When memory is being consumed, avoid entering infinite recursion.
+    bool _query_mem_consuming = false;
+    bool _global_mem_consuming = false;
+};
 
 inline thread_local TheadContext thread_local_ctx;
 } // namespace doris

@@ -29,6 +29,12 @@ void delete_hook(const void* ptr) {
     doris::thread_local_ctx.release_mem(tc_malloc_size(const_cast<void*>(ptr)));
 }
 
+// Notice: modify the command in New/Delete Hook should be careful enough,
+// and should be as simple as possible, otherwise it may cause weird errors. E.g:
+//  1. The first New Hook call of the process may be before some variables of
+//  the process are initialized.
+//  2. Allocating memory in the Hook command causes the Hook to be entered again,
+//  infinite recursion.
 void init_hook() {
     MallocHook::AddNewHook(&new_hook);
     MallocHook::AddDeleteHook(&delete_hook);

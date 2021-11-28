@@ -91,6 +91,7 @@ void ArrowWorkFlowTest::init_runtime_state() {
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     _exec_env->_thread_mgr = new ThreadResourceMgr();
     _exec_env->_buffer_reservation = new ReservationTracker();
+    _exec_env->_query_mem_tracker_registry = new QueryMemTrackerRegistry();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;
