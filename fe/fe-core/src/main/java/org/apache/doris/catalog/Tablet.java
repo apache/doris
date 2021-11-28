@@ -205,7 +205,7 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             ReplicaState state = replica.getState();
-            if (infoService.checkBackendAlive(replica.getBackendId()) && state.canLoad()) {
+            if (infoService.checkBackendLoadAvailable(replica.getBackendId()) && state.canLoad()) {
                 map.put(replica.getBackendId(), replica.getPathHash());
             }
         }
