@@ -46,7 +46,6 @@ public:
         update_query_mem_tracker(
                 ExecEnv::GetInstance()->query_mem_tracker_registry()->GetQueryMemTracker(
                         print_id(query_id)));
-
     }
 
     void unattach_query() {

@@ -31,13 +31,13 @@
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/bufferpool/reservation_util.h"
-#include "runtime/thread_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/file_utils.h"
@@ -223,12 +223,12 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
                                       _exec_env->process_mem_tracker(), true, false);
 #ifdef BE_TEST
     if (ExecEnv::GetInstance()->query_mem_tracker_registry() == nullptr) {
-        _hook_query_mem_tracker =
-            _exec_env->query_mem_tracker_registry()->RegisterQueryMemTracker(print_id(query_id), bytes_limit);
+        _hook_query_mem_tracker = _exec_env->query_mem_tracker_registry()->RegisterQueryMemTracker(
+                print_id(query_id), bytes_limit);
     }
 #else
-    _hook_query_mem_tracker =
-            _exec_env->query_mem_tracker_registry()->RegisterQueryMemTracker(print_id(query_id), bytes_limit);
+    _hook_query_mem_tracker = _exec_env->query_mem_tracker_registry()->RegisterQueryMemTracker(
+            print_id(query_id), bytes_limit);
 #endif
     _instance_mem_tracker =
             MemTracker::CreateTracker(&_profile, -1, "RuntimeState:instance:", _query_mem_tracker);

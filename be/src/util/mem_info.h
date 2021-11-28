@@ -34,9 +34,7 @@ public:
     // Initialize MemInfo.
     static void init();
 
-    static inline bool initialized() {
-        return _s_initialized;
-    }
+    static inline bool initialized() { return _s_initialized; }
 
     // Get total physical memory in bytes (if has cgroups memory limits, return the limits).
     static inline int64_t physical_mem() {

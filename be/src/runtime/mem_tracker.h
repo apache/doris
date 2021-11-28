@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <cstdint>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <ostream>
-#include <parallel_hashmap/phmap.h>
 #include <queue>
 #include <string>
 #include <unordered_map>
@@ -45,6 +46,20 @@ enum class MemLimit { HARD, SOFT };
 /// The Level use to decide whether to show it in web page
 /// each MemTracker have a Level equals to parent, only be set explicit
 enum class MemTrackerLevel { OVERVIEW = 0, TASK, VERBOSE };
+
+// The smallest negative number allowed for consumption value, Unit byte.
+// Usually, a negative values means that the statistics are not accurate,
+// but A small range of negative values ​​is allowed, because TCMalloc Hook will cache
+// a batch of untracked values ​​when it consumes/releases MemTracker,
+// which may cause tracker->consumption to be temporarily less than 0.
+// Note that, this may obscure other errors.
+// consumption_ < 0 will make the memory statistics inaccurate, so it should be avoided.
+// 1. The released memory is not consumed.
+// 2. The same block of memory, tracker A calls consume, and tracker B calls release.
+// 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
+//    after the release is called on the parent MemTracker,
+//    the child ~MemTracker will cause repeated releases.
+static const int MIN_NEGATIVE_CONSUMPTION_VALUE = -4 * 1024 * 1024;
 
 class ObjectPool;
 class MemTracker;
@@ -95,7 +110,8 @@ public:
             int64_t byte_limit = -1, const std::string& label = std::string(),
             std::shared_ptr<MemTracker> parent = std::shared_ptr<MemTracker>(),
             bool log_usage_if_zero = true, bool reset_label_name = true,
-            MemTrackerLevel level = MemTrackerLevel::VERBOSE, const std::string& query_id = std::string());
+            MemTrackerLevel level = MemTrackerLevel::VERBOSE,
+            const std::string& query_id = std::string());
 
     static std::shared_ptr<MemTracker> CreateTracker(
             RuntimeProfile* profile, int64_t byte_limit, const std::string& label = std::string(),
@@ -140,7 +156,8 @@ public:
         for (auto& tracker : all_trackers_) {
             tracker->consumption_->add(bytes);
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
-                DCHECK_GE(tracker->consumption_->current_value(), -config::untracked_mem_limit * 10);
+                DCHECK_GE(tracker->consumption_->current_value(),
+                          std::min(MIN_NEGATIVE_CONSUMPTION_VALUE, -config::untracked_mem_limit));
             }
         }
     }
@@ -249,17 +266,8 @@ public:
             /// trackers since we can enforce that the reported memory usage is internally
             /// consistent.)
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
-                // A small range of negative values is allowed, because TCMalloc Hook consume/release
-                // MemTracker may cause tracker->consumption to be temporarily less than 0.
-                //
-                // Note that, this may obscure other errors.
-                // consumption_ < 0 will make the memory statistics inaccurate, so it should be avoided.
-                // 1. The released memory is not consumed.
-                // 2. The same block of memory, tracker A calls consume, and tracker B calls release.
-                // 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
-                //    after the release is called on the parent MemTracker,
-                //    the child ~MemTracker will cause repeated releases.
-                DCHECK_GE(tracker->consumption_->current_value(), -config::untracked_mem_limit * 10)
+                DCHECK_GE(tracker->consumption_->current_value(),
+                          std::min(MIN_NEGATIVE_CONSUMPTION_VALUE, -config::untracked_mem_limit))
                         << std::endl
                         << tracker->LogUsage(UNLIMITED_DEPTH);
             }
@@ -325,9 +333,7 @@ public:
     }
     const std::string& label() const { return label_; }
 
-    std::string query_id() {
-        return query_id_;
-    }
+    std::string query_id() { return query_id_; }
     void set_query_id(const std::string& query_id) {
         if (query_id != std::string()) {
             query_id_ = query_id;
@@ -335,13 +341,9 @@ public:
         }
     }
 
-    bool exist_transfer_control() {
-        return _exist_transfer_control;
-    }
+    bool exist_transfer_control() { return _exist_transfer_control; }
 
-    void set_exist_transfer_control() {
-        _exist_transfer_control = true;
-    }
+    void set_exist_transfer_control() { _exist_transfer_control = true; }
 
     /// Returns the lowest limit for this tracker and its ancestors. Returns
     /// -1 if there is no limit.
