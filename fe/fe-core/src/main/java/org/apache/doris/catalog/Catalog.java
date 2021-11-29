@@ -4245,7 +4245,7 @@ public class Catalog {
 
             // only display z-order sort info
             if (olapTable.isZOrderSort()) {
-                sb.append(olapTable.getDataSortInfo().getProperties());
+                sb.append(olapTable.getDataSortInfo().toSql());
             }
 
             // in memory

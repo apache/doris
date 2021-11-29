@@ -151,7 +151,7 @@ public class TableProperty implements Writable {
         properties.putAll(modifyProperties);
     }
 
-    public void modifyTableProperties(DataSortInfo dataSortInfo) {
+    public void modifyDataSortInfoProperties(DataSortInfo dataSortInfo) {
         properties.put(DataSortInfo.DATA_SORT_TYPE, String.valueOf(dataSortInfo.getSortType()));
         properties.put(DataSortInfo.DATA_SORT_COL_NUM, String.valueOf(dataSortInfo.getColNum()));
     }

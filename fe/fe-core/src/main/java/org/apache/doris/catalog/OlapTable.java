@@ -202,7 +202,7 @@ public class OlapTable extends Table {
     public boolean isZOrderSort() {
         return tableProperty != null
                 && tableProperty.getDataSortInfo() != null
-                && tableProperty.getDataSortInfo().getSortType() != TSortType.LEXICAL;
+                && tableProperty.getDataSortInfo().getSortType() == TSortType.ZORDER;
     }
 
     public void setBaseIndexId(long baseIndexId) {
@@ -1580,7 +1580,7 @@ public class OlapTable extends Table {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
-        tableProperty.modifyTableProperties(dataSortInfo);
+        tableProperty.modifyDataSortInfoProperties(dataSortInfo);
         tableProperty.buildDataSortInfo();
     }
 
@@ -1731,7 +1731,7 @@ public class OlapTable extends Table {
 
     public DataSortInfo getDataSortInfo() {
         if (tableProperty == null) {
-            return new DataSortInfo();
+            return new DataSortInfo(TSortType.LEXICAL, this.getKeysNum());
         }
         return tableProperty.getDataSortInfo();
     }

@@ -101,7 +101,7 @@ public class DataSortInfo implements Writable {
         return true;
     }
 
-    public String getProperties() {
+    public String toSql() {
         String res = ",\n\"" + DATA_SORT_TYPE + "\" = \"" + this.sortType + "\"" +
                 ",\n\"" + DATA_SORT_COL_NUM + "\" = \"" + this.colNum + "\"";
         return res;

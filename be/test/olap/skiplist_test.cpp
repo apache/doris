@@ -273,6 +273,10 @@ public:
               _mem_pool(new MemPool(_mem_tracker.get())),
               _list(new TestComparator(), _mem_pool.get(), false) {}
 
+    ~ConcurrentTest() {
+        delete _list;
+    }
+    
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {
         const uint32_t k = rnd->Next() % K;
