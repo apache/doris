@@ -991,7 +991,7 @@ public class StmtExecutor implements ProfileWriter {
             if (context.getSessionVariable().getEnableInsertStrict()) {
                 txnParams.setMaxFilterRatio(0);
             } else {
-                txnParams.setMaxFilterRatio(1.0);
+                txnParams.setMaxFilterRatio(context.getSessionVariable().getInsertMaxFilterRatio());
             }
             if (context.getTxnEntry() == null) {
                 context.setTxnEntry(new TransactionEntry());
@@ -1257,9 +1257,10 @@ public class StmtExecutor implements ProfileWriter {
                     }
                 }
 
+
                 if (filteredRows > 0 &&
-                        (1 / (1 + (double) loadedRows / filteredRows)) > Config.default_max_filter_ratio) {
-                    context.getState().setError("Insert has too many rows filtered, exceeds default_max_filter_ratio, tracking_url=" +
+                        (1 / (1 + (double) loadedRows / filteredRows)) > context.getSessionVariable().getInsertMaxFilterRatio()) {
+                    context.getState().setError("Insert has too many rows filtered, exceeds insert_max_filter_ratio, tracking_url=" +
                             coord.getTrackingUrl());
                     return;
                 }

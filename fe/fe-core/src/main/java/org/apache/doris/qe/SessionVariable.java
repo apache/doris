@@ -167,7 +167,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
+
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
+    
+    public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -326,6 +329,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     public long loadMemLimit = 0L;
 
+    @VariableMgr.VarAttr(name = INSERT_MAX_FILTER_RATIO)
+    public double insertMaxFilterRatio = 0L;
+
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
 
@@ -410,6 +416,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getQueryTimeoutS() {
         return queryTimeoutS;
+    }
+
+    public double getInsertMaxFilterRatio() {
+        return insertMaxFilterRatio;
     }
 
     public boolean enableProfile() {
@@ -543,6 +553,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryTimeoutS(int queryTimeoutS) {
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    public void setInsertMaxFilterRatio(double insertMaxFilterRatio) {
+        this.insertMaxFilterRatio = insertMaxFilterRatio;
     }
 
     public String getResourceGroup() {
