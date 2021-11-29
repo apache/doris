@@ -24,18 +24,20 @@ body:
     attributes:
       value: |
         Thank you very much for your good enhancement for Doris.
-        
+
+        Please help sync to the [Dev Mail List](mailto:dev@doris.apache.org). You will get FASTER help！[How to subscribe](mailto:dev-subscribe@doris.apache.org)
+
   - type: checkboxes
-  attributes:
-    label: Search before asking
-    description: >
-      Please make sure to search in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) first to see
-      whether the same issue was reported already.
-    options:
-      - label: >
-          I had searched in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) and found no similar
-          issues.
-        required: true
+    attributes:
+      label: Search before asking
+      description: >
+        Please make sure to search in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) first to see
+        whether the same issue was reported already.
+      options:
+        - label: >
+            I had searched in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) and found no similar
+            issues.
+          required: true
 
   - type: textarea
     attributes:
