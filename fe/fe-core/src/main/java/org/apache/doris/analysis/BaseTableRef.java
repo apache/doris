@@ -68,20 +68,10 @@ public class BaseTableRef extends TableRef {
         name.analyze(analyzer);
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true;  // true that we have assigned desc
+        analyzeLateralViewRef(analyzer);
         analyzeJoin(analyzer);
         analyzeSortHints();
         analyzeHints();
-        analyzeLateralViewRef(analyzer);
-    }
-
-    private void analyzeLateralViewRef(Analyzer analyzer) throws UserException {
-        if (lateralViewRefs == null) {
-            return;
-        }
-        for (LateralViewRef lateralViewRef : lateralViewRefs) {
-            lateralViewRef.setRelatedTable(this);
-            lateralViewRef.analyze(analyzer);
-        }
     }
 }
 

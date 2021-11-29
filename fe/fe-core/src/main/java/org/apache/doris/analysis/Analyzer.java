@@ -1221,6 +1221,9 @@ public class Analyzer {
         for (ExprId conjunctId : remainConjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
+            if (e.isAuxExpr()) {
+                continue;
+            }
             result.add(e);
         }
         return result;

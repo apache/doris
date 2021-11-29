@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.InlineView;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -40,7 +39,7 @@ public class LateralViewRef extends TableRef {
     private Expr expr;
     private String viewName;
     private String columnName;
-    private BaseTableRef relatedTableRef;
+    private TableRef relatedTableRef;
 
     // after analyzed
     private FunctionCallExpr fnExpr;
@@ -55,7 +54,7 @@ public class LateralViewRef extends TableRef {
         this.columnName = columnName;
     }
 
-    public void setRelatedTable(BaseTableRef relatedTableRef) {
+    public void setRelatedTable(TableRef relatedTableRef) {
         this.relatedTableRef = relatedTableRef;
     }
 
@@ -73,10 +72,6 @@ public class LateralViewRef extends TableRef {
             return;
         }
         Preconditions.checkNotNull(relatedTableRef);
-        // analyze table
-        if (!(relatedTableRef.getTable() instanceof OlapTable)) {
-            throw new AnalysisException("Only doris table could be exploded");
-        }
         // analyze function and slot
         if (!(expr instanceof FunctionCallExpr)) {
             throw new AnalysisException("Only support function call expr in lateral view");
