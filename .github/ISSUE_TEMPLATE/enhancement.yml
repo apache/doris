@@ -48,7 +48,8 @@ body:
     attributes:
       label: Solution
       placeholder: >
-        Add overview of proposed solution. Add related materials like links if they exist.
+        Add overview of proposed solution. 
+        Add related materials like links if they exist.
 
   - type: checkboxes
     attributes:
