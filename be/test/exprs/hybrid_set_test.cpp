@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/configbase.h"
+#include "exprs/create_predicate_function.h"
 #include "util/logging.h"
 
 namespace doris {
@@ -35,7 +36,7 @@ protected:
 };
 
 TEST_F(HybridSetTest, bool) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_BOOLEAN);
+    HybridSetBase* set = create_set(TYPE_BOOLEAN);
     bool a = true;
     set->insert(&a);
     a = false;
@@ -60,7 +61,7 @@ TEST_F(HybridSetTest, bool) {
 }
 
 TEST_F(HybridSetTest, tinyint) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_TINYINT);
+    HybridSetBase* set = create_set(TYPE_TINYINT);
     int8_t a = 0;
     set->insert(&a);
     a = 1;
@@ -97,7 +98,7 @@ TEST_F(HybridSetTest, tinyint) {
     ASSERT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, smallint) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_SMALLINT);
+    HybridSetBase* set = create_set(TYPE_SMALLINT);
     int16_t a = 0;
     set->insert(&a);
     a = 1;
@@ -133,7 +134,7 @@ TEST_F(HybridSetTest, smallint) {
     ASSERT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, int) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_INT);
+    HybridSetBase* set = create_set(TYPE_INT);
     int32_t a = 0;
     set->insert(&a);
     a = 1;
@@ -169,7 +170,7 @@ TEST_F(HybridSetTest, int) {
     ASSERT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, bigint) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_BIGINT);
+    HybridSetBase* set = create_set(TYPE_BIGINT);
     int64_t a = 0;
     set->insert(&a);
     a = 1;
@@ -205,7 +206,7 @@ TEST_F(HybridSetTest, bigint) {
     ASSERT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, float) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_FLOAT);
+    HybridSetBase* set = create_set(TYPE_FLOAT);
     float a = 0;
     set->insert(&a);
     a = 1.1;
@@ -241,7 +242,7 @@ TEST_F(HybridSetTest, float) {
     ASSERT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, double) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_DOUBLE);
+    HybridSetBase* set = create_set(TYPE_DOUBLE);
     double a = 0;
     set->insert(&a);
     a = 1.1;
@@ -277,7 +278,7 @@ TEST_F(HybridSetTest, double) {
     ASSERT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, string) {
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_VARCHAR);
+    HybridSetBase* set = create_set(TYPE_VARCHAR);
     StringValue a;
 
     char buf[100];
@@ -329,7 +330,7 @@ TEST_F(HybridSetTest, string) {
 TEST_F(HybridSetTest, timestamp) {
     CpuInfo::init();
 
-    HybridSetBase* set = HybridSetBase::create_set(TYPE_DATETIME);
+    HybridSetBase* set = create_set(TYPE_DATETIME);
     char s1[] = "2012-01-20 01:10:01";
     char s2[] = "1990-10-20 10:10:10.123456  ";
     char s3[] = "  1990-10-20 10:10:10.123456";

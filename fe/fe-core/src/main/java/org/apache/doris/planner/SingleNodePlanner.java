@@ -550,8 +550,8 @@ public class SingleNodePlanner {
                         continue;
                     }
                     if (col.isKey()) {
-                        if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX")
-                                && aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN")) {
+                        if ((!aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX"))
+                                && (!aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN"))) {
                             returnColumnValidate = false;
                             turnOffReason = "the type of agg on StorageEngine's Key column should only be MAX or MIN."
                                     + "agg expr: " + aggExpr.toSql();
@@ -1867,7 +1867,7 @@ public class SingleNodePlanner {
             PlanNode scanNode = createScanNode(analyzer, tblRef, selectStmt);
             List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
             if (lateralViewRefs != null && lateralViewRefs.size() != 0) {
-                return createTableFunctionNode(analyzer, scanNode, lateralViewRefs);
+                return createTableFunctionNode(analyzer, scanNode, lateralViewRefs, selectStmt);
             }
             return scanNode;
         }
@@ -1878,13 +1878,14 @@ public class SingleNodePlanner {
     }
 
     private PlanNode createTableFunctionNode(Analyzer analyzer, PlanNode inputNode,
-                                                      List<LateralViewRef> lateralViewRefs)
+                                              List<LateralViewRef> lateralViewRefs, SelectStmt selectStmt)
             throws UserException {
         Preconditions.checkNotNull(lateralViewRefs);
         Preconditions.checkState(lateralViewRefs.size() > 0);
         TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
                 lateralViewRefs);
         tableFunctionNode.init(analyzer);
+        tableFunctionNode.projectSlots(analyzer, selectStmt);
         inputNode = tableFunctionNode;
         return inputNode;
     }

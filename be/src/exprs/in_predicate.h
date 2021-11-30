@@ -21,6 +21,7 @@
 #include <string>
 #include <unordered_set>
 
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/predicate.h"
 #include "runtime/raw_value.h"

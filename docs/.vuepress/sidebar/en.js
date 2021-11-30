@@ -632,7 +632,15 @@ module.exports = [
         "java-format-code",
         "cpp-format-code",
         "How-to-Share-blogs",
+	"commit-format-specification",
 		"minidump"
+    ],
+  },
+  {
+    title: "FAQ",
+    directoryPath: "faq/",
+    children: [
+        "faq"
     ],
   },
   {
