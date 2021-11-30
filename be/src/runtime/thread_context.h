@@ -132,6 +132,9 @@ public:
     }
 
     void try_consume(int64_t size) {
+        if (_stop_mem_tracker == true) {
+            return;
+        }
         _untracked_mem += size;
         // When some threads `0 <_untracked_mem <_untracked_mem_limit`
         // and some threads `_untracked_mem <= -_untracked_mem_limit` trigger consumption(),
@@ -145,6 +148,10 @@ public:
     void consume_mem(int64_t size) { try_consume(size); }
 
     void release_mem(int64_t size) { try_consume(-size); }
+
+    void stop_mem_tracker() {
+        _stop_mem_tracker = true;
+    }
 
     const TUniqueId& query_id() { return _query_id; }
     const std::thread::id& thread_id() { return _thread_id; }
@@ -169,6 +176,11 @@ private:
     // When memory is being consumed, avoid entering infinite recursion.
     bool _query_mem_consuming = false;
     bool _global_mem_consuming = false;
+
+    // In some cases, we want to turn off memory statistics.
+    // For example, when ~GlobalHookTracker, TCMalloc delete hook
+    // release GlobalHookTracker will crash.
+    bool _stop_mem_tracker = false;
 };
 
 inline thread_local TheadContext thread_local_ctx;

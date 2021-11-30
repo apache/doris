@@ -29,6 +29,7 @@
 #include "runtime/bufferpool/reservation_tracker_counters.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -314,6 +315,9 @@ void QueryMemTrackerRegistry::DeregisterQueryMemTracker() {
 }
 
 MemTracker::~MemTracker() {
+    if (label_ == "Global Hook") {
+        thread_local_ctx.stop_mem_tracker();
+    }
     delete reservation_counters_.load();
 
     if (parent()) {
