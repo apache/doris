@@ -133,71 +133,86 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 
 ### DataStreamSink
 
+> 批量删除(`MergeType.MERGE`) 只支持Uniq模型, 相关功能介绍以及启用支持方式请参见[批量删除](http://doris.incubator.apache.org/master/zh-CN/administrator-guide/load-data/batch-delete-manual.html)
+
+
+* Json数据处理
+
 ```java
-// -------- sink with raw json string stream --------
 Properties pro = new Properties();
-pro.setProperty("format", "json");
-pro.setProperty("strip_outer_array", "true");
-env.fromElements( "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
-     .addSink(
-     	DorisSink.sink(
-            DorisReadOptions.builder().build(),
-         	DorisExecutionOptions.builder()
-                    .setBatchSize(3)
-                    .setBatchIntervalMs(0l)
-                    .setMaxRetries(3)
-                    .setStreamLoadProp(pro).build(),
-         	DorisOptions.builder()
-                    .setFenodes("FE_IP:8030")
-                    .setTableIdentifier("db.table")
-                    .setUsername("root")
-                    .setPassword("").build()
-     	));
-
-OR
-env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
-    .addSink(
-    	DorisSink.sink(
-        	DorisOptions.builder()
-                    .setFenodes("FE_IP:8030")
-                    .setTableIdentifier("db.table")
-                    .setUsername("root")
-                    .setPassword("").build()
-    	));
+env.fromElements(
+                "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}",
+                "{\"longitude\": \"116.405419\", \"city\": \"beijing\", \"latitude\": \"39.916927\"}"
+        )
+        .addSink(
+                DorisSink.sink(
+                        DorisReadOptions.builder()
+                                .build(),
+                        DorisExecutionOptions.builder()
+                                .setBatchSize(3)
+                                .setBatchIntervalMs(0l)
+                                .setMaxRetries(3)
+                                .setStreamLoadProp(pro)
+                                .setDataFormat(DorisExecutionOptions.DataFormat.JSON)
+                                .setStripOuterArray(true)
+                                .setMergeType(DorisExecutionOptions.MergeType.MERGE)
+                                .setDeleteLabel("city='beijing'")
+                                .build(),
+                        DorisOptions.builder()
+                                .setFenodes("FE_IP:8030")
+                                .setTableIdentifier("doris_db.doris_table")
+                                .setUsername("root")
+                                .setPassword("").build()
+                ));
 
 
-// -------- sink with RowData stream --------
-DataStream<RowData> source = env.fromElements("")
-    .map(new MapFunction<String, RowData>() {
-        @Override
-        public RowData map(String value) throws Exception {
-            GenericRowData genericRowData = new GenericRowData(3);
-            genericRowData.setField(0, StringData.fromString("北京"));
-            genericRowData.setField(1, 116.405419);
-            genericRowData.setField(2, 39.916927);
-            return genericRowData;
-        }
-    });
+```
 
-String[] fields = {"city", "longitude", "latitude"};
-LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
+* RowData数据处理
 
-source.addSink(
-    DorisSink.sink(
-        fields,
-        types,
-        DorisReadOptions.builder().build(),
-        DorisExecutionOptions.builder()
-            .setBatchSize(3)
-            .setBatchIntervalMs(0L)
-            .setMaxRetries(3)
-            .build(),
-        DorisOptions.builder()
-            .setFenodes("FE_IP:8030")
-            .setTableIdentifier("db.table")
-            .setUsername("root")
-            .setPassword("").build()
-    ));
+```java
+        DataStream<RowData> source = env.fromElements("")
+                .flatMap(new FlatMapFunction<String, RowData>() {
+                             @Override
+                             public void flatMap(String s, Collector<RowData> collector) throws Exception {
+                                 GenericRowData row1 = new GenericRowData(3);
+                                 row1.setField(0, StringData.fromString("北京"));
+                                 row1.setField(1, 116.405419);
+                                 row1.setField(2, 39.916927);
+                                 collector.collect(row1);
+
+                                 GenericRowData row2 = new GenericRowData(3);
+                                 row2.setField(0, StringData.fromString("beijing"));
+                                 row2.setField(1, 116.405419);
+                                 row2.setField(2, 39.916927);
+                                 collector.collect(row2);
+                             }
+                         }
+                );
+
+        String[] fields = {"city", "longitude", "latitude"};
+        LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
+
+        Properties pro = new Properties();
+        source.addSink(
+                DorisSink.sink(
+                        fields,
+                        types,
+                        DorisReadOptions.builder().build(),
+                        DorisExecutionOptions.builder()
+                                .setBatchSize(3)
+                                .setBatchIntervalMs(0L)
+                                .setMaxRetries(3)
+                                .setStreamLoadProp(pro)
+                                .setMergeType(DorisExecutionOptions.MergeType.MERGE)
+                                .setDeleteLabel("city='beijing'")
+                                .build(),
+                        DorisOptions.builder()
+                                .setFenodes("FE_IP:8030")
+                                .setTableIdentifier("doris_db.doris_table")
+                                .setUsername("root")
+                                .setPassword("").build()
+                ));
 ```
 
 ### DataSetSink

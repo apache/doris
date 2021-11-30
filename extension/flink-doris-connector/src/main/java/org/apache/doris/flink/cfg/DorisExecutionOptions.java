@@ -47,6 +47,11 @@ public class DorisExecutionOptions implements Serializable {
         MERGE
     }
 
+    public enum DataFormat {
+        JSON,
+        CSV
+    }
+
     public DorisExecutionOptions(Integer batchSize, Integer maxRetries, Long batchIntervalMs, Properties streamLoadProp) {
         Preconditions.checkArgument(maxRetries >= 0);
         this.batchSize = batchSize;
@@ -111,8 +116,13 @@ public class DorisExecutionOptions implements Serializable {
             return this;
         }
 
-        public Builder setJsonFormat(boolean stripOuterArray) {
-            this.streamLoadProp.setProperty("format", "json");
+        public Builder setDataFormat(DataFormat dataFormat) {
+            this.streamLoadProp.setProperty("format", dataFormat.toString());
+            return this;
+        }
+
+        public Builder setStripOuterArray(boolean stripOuterArray) {
+            this.streamLoadProp.setProperty("format", DataFormat.JSON.toString());
             this.streamLoadProp.setProperty("strip_outer_array", String.valueOf(stripOuterArray));
             return this;
         }
@@ -123,9 +133,7 @@ public class DorisExecutionOptions implements Serializable {
         }
 
         public Builder setDeleteLabel(String deleteLabel) {
-            if (!MergeType.MERGE.toString().equals(this.streamLoadProp.getProperty("merge_type"))) {
-                return this;
-            }
+            setMergeType(MergeType.MERGE);
             this.streamLoadProp.setProperty("delete", deleteLabel);
             return this;
         }

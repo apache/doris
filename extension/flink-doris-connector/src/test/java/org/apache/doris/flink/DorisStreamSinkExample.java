@@ -21,7 +21,7 @@ import org.apache.doris.flink.cfg.DorisExecutionOptions;
 import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.doris.flink.cfg.DorisSink;
-import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.GenericRowData;
@@ -30,6 +30,7 @@ import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.types.logical.DoubleType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.VarCharType;
+import org.apache.flink.util.Collector;
 
 import java.util.Properties;
 
@@ -38,52 +39,56 @@ import java.util.Properties;
  */
 public class DorisStreamSinkExample {
 
+    /**
+     * CREATE TABLE `doris_db`.`doris_table` (
+     * `city` varchar(100) NOT NULL,
+     * `longitude` float NOT NULL,
+     * `latitude` float NOT NULL
+     * )
+     * UNIQUE KEY(`city`)
+     * DISTRIBUTED BY HASH(`city`) BUCKETS 10
+     * PROPERTIES (
+     * "replication_num" = "1"
+     * );
+     *
+     * @param args
+     * @throws Exception
+     */
+    public static void main(String[] args) throws Exception {
+        DorisStreamSinkExample example = new DorisStreamSinkExample();
+
+        example.testJsonString();
+        example.testJsonStringWithDefaultReadOptions();
+        example.testJsonStringWithDefaultReadOptionsAndExecutionOptions();
+
+        example.testRowData();
+        example.testRowDataWithDefaultReadOptions();
+        example.testRowDataWithDefaultReadOptionsAndExecutionOptions();
+    }
+
     public void testJsonString() throws Exception {
-        /*
-         * Example for JsonString element
-         */
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
 
         Properties pro = new Properties();
-        pro.setProperty("format", "json");
-        pro.setProperty("strip_outer_array", "true");
-        env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+        env.fromElements(
+                        "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}",
+                        "{\"longitude\": \"116.405419\", \"city\": \"beijing\", \"latitude\": \"39.916927\"}",
+                        "{\"longitude\": \"116.405419\", \"city\": \"testJsonString\", \"latitude\": \"39.916927\"}"
+                )
                 .addSink(
                         DorisSink.sink(
-                                DorisReadOptions.builder().build(),
+                                DorisReadOptions.builder()
+                                        .build(),
                                 DorisExecutionOptions.builder()
                                         .setBatchSize(3)
                                         .setBatchIntervalMs(0l)
                                         .setMaxRetries(3)
-                                        .setStreamLoadProp(pro).build(),
-                                DorisOptions.builder()
-                                        .setFenodes("FE_IP:8030")
-                                        .setTableIdentifier("db.table")
-                                        .setUsername("root")
-                                        .setPassword("").build()
-                        ));
-        env.execute("doris stream sink example");
-    }
-
-    public void testJsonStringWithMergeType() throws Exception {
-        /*
-         * Example for JsonString element
-         */
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1);
-
-        env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\",\"flag\":1}")
-                .addSink(
-                        DorisSink.sink(
-                                DorisReadOptions.builder().build(),
-                                DorisExecutionOptions.builder()
-                                        .setBatchSize(3)
-                                        .setBatchIntervalMs(0l)
-                                        .setMaxRetries(3)
-                                        .setJsonFormat(false)
+                                        .setStreamLoadProp(pro)
+                                        .setDataFormat(DorisExecutionOptions.DataFormat.JSON)
+                                        .setStripOuterArray(true)
                                         .setMergeType(DorisExecutionOptions.MergeType.MERGE)
-                                        .setDeleteLabel("flag=1")
+                                        .setDeleteLabel("city='testJsonString'")
                                         .build(),
                                 DorisOptions.builder()
                                         .setFenodes("FE_IP:8030")
@@ -94,7 +99,6 @@ public class DorisStreamSinkExample {
         env.execute("doris stream sink example");
     }
 
-
     public void testJsonStringWithDefaultReadOptions() throws Exception {
         /*
          * Example for JsonString element with default ReadOptions
@@ -103,19 +107,26 @@ public class DorisStreamSinkExample {
         env.setParallelism(1);
 
         Properties pro = new Properties();
-        pro.setProperty("format", "json");
-        pro.setProperty("strip_outer_array", "true");
-        env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+        env.fromElements(
+                        "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}",
+                        "{\"longitude\": \"116.405419\", \"city\": \"beijing\", \"latitude\": \"39.916927\"}",
+                        "{\"longitude\": \"116.405419\", \"city\": \"testJsonStringWithDefaultReadOptions\", \"latitude\": \"39.916927\"}"
+                )
                 .addSink(
                         DorisSink.sink(
                                 DorisExecutionOptions.builder()
                                         .setBatchSize(3)
                                         .setBatchIntervalMs(0l)
                                         .setMaxRetries(3)
-                                        .setStreamLoadProp(pro).build(),
+                                        .setStreamLoadProp(pro)
+                                        .setDataFormat(DorisExecutionOptions.DataFormat.JSON)
+                                        .setStripOuterArray(true)
+                                        .setMergeType(DorisExecutionOptions.MergeType.MERGE)
+                                        .setDeleteLabel("city='testJsonStringWithDefaultReadOptions'")
+                                        .build(),
                                 DorisOptions.builder()
                                         .setFenodes("FE_IP:8030")
-                                        .setTableIdentifier("db.table")
+                                        .setTableIdentifier("doris_db.doris_table")
                                         .setUsername("root")
                                         .setPassword("").build()
                         ));
@@ -130,12 +141,16 @@ public class DorisStreamSinkExample {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
 
-        env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+        env.fromElements(
+                        "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}",
+                        "{\"longitude\": \"116.405419\", \"city\": \"beijing\", \"latitude\": \"39.916927\"}",
+                        "{\"longitude\": \"116.405419\", \"city\": \"testJsonStringWithDefaultReadOptionsAndExecutionOptions\", \"latitude\": \"39.916927\"}"
+                )
                 .addSink(
                         DorisSink.sink(
                                 DorisOptions.builder()
-                                        .setFenodes("192.168.52.101:8030")
-                                        .setTableIdentifier("smarttrip_db.doris_output_format")
+                                        .setFenodes("FE_IP:8030")
+                                        .setTableIdentifier("doris_db.doris_table")
                                         .setUsername("root")
                                         .setPassword("").build()
                         ));
@@ -151,20 +166,34 @@ public class DorisStreamSinkExample {
         env.setParallelism(1);
 
         DataStream<RowData> source = env.fromElements("")
-                .map(new MapFunction<String, RowData>() {
-                    @Override
-                    public RowData map(String value) throws Exception {
-                        GenericRowData genericRowData = new GenericRowData(3);
-                        genericRowData.setField(0, StringData.fromString("北京"));
-                        genericRowData.setField(1, 116.405419);
-                        genericRowData.setField(2, 39.916927);
-                        return genericRowData;
-                    }
-                });
+                .flatMap(new FlatMapFunction<String, RowData>() {
+                             @Override
+                             public void flatMap(String s, Collector<RowData> collector) throws Exception {
+                                 GenericRowData row1 = new GenericRowData(3);
+                                 row1.setField(0, StringData.fromString("北京"));
+                                 row1.setField(1, 116.405419);
+                                 row1.setField(2, 39.916927);
+                                 collector.collect(row1);
+
+                                 GenericRowData row2 = new GenericRowData(3);
+                                 row2.setField(0, StringData.fromString("beijing"));
+                                 row2.setField(1, 116.405419);
+                                 row2.setField(2, 39.916927);
+                                 collector.collect(row2);
+
+                                 GenericRowData row3 = new GenericRowData(3);
+                                 row3.setField(0, StringData.fromString("testRowData"));
+                                 row3.setField(1, 116.405419);
+                                 row3.setField(2, 39.916927);
+                                 collector.collect(row3);
+                             }
+                         }
+                );
 
         String[] fields = {"city", "longitude", "latitude"};
         LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
 
+        Properties pro = new Properties();
         source.addSink(
                 DorisSink.sink(
                         fields,
@@ -174,10 +203,13 @@ public class DorisStreamSinkExample {
                                 .setBatchSize(3)
                                 .setBatchIntervalMs(0L)
                                 .setMaxRetries(3)
+                                .setStreamLoadProp(pro)
+                                .setMergeType(DorisExecutionOptions.MergeType.MERGE)
+                                .setDeleteLabel("city='testRowData'")
                                 .build(),
                         DorisOptions.builder()
                                 .setFenodes("FE_IP:8030")
-                                .setTableIdentifier("db.table")
+                                .setTableIdentifier("doris_db.doris_table")
                                 .setUsername("root")
                                 .setPassword("").build()
                 ));
@@ -193,20 +225,34 @@ public class DorisStreamSinkExample {
         env.setParallelism(1);
 
         DataStream<RowData> source = env.fromElements("")
-                .map(new MapFunction<String, RowData>() {
-                    @Override
-                    public RowData map(String value) throws Exception {
-                        GenericRowData genericRowData = new GenericRowData(3);
-                        genericRowData.setField(0, StringData.fromString("北京"));
-                        genericRowData.setField(1, 116.405419);
-                        genericRowData.setField(2, 39.916927);
-                        return genericRowData;
-                    }
-                });
+                .flatMap(new FlatMapFunction<String, RowData>() {
+                             @Override
+                             public void flatMap(String s, Collector<RowData> collector) throws Exception {
+                                 GenericRowData row1 = new GenericRowData(3);
+                                 row1.setField(0, StringData.fromString("北京"));
+                                 row1.setField(1, 116.405419);
+                                 row1.setField(2, 39.916927);
+                                 collector.collect(row1);
+
+                                 GenericRowData row2 = new GenericRowData(3);
+                                 row2.setField(0, StringData.fromString("beijing"));
+                                 row2.setField(1, 116.405419);
+                                 row2.setField(2, 39.916927);
+                                 collector.collect(row2);
+
+                                 GenericRowData row3 = new GenericRowData(3);
+                                 row3.setField(0, StringData.fromString("testRowDataWithDefaultReadOptions"));
+                                 row3.setField(1, 116.405419);
+                                 row3.setField(2, 39.916927);
+                                 collector.collect(row3);
+                             }
+                         }
+                );
 
         String[] fields = {"city", "longitude", "latitude"};
         LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
 
+        Properties pro = new Properties();
         source.addSink(
                 DorisSink.sink(
                         fields,
@@ -215,10 +261,13 @@ public class DorisStreamSinkExample {
                                 .setBatchSize(3)
                                 .setBatchIntervalMs(0L)
                                 .setMaxRetries(3)
+                                .setStreamLoadProp(pro)
+                                .setMergeType(DorisExecutionOptions.MergeType.MERGE)
+                                .setDeleteLabel("city='testRowDataWithDefaultReadOptions'")
                                 .build(),
                         DorisOptions.builder()
                                 .setFenodes("FE_IP:8030")
-                                .setTableIdentifier("db.table")
+                                .setTableIdentifier("doris_db.doris_table")
                                 .setUsername("root")
                                 .setPassword("").build()
                 ));
@@ -234,16 +283,29 @@ public class DorisStreamSinkExample {
         env.setParallelism(1);
 
         DataStream<RowData> source = env.fromElements("")
-                .map(new MapFunction<String, RowData>() {
-                    @Override
-                    public RowData map(String value) throws Exception {
-                        GenericRowData genericRowData = new GenericRowData(3);
-                        genericRowData.setField(0, StringData.fromString("北京"));
-                        genericRowData.setField(1, 116.405419);
-                        genericRowData.setField(2, 39.916927);
-                        return genericRowData;
-                    }
-                });
+                .flatMap(new FlatMapFunction<String, RowData>() {
+                             @Override
+                             public void flatMap(String s, Collector<RowData> collector) throws Exception {
+                                 GenericRowData row1 = new GenericRowData(3);
+                                 row1.setField(0, StringData.fromString("北京"));
+                                 row1.setField(1, 116.405419);
+                                 row1.setField(2, 39.916927);
+                                 collector.collect(row1);
+
+                                 GenericRowData row2 = new GenericRowData(3);
+                                 row2.setField(0, StringData.fromString("beijing"));
+                                 row2.setField(1, 116.405419);
+                                 row2.setField(2, 39.916927);
+                                 collector.collect(row2);
+
+                                 GenericRowData row3 = new GenericRowData(3);
+                                 row3.setField(0, StringData.fromString("testRowDataWithDefaultReadOptionsAndExecutionOptions"));
+                                 row3.setField(1, 116.405419);
+                                 row3.setField(2, 39.916927);
+                                 collector.collect(row3);
+                             }
+                         }
+                );
 
         String[] fields = {"city", "longitude", "latitude"};
         LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
@@ -254,7 +316,7 @@ public class DorisStreamSinkExample {
                         types,
                         DorisOptions.builder()
                                 .setFenodes("FE_IP:8030")
-                                .setTableIdentifier("db.table")
+                                .setTableIdentifier("doris_db.doris_table")
                                 .setUsername("root")
                                 .setPassword("").build()
                 ));

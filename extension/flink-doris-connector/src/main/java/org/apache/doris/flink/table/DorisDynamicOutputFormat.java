@@ -33,13 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.StringJoiner;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -78,7 +72,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
     private DorisStreamLoad dorisStreamLoad;
     private final RowData.FieldGetter[] fieldGetters;
 
-    private final List batch = new ArrayList<>();
+    private final List<String> batch = new ArrayList<>();
     private transient volatile boolean closed = false;
 
     private transient ScheduledExecutorService scheduler;
@@ -94,7 +88,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         this.readOptions = readOptions;
         this.executionOptions = executionOptions;
 
-        Properties streamLoadProp=executionOptions.getStreamLoadProp();
+        Properties streamLoadProp = executionOptions.getStreamLoadProp();
 
         boolean ifEscape = Boolean.parseBoolean(streamLoadProp.getProperty(ESCAPE_DELIMITERS_KEY, ESCAPE_DELIMITERS_DEFAULT));
         if (ifEscape) {
@@ -114,23 +108,23 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         }
 
         this.fieldNames = fieldNames;
-        this.jsonFormat = FORMAT_JSON_VALUE.equals(executionOptions.getStreamLoadProp().getProperty(FORMAT_KEY));
+        this.jsonFormat = FORMAT_JSON_VALUE.equalsIgnoreCase(executionOptions.getStreamLoadProp().getProperty(FORMAT_KEY));
         this.fieldGetters = new RowData.FieldGetter[logicalTypes.length];
         for (int i = 0; i < logicalTypes.length; i++) {
             fieldGetters[i] = createFieldGetter(logicalTypes[i], i);
         }
     }
 
-    private String escapeString( String s) {
-            Pattern p = Pattern.compile("\\\\x(\\d{2})");
-            Matcher m = p.matcher(s);
+    private String escapeString(String s) {
+        Pattern p = Pattern.compile("\\\\x(\\d{2})");
+        Matcher m = p.matcher(s);
 
-            StringBuffer buf = new StringBuffer();
-            while (m.find()) {
-                m.appendReplacement(buf, String.format("%s", (char) Integer.parseInt(m.group(1))));
-            }
-            m.appendTail(buf);
-            return buf.toString();
+        StringBuffer buf = new StringBuffer();
+        while (m.find()) {
+            m.appendReplacement(buf, String.format("%s", (char) Integer.parseInt(m.group(1))));
+        }
+        m.appendTail(buf);
+        return buf.toString();
     }
 
     @Override
@@ -180,7 +174,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         }
     }
 
-    private void addBatch(T row) {
+    private void addBatch(T row) throws IOException {
         if (row instanceof RowData) {
             RowData rowData = (RowData) row;
             Map<String, String> valueMap = new HashMap<>();
@@ -195,11 +189,10 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
                     value.add(data);
                 }
             }
-            Object data = jsonFormat ? valueMap : value.toString();
+            String data = jsonFormat ? OBJECT_MAPPER.writeValueAsString(valueMap) : value.toString();
             batch.add(data);
-
         } else if (row instanceof String) {
-            batch.add(row);
+            batch.add(String.valueOf(row));
         } else {
             throw new RuntimeException("The type of element should be 'RowData' or 'String' only.");
         }
@@ -230,13 +223,9 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         if (batch.isEmpty()) {
             return;
         }
-        String result;
+        String result = "";
         if (jsonFormat) {
-            if (batch.get(0) instanceof String) {
-                result = batch.toString();
-            } else {
-                result = OBJECT_MAPPER.writeValueAsString(batch);
-            }
+            result = batch.toString();
         } else {
             result = String.join(this.lineDelimiter, batch);
         }
