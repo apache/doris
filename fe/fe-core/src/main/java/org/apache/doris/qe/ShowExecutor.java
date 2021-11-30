@@ -1161,8 +1161,8 @@ public class ShowExecutor {
         if (be == null) {
             throw new AnalysisException(host + ":" + port + " is not a valid backend");
         }
-        if (!be.isAvailable()) {
-            throw new AnalysisException("Backend " + host + ":" + port + " is not available");
+        if (!be.isAlive()) {
+            throw new AnalysisException("Backend " + host + ":" + port + " is not alive");
         }
 
         if (!url.getPath().equals("/api/_load_error_log")) {

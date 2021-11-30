@@ -98,6 +98,10 @@ public class PropertyAnalyzer {
 
     public static final String TAG_LOCATION = "tag.location";
 
+    public static final String PROPERTIES_DISABLE_QUERY = "disable_query";
+
+    public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null) {
@@ -455,12 +459,20 @@ public class PropertyAnalyzer {
         return ScalarType.createType(type);
     }
 
-    public static Tag analyzeBackendTagProperties(Map<String, String> properties) throws AnalysisException {
+    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key, Boolean defaultValue) throws AnalysisException {
+        if (properties.containsKey(key)) {
+            String value = properties.remove(key);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
+    }
+
+    public static Tag analyzeBackendTagProperties(Map<String, String> properties, Tag defaultValue) throws AnalysisException {
         if (properties.containsKey(TAG_LOCATION)) {
             String tagVal = properties.remove(TAG_LOCATION);
             return Tag.create(Tag.TYPE_LOCATION, tagVal);
         }
-        return Tag.DEFAULT_BACKEND_TAG;
+        return defaultValue;
     }
 
     // There are 2 kinds of replication property:
