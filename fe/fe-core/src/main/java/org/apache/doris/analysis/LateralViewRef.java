@@ -21,8 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
@@ -39,12 +40,11 @@ public class LateralViewRef extends TableRef {
     private Expr expr;
     private String viewName;
     private String columnName;
-    private Table relatedTable;
+    private BaseTableRef relatedTableRef;
 
     // after analyzed
     private FunctionCallExpr fnExpr;
-    private Column originColumn;
-    private SlotRef originSlotRef;
+    private List<SlotRef> originSlotRefList = Lists.newArrayList();
     private InlineView view;
     private SlotRef explodeSlotRef;
 
@@ -55,8 +55,8 @@ public class LateralViewRef extends TableRef {
         this.columnName = columnName;
     }
 
-    public void setRelatedTable(Table relatedTable) {
-        this.relatedTable = relatedTable;
+    public void setRelatedTable(BaseTableRef relatedTableRef) {
+        this.relatedTableRef = relatedTableRef;
     }
 
     public FunctionCallExpr getFnExpr() {
@@ -72,9 +72,9 @@ public class LateralViewRef extends TableRef {
         if (isAnalyzed) {
             return;
         }
-        Preconditions.checkNotNull(relatedTable);
+        Preconditions.checkNotNull(relatedTableRef);
         // analyze table
-        if (!(relatedTable instanceof OlapTable)) {
+        if (!(relatedTableRef.getTable() instanceof OlapTable)) {
             throw new AnalysisException("Only doris table could be exploded");
         }
         // analyze function and slot
@@ -83,21 +83,16 @@ public class LateralViewRef extends TableRef {
         }
         fnExpr = (FunctionCallExpr) expr;
         fnExpr.setTableFnCall(true);
+        checkAndSupplyDefaultTableName(fnExpr);
         fnExpr.analyze(analyzer);
         if (!fnExpr.getFnName().getFunction().equals(FunctionSet.EXPLODE_SPLIT)) {
             throw new AnalysisException("Only support explode function in lateral view");
         }
-        if (!(fnExpr.getChild(0) instanceof SlotRef)) {
-            throw new AnalysisException("Explode column must be varchar column");
-        }
+        checkScalarFunction(fnExpr.getChild(0));
         if (!(fnExpr.getChild(1) instanceof StringLiteral)) {
             throw new AnalysisException("Split separator of explode must be a string const");
         }
-        originSlotRef = ((SlotRef) fnExpr.getChild(0));
-        originColumn = originSlotRef.getColumn();
-        if (originColumn == null) {
-            throw new AnalysisException("The explode column must be a real column in table");
-        }
+        fnExpr.getChild(0).collect(SlotRef.class, originSlotRefList);
         // analyze lateral view
         desc = analyzer.registerTableRef(this);
         explodeSlotRef = new SlotRef(new TableName(null, viewName), columnName);
@@ -109,8 +104,8 @@ public class LateralViewRef extends TableRef {
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
         // Create a fake catalog table for the lateral view
         List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, originColumn.getType(),
-                false, null, originColumn.isAllowNull(),
+        columnList.add(new Column(columnName, Type.VARCHAR,
+                false, null, true,
                 null, ""));
         view = new InlineView(viewName, columnList);
 
@@ -121,7 +116,68 @@ public class LateralViewRef extends TableRef {
     }
 
     public void materializeRequiredSlots() {
-        originSlotRef.getDesc().setIsMaterialized(true);
+        for (SlotRef originSlotRef : originSlotRefList) {
+            originSlotRef.getDesc().setIsMaterialized(true);
+        }
         explodeSlotRef.getDesc().setIsMaterialized(true);
+    }
+
+    // The default table name must be origin table name
+    // If there is table name in slot ref which is different from origin, it will thrown exception.
+    private void checkAndSupplyDefaultTableName(FunctionCallExpr expr) throws AnalysisException {
+        List<SlotRef> slotRefList = Lists.newArrayList();
+        expr.collect(SlotRef.class, slotRefList);
+        TableName relatedTableName = relatedTableRef.getAliasAsName();
+        for (SlotRef slotRef : slotRefList) {
+            TableName tableName = slotRef.getOriginTableName();
+            if (tableName == null) {
+                // t1 lateral view explode_split(k1, ",")
+                slotRef.setTblName(relatedTableName.cloneWithoutAnalyze());
+            } else if (tableName.getDb() == null && tableName.getTbl() != null) {
+                if (Config.lower_case_table_names != 0) {
+                    // TODO support case insensitive
+                    throw new AnalysisException("Not support specify table name in table function "
+                            + "when config.lower_case_table_names is not 0");
+                }
+                if (tableName.getTbl().equals(relatedTableName.getTbl())) {
+                    // t1 lateral view explode_split(t1.k1, ",")
+                    tableName.setDb(relatedTableName.getDb());
+                } else {
+                    // t1 lateral view explode_split(t2.k1, ",")
+                    throw new AnalysisException("The column " + slotRef.toMySql()
+                            + " in lateral view must come from the origin table "
+                            + relatedTableName.toSql());
+                }
+            } else {
+                if (!tableName.getDb().equalsIgnoreCase(relatedTableName.getDb())) {
+                    // db2.t1 lateral view explode_split(db1.t1.k1, ",")
+                    throw new AnalysisException("The column " + slotRef.toMySql()
+                            + " in lateral view must come from the origin table "
+                            + relatedTableRef.toSql());
+                }
+            }
+        }
+    }
+
+    // 1. it must be a scalar function
+    private void checkScalarFunction(Expr child0) throws AnalysisException {
+        List<GroupingFunctionCallExpr> groupingFunctionCallExprList = Lists.newArrayList();
+        child0.collect(GroupingFunctionCallExpr.class, groupingFunctionCallExprList);
+        if (!groupingFunctionCallExprList.isEmpty()) {
+            throw new AnalysisException("Grouping function are not allowed in lateral view.");
+        }
+        if (child0.containsAggregate()) {
+            throw new AnalysisException("Agg function are not allowed in lateral view.");
+        }
+        List<AnalyticExpr> analyticExprList = Lists.newArrayList();
+        child0.collect(AnalyticExpr.class, analyticExprList);
+        if (!analyticExprList.isEmpty()) {
+            throw new AnalysisException("Analytic expr are not allowed in lateral view.");
+        }
+        List<Subquery> subqueryList = Lists.newArrayList();
+        child0.collect(Subquery.class, subqueryList);
+        if (!subqueryList.isEmpty()) {
+            throw new AnalysisException("Subquery is not allowed in lateral view");
+        }
     }
 }

@@ -287,7 +287,7 @@ public:
     DoubleColumnWriterBase(uint32_t column_id, OutStreamFactory* stream_factory,
                            const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp)
             : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-              _stream(NULL) {}
+              _stream(nullptr) {}
 
     virtual ~DoubleColumnWriterBase() {}
 
@@ -302,7 +302,7 @@ public:
         OutStreamFactory* factory = stream_factory();
         _stream = factory->create_stream(unique_column_id(), StreamInfoMessage::DATA);
 
-        if (NULL == _stream) {
+        if (nullptr == _stream) {
             OLAP_LOG_WARNING("fail to allocate DATA STREAM");
             return OLAP_ERR_MALLOC_ERROR;
         }

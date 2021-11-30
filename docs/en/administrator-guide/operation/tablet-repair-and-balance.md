@@ -529,7 +529,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 
 	The following command allows you to view the priority repaired tables or partitions set by the `ADMIN REPAIR TABLE'command.
 
-	`SHOW PROC '/cluster_balance/priority_repair'`;
+	`SHOW PROC '/cluster_balance/priority_repair';`
 
 	Among them, `Remaining TimeMs'indicates that these priority fixes will be automatically removed from the priority fix queue after this time. In order to prevent resources from being occupied due to the failure of priority repair.
 
@@ -537,7 +537,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 
 We have collected some statistics of Tablet Checker and Tablet Scheduler during their operation, which can be viewed through the following commands:
 
-`SHOW PROC '/cluster_balance/sched_stat'`;
+`SHOW PROC '/cluster_balance/sched_stat';`
 
 ```
 +---------------------------------------------------+-------------+

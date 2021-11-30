@@ -425,7 +425,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_typ
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 
@@ -440,7 +440,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIEL
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 
@@ -487,6 +487,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         dst_slice->data = reinterpret_cast<char*>(hll);
 
+        mem_pool->mem_tracker()->Consume(hll->memory_consumed());
+
         agg_pool->add(hll);
     }
 
@@ -514,6 +516,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         slice->data = (char*)mem_pool->allocate(hll->max_serialized_size());
         slice->size = hll->serialize((uint8_t*)slice->data);
+        hll->clear();
     }
 };
 // when data load, after bitmap_init function, bitmap_union column won't be null

@@ -52,30 +52,9 @@ Status IntersectNode::open(RuntimeState* state) {
     bool eos = false;
 
     for (int i = 1; i < _children.size(); ++i) {
-        if (i > 1) {
-            SCOPED_TIMER(_build_timer);
-            std::unique_ptr<HashTable> temp_tbl(
-                    new HashTable(_child_expr_lists[0], _child_expr_lists[i], _build_tuple_size,
-                                  true, _find_nulls, id(), mem_tracker(), 1024));
-            _hash_tbl_iterator = _hash_tbl->begin();
-            while (_hash_tbl_iterator.has_next()) {
-                if (_hash_tbl_iterator.matched()) {
-                    VLOG_ROW << "rebuild row: "
-                             << get_row_output_string(_hash_tbl_iterator.get_row(),
-                                                      child(0)->row_desc());
-                    temp_tbl->insert(_hash_tbl_iterator.get_row());
-                }
-                _hash_tbl_iterator.next<false>();
-            }
-            _hash_tbl.swap(temp_tbl);
-            temp_tbl->close();
-            VLOG_ROW << "hash table content: "
-                     << _hash_tbl->debug_string(true, &child(0)->row_desc());
-            // if a table is empty, the result must be empty
-            if (_hash_tbl->size() == 0) {
-                break;
-            }
-        }
+        if (i > 1) { refresh_hash_table<true>(i); }
+
+        _valid_element_in_hash_tbl = 0;
         // probe
         _probe_batch.reset(
                 new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));
@@ -91,7 +70,10 @@ Status IntersectNode::open(RuntimeState* state) {
                          << get_row_output_string(_probe_batch->get_row(j), child(i)->row_desc());
                 _hash_tbl_iterator = _hash_tbl->find(_probe_batch->get_row(j));
                 if (_hash_tbl_iterator != _hash_tbl->end()) {
-                    _hash_tbl_iterator.set_matched();
+                    if (!_hash_tbl_iterator.matched()) {
+                        _valid_element_in_hash_tbl++;
+                        _hash_tbl_iterator.set_matched();
+                    }
                     VLOG_ROW << "probe matched: "
                              << get_row_output_string(_hash_tbl_iterator.get_row(),
                                                       child(0)->row_desc());

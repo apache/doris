@@ -109,15 +109,19 @@ public final class SparkDpp implements java.io.Serializable {
     private SerializableConfiguration serializableHadoopConf;
     private DppResult dppResult = new DppResult();
     Map<Long, Set<String>> tableToBitmapDictColumns = new HashMap<>();
-
+    Map<Long, Set<String>> tableToBinaryBitmapColumns = new HashMap<>();
     // just for ut
     public SparkDpp() {}
 
-    public SparkDpp(SparkSession spark, EtlJobConfig etlJobConfig, Map<Long, Set<String>> tableToBitmapDictColumns) {
+    public SparkDpp(SparkSession spark, EtlJobConfig etlJobConfig, Map<Long, Set<String>> tableToBitmapDictColumns,
+                    Map<Long, Set<String>> tableToBinaryBitmapColumns) {
         this.spark = spark;
         this.etlJobConfig = etlJobConfig;
         if (tableToBitmapDictColumns != null) {
             this.tableToBitmapDictColumns = tableToBitmapDictColumns;
+        }
+        if(tableToBinaryBitmapColumns != null){
+            this.tableToBinaryBitmapColumns = tableToBinaryBitmapColumns;
         }
     }
 
@@ -379,7 +383,7 @@ public final class SparkDpp implements java.io.Serializable {
                 DecimalParser decimalParser = (DecimalParser) columnParser;
                 BigDecimal srcBigDecimal = (BigDecimal) srcValue;
                 if (srcValue != null && (decimalParser.getMaxValue().compareTo(srcBigDecimal) < 0 || decimalParser.getMinValue().compareTo(srcBigDecimal) > 0)) {
-                    LOG.warn(String.format("decimal value is not valid for definition, column=%s, value=%s,precision=%s,scale=%s",
+                    LOG.warn(String.format("decimal value is not valid for defination, column=%s, value=%s,precision=%s,scale=%s",
                             etlColumn.columnName, srcValue.toString(), srcBigDecimal.precision(), srcBigDecimal.scale()));
                     return false;
                 }
@@ -477,7 +481,7 @@ public final class SparkDpp implements java.io.Serializable {
                         LOG.info("invalid rows contents:" + invalidRows.value());
                     }
                 } else {
-                    // TODO(wb) support largeint for hash
+                    // TODO(wb) support lagreint for hash
                     long hashValue = DppUtils.getHashValue(row, distributeColumns, dstTableSchema);
                     int bucketId = (int) ((hashValue & 0xffffffff) % partitionInfo.partitions.get(pid).bucketNum);
                     long partitionId = partitionInfo.partitions.get(pid).partitionId;
@@ -557,6 +561,8 @@ public final class SparkDpp implements java.io.Serializable {
                                 .otherwise("0"));
             } else if (!column.columnType.equalsIgnoreCase(BITMAP_TYPE) && !dstField.dataType().equals(DataTypes.StringType)) {
                 dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast(dstField.dataType()));
+            } else if (column.columnType.equalsIgnoreCase(BITMAP_TYPE) && dstField.dataType().equals(DataTypes.BinaryType)) {
+                dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast(DataTypes.BinaryType));
             }
             if (fileGroup.isNegative && !column.isKey) {
                 // negative load
@@ -705,7 +711,7 @@ public final class SparkDpp implements java.io.Serializable {
         }
         int index = 0;
         int lastIndex = 0;
-        // line-begin char and line-end char are considered to be 'delimiter'
+        // line-begin char and line-end char are considered to be 'delimeter'
         List<String> values = new ArrayList<>();
         for (int i = 0 ; i < line.length(); i++, index++) {
             if (line.charAt(index) == sep) {
@@ -746,8 +752,8 @@ public final class SparkDpp implements java.io.Serializable {
                 return srcValue.toString();
             }
         } else {
-            LOG.warn("unsupported partition key:" + srcValue);
-            throw new SparkDppException("unsupported partition key:" + srcValue);
+            LOG.warn("unsupport partition key:" + srcValue);
+            throw new SparkDppException("unsupport partition key:" + srcValue);
         }
     }
 
@@ -851,7 +857,8 @@ public final class SparkDpp implements java.io.Serializable {
                                                EtlJobConfig.EtlIndex baseIndex,
                                                EtlJobConfig.EtlFileGroup fileGroup,
                                                StructType dstTableSchema,
-                                               Set<String> dictBitmapColumnSet) throws SparkDppException {
+                                               Set<String> dictBitmapColumnSet,
+                                               Set<String> binaryBitmapColumnsSet) throws SparkDppException {
         // select base index columns from hive table
         StringBuilder sql = new StringBuilder();
         sql.append("select ");
@@ -874,28 +881,30 @@ public final class SparkDpp implements java.io.Serializable {
         // but spark load relies on spark to do step2, so it can only do step 1 for whole dataset and then do step 2 for whole dataset and so on;
         // So in spark load, we first do step 1,3,4,and then do step 2.
         dataframe = checkDataFromHiveWithStrictMode(dataframe, baseIndex, fileGroup.columnMappings.keySet(), etlJobConfig.properties.strictMode,
-                dstTableSchema, dictBitmapColumnSet);
+                dstTableSchema, dictBitmapColumnSet, binaryBitmapColumnsSet);
         dataframe = convertSrcDataframeToDstDataframe(baseIndex, dataframe, dstTableSchema, fileGroup);
         return dataframe;
     }
 
     private Dataset<Row> checkDataFromHiveWithStrictMode(
             Dataset<Row> dataframe, EtlJobConfig.EtlIndex baseIndex, Set<String> mappingColKeys, boolean isStrictMode, StructType dstTableSchema,
-            Set<String> dictBitmapColumnSet) throws SparkDppException {
+            Set<String> dictBitmapColumnSet, Set<String> binaryBitmapColumnsSet) throws SparkDppException {
         List<EtlJobConfig.EtlColumn> columnNameNeedCheckArrayList = new ArrayList<>();
         List<ColumnParser> columnParserArrayList = new ArrayList<>();
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
             // note(wb): there are three data source for bitmap column
-            // case 1: global dict; needn't check
+            // case 1: global dict and binary data; needn't check
             // case 2: bitmap hash function; this func is not supported in spark load now, so ignore it here
             // case 3: origin value is a integer value; it should be checked use LongParser
             if (StringUtils.equalsIgnoreCase(column.columnType, "bitmap")) {
                 if (dictBitmapColumnSet.contains(column.columnName.toLowerCase())) {
                     continue;
-                } else {
-                    columnNameNeedCheckArrayList.add(column);
-                    columnParserArrayList.add(new BigIntParser());
                 }
+                if (binaryBitmapColumnsSet.contains(column.columnName.toLowerCase())){
+                    continue;
+                }
+                columnNameNeedCheckArrayList.add(column);
+                columnParserArrayList.add(new BigIntParser());
             } else if (!StringUtils.equalsIgnoreCase(column.columnType, "varchar") &&
                     !StringUtils.equalsIgnoreCase(column.columnType, "char") &&
                     !mappingColKeys.contains(column.columnName)) {
@@ -912,7 +921,7 @@ public final class SparkDpp implements java.io.Serializable {
             @Override
             public Iterator<Row> call(Row row) throws Exception {
                 List<Row> result = new ArrayList<>();
-                Set<Integer> columnIndexNeedToReplaceNull = new HashSet<Integer>();
+                Set<Integer> columnIndexNeedToRepalceNull = new HashSet<Integer>();
                 boolean validRow = true;
                 for (int i = 0; i < columnNameArray.length; i++) {
                     EtlJobConfig.EtlColumn column = columnNameArray[i];
@@ -933,7 +942,7 @@ public final class SparkDpp implements java.io.Serializable {
                             LOG.warn("column:" + i + " can not be null. row:" + row.toString());
                             break;
                         } else {
-                            columnIndexNeedToReplaceNull.add(fieldIndex);
+                            columnIndexNeedToRepalceNull.add(fieldIndex);
                         }
                     }
                 }
@@ -943,10 +952,10 @@ public final class SparkDpp implements java.io.Serializable {
                     if (abnormalRowAcc.value() <= 5) {
                         invalidRows.add(row.toString());
                     }
-                } else if (columnIndexNeedToReplaceNull.size() != 0) {
+                } else if (columnIndexNeedToRepalceNull.size() != 0) {
                     Object[] newRow = new Object[row.size()];
                     for (int i = 0; i < row.size(); i++) {
-                        if (columnIndexNeedToReplaceNull.contains(i)) {
+                        if (columnIndexNeedToRepalceNull.contains(i)) {
                             newRow[i] = null;
                         } else {
                             newRow[i] = row.get(i);
@@ -970,6 +979,7 @@ public final class SparkDpp implements java.io.Serializable {
                 Long tableId = entry.getKey();
                 EtlJobConfig.EtlTable etlTable = entry.getValue();
                 Set<String> dictBitmapColumnSet = tableToBitmapDictColumns.getOrDefault(tableId, new HashSet<>());
+                Set<String> binaryBitmapColumnSet = tableToBinaryBitmapColumns.getOrDefault(tableId, new HashSet<>());
 
                 // get the base index meta
                 EtlJobConfig.EtlIndex baseIndex = null;
@@ -980,7 +990,7 @@ public final class SparkDpp implements java.io.Serializable {
                     }
                 }
 
-                // get key column names and value column names separately
+                // get key column names and value column names seperately
                 List<String> keyColumnNames = new ArrayList<>();
                 List<String> valueColumnNames = new ArrayList<>();
                 for (EtlJobConfig.EtlColumn etlColumn : baseIndex.columns) {
@@ -1006,6 +1016,7 @@ public final class SparkDpp implements java.io.Serializable {
                 }
                 List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys = createPartitionRangeKeys(partitionInfo, partitionKeySchema);
                 StructType dstTableSchema = DppUtils.createDstTableSchema(baseIndex.columns, false, false);
+                dstTableSchema = DppUtils.replaceBinaryColsInSchema(binaryBitmapColumnSet, dstTableSchema);
                 RollupTreeBuilder rollupTreeParser = new MinimumCoverageRollupTreeBuilder();
                 RollupTreeNode rootNode = rollupTreeParser.build(etlTable);
                 LOG.info("Start to process rollup tree:" + rootNode);
@@ -1019,7 +1030,7 @@ public final class SparkDpp implements java.io.Serializable {
                         fileGroupDataframe = loadDataFromFilePaths(spark, baseIndex, filePaths, fileGroup, dstTableSchema);
                     } else if (sourceType == EtlJobConfig.SourceType.HIVE) {
                         fileGroupDataframe = loadDataFromHiveTable(spark, fileGroup.dppHiveDbTableName, baseIndex, fileGroup, dstTableSchema,
-                                dictBitmapColumnSet);
+                                dictBitmapColumnSet, binaryBitmapColumnSet);
                     } else {
                         throw new RuntimeException("Unknown source type: " + sourceType.name());
                     }

@@ -38,7 +38,7 @@ public:
     // Ascii output precision for double/float
     static const int ASCII_PRECISION;
 
-    // Convert 'value' into ascii and write to 'stream'. NULL turns into "NULL". 'scale'
+    // Convert 'value' into ascii and write to 'stream'. nullptr turns into NULL. 'scale'
     // determines how many digits after the decimal are printed for floating point numbers,
     // -1 indicates to use the stream's current formatting.
     static void print_value(const void* value, const TypeDescriptor& type, int scale,
@@ -93,13 +93,13 @@ public:
 
     // Writes the bytes of a given value into the slot of a tuple.
     // For string values, the string data is copied into memory allocated from 'pool'
-    // only if pool is non-NULL.
+    // only if pool is non-nullptr.
     static void write(const void* value, Tuple* tuple, const SlotDescriptor* slot_desc,
                       MemPool* pool);
 
     // Writes 'src' into 'dst' for type.
-    // For string values, the string data is copied into 'pool' if pool is non-NULL.
-    // src must be non-NULL.
+    // For string values, the string data is copied into 'pool' if pool is non-nullptr.
+    // src must be non-nullptr.
     static void write(const void* src, void* dst, const TypeDescriptor& type, MemPool* pool);
 
     // Writes 'src' into 'dst' for type.
@@ -226,7 +226,7 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
 //  seed ^= v + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& type, uint32_t seed) {
     // Hash_combine with v = 0
-    if (v == NULL) {
+    if (v == nullptr) {
         uint32_t value = 0x9e3779b9;
         return seed ^ (value + (seed << 6) + (seed >> 2));
     }
@@ -234,7 +234,7 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     switch (type) {
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_HLL: 
+    case TYPE_HLL:
     case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::hash(string_value->ptr, string_value->len, seed);
@@ -282,7 +282,7 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
 inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType& type,
                                              uint32_t seed) {
     // Hash_combine with v = 0
-    if (v == NULL) {
+    if (v == nullptr) {
         uint32_t value = 0x9e3779b9;
         return seed ^ (value + (seed << 6) + (seed >> 2));
     }
@@ -339,7 +339,7 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
 // Because crc32 hardware is not equal with zlib crc32
 inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, uint32_t seed) {
     // Hash_combine with v = 0
-    if (v == NULL) {
+    if (v == nullptr) {
         uint32_t value = 0x9e3779b9;
         return seed ^ (value + (seed << 6) + (seed >> 2));
     }

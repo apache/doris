@@ -28,8 +28,8 @@ import java.util.Map;
  * Each converter should put in map (variable name -> converters) and only converts the variable with specified name.
  *
  * The converted session variable is a special kind of variable.
- * It's real type is int, so for example, when querying `select @@sql_mode`, the return column
- * type is "int".
+ * It's real type is Long or Int, for example, the variable `sql_mode` is Long, when querying `select @@sql_mode`,
+ * the return column type is String.
  * But user usually set this variable by string, such as:
  * `set @@sql_mode = 'STRICT_TRANS_TABLES'`
  * or

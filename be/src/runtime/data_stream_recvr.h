@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 
-#include <boost/scoped_ptr.hpp>
 #include <mutex>
 
 #include "common/object_pool.h"
@@ -73,7 +72,7 @@ public:
 
     // Returns next row batch in data stream; blocks if there aren't any.
     // Retains ownership of the returned batch. The caller must acquire data from the
-    // returned batch before the next call to get_batch(). A NULL returned batch indicated
+    // returned batch before the next call to get_batch(). A nullptr returned batch indicated
     // eos. Must only be called if _is_merging is false.
     // TODO: This is currently only exposed to the non-merging version of the exchange.
     // Refactor so both merging and non-merging exchange use get_next(RowBatch*, bool* eos).
@@ -167,7 +166,7 @@ private:
     std::vector<SenderQueue*> _sender_queues;
 
     // SortedRunMerger used to merge rows from different senders.
-    boost::scoped_ptr<SortedRunMerger> _merger;
+    std::unique_ptr<SortedRunMerger> _merger;
 
     std::vector<std::unique_ptr<SortedRunMerger>> _child_mergers;
 

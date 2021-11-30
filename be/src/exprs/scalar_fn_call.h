@@ -45,7 +45,7 @@ class TExprNode;
 /// - Testing
 ///    - Test cancellation
 ///    - Type descs in UDA test harness
-///    - Allow more functions to be NULL in UDA test harness
+///    - Allow more functions to be nullptr in UDA test harness
 class ScalarFnCall : public Expr {
 public:
     virtual std::string debug_string() const;

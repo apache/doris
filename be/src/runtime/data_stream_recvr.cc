@@ -40,7 +40,7 @@ using std::make_pair;
 
 using std::condition_variable;
 using std::mutex;
-using boost::scoped_ptr;
+using std::unique_ptr;
 using std::unique_lock;
 using std::try_lock;
 using std::lock_guard;
@@ -127,7 +127,7 @@ private:
     // The batch that was most recently returned via get_batch(), i.e. the current batch
     // from this queue being processed by a consumer. Is destroyed when the next batch
     // is retrieved.
-    scoped_ptr<RowBatch> _current_batch;
+    unique_ptr<RowBatch> _current_batch;
 
     // Set to true when the first batch has been received
     bool _received_first_batch;
@@ -154,14 +154,14 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
         // Don't count time spent waiting on the sender as active time.
         CANCEL_SAFE_SCOPED_TIMER(_recvr->_data_arrival_timer, &_is_cancelled);
         CANCEL_SAFE_SCOPED_TIMER(
-                _received_first_batch ? NULL : _recvr->_first_batch_wait_total_timer,
+                _received_first_batch ? nullptr : _recvr->_first_batch_wait_total_timer,
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
 
     // _cur_batch must be replaced with the returned batch.
     _current_batch.reset();
-    *next_batch = NULL;
+    *next_batch = nullptr;
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
@@ -242,7 +242,7 @@ void DataStreamRecvr::SenderQueue::add_batch(const PRowBatch& pb_batch, int be_n
         return;
     }
 
-    RowBatch* batch = NULL;
+    RowBatch* batch = nullptr;
     {
         SCOPED_TIMER(_recvr->_deserialize_row_batch_timer);
         // Note: if this function makes a row batch, the batch *must* be added
@@ -424,7 +424,7 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
         _merger->transfer_all_resources(transfer_batch);
     } else {
         for (SenderQueue* sender_queue : _sender_queues) {
-            if (sender_queue->current_batch() != NULL) {
+            if (sender_queue->current_batch() != nullptr) {
                 sender_queue->current_batch()->transfer_resource_ownership(transfer_batch);
             }
         }
@@ -467,7 +467,7 @@ DataStreamRecvr::DataStreamRecvr(
 }
 
 Status DataStreamRecvr::get_next(RowBatch* output_batch, bool* eos) {
-    DCHECK(_merger.get() != NULL);
+    DCHECK(_merger.get() != nullptr);
     return _merger->get_next(output_batch, eos);
 }
 
@@ -501,14 +501,14 @@ void DataStreamRecvr::close() {
     // Remove this receiver from the DataStreamMgr that created it.
     // TODO: log error msg
     _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());
-    _mgr = NULL;
+    _mgr = nullptr;
     _merger.reset();
     // TODO: Maybe shared tracker doesn't need to be reset manually
     _mem_tracker.reset();
 }
 
 DataStreamRecvr::~DataStreamRecvr() {
-    DCHECK(_mgr == NULL) << "Must call close()";
+    DCHECK(_mgr == nullptr) << "Must call close()";
 }
 
 Status DataStreamRecvr::get_batch(RowBatch** next_batch) {

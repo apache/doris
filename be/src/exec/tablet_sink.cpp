@@ -62,22 +62,24 @@ NodeChannel::~NodeChannel() {
 // returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
     _tuple_desc = _parent->_output_tuple_desc;
-    _node_info = _parent->_nodes_info->find_node(_node_id);
-    if (_node_info == nullptr) {
+    auto node = _parent->_nodes_info->find_node(_node_id);
+    if (node == nullptr) {
         std::stringstream ss;
         ss << "unknown node id, id=" << _node_id;
         _cancelled = true;
         return Status::InternalError(ss.str());
     }
 
+    _node_info = *node;
+
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
     _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
 
-    _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info->host, _node_info->brpc_port);
-    if (!_stub) {
-        LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
-                     << ", port=" << _node_info->brpc_port;
+    _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info.host, _node_info.brpc_port);
+    if (_stub == nullptr) {
+        LOG(WARNING) << "Get rpc stub failed, host=" << _node_info.host
+                     << ", port=" << _node_info.brpc_port;
         _cancelled = true;
         return Status::InternalError("get rpc stub failed");
     }
@@ -143,8 +145,8 @@ void NodeChannel::_cancel_with_msg(const std::string& msg) {
 Status NodeChannel::open_wait() {
     _open_closure->join();
     if (_open_closure->cntl.Failed()) {
-        if (!ExecEnv::GetInstance()->brpc_stub_cache()->available(_stub, _node_info->host,
-                                                                  _node_info->brpc_port)) {
+        if (!ExecEnv::GetInstance()->brpc_stub_cache()->available(_stub, _node_info.host,
+                                                                  _node_info.brpc_port)) {
             ExecEnv::GetInstance()->brpc_stub_cache()->erase(_open_closure->cntl.remote_side());
         }
         std::stringstream ss;
@@ -460,6 +462,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             }
             channel->add_tablet(tablet);
             channels.push_back(channel);
+            _tablets_by_channel[node_id].insert(tablet.tablet_id);
         }
         _channels_by_tablet.emplace(tablet.tablet_id, std::move(channels));
     }
@@ -493,7 +496,12 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
 }
 
 bool IndexChannel::has_intolerable_failure() {
-    return _failed_channels.size() >= ((_parent->_num_replicas + 1) / 2);
+    for (const auto& it : _failed_channels) {
+        if (it.second.size() >= ((_parent->_num_replicas + 1) / 2)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -699,13 +707,15 @@ Status OlapTableSink::open(RuntimeState* state) {
 
 Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     SCOPED_TIMER(_profile->total_time_counter());
-    _number_input_rows += input_batch->num_rows();
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
-    state->update_num_rows_load_total(input_batch->num_rows());
-    state->update_num_bytes_load_total(input_batch->total_byte_size());
-    DorisMetrics::instance()->load_rows->increment(input_batch->num_rows());
-    DorisMetrics::instance()->load_bytes->increment(input_batch->total_byte_size());
+    int64_t num_rows = input_batch->num_rows();
+    int64_t num_bytes = input_batch->total_byte_size();
+    _number_input_rows += num_rows;
+    state->update_num_rows_load_total(num_rows);
+    state->update_num_bytes_load_total(num_bytes);
+    DorisMetrics::instance()->load_rows->increment(num_rows);
+    DorisMetrics::instance()->load_bytes->increment(num_bytes);
     RowBatch* batch = input_batch;
     if (!_output_expr_ctxs.empty()) {
         SCOPED_RAW_TIMER(&_convert_batch_ns);

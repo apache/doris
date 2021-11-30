@@ -36,24 +36,32 @@ To write a blog file, you must first include Front Matter information in the hea
 | title| - | Blog title|
 | description | - | Blog description|
 | date | - | Blog date |
-| metaTitle | article | Mark blog file |
+| author | - | Blog author |
+| metaTitle | - | The title displayed by the browser when browsing the article |
 | language | en/zn-CN | language |
 | layout | Article | Layout of the components |
 | sidebar | false | Hide the sidebar |
+| isArticle | true | Whether it is an article, do not modify by default |
 
-The title, description and date fields are filled in by the blog writer, while the other fields are fixed values。
+>**Attention**
+>
+>The title, description, date, author, and metaTitle field values are filled in by the blog writer, and the other fields are fixed values.
+>
+>language: en, zh-CN, mainly don’t make mistakes
 
 File header example：
-```
+```json
 ---
 {
     "title": "This is title",
     "description": "This is description",
     "date": "2021-11-03",
+    "author": "Alex",
     "metaTitle": "article",
     "language": "zh-CN",
     "layout": "Article",
     "sidebar": false
+    "isArticle":true
 }
 ---
 ```

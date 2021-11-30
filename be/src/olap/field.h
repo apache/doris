@@ -143,7 +143,7 @@ public:
         }
     }
 
-    // Only compare column content, without considering NULL condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,
@@ -152,9 +152,9 @@ public:
 
     // Compare two types of cell.
     // This function differs compare in that this function compare cell which
-    // will consider the condition which cell may be NULL. While compare only
-    // compare column content without considering NULL condition.
-    // Only compare column content, without considering NULL condition.
+    // will consider the condition which cell may be nullptr. While compare only
+    // compare column content without considering nullptr condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,

@@ -63,7 +63,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");";
+                ")";
         String decimalTable = "CREATE TABLE `test`.`decimal_table`\n" +
                 "(\n" +
                 "    `userId`   varchar(255) NOT NULL COMMENT '',\n" +
@@ -75,7 +75,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");";
+                ")";
         String joinTable = "CREATE TABLE `test`.`join_table`\n" +
                 "(\n" +
                 "    `userId`   varchar(255) NOT NULL COMMENT '',\n" +
@@ -87,7 +87,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");";
+                ")";
         MetricRepo.init();
         createTable(varcharTable);
         createTable(decimalTable);
@@ -142,7 +142,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet.getResultRows().get(0).get(1));
+                ")", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -161,7 +161,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet1.getResultRows().get(0).get(1));
+                ")", showResultSet1.getResultRows().get(0).get(1));
         
         String selectFromFunction2 = "create table `test`.`select_function_2` PROPERTIES(\"replication_num\" = \"1\") as select sum(status), sum(status), sum(status), count(status), count(status) from `test`.`join_table`";
         createTableAsSelect(selectFromFunction2);
@@ -180,7 +180,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet2.getResultRows().get(0).get(1));
+                ")", showResultSet2.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -198,7 +198,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet1.getResultRows().get(0).get(1));
+                ")", showResultSet1.getResultRows().get(0).get(1));
         String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") as select userId as alias_name, username from `test`.`varchar_table`";
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTable("select_alias_2");
@@ -213,7 +213,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet2.getResultRows().get(0).get(1));
+                ")", showResultSet2.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -234,7 +234,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet.getResultRows().get(0).get(1));
+                ")", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -255,7 +255,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet.getResultRows().get(0).get(1));
+                ")", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -274,7 +274,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet.getResultRows().get(0).get(1));
+                ")", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -293,6 +293,6 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ");", showResultSet.getResultRows().get(0).get(1));
+                ")", showResultSet.getResultRows().get(0).get(1));
     }
 }

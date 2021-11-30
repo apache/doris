@@ -73,6 +73,14 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     return add_status;
 }
 
+OLAPStatus DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row_idxs) {
+    if (_k_tablet_recorder.find(_req.tablet_id) == std::end(_k_tablet_recorder)) {
+        _k_tablet_recorder[_req.tablet_id] = 0;
+    }
+    _k_tablet_recorder[_req.tablet_id] += row_idxs.size();
+    return add_status;
+}
+
 OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }

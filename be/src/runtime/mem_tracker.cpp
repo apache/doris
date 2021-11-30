@@ -229,12 +229,11 @@ int64_t MemTracker::GetPoolMemReserved() {
         std::shared_ptr<MemTracker> child = child_weak.lock();
         if (child) {
             int64_t child_limit = child->limit();
-            bool query_exec_finished = child->query_exec_finished_.load() != 0;
-            if (child_limit > 0 && !query_exec_finished) {
+            if (child_limit > 0) {
                 // Make sure we don't overflow if the query limits are set to ridiculous values.
                 mem_reserved += std::min(child_limit, MemInfo::physical_mem());
             } else {
-                DCHECK(query_exec_finished || child_limit == -1)
+                DCHECK(child_limit == -1)
                         << child->LogUsage(UNLIMITED_DEPTH);
                 mem_reserved += child->consumption();
             }
@@ -440,7 +439,6 @@ std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
 
 std::string MemTracker::LogTopNQueries(int limit) {
     if (limit == 0) return "";
-    if (this->is_query_mem_tracker_) return LogUsage(0);
     priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
                    std::greater<pair<int64_t, string>>>
             min_pq;
@@ -466,19 +464,14 @@ void MemTracker::GetTopNQueries(
     for (const auto& child_weak : children) {
         shared_ptr<MemTracker> child = child_weak.lock();
         if (child) {
-            if (!child->is_query_mem_tracker_) {
-                child->GetTopNQueries(min_pq, limit);
-            } else {
-                min_pq.push(pair<int64_t, string>(child->consumption(), child->LogUsage(0)));
-                if (min_pq.size() > limit) min_pq.pop();
-            }
+            child->GetTopNQueries(min_pq, limit);
         }
     }
 }
 
 MemTracker* MemTracker::GetQueryMemTracker() {
     MemTracker* tracker = this;
-    while (tracker != nullptr && !tracker->is_query_mem_tracker_) {
+    while (tracker != nullptr) {
         tracker = tracker->parent_.get();
     }
     return tracker;

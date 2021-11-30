@@ -67,7 +67,7 @@ void ThreadResourceMgr::ResourcePool::reserve_optional_tokens(int num) {
 
 ThreadResourceMgr::ResourcePool* ThreadResourceMgr::register_pool() {
     std::unique_lock<std::mutex> l(_lock);
-    ResourcePool* pool = NULL;
+    ResourcePool* pool = nullptr;
 
     if (_free_pool_objs.empty()) {
         pool = new ResourcePool(this);
@@ -76,7 +76,7 @@ ThreadResourceMgr::ResourcePool* ThreadResourceMgr::register_pool() {
         _free_pool_objs.pop_front();
     }
 
-    DCHECK(pool != NULL);
+    DCHECK(pool != nullptr);
     DCHECK(_pools.find(pool) == _pools.end());
     _pools.insert(pool);
     pool->reset();
@@ -87,7 +87,7 @@ ThreadResourceMgr::ResourcePool* ThreadResourceMgr::register_pool() {
 }
 
 void ThreadResourceMgr::unregister_pool(ResourcePool* pool) {
-    DCHECK(pool != NULL);
+    DCHECK(pool != nullptr);
     std::unique_lock<std::mutex> l(_lock);
     // this may be double unregistered after pr #3326 by LaiYingChun, so check if the pool is already unregisted
     if (_pools.find(pool) != _pools.end()) {

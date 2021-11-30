@@ -96,8 +96,8 @@ void DppWriter::append_to_buf(const void* ptr, int len) {
 }
 
 void DppWriter::increase_buf(int len) {
-    //increase buf to store NULL bytes
-    //len is the bytes of NULL
+    //increase buf to store nullptr bytes
+    //len is the bytes of nullptr
     if (_pos + len > _end) {
         int cur_len = _pos - _buf;
         int old_buf_len = _end - _buf;
@@ -126,7 +126,7 @@ Status DppWriter::append_one_row(TupleRow* row) {
         if (true == _output_expr_ctxs[i]->is_nullable()) {
             int index = off % 8;
             if (item == nullptr) {
-                //store NULL bytes
+                //store nullptr bytes
                 position[off / 8] |= 1 << (7 - index);
                 off += 1;
                 continue;
@@ -192,7 +192,7 @@ Status DppWriter::append_one_row(TupleRow* row) {
                 return Status::InternalError(ss.str());
             }
             append_to_buf(&len, 2);
-            // passing a NULL pointer to memcpy may be core/
+            // passing a nullptr pointer to memcpy may be core/
             if (len == 0) {
                 break;
             }

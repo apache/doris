@@ -479,7 +479,7 @@ Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
 
 Status FileColumnIterator::seek_to_page_start() {
     if (_page == nullptr) {
-        return Status::NotSupported("Can not seek to page first when page is NULL");
+        return Status::NotSupported("Can not seek to page first when page is nullptr");
     }
     return seek_to_ordinal(_page->first_ordinal);
 }
