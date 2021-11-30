@@ -54,7 +54,7 @@ Status ExplodeSplitTableFunction::process(TupleRow* tuple_row) {
 
     _data.clear();
     StringVal text = _expr_context->root()->get_child(0)->get_string_val(_expr_context, tuple_row);
-    if (text.is_null || text.len == 0) {
+    if (text.is_null) {
         _is_current_empty = true;
         _cur_size = 0;
         _cur_offset = 0;
