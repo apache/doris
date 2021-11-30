@@ -49,7 +49,7 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id,
     if (req_tablet_id == "" && req_schema_hash == "") {
         return Status::OK();
     }
-    
+
     try {
         *tablet_id = std::stoull(req_tablet_id);
         *schema_hash = std::stoul(req_schema_hash);
