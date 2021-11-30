@@ -80,12 +80,6 @@ public class DataSortInfo implements Writable {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        this.sortType = TSortType.findByValue(in.readInt());
-        this.colNum = in.readInt();
-    }
-
     public static DataSortInfo read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, DataSortInfo.class);
