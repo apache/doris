@@ -1566,7 +1566,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 例如。
       schema：k1(int), v1(decimal), v2(varchar(2000))
-      那么一行的内存布局长度为：8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
+      那么一行的内存布局长度为：4(int) + 16(decimal) + 2000(varchar) = 2020 (Bytes)
 
 查看所有类型的内存布局长度，在 mysql-client 中运行 `help create table`。
 
