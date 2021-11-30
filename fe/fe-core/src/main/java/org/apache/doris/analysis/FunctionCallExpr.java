@@ -86,6 +86,9 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
+    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "Currently only support `explode_split`, `explode_bitmap()` " +
+            "and `explode_json_array_xx` table functions";
+
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -690,7 +693,7 @@ public class FunctionCallExpr extends Expr {
                 fn = getTableFunction(fnName.getFunction(), childTypes,
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 if (fn == null) {
-                    throw new AnalysisException("Current only support `explode_split`, `explode_bitmap()` and `explode_json_array_xx` table functions");
+                    throw new AnalysisException(UNKNOWN_TABLE_FUNCTION_MSG);
                 }
             } else {
                 // now first find function in built-in functions
