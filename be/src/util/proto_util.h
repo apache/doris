@@ -28,7 +28,7 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request, Closure*
         brpc_request->row_batch().ByteSizeLong() > config::brpc_request_rowbatch_max_bytes) {
         butil::IOBuf attachment;
         auto row_batch = brpc_request->mutable_row_batch();
-        row_batch->set_transfer_attachment(true);
+        row_batch->set_transfer_by_attachment(true);
         attachment.append(row_batch->tuple_data());
         row_batch->clear_tuple_data();
         row_batch->set_tuple_data("");
@@ -43,7 +43,7 @@ inline void attachment_transfer_request_row_batch(const Params* brpc_request,
     Params* req = const_cast<Params*>(brpc_request);
     if (req->has_row_batch()) {
         auto rb = req->mutable_row_batch();
-        if (rb->transfer_attachment()) {
+        if (rb->transfer_by_attachment()) {
             DCHECK(cntl->request_attachment().size() > 0);
             const butil::IOBuf& io_buf = cntl->request_attachment();
             io_buf.copy_to(rb->mutable_tuple_data(), io_buf.size(), 0);
