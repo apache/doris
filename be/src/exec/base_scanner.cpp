@@ -31,7 +31,7 @@ namespace doris {
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
-                         const std::vector<ExprContext*>& pre_filter_ctxs,
+                         const std::vector<TExpr>& pre_filter_texprs,
                          ScannerCounter* counter)
         : _state(state),
           _params(params),
@@ -47,7 +47,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
 #endif
           _mem_pool(_mem_tracker.get()),
           _dest_tuple_desc(nullptr),
-          _pre_filter_ctxs(pre_filter_ctxs),
+          _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
           _line_counter(0),
           _profile(profile),
@@ -100,6 +100,13 @@ Status BaseScanner::init_expr_ctxes() {
     _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                       std::vector<TupleId>({_params.src_tuple_id}),
                                       std::vector<bool>({false})));
+
+    // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
+    if (!_pre_filter_texprs.empty()) {
+        RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_ctxs));
+        RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
+        RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
+    }
 
     // Construct dest slots information
     _dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
@@ -231,6 +238,12 @@ void BaseScanner::fill_slots_of_columns_from_path(
 void BaseScanner::free_expr_local_allocations() {
     if (++_line_counter % RELEASE_CONTEXT_COUNTER == 0) {
         ExprContext::free_local_allocations(_dest_expr_ctx);
+    }
+}
+
+void BaseScanner::close() {
+    if (!_pre_filter_ctxs.empty()) {
+        Expr::close(_pre_filter_ctxs, _state);
     }
 }
 
