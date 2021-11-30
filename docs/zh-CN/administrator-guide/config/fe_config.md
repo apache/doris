@@ -775,7 +775,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 ### max_query_retry_time
 
-默认值：2
+默认值：1
 
 是否可以动态配置：true
 

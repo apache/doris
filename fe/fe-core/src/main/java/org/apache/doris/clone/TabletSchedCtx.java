@@ -573,7 +573,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
 
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be == null || !be.isAvailable()) {
+            if (be == null || !be.isScheduleAvailable()) {
                 continue;
             }
 

@@ -41,6 +41,7 @@ import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -91,10 +92,12 @@ public class MultiLoadMgr {
                 throw new LabelAlreadyUsedException(label);
             }
             MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
+            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                    new SystemInfoService.BeAvailablePredicate(false, false, true);
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(1,
-                    true, false, ConnectContext.get().getClusterName(), null, null);
+                    beAvailablePredicate, false, ConnectContext.get().getClusterName(), null, null);
             if (backendIds == null) {
-                throw new DdlException("No backend alive.");
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
             multiLoadDesc.setBackendId(backendIds.get(0));
             infoMap.put(multiLabel, multiLoadDesc);

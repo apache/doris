@@ -205,7 +205,7 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             ReplicaState state = replica.getState();
-            if (infoService.checkBackendAlive(replica.getBackendId()) && state.canLoad()) {
+            if (infoService.checkBackendLoadAvailable(replica.getBackendId()) && state.canLoad()) {
                 map.put(replica.getBackendId(), replica.getPathHash());
             }
         }
@@ -431,7 +431,7 @@ public class Tablet extends MetaObject implements Writable {
             }
             aliveAndVersionComplete++;
 
-            if (!backend.isAvailable()) {
+            if (!backend.isScheduleAvailable()) {
                 // this replica is alive, version complete, but backend is not available
                 continue;
             }
@@ -492,7 +492,7 @@ public class Tablet extends MetaObject implements Writable {
             List<Long> replicaBeIds = replicas.stream()
                     .map(Replica::getBackendId).collect(Collectors.toList());
             List<Long> availableBeIds = aliveBeIdsInCluster.stream()
-                    .filter(systemInfoService::checkBackendAvailable)
+                    .filter(systemInfoService::checkBackendScheduleAvailable)
                     .collect(Collectors.toList());
             if (replicaBeIds.containsAll(availableBeIds)
                     && availableBeIds.size() >= replicationNum

@@ -787,7 +787,7 @@ The tryLock timeout configuration of catalog lock.  Normally it does not need to
 
 ### max_query_retry_time
 
-Default：2
+Default：1
 
 IsMutable：true
 
