@@ -655,7 +655,7 @@ public class ExportJob implements Writable {
                 continue;
             }
             long backendId = backend.getId();
-            if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
+            if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                 continue;
             }
 

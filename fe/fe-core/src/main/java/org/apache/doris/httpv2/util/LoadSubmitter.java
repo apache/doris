@@ -137,8 +137,11 @@ public class LoadSubmitter {
         }
 
         private Backend selectOneBackend() throws DdlException {
+            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                    new SystemInfoService.BeAvailablePredicate(false, false, true);
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                    1, true, false, SystemInfoService.DEFAULT_CLUSTER, null, null);
+                    1, beAvailablePredicate, false,
+                    SystemInfoService.DEFAULT_CLUSTER, null, null);
             if (backendIds == null) {
                 throw new DdlException("No alive backend");
             }
