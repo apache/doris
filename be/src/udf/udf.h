@@ -638,14 +638,14 @@ struct StringVal : public AnyVal {
     /// Will create a new StringVal with the given dimension and copy the data from the
     /// parameters. In case of an error will return a nullptr string and set an error on the
     /// function context.
-    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len);
+    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len);
 
     /// Append the passed buffer to this StringVal. Reallocate memory to fit the buffer. If
     /// the memory allocation becomes too large, will set an error on FunctionContext and
     /// return a nullptr string.
-    void append(FunctionContext* ctx, const uint8_t* buf, size_t len);
-    void append(FunctionContext* ctx, const uint8_t* buf, size_t len, const uint8_t* buf2,
-                size_t buf2_len);
+    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
+    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
+                int64_t buf2_len);
 };
 
 struct DecimalV2Val : public AnyVal {
