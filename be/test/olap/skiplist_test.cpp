@@ -262,7 +262,7 @@ private:
 
     std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
-
+    std::shared_ptr<TestComparator> _comparator;
     // SkipList is not protected by _mu.  We just use a single writer
     // thread to modify it.
     SkipList<Key, TestComparator> _list;
@@ -271,11 +271,8 @@ public:
     ConcurrentTest()
             : _mem_tracker(new MemTracker(-1)),
               _mem_pool(new MemPool(_mem_tracker.get())),
-              _list(new TestComparator(), _mem_pool.get(), false) {}
-
-    ~ConcurrentTest() {
-        delete _list;
-    }
+              _comparator(new TestComparator()),
+              _list(_comparator.get(), _mem_pool.get(), false) {}
     
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {
