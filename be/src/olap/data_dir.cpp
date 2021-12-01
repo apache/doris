@@ -146,30 +146,7 @@ Status DataDir::_init_cluster_id() {
         }
     }
 
-    // obtain lock of all cluster id paths
-    FILE* fp = nullptr;
-    fp = fopen(cluster_id_path.c_str(), "r+b");
-    if (fp == nullptr) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(
-                        strings::Substitute("failed to open cluster id file $0", cluster_id_path)),
-                "open file failed");
-    }
-
-    int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
-    if (lock_res < 0) {
-        fclose(fp);
-        fp = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(
-                        strings::Substitute("failed to flock cluster id file $0", cluster_id_path)),
-                "flock file failed");
-    }
-
-    // obtain cluster id of all root paths
-    auto st = _read_cluster_id(cluster_id_path, &_cluster_id);
-    fclose(fp);
-    return st;
+    return Status::OK();
 }
 
 Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id) {
@@ -216,46 +193,6 @@ Status DataDir::_init_capacity() {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
                 "failed to create data root path $0", data_path)), "create_dirs failed");
     }
-
-    FILE* mount_tablet = nullptr;
-    if ((mount_tablet = setmntent(kMtabPath, "r")) == nullptr) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute("setmntent file $0 failed, err=$1", _path,
-                                                    errno_to_string(errno))),
-                "setmntent file failed");
-    }
-
-    bool is_find = false;
-    struct mntent* mount_entry = nullptr;
-    struct mntent ent;
-    char buf[1024];
-    while ((mount_entry = getmntent_r(mount_tablet, &ent, buf, sizeof(buf))) != nullptr) {
-        if (strcmp(_path.c_str(), mount_entry->mnt_dir) == 0 ||
-            strcmp(_path.c_str(), mount_entry->mnt_fsname) == 0) {
-            is_find = true;
-            break;
-        }
-
-        if (stat(mount_entry->mnt_fsname, &s) == 0 && s.st_rdev == mount_device) {
-            is_find = true;
-            break;
-        }
-
-        if (stat(mount_entry->mnt_dir, &s) == 0 && s.st_dev == mount_device) {
-            is_find = true;
-            break;
-        }
-    }
-
-    endmntent(mount_tablet);
-
-    if (!is_find) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute("file system $0 not found", _path)),
-                "find file system failed");
-    }
-
-    _file_system = mount_entry->mnt_fsname;
 
     return Status::OK();
 }
