@@ -20,7 +20,7 @@ package org.apache.doris.manager.agent.command;
 import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.agent.register.AgentContext;
-import org.apache.doris.manager.agent.service.BeService;
+import org.apache.doris.manager.agent.service.BrokerService;
 import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.ITaskHandlerFactory;
 import org.apache.doris.manager.agent.task.QueuedTaskHandlerFactory;
@@ -29,15 +29,15 @@ import org.apache.doris.manager.agent.task.ScriptTaskDesc;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
 import org.apache.doris.manager.agent.task.TaskHook;
-import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BrokerInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandType;
 
 import java.util.Objects;
 
-public class BeInstallCommand extends Command {
-    private BeInstallCommandRequestBody requestBody;
+public class BrokerInstallCommand extends Command {
+    private BrokerInstallCommandRequestBody requestBody;
 
-    public BeInstallCommand(BeInstallCommandRequestBody requestBody) {
+    public BrokerInstallCommand(BrokerInstallCommandRequestBody requestBody) {
         this.requestBody = requestBody;
     }
 
@@ -49,16 +49,16 @@ public class BeInstallCommand extends Command {
             requestBody.setInstallDir(requestBody.getInstallDir().substring(0, requestBody.getInstallDir().length() - 1));
         }
 
-        BeInstallTaskDesc taskDesc = new BeInstallTaskDesc();
+        BrokerInstallTaskDesc taskDesc = new BrokerInstallTaskDesc();
 
         String scriptCmd = AgentConstants.BASH_BIN;
-        scriptCmd += AgentContext.getAgentInstallDir() + "/bin/install_be.sh ";
+        scriptCmd += AgentContext.getAgentInstallDir() + "/bin/install_broker.sh ";
         scriptCmd += " --installDir " + requestBody.getInstallDir();
         scriptCmd += " --url " + requestBody.getPackageUrl();
+
         taskDesc.setScriptCmd(scriptCmd);
         taskDesc.setInstallDir(requestBody.getInstallDir());
-        taskDesc.setCreateBeStorageDir(requestBody.isMkBeStorageDir());
-        return new ScriptTask(taskDesc, new BeInstallTaskHook());
+        return new ScriptTask(taskDesc, new BrokerInstallTaskHook());
     }
 
     @Override
@@ -68,7 +68,7 @@ public class BeInstallCommand extends Command {
 
     @Override
     public CommandType setupCommandType() {
-        return CommandType.INSTALL_BE;
+        return CommandType.INSTALL_BROKER;
     }
 
     private void validCommand() {
@@ -81,9 +81,8 @@ public class BeInstallCommand extends Command {
         }
     }
 
-    private static class BeInstallTaskDesc extends ScriptTaskDesc {
+    private static class BrokerInstallTaskDesc extends ScriptTaskDesc {
         private String installDir;
-        private boolean createBeStorageDir;
 
         public String getInstallDir() {
             return installDir;
@@ -92,25 +91,13 @@ public class BeInstallCommand extends Command {
         public void setInstallDir(String installDir) {
             this.installDir = installDir;
         }
-
-        public boolean isCreateBeStorageDir() {
-            return createBeStorageDir;
-        }
-
-        public void setCreateBeStorageDir(boolean createBeStorageDir) {
-            this.createBeStorageDir = createBeStorageDir;
-        }
     }
 
-    private static class BeInstallTaskHook extends TaskHook<BeInstallTaskDesc> {
+    private static class BrokerInstallTaskHook extends TaskHook<BrokerInstallTaskDesc> {
         @Override
-        public void onSuccess(BeInstallTaskDesc taskDesc) {
-            BeService beService = new BeService(taskDesc.getInstallDir());
-            if (taskDesc.isCreateBeStorageDir()) {
-                beService.createStrorageDir(false);
-            }
-
-            ServiceContext.register(beService);
+        public void onSuccess(BrokerInstallTaskDesc taskDesc) {
+            BrokerService brokerService = new BrokerService(taskDesc.getInstallDir());
+            ServiceContext.register(brokerService);
         }
     }
 }

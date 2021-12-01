@@ -46,6 +46,8 @@ public class CommandResultService {
             case INSTALL_BE:
             case WRITE_BE_CONF:
             case WRITE_FE_CONF:
+            case WRITE_BROKER_CONF:
+            case INSTALL_BROKER:
                 return commandResult;
             case START_FE:
                 return fetchCommandResult(task, CommandType.START_FE);
@@ -55,6 +57,10 @@ public class CommandResultService {
                 return fetchCommandResult(task, CommandType.START_BE);
             case STOP_BE:
                 return fetchCommandResult(task, CommandType.STOP_BE);
+            case START_BROKER:
+                return fetchCommandResult(task, CommandType.START_BROKER);
+            case STOP_BROKER:
+                return fetchCommandResult(task, CommandType.STOP_BROKER);
             default:
                 return null;
         }
@@ -93,12 +99,20 @@ public class CommandResultService {
             health = ServiceContext.getServiceMap().get(ServiceRole.BE).isHealth();
             retCode = !health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
             taskState = !health ? TaskState.FINISHED : TaskState.RUNNING;
+        } else if (CommandType.START_BROKER == commandType) {
+            health = ServiceContext.getServiceMap().get(ServiceRole.BROKER).isHealth();
+            retCode = health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
+            taskState = health ? TaskState.FINISHED : TaskState.RUNNING;
+        } else if (CommandType.STOP_BROKER == commandType) {
+            health = ServiceContext.getServiceMap().get(ServiceRole.BROKER).isHealth();
+            retCode = !health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
+            taskState = !health ? TaskState.FINISHED : TaskState.RUNNING;
         }
 
-        if (health && (CommandType.START_FE == commandType || CommandType.START_BE == commandType)) {
+        if (health && (CommandType.START_FE == commandType || CommandType.START_BE == commandType || CommandType.START_BROKER == commandType)) {
             taskFinalStatus.put(task.getTaskId(), AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE);
         }
-        if (!health && (CommandType.STOP_FE == commandType || CommandType.STOP_BE == commandType)) {
+        if (!health && (CommandType.STOP_FE == commandType || CommandType.STOP_BE == commandType || CommandType.STOP_BROKER == commandType)) {
             taskFinalStatus.put(task.getTaskId(), AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE);
         }
 
