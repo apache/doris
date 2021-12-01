@@ -20,12 +20,10 @@
 
 #include <stdlib.h>
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/thread/thread.hpp>
 #include <functional>
 #include <list>
 #include <mutex>
+#include <thread>
 
 #include "common/status.h"
 
@@ -86,7 +84,7 @@ public:
     // that have 1+ thread usage).
     class ResourcePool {
     public:
-        virtual ~ResourcePool(){};
+        virtual ~ResourcePool() {};
         // Acquire a thread for the pool.  This will always succeed; the
         // pool will go over the quota.
         // Pools should use this API to reserve threads they need in order

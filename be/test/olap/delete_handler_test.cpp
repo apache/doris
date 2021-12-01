@@ -430,7 +430,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(tablet.get() != NULL);
+        ASSERT_TRUE(tablet.get() != nullptr);
         _tablet_path = tablet->tablet_path_desc().filepath;
     }
 

@@ -61,6 +61,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TDescriptorTable;
@@ -344,6 +345,7 @@ public class Coordinator {
             }
             this.exportFiles.clear();
             this.needCheckBackendExecStates.clear();
+            this.alreadySentBackendIds.clear();
         } finally {
             lock.unlock();
         }
@@ -541,6 +543,7 @@ public class Coordinator {
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
+                    tParam.setBackendId(execState.backend.getId());
 
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
@@ -920,7 +923,7 @@ public class Coordinator {
         Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(
                 host.getHostname(), host.getPort());
         if (backend == null) {
-            throw new UserException("there is no scanNode Backend");
+            throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
         TNetworkAddress dest = new TNetworkAddress(backend.getHost(), backend.getBeRpcPort());
         return dest;
@@ -930,7 +933,7 @@ public class Coordinator {
         Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(
                 host.getHostname(), host.getPort());
         if (backend == null) {
-            throw new UserException("there is no scanNode Backend");
+            throw new UserException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
         }
         if (backend.getBrpcPort() < 0) {
             return null;
@@ -1038,8 +1041,8 @@ public class Coordinator {
                     execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
                 }
                 if (execHostport == null) {
-                    LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend");
-                    throw new UserException("there is no scanNode Backend");
+                    LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend available");
+                    throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
                 }
                 if (backendIdRef.getRef() != null) {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
@@ -1167,7 +1170,7 @@ public class Coordinator {
                     execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
                 }
                 if (execHostport == null) {
-                    throw new UserException("there is no scanNode Backend");
+                    throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
                 }
                 if (backendIdRef.getRef() != null) {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
@@ -1411,17 +1414,45 @@ public class Coordinator {
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
                                           HashMap<TNetworkAddress, Long> assignedBytesPerHost,
                                           Reference<Long> backendIdRef) throws UserException {
+        if (!Config.enable_local_replica_selection) {
+            return selectBackendsByRoundRobin(seqLocation.getLocations(), assignedBytesPerHost, backendIdRef);
+        }
+
+        List<TScanRangeLocation> localLocations = new ArrayList<>();
+        List<TScanRangeLocation> nonlocalLocations = new ArrayList<>();
+        long localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
+        for (final TScanRangeLocation location : seqLocation.getLocations()) {
+            if (location.backend_id == localBeId) {
+                localLocations.add(location);
+            } else {
+                nonlocalLocations.add(location);
+            }
+        }
+
+        try {
+            return selectBackendsByRoundRobin(localLocations, assignedBytesPerHost, backendIdRef);
+        } catch (UserException ue) {
+            if (!Config.enable_local_replica_selection_fallback) {
+                throw ue;
+            }
+            return selectBackendsByRoundRobin(nonlocalLocations, assignedBytesPerHost, backendIdRef);
+        }
+    }
+
+    public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> locations,
+                                                         HashMap<TNetworkAddress, Long> assignedBytesPerHost,
+                                                         Reference<Long> backendIdRef) throws UserException {
         Long minAssignedBytes = Long.MAX_VALUE;
         TScanRangeLocation minLocation = null;
         Long step = 1L;
-        for (final TScanRangeLocation location : seqLocation.getLocations()) {
+        for (final TScanRangeLocation location : locations) {
             Long assignedBytes = findOrInsert(assignedBytesPerHost, location.server, 0L);
             if (assignedBytes < minAssignedBytes) {
                 minAssignedBytes = assignedBytes;
                 minLocation = location;
             }
         }
-        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, seqLocation.locations, this.idToBackend, backendIdRef);
+        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, locations, this.idToBackend, backendIdRef);
         if (assignedBytesPerHost.containsKey(location.server)) {
             assignedBytesPerHost.put(location.server,
                     assignedBytesPerHost.get(location.server) + step);
@@ -1508,8 +1539,8 @@ public class Coordinator {
 
         if (params.isSetLoadedRows()) {
             Catalog.getCurrentCatalog().getLoadManager().updateJobProgress(
-                    jobId, params.backend_id, params.query_id, params.fragment_instance_id, params.loaded_rows,
-                    params.done);
+                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
         }
     }
 
@@ -1688,7 +1719,7 @@ public class Coordinator {
             Reference<Long> backendIdRef = new Reference<Long>();
             TNetworkAddress execHostPort = SimpleScheduler.getHost(buckendId, seqLocation.locations, idToBackend, backendIdRef);
             if (execHostPort == null) {
-                throw new UserException("there is no scanNode Backend");
+                throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
             }
             //the backend with buckendId is not alive, chose another new backend
             if (backendIdRef.getRef() != buckendId) {

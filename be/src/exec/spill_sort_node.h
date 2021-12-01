@@ -65,7 +65,7 @@ private:
     // BEGIN: Members that must be reset()
 
     // Object used for external sorting.
-    boost::scoped_ptr<SpillSorter> _sorter;
+    std::unique_ptr<SpillSorter> _sorter;
 
     // Keeps track of the number of rows skipped for handling _offset.
     int64_t _num_rows_skipped;

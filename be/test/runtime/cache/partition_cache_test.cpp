@@ -17,15 +17,13 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/shared_ptr.hpp>
-
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
+#include "test_util/test_util.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -84,10 +82,11 @@ void set_sql_key(PUniqueId* sql_key, int64 hi, int64 lo) {
     sql_key->set_lo(lo);
 }
 
-PCacheStatus PartitionCacheTest::init_batch_data(int sql_num, int part_begin, int part_num, CacheType cache_type) {
+PCacheStatus PartitionCacheTest::init_batch_data(int sql_num, int part_begin, int part_num,
+                                                 CacheType cache_type) {
     LOG(WARNING) << "init data, sql_num:" << sql_num << ",part_num:" << part_num;
-    PUpdateCacheRequest* up_req = NULL;
-    PCacheResponse* up_res = NULL;
+    PUpdateCacheRequest* up_req = nullptr;
+    PCacheResponse* up_res = nullptr;
     PCacheStatus st = PCacheStatus::DEFAULT;
     for (int i = 1; i < sql_num + 1; i++) {
         LOG(WARNING) << "Sql:" << i;
@@ -123,7 +122,8 @@ TEST_F(PartitionCacheTest, update_data) {
 
 TEST_F(PartitionCacheTest, update_over_partition) {
     init_default();
-    PCacheStatus st = init_batch_data(1, 1, config::query_cache_max_partition_count + 1, CacheType::PARTITION_CACHE);
+    PCacheStatus st = init_batch_data(1, 1, config::query_cache_max_partition_count + 1,
+                                      CacheType::PARTITION_CACHE);
     ASSERT_TRUE(st == PCacheStatus::PARAM_ERROR);
     clear();
 }
@@ -277,7 +277,8 @@ TEST_F(PartitionCacheTest, fetch_data_overdue) {
 
 TEST_F(PartitionCacheTest, prune_data) {
     init(1, 1);
-    init_batch_data(LOOP_LESS_OR_MORE(10, 129), 1, 1024, CacheType::PARTITION_CACHE); // 16*1024*128=2M
+    init_batch_data(LOOP_LESS_OR_MORE(10, 129), 1, 1024,
+                    CacheType::PARTITION_CACHE);          // 16*1024*128=2M
     ASSERT_LE(_cache->get_cache_size(), 1 * 1024 * 1024); //cache_size <= 1M
     clear();
 }

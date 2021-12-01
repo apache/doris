@@ -97,7 +97,7 @@ struct MinState {
 // Initialize the MinState scratch space
 void MinInit(FunctionContext* context, BufferVal* val) {
     MinState* state = reinterpret_cast<MinState*>(*val);
-    state->value = NULL;
+    state->value = nullptr;
     state->buffer_len = 0;
 }
 
@@ -109,7 +109,7 @@ void MinUpdate(FunctionContext* context, const StringVal& input, BufferVal* val)
 
     MinState* state = reinterpret_cast<MinState*>(*val);
 
-    if (state->value == NULL) {
+    if (state->value == nullptr) {
         state->set(context, input);
         return;
     }
@@ -130,7 +130,7 @@ const BufferVal MinSerialize(FunctionContext* context, const BufferVal& intermed
 void MinMerge(FunctionContext* context, const BufferVal& src, BufferVal* dst) {
     const MinState* src_state = reinterpret_cast<const MinState*>(src);
 
-    if (src_state->value == NULL) {
+    if (src_state->value == nullptr) {
         return;
     }
 
@@ -141,7 +141,7 @@ void MinMerge(FunctionContext* context, const BufferVal& src, BufferVal* dst) {
 StringVal MinFinalize(FunctionContext* context, const BufferVal& val) {
     const MinState* state = reinterpret_cast<const MinState*>(val);
 
-    if (state->value == NULL) {
+    if (state->value == nullptr) {
         return StringVal::null();
     }
 
@@ -164,7 +164,7 @@ void XorInit(FunctionContext* context, BigIntVal* val) {
 
 void XorUpdate(FunctionContext* context, const double* input, BigIntVal* val) {
     // BigIntVal is the same ptr as what was passed to CountInit
-    if (input == NULL) {
+    if (input == nullptr) {
         return;
     }
 
@@ -197,7 +197,7 @@ void DistinctEstimateInit(FunctionContext* context, StringVal* val) {
 }
 
 void DistinctEstimatUpdate(FunctionContext* context, const int64_t* input, StringVal* val) {
-    if (input == NULL) {
+    if (input == nullptr) {
         return;
     }
 
@@ -211,12 +211,12 @@ void DistinctEstimatUpdate(FunctionContext* context, const int64_t* input, Strin
 
 StringVal DistinctEstimatSerialize(FunctionContext* context, const StringVal& intermediate) {
     int compressed_size = 0;
-    uint8_t* result = NULL; // SnappyCompress(intermediate.ptr, intermediate.len);
+    uint8_t* result = nullptr; // SnappyCompress(intermediate.ptr, intermediate.len);
     return StringVal(result, compressed_size);
 }
 
 void DistinctEstimateMerge(FunctionContext* context, const StringVal& src, StringVal* dst) {
-    uint8_t* src_uncompressed = NULL; // SnappyUncompress(src.ptr, src.len);
+    uint8_t* src_uncompressed = nullptr; // SnappyUncompress(src.ptr, src.len);
 
     for (int i = 0; i < 256; ++i) {
         dst->ptr[i] ^= src_uncompressed[i];
@@ -231,7 +231,7 @@ BigIntVal DistinctEstimateFinalize(FunctionContext* context, const StringVal& va
 }
 
 TEST(CountTest, Basic) {
-    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(CountInit, CountUpdate, CountMerge, NULL,
+    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(CountInit, CountUpdate, CountMerge, nullptr,
                                                       CountFinalize);
     std::vector<IntVal> no_nulls;
     no_nulls.resize(1000);
@@ -246,16 +246,16 @@ TEST(CountMultiArgTest, Basic) {
     no_nulls.resize(num);
 
     UdaTestHarness2<BigIntVal, BigIntVal, IntVal, IntVal> test2(CountInit, Count2Update, CountMerge,
-                                                                NULL, CountFinalize);
+                                                                nullptr, CountFinalize);
     EXPECT_TRUE(test2.execute(no_nulls, no_nulls, BigIntVal(2 * num)));
     EXPECT_FALSE(test2.execute(no_nulls, no_nulls, BigIntVal(100)));
 
     UdaTestHarness3<BigIntVal, BigIntVal, IntVal, IntVal, IntVal> test3(
-            CountInit, Count3Update, CountMerge, NULL, CountFinalize);
+            CountInit, Count3Update, CountMerge, nullptr, CountFinalize);
     EXPECT_TRUE(test3.execute(no_nulls, no_nulls, no_nulls, BigIntVal(3 * num)));
 
     UdaTestHarness4<BigIntVal, BigIntVal, IntVal, IntVal, IntVal, IntVal> test4(
-            CountInit, Count4Update, CountMerge, NULL, CountFinalize);
+            CountInit, Count4Update, CountMerge, nullptr, CountFinalize);
     EXPECT_TRUE(test4.execute(no_nulls, no_nulls, no_nulls, no_nulls, BigIntVal(4 * num)));
 }
 
@@ -272,7 +272,7 @@ bool FuzzyCompare(const BigIntVal& r1, const BigIntVal& r2) {
 }
 
 TEST(CountTest, FuzzyEquals) {
-    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(CountInit, CountUpdate, CountMerge, NULL,
+    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(CountInit, CountUpdate, CountMerge, nullptr,
                                                       CountFinalize);
     std::vector<IntVal> no_nulls;
     no_nulls.resize(1000);

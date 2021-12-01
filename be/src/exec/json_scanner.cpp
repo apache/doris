@@ -38,8 +38,8 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
                          const std::vector<TBrokerRangeDesc>& ranges,
                          const std::vector<TNetworkAddress>& broker_addresses,
-                         const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
+                         const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
@@ -247,6 +247,7 @@ Status JsonScanner::open_json_reader() {
 }
 
 void JsonScanner::close() {
+    BaseScanner::close();
     if (_cur_json_reader != nullptr) {
         delete _cur_json_reader;
         _cur_json_reader = nullptr;

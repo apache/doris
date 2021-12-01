@@ -88,7 +88,7 @@ class MemTracker;
 ///    delete p;
 class MemPool {
 public:
-    /// 'tracker' tracks the amount of memory allocated by this pool. Must not be NULL.
+    /// 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
     MemPool(MemTracker* mem_tracker)
             : current_chunk_idx_(-1),
               next_chunk_size_(INITIAL_CHUNK_SIZE),
@@ -114,8 +114,8 @@ public:
     }
 
     /// Same as Allocate() except the mem limit is checked before the allocation and
-    /// this call will fail (returns NULL) if it does.
-    /// The caller must handle the NULL case. This should be used for allocations
+    /// this call will fail (returns nullptr) if it does.
+    /// The caller must handle the nullptr case. This should be used for allocations
     /// where the size can be very big to bound the amount by which we exceed mem limits.
     uint8_t* try_allocate(int64_t size) { return allocate<true>(size, DEFAULT_ALIGNMENT); }
 
@@ -179,7 +179,7 @@ private:
         ChunkInfo() : allocated_bytes(0) {}
     };
 
-    /// A static field used as non-NULL pointer for zero length allocations. NULL is
+    /// A static field used as non-nullptr pointer for zero length allocations. nullptr is
     /// reserved for allocation failures. It must be as aligned as max_align_t for
     /// TryAllocateAligned().
     static uint32_t k_zero_length_region_;
@@ -225,12 +225,12 @@ private:
             }
         }
 
-        // If we couldn't allocate a new chunk, return NULL. malloc() guarantees alignment
+        // If we couldn't allocate a new chunk, return nullptr. malloc() guarantees alignment
         // of alignof(std::max_align_t), so we do not need to do anything additional to
         // guarantee alignment.
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
-        if (UNLIKELY(!find_chunk(size, CHECK_LIMIT_FIRST))) return NULL;
+        if (UNLIKELY(!find_chunk(size, CHECK_LIMIT_FIRST))) return nullptr;
 
         ChunkInfo& info = chunks_[current_chunk_idx_];
         uint8_t* result = info.chunk.data + info.allocated_bytes;

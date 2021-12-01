@@ -76,6 +76,7 @@ OLAPStatus RowsetConverter::_convert_rowset(const RowsetMetaSharedPtr& src_rowse
         reader_context.return_columns = &cids;
         reader_context.seek_columns = &cids;
         reader_context.delete_handler = &delete_handler;
+        reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
         RETURN_NOT_OK(rowset_reader->init(&reader_context));
         // convert
         RowBlock* row_block = nullptr;

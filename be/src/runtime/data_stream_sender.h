@@ -195,7 +195,7 @@ protected:
         int64_t _packet_seq;
 
         // we're accumulating rows into this batch
-        boost::scoped_ptr<RowBatch> _batch;
+        std::unique_ptr<RowBatch> _batch;
 
         bool _need_close;
         int _be_number;

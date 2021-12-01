@@ -48,6 +48,7 @@ import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 
 import java.util.List;
 import java.util.Map;
@@ -161,6 +162,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 Catalog.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
             } catch (DdlException e) {
                 colocateIndex.setErrMsgForGroup(groupId, e.getMessage());
+                continue;
             }
             Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
 
@@ -220,7 +222,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 continue;
             }
 
-            boolean isGroupStable = true;
+            String unstableReason = null;
             OUT: for (Long tableId : tableIds) {
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
@@ -244,8 +246,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 Tablet tablet = index.getTablet(tabletId);
                                 TabletStatus st = tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, bucketsSeq);
                                 if (st != TabletStatus.HEALTHY) {
-                                    isGroupStable = false;
-                                    LOG.debug("get unhealthy tablet {} in colocate table. status: {}", tablet.getId(), st);
+                                    unstableReason = String.format("get unhealthy tablet %d in colocate table. status: %s", tablet.getId(), st);
+                                    LOG.debug(unstableReason);
 
                                     if (!tablet.readyToBeRepaired(Priority.HIGH)) {
                                         continue;
@@ -279,10 +281,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             } // end for tables
 
             // mark group as stable or unstable
-            if (isGroupStable) {
+            if (Strings.isNullOrEmpty(unstableReason)) {
                 colocateIndex.markGroupStable(groupId, true);
             } else {
-                colocateIndex.markGroupUnstable(groupId, true);
+                colocateIndex.markGroupUnstable(groupId, unstableReason, true);
             }
         } // end for groups
     }
@@ -470,10 +472,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             for (Long beId : backendIds) {
                 Backend be = infoService.getBackend(beId);
                 if (be == null) {
-                    LOG.info("backend {} does not exist", beId);
-                    return null;
+                    // For non-exist BE(maybe dropped), add a ip 0.0.0.0
+                    // And the following logic will handle the non-exist host.
+                    hosts.add(Backend.DUMMY_IP);
+                } else {
+                    hosts.add(be.getHost());
                 }
-                hosts.add(be.getHost());
             }
             hostsPerBucketSeq.add(hosts);
         }
@@ -571,7 +575,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             return false;
         } else if (!be.getTag().equals(tag) || excludedBeIds.contains(be.getId())) {
             return false;
-        } else if (!be.isAvailable()) {
+        } else if (!be.isScheduleAvailable()) {
             // 1. BE is dead for a long time
             // 2. BE is under decommission
             if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > Config.tablet_repair_delay_factor_second * 1000 * 2)

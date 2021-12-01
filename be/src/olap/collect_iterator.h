@@ -72,11 +72,13 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(const bool reverse = false) : _reverse(reverse) {}
+        LevelIteratorComparator(const bool reverse = false, int sequence_id_idx = -1) :
+            _reverse(reverse), _sequence_id_idx(sequence_id_idx) {}
         bool operator()(const LevelIterator* a, const LevelIterator* b);
 
     private:
         bool _reverse;
+        int _sequence_id_idx;
     };
 
     typedef std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
@@ -116,7 +118,7 @@ private:
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(const std::list<LevelIterator*>& children, bool merge, bool reverse);
+        Level1Iterator(std::list<LevelIterator*>, bool, bool, int);
 
         OLAPStatus init() override;
 
@@ -154,6 +156,7 @@ private:
         std::unique_ptr<MergeHeap> _heap;
         // used when `_merge == false`
         int _child_idx = 0;
+        int _sequence_id_idx = -1;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;

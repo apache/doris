@@ -45,8 +45,6 @@ public:
     virtual bool find(void* data) = 0;
     // use in vectorize execute engine
     virtual bool find(void* data, size_t) = 0;
-
-    static HybridSetBase* create_set(PrimitiveType type);
     class IteratorBase {
     public:
         IteratorBase() {}

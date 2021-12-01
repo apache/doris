@@ -26,8 +26,8 @@ ReadOnlyFileStream::ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer**
                                        Decompressor decompressor, uint32_t compress_buffer_size,
                                        OlapReaderStatistics* stats)
         : _file_cursor(handler, 0, 0),
-          _compressed_helper(NULL),
-          _uncompressed(NULL),
+          _compressed_helper(nullptr),
+          _uncompressed(nullptr),
           _shared_buffer(shared_buffer),
           _decompressor(decompressor),
           _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
@@ -38,8 +38,8 @@ ReadOnlyFileStream::ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer**
                                        uint64_t offset, uint64_t length, Decompressor decompressor,
                                        uint32_t compress_buffer_size, OlapReaderStatistics* stats)
         : _file_cursor(handler, offset, length),
-          _compressed_helper(NULL),
-          _uncompressed(NULL),
+          _compressed_helper(nullptr),
+          _uncompressed(nullptr),
           _shared_buffer(shared_buffer),
           _decompressor(decompressor),
           _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
@@ -48,11 +48,11 @@ ReadOnlyFileStream::ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer**
 
 OLAPStatus ReadOnlyFileStream::_assure_data() {
     // if still has data in uncompressed
-    if (OLAP_LIKELY(_uncompressed != NULL && _uncompressed->remaining() > 0)) {
+    if (OLAP_LIKELY(_uncompressed != nullptr && _uncompressed->remaining() > 0)) {
         return OLAP_SUCCESS;
     } else if (_file_cursor.eof()) {
         VLOG_TRACE << "STREAM EOF. length=" << _file_cursor.length()
-                 << ", used=" << _file_cursor.position();
+                   << ", used=" << _file_cursor.position();
         return OLAP_ERR_COLUMN_STREAM_EOF;
     }
 
@@ -103,17 +103,17 @@ OLAPStatus ReadOnlyFileStream::seek(PositionProvider* position) {
     // 先seek到解压前的位置，也就是writer中写入的spilled byte
     int64_t compressed_position = position->get_next();
     int64_t uncompressed_bytes = position->get_next();
-    if (_current_compress_position == compressed_position && NULL != _uncompressed) {
+    if (_current_compress_position == compressed_position && nullptr != _uncompressed) {
         /*
          * 多数情况下不会出现_uncompressed为NULL的情况，
-         * 但varchar类型的数据可能会导致查询中出现_uncompressed == NULL 。
+         * 但varchar类型的数据可能会导致查询中出现_uncompressed == nullptr 。
          * 假设查询恰好命中A压缩块的最后一行, 而相临下一个
-         * 中压缩块varchar全是空串，会导致_uncompressed == NULL。
+         * 中压缩块varchar全是空串，会导致_uncompressed == nullptr。
          * 如果后面的segmentreader中还需要再次遍历A压缩块，会出现空指针。
          */
     } else {
         _file_cursor.seek(compressed_position);
-        _uncompressed = NULL;
+        _uncompressed = nullptr;
 
         res = _assure_data();
         if (OLAP_LIKELY(OLAP_SUCCESS == res)) {

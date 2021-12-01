@@ -89,8 +89,8 @@ public:
     /// the period they were collected at.
     /// If lock is non-null, the lock will be taken before returning. The caller
     /// must unlock it.
-    const T* GetSamples(int* num_samples, int* period, SpinLock** lock = NULL) const {
-        if (lock != NULL) {
+    const T* GetSamples(int* num_samples, int* period, SpinLock** lock = nullptr) const {
+        if (lock != nullptr) {
             lock_.lock();
             *lock = &lock_;
         }

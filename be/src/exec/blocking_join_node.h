@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread.hpp>
+#include <future>
 #include <string>
+#include <thread>
 
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -60,13 +60,13 @@ public:
 private:
     const std::string _node_name;
     TJoinOp::type _join_op;
-    bool _eos;                              // if true, nothing left to return in get_next()
-    boost::scoped_ptr<MemPool> _build_pool; // holds everything referenced from build side
+    bool _eos;                            // if true, nothing left to return in get_next()
+    std::unique_ptr<MemPool> _build_pool; // holds everything referenced from build side
 
     // _left_batch must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
-    boost::scoped_ptr<RowBatch> _left_batch;
+    std::unique_ptr<RowBatch> _left_batch;
     int _left_batch_pos; // current scan pos in _left_batch
     bool _left_side_eos; // if true, left child has no more rows to process
     TupleRow* _current_left_child_row;
@@ -91,7 +91,7 @@ private:
 
     // Init the build-side state for a new left child row (e.g. hash table iterator or list
     // iterator) given the first row. Used in open() to prepare for get_next().
-    // A NULL ptr for first_left_child_row indicates the left child eos.
+    // A nullptr ptr for first_left_child_row indicates the left child eos.
     virtual void init_get_next(TupleRow* first_left_child_row) = 0;
 
     // We parallelize building the build-side with Opening the
@@ -110,7 +110,7 @@ private:
     // Returns a debug string for the left child's 'row'. They have tuple ptrs that are
     // uninitialized; the left child only populates the tuple ptrs it is responsible
     // for.  This function outputs just the row values and leaves the build
-    // side values as NULL.
+    // side values as nullptr.
     // This is only used for debugging and outputting the left child rows before
     // doing the join.
     std::string get_left_child_row_string(TupleRow* row);
@@ -125,7 +125,7 @@ private:
 private:
     // Supervises ConstructBuildSide in a separate thread, and returns its status in the
     // promise parameter.
-    void build_side_thread(RuntimeState* state, boost::promise<Status>* status);
+    void build_side_thread(RuntimeState* state, std::promise<Status>* status);
 };
 
 } // namespace doris

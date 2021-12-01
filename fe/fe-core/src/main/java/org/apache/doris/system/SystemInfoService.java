@@ -71,6 +71,32 @@ public class SystemInfoService {
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
+    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG = "No backend load available.";
+
+    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
+
+    public static class BeAvailablePredicate {
+        private boolean scheduleAvailable;
+
+        private boolean queryAvailable;
+
+        private boolean loadAvailable;
+
+        public BeAvailablePredicate(boolean scheduleAvailable, boolean queryAvailable, boolean loadAvailable) {
+            this.scheduleAvailable = scheduleAvailable;
+            this.queryAvailable = queryAvailable;
+            this.loadAvailable = loadAvailable;
+        }
+
+        public boolean isMatch(Backend backend) {
+            if (scheduleAvailable && !backend.isScheduleAvailable() || queryAvailable && !backend.isQueryAvailable() ||
+                    loadAvailable && !backend.isLoadAvailable()) {
+                return false;
+            }
+            return true;
+        }
+    }
+
     private volatile ImmutableMap<Long, Backend> idToBackendRef;
     private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef;
 
@@ -255,9 +281,25 @@ public class SystemInfoService {
         return idToBackendRef.get(backendId);
     }
 
-    public boolean checkBackendAvailable(long backendId) {
+    public boolean checkBackendLoadAvailable(long backendId) {
         Backend backend = idToBackendRef.get(backendId);
-        if (backend == null || !backend.isAvailable()) {
+        if (backend == null || !backend.isLoadAvailable()) {
+            return false;
+        }
+        return true;
+    }
+
+    public boolean checkBackendQueryAvailable(long backendId) {
+        Backend backend = idToBackendRef.get(backendId);
+        if (backend == null || !backend.isQueryAvailable()) {
+            return false;
+        }
+        return true;
+    }
+
+    public boolean checkBackendScheduleAvailable(long backendId) {
+        Backend backend = idToBackendRef.get(backendId);
+        if (backend == null || !backend.isScheduleAvailable()) {
             return false;
         }
         return true;
@@ -744,9 +786,10 @@ public class SystemInfoService {
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
+        BeAvailablePredicate beAvailablePredicate = new BeAvailablePredicate(true, false, false);
         for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
             List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(entry.getValue(),
-                    true, true, clusterName, storageMedium, entry.getKey());
+                    beAvailablePredicate, true, clusterName, storageMedium, entry.getKey());
             if (beIds == null) {
                 throw new DdlException("Failed to find enough host with storage medium and tag("
                         + (storageMedium == null ? "NaN" : storageMedium) + "/" + entry.getKey()
@@ -759,8 +802,9 @@ public class SystemInfoService {
         return chosenBackendIds;
     }
 
-    public List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, boolean needAlive, boolean isCreate,
-                                                               String clusterName, TStorageMedium storageMedium, Tag tag) {
+    public List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, BeAvailablePredicate beAvailablePredicate,
+                                                               boolean isCreate, String clusterName,
+                                                               TStorageMedium storageMedium, Tag tag) {
         Stream<Backend> beStream = getClusterBackends(clusterName).stream();
         if (storageMedium == null) {
             beStream = beStream.filter(v -> !v.diskExceedLimit());
@@ -771,14 +815,15 @@ public class SystemInfoService {
             beStream = beStream.filter(v -> v.getTag().equals(tag));
         }
         final List<Backend> backends = beStream.collect(Collectors.toList());
-        return seqChooseBackendIds(backendNum, needAlive, isCreate, clusterName, backends);
+        return seqChooseBackendIds(backendNum, beAvailablePredicate, isCreate, clusterName, backends);
     }
 
     // choose backends by round robin
     // return null if not enough backend
     // use synchronized to run serially
-    public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean needAlive, boolean isCreate,
-                                                       String clusterName, final List<Backend> srcBackends) {
+    public synchronized List<Long> seqChooseBackendIds(int backendNum, BeAvailablePredicate beAvailablePredicate,
+                                                       boolean isCreate, String clusterName,
+                                                       final List<Backend> srcBackends) {
         long lastBackendId;
 
         if (clusterName.equals(DEFAULT_CLUSTER)) {
@@ -862,10 +907,8 @@ public class SystemInfoService {
                 break;
             }
 
-            if (needAlive) {
-                if (!backend.isAlive() || backend.isDecommissioned()) {
-                    continue;
-                }
+            if (!beAvailablePredicate.isMatch(backend)) {
+                continue;
             }
 
             long backendId = backend.getId();
@@ -1202,10 +1245,31 @@ public class SystemInfoService {
             backends.add(be);
         }
 
-        Tag tag = alterClause.getTag();
         for (Backend be : backends) {
-            if (!be.getTag().equals(tag)) {
-                be.setTag(tag);
+            boolean shouldModify = false;
+            if (alterClause.getTag() != null) {
+                Tag tag = alterClause.getTag();
+                if (!be.getTag().equals(tag)) {
+                    be.setTag(tag);
+                    shouldModify = true;
+                }
+            }
+
+            if (alterClause.isQueryDisabled() != null) {
+                if (!alterClause.isQueryDisabled().equals(be.isQueryDisabled())) {
+                    be.setQueryDisabled(alterClause.isQueryDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (alterClause.isLoadDisabled() != null) {
+                if (!alterClause.isLoadDisabled().equals(be.isLoadDisabled())) {
+                    be.setLoadDisabled(alterClause.isLoadDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (shouldModify) {
                 Catalog.getCurrentCatalog().getEditLog().logModifyBackend(be);
                 LOG.info("finished to modify backend {} ", be);
             }
@@ -1215,6 +1279,8 @@ public class SystemInfoService {
     public void replayModifyBackend(Backend backend) {
         Backend memBe = getBackend(backend.getId());
         memBe.setTag(backend.getTag());
+        memBe.setQueryDisabled(backend.isQueryDisabled());
+        memBe.setLoadDisabled(backend.isLoadDisabled());
         LOG.debug("replay modify backend: {}", backend);
     }
 

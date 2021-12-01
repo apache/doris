@@ -97,7 +97,7 @@ public:
     void print_position_debug_info() {
         VLOG_TRACE << "compress: " << _spilled_bytes;
 
-        if (_current != NULL) {
+        if (_current != nullptr) {
             VLOG_TRACE << "uncompress=" << (_current->position() - sizeof(StreamHead));
         } else {
             VLOG_TRACE << "uncompress 0";

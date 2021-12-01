@@ -36,7 +36,7 @@ namespace doris {
 static const int RES_BUF_SIZE = 100 * 1024 * 1024;
 static char res_buf[RES_BUF_SIZE];
 
-boost::shared_ptr<DorisScanRange> construct_scan_ranges() {
+std::shared_ptr<DorisScanRange> construct_scan_ranges() {
     TPaloScanRange doris_scan_range;
     TNetworkAddress host;
     host.__set_hostname("host");
@@ -53,7 +53,7 @@ boost::shared_ptr<DorisScanRange> construct_scan_ranges() {
     key_range.__set_end_key(65535);
     key_range.__set_column_name("UserId");
     doris_scan_range.partition_column_ranges.push_back(key_range);
-    boost::shared_ptr<DorisScanRange> scan_range(new DorisScanRange(doris_scan_range));
+    std::shared_ptr<DorisScanRange> scan_range(new DorisScanRange(doris_scan_range));
     return scan_range;
 }
 

@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.mysql.MysqlProto;
@@ -173,7 +174,7 @@ public class ConnectScheduler {
                 if (registerConnection(context)) {
                     MysqlProto.sendResponsePacket(context);
                 } else {
-                    context.getState().setError("Reach limit of connections");
+                    context.getState().setError(ErrorCode.ERR_USER_LIMIT_REACHED, "Reach limit of connections");
                     MysqlProto.sendResponsePacket(context);
                     return;
                 }

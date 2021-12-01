@@ -104,7 +104,7 @@ public:
             return _uncompressed->array(offset);
         }
 
-        return NULL;
+        return nullptr;
     }
 
 private:
@@ -132,11 +132,11 @@ public:
     InStreamBufferWrapper(InStream* input) : std::streambuf(), _stream(input), _skip_size(0) {}
     virtual ~InStreamBufferWrapper() {}
     virtual int_type underflow() {
-        if (NULL != _stream) {
+        if (nullptr != _stream) {
             if (OLAP_SUCCESS == _stream->skip(_skip_size)) {
                 char* buf = const_cast<char*>(_stream->available_buffer());
 
-                if (NULL != buf) {
+                if (nullptr != buf) {
                     size_t read_length = _stream->available();
                     setg(buf, buf, buf + read_length);
                     _skip_size = read_length;

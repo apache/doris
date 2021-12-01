@@ -217,15 +217,12 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
-    title: "性能测试和最佳实践",
-    directoryPath: "best-practices/",
+    title: "性能测试及示例",
+    directoryPath: "benchmark/",
     children: [
       "star-schema-benchmark",
-      "fe-load-balance",
       "systemd",
-      "samples",
-      "datax-doris-writer",
-      "flink-cdc-to-doris"
+      "samples"
     ],
   },
   {
@@ -236,6 +233,7 @@ module.exports = [
       "doris-on-es",
       "logstash",
       "odbc-of-doris",
+      "hive-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
@@ -637,7 +635,16 @@ module.exports = [
         "be-vscode-dev",
         "java-format-code",
         "cpp-format-code",
-        "How-to-Share-blogs"
+        "How-to-Share-blogs",
+	"commit-format-specification",
+		"minidump"
+    ],
+  },
+  {
+    title: "FAQ 常见问题",
+    directoryPath: "faq/",
+    children: [
+        "faq"
     ],
   },
   {

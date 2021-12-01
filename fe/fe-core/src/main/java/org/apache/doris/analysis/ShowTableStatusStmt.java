@@ -88,7 +88,7 @@ public class ShowTableStatusStmt extends ShowStmt {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db, PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), db);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), db);
         }
     }
 

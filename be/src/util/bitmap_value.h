@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_UTIL_BITMAP_VALUE_H
 #define DORIS_BE_SRC_UTIL_BITMAP_VALUE_H
 
+#include <parallel_hashmap/btree.h>
+
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
@@ -108,7 +110,7 @@ public:
     /**
      * Construct a roaring object from the C struct.
      *
-     * Passing a NULL point is unsafe.
+     * Passing a nullptr point is unsafe.
      */
     explicit Roaring64Map(roaring_bitmap_t* s) {
         roaring::Roaring r(s);
@@ -338,6 +340,74 @@ public:
                                    return previous + map_entry.second.cardinality();
                                });
     }
+    /**
+     * Computes the size of the intersection between two bitmaps.
+     *
+     */
+    uint64_t andCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (auto& map_entry : roarings) {
+            if (r.roarings.count(map_entry.first) == 1) {
+                card += map_entry.second.and_cardinality(r.roarings.at(map_entry.first));
+            }
+        }
+        return card;
+    }
+
+    /**
+     * Computes the size of the union between two bitmaps.
+     *
+     */
+    uint64_t orCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (const auto& map_entry : roarings) {
+            if (r.roarings.count(map_entry.first) == 0) {
+                card += map_entry.second.cardinality();
+            }
+        }
+        for (const auto& map_entry : r.roarings) {
+            if (roarings.count(map_entry.first) == 0) {
+                card += map_entry.second.cardinality();
+            } else {
+                card += roarings.at(map_entry.first).or_cardinality(map_entry.second);
+            }
+        }
+        return card;
+    }
+
+    /**
+     * Computes the size of the difference (andnot) between two bitmaps.
+     * r1.cardinality - (r1 & r2).cardinality
+     */
+    uint64_t andnotCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (const auto& map_entry : roarings) {
+            card += map_entry.second.cardinality();
+            if (r.roarings.count(map_entry.first) == 1) {
+                card -= r.roarings.at(map_entry.first).and_cardinality(map_entry.second);
+            }
+        }
+        return card;
+    }
+
+    /**
+     * Computes the size of the symmetric difference (andnot) between two
+     * bitmaps.
+     * r1.cardinality + r2.cardinality - 2 * (r1 & r2).cardinality
+     */
+    uint64_t xorCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (const auto& map_entry : roarings) {
+            card += map_entry.second.cardinality();
+        }
+        for (const auto& map_entry : r.roarings) {
+            card += map_entry.second.cardinality();
+            if (roarings.count(map_entry.first) == 1) {
+                card -= 2 * roarings.at(map_entry.first).and_cardinality(map_entry.second);
+            }
+        }
+        return card;
+    }
 
     /**
     * Returns true if the bitmap is empty (cardinality is zero).
@@ -528,7 +598,7 @@ public:
             if (iter->second.isEmpty()) {
                 // empty Roarings are 84 bytes
                 savedBytes += 88;
-                roarings.erase(iter++);
+                iter = roarings.erase(iter);
             } else {
                 savedBytes += iter->second.shrinkToFit();
                 iter++;
@@ -539,7 +609,7 @@ public:
 
     /**
      * Iterate over the bitmap elements. The function iterator is called once
-     * for all the values with ptr (can be NULL) as the second parameter of each
+     * for all the values with ptr (can be nullptr) as the second parameter of each
      * call.
      *
      * roaring_iterator is simply a pointer to a function that returns bool
@@ -858,7 +928,7 @@ public:
     const_iterator end() const;
 
 private:
-    std::map<uint32_t, roaring::Roaring> roarings {};
+    phmap::btree_map<uint32_t, roaring::Roaring> roarings {};
     bool copyOnWrite {false};
     static uint32_t highBytes(const uint64_t in) { return uint32_t(in >> 32); }
     static uint32_t lowBytes(const uint64_t in) { return uint32_t(in); }
@@ -996,9 +1066,9 @@ public:
     }
 
 protected:
-    const std::map<uint32_t, roaring::Roaring>& p;
-    std::map<uint32_t, roaring::Roaring>::const_iterator map_iter {};
-    std::map<uint32_t, roaring::Roaring>::const_iterator map_end {};
+    const phmap::btree_map<uint32_t, roaring::Roaring>& p;
+    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_iter {};
+    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_end {};
     roaring::api::roaring_uint32_iterator_t i {};
 };
 
@@ -1048,7 +1118,7 @@ public:
     }
 
 protected:
-    std::map<uint32_t, roaring::Roaring>::const_iterator map_begin;
+    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_begin;
 };
 
 inline Roaring64MapSetBitForwardIterator Roaring64Map::begin() const {
@@ -1307,8 +1377,7 @@ public:
         return false;
     }
 
-    // TODO should the return type be uint64_t?
-    int64_t cardinality() const {
+    uint64_t cardinality() const {
         switch (_type) {
         case EMPTY:
             return 0;
@@ -1316,6 +1385,110 @@ public:
             return 1;
         case BITMAP:
             return _bitmap.cardinality();
+        }
+        return 0;
+    }
+
+    uint64_t and_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return 0;
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return _sv == rhs._sv;
+            case BITMAP:
+                return _bitmap.contains(rhs._sv);
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return rhs._bitmap.contains(_sv);
+            case BITMAP:
+                return _bitmap.andCardinality(rhs._bitmap);
+            }
+        }
+        return 0;
+    }
+
+    uint64_t or_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return cardinality();
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 1;
+            case SINGLE:
+                return 1 + (_sv != rhs._sv);
+            case BITMAP:
+                return cardinality() + !_bitmap.contains(rhs._sv);
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return rhs.cardinality();
+            case SINGLE:
+                return rhs.cardinality() + !rhs._bitmap.contains(_sv);
+            case BITMAP:
+                return _bitmap.orCardinality(rhs._bitmap);
+            }
+        }
+        return 0;
+    }
+
+    uint64_t xor_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return cardinality();
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 1;
+            case SINGLE:
+                return 2 - 2 * (_sv == rhs._sv);
+            case BITMAP:
+                return cardinality() + 1 - 2 * (_bitmap.contains(rhs._sv));
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return rhs.cardinality();
+            case SINGLE:
+                return rhs.cardinality() + 1 - 2 * (rhs._bitmap.contains(_sv));
+            case BITMAP:
+                return _bitmap.xorCardinality(rhs._bitmap);
+            }
+        }
+        return 0;
+    }
+
+    uint64_t andnot_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return cardinality();
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return 1 - _sv == rhs._sv;
+            case BITMAP:
+                return cardinality() - _bitmap.contains(rhs._sv);
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return !rhs._bitmap.contains(_sv);
+            case BITMAP:
+                return _bitmap.andnotCardinality(rhs._bitmap);
+            }
         }
         return 0;
     }
@@ -1439,23 +1612,23 @@ public:
         return ss.str();
     }
 
-
     doris_udf::BigIntVal maximum() {
         switch (_type) {
-            case SINGLE:
-                return doris_udf::BigIntVal(_sv);
-            case BITMAP:
-                return doris_udf::BigIntVal(_bitmap.maximum());
-            default:
-                return doris_udf::BigIntVal::null();
+        case SINGLE:
+            return doris_udf::BigIntVal(_sv);
+        case BITMAP:
+            return doris_udf::BigIntVal(_bitmap.maximum());
+        default:
+            return doris_udf::BigIntVal::null();
         }
     }
 
     /**
      * Return new set with specified range (not include the range_end)
      */
-    int64_t sub_range(const int64_t& range_start, const int64_t& range_end, BitmapValue* ret_bitmap) {
-        int64_t count = 0; 
+    int64_t sub_range(const int64_t& range_start, const int64_t& range_end,
+                      BitmapValue* ret_bitmap) {
+        int64_t count = 0;
         for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
             if (*it < range_start) {
                 continue;
@@ -1476,7 +1649,8 @@ public:
      * @param cardinality_limit the length of the subset
      * @return the real count for subset, maybe less than cardinality_limit
      */
-    int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit, BitmapValue* ret_bitmap) {
+    int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit,
+                      BitmapValue* ret_bitmap) {
         int64_t count = 0;
         for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
             if (*it < range_start) {
@@ -1509,10 +1683,10 @@ public:
         int64_t count = 0;
         int64_t offset_count = 0;
         auto it = _bitmap.begin();
-        for (;it != _bitmap.end() && offset_count < abs_offset; ++it) {
+        for (; it != _bitmap.end() && offset_count < abs_offset; ++it) {
             ++offset_count;
         }
-        for (;it != _bitmap.end() && count < limit; ++it, ++count) {
+        for (; it != _bitmap.end() && count < limit; ++it, ++count) {
             ret_bitmap->add(*it);
         }
         return count;

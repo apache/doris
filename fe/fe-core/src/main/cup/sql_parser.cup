@@ -10,7 +10,7 @@
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES ORF CONDITIONS OF ANY
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
@@ -241,8 +241,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_UPDATE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
-    KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
-    KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
+    KW_EXISTS, KW_EXPORT, KW_EXTENDED, KW_EXTERNAL, KW_EXTRACT,
+    KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIELDS, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GRAPH, KW_GROUP, KW_GROUPING,
     KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
@@ -250,7 +250,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_JOB, KW_JOIN,
     KW_KEY, KW_KEYS, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LIST, KW_LOAD,
-    KW_LOCAL, KW_LOCATION, KW_LATERAL,
+    KW_LOCAL, KW_LOCATION, KW_LOCK, KW_LOW_PRIORITY, KW_LATERAL,
     KW_MAP, KW_MATERIALIZED, KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
@@ -267,7 +267,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_TEXT, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
-    KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
+    KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNLOCK, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
     KW_YEAR, KW_SQL_BLOCK_RULE;
@@ -295,7 +295,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -346,7 +346,7 @@ nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
-nonterminal String select_alias, opt_table_alias;
+nonterminal String select_alias, opt_table_alias, lock_alias;
 nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ClusterName cluster_name;
@@ -516,6 +516,9 @@ nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
 nonterminal Boolean opt_signed_unsigned;
 
 nonterminal StorageBackend storage_backend;
+
+nonterminal ArrayList<LockTable> opt_lock_tables_list;
+nonterminal LockTable lock_table;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -725,6 +728,10 @@ stmt ::=
     | install_plugin_stmt : stmt
     {: RESULT = stmt; :}
     | uninstall_plugin_stmt : stmt
+    {: RESULT = stmt; :}
+    | lock_tables_stmt:stmt
+    {: RESULT = stmt; :}
+    | unlock_tables_stmt:stmt
     {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
@@ -1076,6 +1083,10 @@ alter_table_clause ::=
     | KW_MODIFY KW_COLUMN ident:colName KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new ModifyColumnCommentClause(colName, comment);
+    :}
+    | KW_MODIFY KW_ENGINE KW_TO ident:engine opt_properties:properties
+    {:
+        RESULT = new ModifyEngineClause(engine, properties);
     :}
     ;
 
@@ -2993,7 +3004,23 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, false);
     :}
+    | KW_SHOW KW_FIELDS KW_FROM table_name:table
+    {:
+        RESULT = new DescribeStmt(table, false);
+    :}
+    | KW_SHOW KW_COLUMNS KW_FROM table_name:table
+    {:
+        RESULT = new DescribeStmt(table, false);
+    :}
     | describe_command table_name:table KW_ALL
+    {:
+        RESULT = new DescribeStmt(table, true);
+    :}
+    | KW_SHOW KW_EXTENDED KW_FIELDS KW_FROM table_name:table
+    {:
+        RESULT = new DescribeStmt(table, true);
+    :}
+    | KW_SHOW KW_EXTENDED KW_COLUMNS KW_FROM table_name:table
     {:
         RESULT = new DescribeStmt(table, true);
     :}
@@ -3336,6 +3363,74 @@ backup_stmt ::=
     opt_properties:properties
     {:
         RESULT = new BackupStmt(label, repoName, tblRefClause, properties);
+    :}
+    ;
+
+unlock_tables_stmt ::=
+    KW_UNLOCK KW_TABLES
+    {:
+        RESULT = new UnlockTablesStmt();
+    :}
+    ;
+lock_alias ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_AS ident:ident
+    {:
+        RESULT = ident;
+    :}
+    | KW_AS STRING_LITERAL:l
+    {:
+        RESULT = l;
+    :}
+    ;
+
+lock_table ::=
+    table_name:name lock_alias:alias KW_READ
+    {:
+        RESULT = new LockTable(name, alias, LockTable.LockType.READ);
+    :}
+    |
+    table_name:name lock_alias:alias KW_READ KW_LOCAL
+    {:
+        RESULT = new LockTable(name, alias, LockTable.LockType.READ_LOCAL);
+    :}
+    |
+    table_name:name lock_alias:alias KW_WRITE
+    {:
+        RESULT = new LockTable(name, alias, LockTable.LockType.WRITE);
+    :}
+    |
+    table_name:name lock_alias:alias KW_LOW_PRIORITY KW_WRITE
+    {:
+        RESULT = new LockTable(name, alias, LockTable.LockType.LOW_PRIORITY_WRITE);
+    :}
+    ;
+
+opt_lock_tables_list ::=
+  lock_table: table
+  {:
+    ArrayList<LockTable> lock_tables = new ArrayList<LockTable>();
+    lock_tables.add(table);
+    RESULT = lock_tables;
+  :}
+  | opt_lock_tables_list:lock_tables COMMA lock_table:table
+  {:
+    lock_tables.add(table);
+    RESULT = lock_tables;
+  :}
+  |
+  {:
+       RESULT = new ArrayList<LockTable>();
+  :}
+  ;
+
+lock_tables_stmt ::=
+    KW_LOCK KW_TABLES opt_lock_tables_list:lock_tables
+    {:
+        RESULT = new LockTablesStmt(lock_tables);
     :}
     ;
 
@@ -5273,6 +5368,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_FILE:id
     {: RESULT = id; :}
+    | KW_FIELDS:id
+    {: RESULT = id; :}
     | KW_FILTER:id
     {: RESULT = id; :}
     | KW_FIRST:id
@@ -5336,6 +5433,10 @@ keyword ::=
     | KW_LOCAL:id
     {: RESULT = id; :}
     | KW_LOCATION:id
+    {: RESULT = id; :}
+    | KW_LOCK:id
+    {: RESULT = id; :}
+    | KW_UNLOCK:id
     {: RESULT = id; :}
     | KW_MATERIALIZED:id
     {: RESULT = id; :}

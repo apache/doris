@@ -21,14 +21,16 @@
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
+#include "exec/schema_scanner/schema_files_scanner.h"
+#include "exec/schema_scanner/schema_partitions_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
+#include "exec/schema_scanner/schema_statistics_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
-#include "exec/schema_scanner/schema_statistics_scanner.h"
 
 namespace doris {
 
@@ -36,10 +38,10 @@ DorisServer* SchemaScanner::_s_doris_server;
 
 SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
         : _is_init(false),
-          _param(NULL),
+          _param(nullptr),
           _columns(columns),
           _column_num(column_num),
-          _tuple_desc(NULL) {}
+          _tuple_desc(nullptr) {}
 
 SchemaScanner::~SchemaScanner() {}
 
@@ -56,8 +58,8 @@ Status SchemaScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
         return Status::InternalError("used before initialized.");
     }
 
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
     }
 
     *eos = true;
@@ -69,7 +71,7 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
         return Status::OK();
     }
 
-    if (NULL == param || NULL == pool || NULL == _columns) {
+    if (nullptr == param || nullptr == pool || nullptr == _columns) {
         return Status::InternalError("invalid parameter");
     }
 
@@ -105,6 +107,10 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
         return new (std::nothrow) SchemaSchemaPrivilegesScanner();
     case TSchemaTableType::SCH_USER_PRIVILEGES:
         return new (std::nothrow) SchemaUserPrivilegesScanner();
+    case TSchemaTableType::SCH_FILES:
+        return new (std::nothrow) SchemaFilesScanner();
+    case TSchemaTableType::SCH_PARTITIONS:
+        return new (std::nothrow) SchemaPartitionsScanner();
     default:
         return new (std::nothrow) SchemaDummyScanner();
         break;
@@ -154,7 +160,7 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
 
         SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
 
-        if (NULL == slot) {
+        if (nullptr == slot) {
             return Status::InternalError("no memory for _tuple_desc.");
         }
 
@@ -167,7 +173,7 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
     _tuple_desc = pool->add(new (std::nothrow) TupleDescriptor(t_tuple_desc));
 
-    if (NULL == _tuple_desc) {
+    if (nullptr == _tuple_desc) {
         return Status::InternalError("no memory for _tuple_desc.");
     }
 

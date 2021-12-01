@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
 
-#include <boost/cstdint.hpp>
 #include <time.h>
 
 namespace doris {
@@ -91,6 +90,6 @@ using MonotonicStopWatch = CustomStopWatch<CLOCK_MONOTONIC>;
 // Stop watch for reporting elapsed nanosec based on CLOCK_THREAD_CPUTIME_ID.
 using ThreadCpuStopWatch = CustomStopWatch<CLOCK_THREAD_CPUTIME_ID>;
 
-}
+} // namespace doris
 
 #endif

@@ -1110,7 +1110,7 @@ public class ShowExecutor {
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
                                                                    PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                                                     ConnectContext.get().getQualifiedUser(),
                                                     db.getFullName());
             }
@@ -1161,8 +1161,8 @@ public class ShowExecutor {
         if (be == null) {
             throw new AnalysisException(host + ":" + port + " is not a valid backend");
         }
-        if (!be.isAvailable()) {
-            throw new AnalysisException("Backend " + host + ":" + port + " is not available");
+        if (!be.isAlive()) {
+            throw new AnalysisException("Backend " + host + ":" + port + " is not alive");
         }
 
         if (!url.getPath().equals("/api/_load_error_log")) {
@@ -1483,7 +1483,8 @@ public class ShowExecutor {
                     Long id = olapTable.getIndexIdByName(indexName);
                     if (id == null) {
                         // invalid indexName
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getIndexName());
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, showStmt.getIndexName(),
+                                showStmt.getDbName());
                     }
                     indexId = id;
                 }

@@ -38,7 +38,7 @@ Status BlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 BlockingJoinNode::~BlockingJoinNode() {
     // _left_batch must be cleaned up in close() to ensure proper resource freeing.
-    DCHECK(_left_batch == NULL);
+    DCHECK(_left_batch == nullptr);
 }
 
 Status BlockingJoinNode::prepare(RuntimeState* state) {
@@ -80,7 +80,7 @@ Status BlockingJoinNode::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void BlockingJoinNode::build_side_thread(RuntimeState* state, boost::promise<Status>* status) {
+void BlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
     status->set_value(construct_build_side(state));
 }
 
@@ -99,10 +99,11 @@ Status BlockingJoinNode::open(RuntimeState* state) {
     // thread, so that the left child can do any initialisation in parallel.
     // Only do this if we can get a thread token.  Otherwise, do this in the
     // main thread
-    boost::promise<Status> build_side_status;
+    std::promise<Status> build_side_status;
 
     add_runtime_exec_option("Join Build-Side Prepared Asynchronously");
-    boost::thread(bind(&BlockingJoinNode::build_side_thread, this, state, &build_side_status));
+    std::thread(bind(&BlockingJoinNode::build_side_thread, this, state, &build_side_status))
+            .detach();
 
     // Open the left child so that it may perform any initialisation in parallel.
     // Don't exit even if we see an error, we still need to wait for the build thread
@@ -126,7 +127,7 @@ Status BlockingJoinNode::open(RuntimeState* state) {
 
         if (_left_batch->num_rows() == 0) {
             if (_left_side_eos) {
-                init_get_next(NULL /* eos */);
+                init_get_next(nullptr /* eos */);
                 _eos = true;
                 break;
             }
@@ -166,7 +167,7 @@ std::string BlockingJoinNode::get_left_child_row_string(TupleRow* row) {
                 std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
 
         if (is_build_tuple != _build_tuple_idx_ptr + _build_tuple_size) {
-            out << Tuple::to_string(NULL, *row_desc().tuple_descriptors()[i]);
+            out << Tuple::to_string(nullptr, *row_desc().tuple_descriptors()[i]);
         } else {
             out << Tuple::to_string(row->get_tuple(i), *row_desc().tuple_descriptors()[i]);
         }
@@ -179,13 +180,13 @@ std::string BlockingJoinNode::get_left_child_row_string(TupleRow* row) {
 // This function is replaced by codegen
 void BlockingJoinNode::create_output_row(TupleRow* out, TupleRow* left, TupleRow* build) {
     uint8_t* out_ptr = reinterpret_cast<uint8_t*>(out);
-    if (left == NULL) {
+    if (left == nullptr) {
         memset(out_ptr, 0, _probe_tuple_row_size);
     } else {
         memcpy(out_ptr, left, _probe_tuple_row_size);
     }
 
-    if (build == NULL) {
+    if (build == nullptr) {
         memset(out_ptr + _probe_tuple_row_size, 0, _build_tuple_row_size);
     } else {
         memcpy(out_ptr + _probe_tuple_row_size, build, _build_tuple_row_size);

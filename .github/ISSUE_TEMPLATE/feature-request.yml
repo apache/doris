@@ -24,6 +24,8 @@ body:
       value: |
         Thank you very much for your good ideas and suggestions for Doris
 
+        Please help sync to the [Dev Mail List](mailto:dev@doris.apache.org). You will get FASTER help！[How to subscribe](mailto:dev-subscribe@doris.apache.org)
+
   - type: checkboxes
     attributes:
       label: Search before asking

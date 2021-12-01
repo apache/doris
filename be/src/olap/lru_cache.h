@@ -29,7 +29,7 @@ namespace doris {
             cur += str.size();                                       \
         } else {                                                     \
             OLAP_LOG_WARNING("construct cache key buf not enough."); \
-            return CacheKey(NULL, 0);                                \
+            return CacheKey(nullptr, 0);                             \
         }                                                            \
     } while (0)
 
@@ -41,7 +41,7 @@ namespace doris {
             cur += sizeof(numeric);                                  \
         } else {                                                     \
             OLAP_LOG_WARNING("construct cache key buf not enough."); \
-            return CacheKey(NULL, 0);                                \
+            return CacheKey(nullptr, 0);                             \
         }                                                            \
     } while (0)
 
@@ -49,21 +49,21 @@ class Cache;
 class CacheKey;
 
 enum LRUCacheType {
-    SIZE, // The capacity of cache is based on the size of cache entry.
-    NUMBER  // The capacity of cache is based on the number of cache entry.
+    SIZE,  // The capacity of cache is based on the size of cache entry.
+    NUMBER // The capacity of cache is based on the number of cache entry.
 };
 
 // Create a new cache with a specified name and a fixed SIZE capacity.
 // This implementation of Cache uses a least-recently-used eviction policy.
 extern Cache* new_lru_cache(const std::string& name, size_t capacity,
-        std::shared_ptr<MemTracker> parent_tracekr = nullptr);
+                            std::shared_ptr<MemTracker> parent_tracekr = nullptr);
 
 extern Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-        std::shared_ptr<MemTracker> parent_tracekr = nullptr);
+                                  std::shared_ptr<MemTracker> parent_tracekr = nullptr);
 
 class CacheKey {
 public:
-    CacheKey() : _data(NULL), _size(0) {}
+    CacheKey() : _data(nullptr), _size(0) {}
     // Create a slice that refers to d[0,n-1].
     CacheKey(const char* d, size_t n) : _data(d), _size(n) {}
 
@@ -93,7 +93,7 @@ public:
 
     // Change this slice to refer to an empty array
     void clear() {
-        _data = NULL;
+        _data = nullptr;
         _size = 0;
     }
 
@@ -172,7 +172,7 @@ public:
                            void (*deleter)(const CacheKey& key, void* value),
                            CachePriority priority = CachePriority::NORMAL) = 0;
 
-    // If the cache has no mapping for "key", returns NULL.
+    // If the cache has no mapping for "key", returns nullptr.
     //
     // Else return a handle that corresponds to the mapping.  The caller
     // must call this->release(handle) when the returned mapping is no
@@ -234,7 +234,7 @@ typedef struct LRUHandle {
     size_t charge;
     size_t key_length;
     size_t total_size; // including key length
-    bool in_cache; // Whether entry is in the cache.
+    bool in_cache;     // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
@@ -265,7 +265,7 @@ typedef struct LRUHandle {
 
 class HandleTable {
 public:
-    HandleTable() : _length(0), _elems(0), _list(NULL) { _resize(); }
+    HandleTable() : _length(0), _elems(0), _list(nullptr) { _resize(); }
 
     ~HandleTable();
 
@@ -360,8 +360,8 @@ static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity,
-                             LRUCacheType type, std::shared_ptr<MemTracker> parent);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             std::shared_ptr<MemTracker> parent);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
@@ -378,6 +378,7 @@ public:
 
 private:
     void update_cache_metrics() const;
+
 private:
     static inline uint32_t _hash_slice(const CacheKey& s);
     static uint32_t _shard(uint32_t hash);

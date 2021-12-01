@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_UTIL_CPU_INFO_H
 #define DORIS_BE_SRC_UTIL_CPU_INFO_H
 
-#include <boost/cstdint.hpp>
 #include <memory>
 #include <string>
 #include <vector>

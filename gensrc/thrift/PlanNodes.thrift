@@ -152,6 +152,8 @@ struct TBrokerRangeDesc {
     15: optional bool fuzzy_parse;
     16: optional THdfsParams hdfs_params
     17: optional bool read_json_by_line;
+    // Whether read line by column defination, only for Hive
+    18: optional bool read_by_column_def;
 }
 
 struct TBrokerScanRangeParams {
@@ -655,7 +657,8 @@ struct TOlapRewriteNode {
 }
 
 struct TTableFunctionNode {
-    1: required Exprs.TExpr fnCallExpr
+    1: optional list<Exprs.TExpr> fnCallExprList
+    2: optional list<Types.TSlotId> outputSlotIds
 }
 
 // This contains all of the information computed by the plan as part of the resource

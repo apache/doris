@@ -168,7 +168,7 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int label_clean_interval_second = 1 * 3600; // 1 hours
-    
+
     // Configurations for meta data durability
     /**
      * Doris meta data will be saved here.
@@ -1015,9 +1015,19 @@ public class Config extends ConfigBase {
      * 2. The data has N replicas.
      * 3. High concurrency queries are sent to all Frontends evenly
      * In this case, all Frontends can only use local replicas to do the query.
+     * If you want to allow fallback to nonlocal replicas when no local replicas available,
+     * set enable_local_replica_selection_fallback to true.
      */
     @ConfField(mutable = true)
     public static boolean enable_local_replica_selection = false;
+
+    /**
+     * Used with enable_local_replica_selection.
+     * If the local replicas is not available, fallback to the nonlocal replicas.
+     * */
+    @ConfField(mutable = true)
+    public static boolean enable_local_replica_selection_fallback = false;
+
 
     /**
      * The timeout of executing async remote fragment.
@@ -1033,7 +1043,7 @@ public class Config extends ConfigBase {
      * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
-    public static int max_query_retry_time = 2;
+    public static int max_query_retry_time = 1;
 
     /**
      * The tryLock timeout configuration of catalog lock.
@@ -1384,6 +1394,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long default_db_data_quota_bytes = 1024L * 1024 * 1024 * 1024 * 1024L; // 1PB
 
+    /**
+     * Used to set default db replica quota num.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
+
     /*
      * Maximum percentage of data that can be filtered (due to reasons such as data is irregularly)
      * The default value is 0.
@@ -1451,6 +1467,18 @@ public class Config extends ConfigBase {
     public static int grpc_max_message_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
     /**
+     * Used to set minimal number of replication per tablet.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static short min_replication_num_per_tablet = 1;
+
+    /**
+     * Used to set maximal number of replication per tablet.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static short max_replication_num_per_tablet = Short.MAX_VALUE;
+
+    /**
      * Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,
      * to avoid creating too many partitions at one time.
      * The number is determined by "start" and "end" in the dynamic partition parameters.
@@ -1475,7 +1503,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_in_memory_update_interval_secs = 300;
-    
+
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
 

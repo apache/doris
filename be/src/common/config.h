@@ -647,6 +647,20 @@ CONF_String(s3_region, "");
 CONF_mInt32(s3_max_conn, "50");
 CONF_mInt32(s3_request_timeout_ms, "3000");
 CONF_mInt32(s3_conn_timeout_ms, "1000");
+// Set to true to disable the minidump feature.
+CONF_Bool(disable_minidump , "false");
+
+// The dir to save minidump file.
+// Make sure that the user who run Doris has permission to create and visit this dir,
+// So Doris will fail to start.
+CONF_String(minidump_dir, "${DORIS_HOME}/minidump");
+
+// The max minidump file size in MB.
+CONF_Int32(max_minidump_file_size_mb, "200");
+
+// The max number of minidump file.
+// Doris will only keep latest 10 minidump files by default.
+CONF_Int32(max_minidump_file_number, "10");
 
 } // namespace config
 

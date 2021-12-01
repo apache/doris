@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -276,6 +277,43 @@ public class SyncJobManager implements Writable {
             if (!syncJob.isCompleted()) {
                 syncJob.checkAndDoUpdate();
             }
+        }
+    }
+
+    // Remove old sync jobs. Called periodically.
+    // Stopped jobs will be removed after Config.label_keep_max_second.
+    public void cleanOldSyncJobs() {
+        LOG.debug("begin to clean old sync jobs ");
+        long currentTimeMs = System.currentTimeMillis();
+        writeLock();
+        try {
+            Iterator<Map.Entry<Long, SyncJob>> iterator = idToSyncJob.entrySet().iterator();
+            while (iterator.hasNext()) {
+                SyncJob syncJob = iterator.next().getValue();
+                if (syncJob.isExpired(currentTimeMs)) {
+                    if (!dbIdToJobNameToSyncJobs.containsKey(syncJob.getDbId())) {
+                        continue;
+                    }
+                    Map<String, List<SyncJob>> map = dbIdToJobNameToSyncJobs.get(syncJob.getDbId());
+                    List<SyncJob> list = map.get(syncJob.getJobName());
+                    list.remove(syncJob);
+                    if (list.isEmpty()) {
+                        map.remove(syncJob.getJobName());
+                    }
+                    if (map.isEmpty()) {
+                        dbIdToJobNameToSyncJobs.remove(syncJob.getDbId());
+                    }
+                    iterator.remove();
+                    LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
+                            .add("finishTimeMs", syncJob.getFinishTimeMs())
+                            .add("currentTimeMs", currentTimeMs)
+                            .add("jobState", syncJob.getJobState())
+                            .add("msg", "old sync job has been cleaned")
+                    );
+                }
+            }
+        } finally {
+            writeUnlock();
         }
     }
 

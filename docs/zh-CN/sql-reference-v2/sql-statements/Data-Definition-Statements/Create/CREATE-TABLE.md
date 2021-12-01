@@ -108,11 +108,12 @@ distribution_info
             MIN：求最小值。适合数值类型。
             MAX：求最大值。适合数值类型。
             REPLACE：替换。对于维度列相同的行，指标列会按照导入的先后顺序，后倒入的替换先导入的。
-            REPLACE_IF_NOT_NULL：非空值替换。和 REPLACE 的区别在于对于null值，不做替换。
+            REPLACE_IF_NOT_NULL：非空值替换。和 REPLACE 的区别在于对于null值，不做替换。这里要注意的是字段默认值要给NULL，而不能是空字符串，如果是空字符串，会给你替换成空字符串。
             HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
             BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
             ```
             
+        
         示例：
         
             ```
@@ -124,7 +125,7 @@ distribution_info
             v3 HLL HLL_UNION,
             v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
             ```
-        
+    
 *  `index_definition_list`
 
     索引列表定义：
@@ -206,7 +207,7 @@ distribution_info
         ```
 
 * `distribution_desc`
-    
+  
     定义数据分桶方式。
 
     `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`

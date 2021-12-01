@@ -50,20 +50,20 @@ namespace doris {
         }                                                                                \
     } while (0);
 
-#define POS_PARAM_VALIDATE(pos)                                         \
-    do {                                                                \
-        if (NULL == pos) {                                              \
-            OLAP_LOG_WARNING("fail to find, NULL position parameter."); \
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;                      \
-        }                                                               \
+#define POS_PARAM_VALIDATE(pos)                                            \
+    do {                                                                   \
+        if (nullptr == pos) {                                              \
+            OLAP_LOG_WARNING("fail to find, nullptr position parameter."); \
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;                         \
+        }                                                                  \
     } while (0);
 
-#define SLICE_PARAM_VALIDATE(slice)                                  \
-    do {                                                             \
-        if (NULL == slice) {                                         \
-            OLAP_LOG_WARNING("fail to find, NULL slice parameter."); \
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;                   \
-        }                                                            \
+#define SLICE_PARAM_VALIDATE(slice)                                     \
+    do {                                                                \
+        if (nullptr == slice) {                                         \
+            OLAP_LOG_WARNING("fail to find, nullptr slice parameter."); \
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;                      \
+        }                                                               \
     } while (0);
 
 SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
@@ -94,7 +94,8 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
         const TabletColumn& column = _schema->column(i);
         _short_key_columns.push_back(column);
         _short_key_length += column.index_length() + 1; // 1 for null byte
-        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+            column.type() == OLAP_FIELD_TYPE_STRING) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += column.index_length() + 1;
@@ -124,7 +125,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
     _ref_count = 0;
     _short_key_length = 0;
     _new_short_key_length = 0;
-    _short_key_buf = NULL;
+    _short_key_buf = nullptr;
     _new_segment_created = false;
     _empty = false;
 
@@ -132,7 +133,8 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
         const TabletColumn& column = _schema->column(i);
         _short_key_columns.push_back(column);
         _short_key_length += column.index_length() + 1; // 1 for null byte
-        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+            column.type() == OLAP_FIELD_TYPE_STRING) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += column.index_length() + 1;
@@ -272,7 +274,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         }
         const TabletColumn& column = _schema->column(i);
 
-        // nullptr is checked in olap_cond.cpp eval, note: When we apply column statistic, Field can be NULL when type is Varchar.
+        // nullptr is checked in olap_cond.cpp eval, note: When we apply column statistic, Field can be nullptr when type is Varchar.
         WrapperField* first = nullptr;
         WrapperField* second = nullptr;
 
@@ -320,11 +322,11 @@ OLAPStatus SegmentGroup::add_zone_maps(
     for (size_t i = 0; i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
         first->copy(zone_map_fields[i].first);
 
         WrapperField* second = WrapperField::create(column);
-        DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(second != nullptr) << "failed to allocate memory for field: " << i;
         second->copy(zone_map_fields[i].second);
 
         _zone_maps.push_back(std::make_pair(first, second));
@@ -339,14 +341,14 @@ OLAPStatus SegmentGroup::add_zone_maps(
     for (size_t i = 0; i < zone_map_strings.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
         RETURN_NOT_OK(first->from_string(zone_map_strings[i].first));
         if (null_vec[i]) {
-            //[min, max] -> [NULL, max]
+            //[min, max] -> [nullptr, max]
             first->set_null();
         }
         WrapperField* second = WrapperField::create(column);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
         RETURN_NOT_OK(second->from_string(zone_map_strings[i].second));
         _zone_maps.push_back(std::make_pair(first, second));
     }
@@ -577,7 +579,7 @@ OLAPStatus SegmentGroup::add_segment() {
     // 打开文件
     ++_num_segments;
 
-    OLAPIndexHeaderMessage* index_header = NULL;
+    OLAPIndexHeaderMessage* index_header = nullptr;
     // 构造Proto格式的Header
     index_header = _file_header.mutable_message();
     index_header->set_start_version(_version.first);
@@ -589,9 +591,9 @@ OLAPStatus SegmentGroup::add_segment() {
     index_header->set_null_supported(true);
 
     // 分配一段存储short key的内存, 初始化index_row
-    if (_short_key_buf == NULL) {
+    if (_short_key_buf == nullptr) {
         _short_key_buf = new (std::nothrow) char[_short_key_length];
-        if (_short_key_buf == NULL) {
+        if (_short_key_buf == nullptr) {
             OLAP_LOG_WARNING("malloc short_key_buf error.");
             return OLAP_ERR_MALLOC_ERROR;
         }

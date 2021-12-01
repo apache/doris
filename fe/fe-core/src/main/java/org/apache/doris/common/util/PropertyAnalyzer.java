@@ -98,6 +98,10 @@ public class PropertyAnalyzer {
 
     public static final String TAG_LOCATION = "tag.location";
 
+    public static final String PROPERTIES_DISABLE_QUERY = "disable_query";
+
+    public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null) {
@@ -190,8 +194,9 @@ public class PropertyAnalyzer {
                 throw new AnalysisException(e.getMessage());
             }
 
-            if (replicationNum <= 0) {
-                throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
+            if (replicationNum < Config.min_replication_num_per_tablet || replicationNum > Config.max_replication_num_per_tablet) {
+                throw new AnalysisException("Replication num should between " + Config.min_replication_num_per_tablet
+                        + " and " + Config.max_replication_num_per_tablet);
             }
 
             properties.remove(propKey);
@@ -454,12 +459,20 @@ public class PropertyAnalyzer {
         return ScalarType.createType(type);
     }
 
-    public static Tag analyzeBackendTagProperties(Map<String, String> properties) throws AnalysisException {
+    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key, Boolean defaultValue) throws AnalysisException {
+        if (properties.containsKey(key)) {
+            String value = properties.remove(key);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
+    }
+
+    public static Tag analyzeBackendTagProperties(Map<String, String> properties, Tag defaultValue) throws AnalysisException {
         if (properties.containsKey(TAG_LOCATION)) {
             String tagVal = properties.remove(TAG_LOCATION);
             return Tag.create(Tag.TYPE_LOCATION, tagVal);
         }
-        return Tag.DEFAULT_BACKEND_TAG;
+        return defaultValue;
     }
 
     // There are 2 kinds of replication property:
@@ -493,6 +506,7 @@ public class PropertyAnalyzer {
         String allocationVal = properties.remove(propKey);
         allocationVal = allocationVal.replaceAll(" ", "");
         String[] locations = allocationVal.split(",");
+        int totalReplicaNum = 0;
         for (String location : locations) {
             String[] parts = location.split(":");
             if (parts.length != 2) {
@@ -506,7 +520,13 @@ public class PropertyAnalyzer {
                 throw new AnalysisException("Invalid replication allocation location tag property: " + location);
             }
 
-            replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), Short.valueOf(parts[1]));
+            Short replicationNum = Short.valueOf(parts[1]);
+            replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
+            totalReplicaNum += replicationNum;
+        }
+        if (totalReplicaNum < Config.min_replication_num_per_tablet || totalReplicaNum > Config.max_replication_num_per_tablet) {
+            throw new AnalysisException("Total replication num should between " + Config.min_replication_num_per_tablet
+                    + " and " + Config.max_replication_num_per_tablet);
         }
 
         if (replicaAlloc.isEmpty()) {
@@ -514,5 +534,4 @@ public class PropertyAnalyzer {
         }
         return replicaAlloc;
     }
-
 }

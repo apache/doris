@@ -131,18 +131,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    res = _capture_rs_readers(read_params, &rs_readers);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
-                     << ", tablet_id:" << read_params.tablet->tablet_id()
-                     << ", schema_hash:" << read_params.tablet->schema_hash()
-                     << ", reader_type:" << read_params.reader_type
-                     << ", version:" << read_params.version;
-        return res;
-    }
-
+    
     return OLAP_SUCCESS;
 }
 
@@ -245,6 +234,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.stats = &_stats;
     _reader_context.runtime_state = read_params.runtime_state;
     _reader_context.use_page_cache = read_params.use_page_cache;
+    _reader_context.sequence_id_idx = _sequence_col_idx;
 
     *valid_rs_readers = *rs_readers;
 
@@ -285,12 +275,12 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
     _collect_iter->init(this);
 
     if (_tablet->tablet_schema().has_sequence_col()) {
-        _sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
-        DCHECK_NE(_sequence_col_idx, -1);
+        auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+        DCHECK_NE(sequence_col_idx, -1);
         for (auto col : _return_columns) {
             // query has sequence col
-            if (col == _sequence_col_idx) {
-                _has_sequence_col = true;
+            if (col == sequence_col_idx) {
+                _sequence_col_idx = sequence_col_idx;
                 break;
             }
         }

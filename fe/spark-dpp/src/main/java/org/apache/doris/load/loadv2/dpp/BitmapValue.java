@@ -227,6 +227,99 @@ public class BitmapValue {
         }
     }
 
+    public void remove(long value){
+        switch (this.bitmapType){
+            case EMPTY:
+                break;
+            case SINGLE_VALUE:
+                if(this.singleValue == value) {
+                    clear();
+                }
+                break;
+            case BITMAP_VALUE:
+                this.bitmap.removeLong(value);
+                convertToSmallerType();
+                break;
+        }
+    }
+
+    //In-place bitwise ANDNOT (difference) operation. The current bitmap is modified
+    public void not(BitmapValue other) {
+        switch (other.bitmapType) {
+            case EMPTY:
+                break;
+            case SINGLE_VALUE:
+                remove(other.singleValue);
+                break;
+            case BITMAP_VALUE:
+                switch (this.bitmapType) {
+                    case EMPTY:
+                        break;
+                    case SINGLE_VALUE:
+                        if(other.bitmap.contains(this.singleValue)){
+                            clear();
+                        }
+                        break;
+                    case BITMAP_VALUE:
+                        this.bitmap.andNot(other.bitmap);
+                        convertToSmallerType();
+                        break;
+                }
+                break;
+        }
+    }
+
+    //In-place bitwise XOR (symmetric difference) operation. The current bitmap is modified
+    public void xor(BitmapValue other) {
+        switch (other.bitmapType) {
+            case EMPTY:
+                break;
+            case SINGLE_VALUE:
+                switch (this.bitmapType){
+                    case EMPTY:
+                        add(other.singleValue);
+                        break;
+                    case SINGLE_VALUE:
+                        if(this.singleValue != other.singleValue){
+                            add(other.singleValue);
+                        }else{
+                            clear();
+                        }
+                        break;
+                    case BITMAP_VALUE:
+                        if(!this.bitmap.contains(other.singleValue)){
+                            this.bitmap.add(other.singleValue);
+                        }else{
+                            this.bitmap.removeLong(other.singleValue);
+                            convertToSmallerType();
+                        }
+                        break;
+                }
+                break;
+            case BITMAP_VALUE:
+                switch (this.bitmapType) {
+                    case EMPTY:
+                        this.bitmap = other.bitmap;
+                        this.bitmapType = BITMAP_VALUE;
+                        break;
+                    case SINGLE_VALUE:
+                        this.bitmap = other.bitmap;
+                        this.bitmapType = BITMAP_VALUE;
+                        if(this.bitmap.contains(this.singleValue)){
+                            this.bitmap.removeLong(this.singleValue);
+                        }else{
+                            this.bitmap.add(this.bitmapType);
+                        }
+                        break;
+                    case BITMAP_VALUE:
+                        this.bitmap.xor(other.bitmap);
+                        convertToSmallerType();
+                        break;
+                }
+                break;
+        }
+    }
+
     public boolean equals(BitmapValue other) {
         boolean ret = false;
         if (this.bitmapType != other.bitmapType) {
@@ -329,6 +422,4 @@ public class BitmapValue {
                 return false;
         }
     }
-
-
 }

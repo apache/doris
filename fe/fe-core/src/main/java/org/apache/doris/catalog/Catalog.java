@@ -258,6 +258,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -2861,7 +2862,7 @@ public class Catalog {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
             if (!Catalog.getCurrentRecycleBin().recoverTable(db, tableName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {
             db.writeUnlock();
@@ -3254,6 +3255,16 @@ public class Catalog {
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
 
+        // check replica quota if this operation done
+        long indexNum = indexIdToMeta.size();
+        long bucketNum = distributionInfo.getBucketNum();
+        long replicaNum = singlePartitionDesc.getReplicaAlloc().getTotalReplicaNum();
+        long totalReplicaNum = indexNum * bucketNum * replicaNum;
+        if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+            throw new DdlException("Database " + db.getFullName() + " table " + tableName
+                    + " add partition increasing " + totalReplicaNum
+                    + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
+        }
         Set<Long> tabletIdSet = new HashSet<Long>();
         try {
             long partitionId = getNextId();
@@ -3836,6 +3847,17 @@ public class Catalog {
                 // use table name as partition name
                 String partitionName = tableName;
                 long partitionId = partitionNameToId.get(partitionName);
+
+                // check replica quota if this operation done
+                long indexNum = olapTable.getIndexIdToMeta().size();
+                long bucketNum = distributionInfo.getBucketNum();
+                long replicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+                long totalReplicaNum = indexNum * bucketNum * replicaNum;
+                if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+                    throw new DdlException("Database " + db.getFullName() + " create unpartitioned table "
+                            + tableName + " increasing " + totalReplicaNum
+                            + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
+                }
                 // create partition
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                         olapTable.getId(), olapTable.getBaseIndexId(),
@@ -3869,6 +3891,20 @@ public class Catalog {
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
+                }
+
+                // check replica quota if this operation done
+                long totalReplicaNum = 0;
+                for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
+                    long indexNum = olapTable.getIndexIdToMeta().size();
+                    long bucketNum = distributionInfo.getBucketNum();
+                    long replicaNum = partitionInfo.getReplicaAllocation(entry.getValue()).getTotalReplicaNum();
+                    totalReplicaNum += indexNum * bucketNum * replicaNum;
+                }
+                if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+                    throw new DdlException("Database " + db.getFullName() + " create table "
+                            + tableName + " increasing " + totalReplicaNum
+                            + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
                 }
 
                 // this is a 2-level partitioned tables
@@ -4015,6 +4051,13 @@ public class Catalog {
         long tableId = getNextId();
         HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
         hiveTable.setComment(stmt.getComment());
+        // check hive table if exists in hive database
+        HiveMetaStoreClient hiveMetaStoreClient =
+                HiveMetaStoreClientHelper.getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
+        if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
+            throw new DdlException("Table is not exists in hive: " + hiveTable.getHiveDbTable());
+        }
+        // check hive table if exists in doris database
         if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
@@ -4305,7 +4348,6 @@ public class Catalog {
             sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
             sb.append("\n)");
         }
-        sb.append(";");
 
         createTableStmt.add(sb.toString());
 
@@ -4510,7 +4552,7 @@ public class Catalog {
                     LOG.info("drop table[{}] which does not exist", tableName);
                     return;
                 } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
             }
             // Check if a view
@@ -4785,27 +4827,33 @@ public class Catalog {
     }
 
     public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return getDbOrException(dbName, s -> new MetaNotFoundException("unknown databases, dbName=" + s));
+        return getDbOrException(dbName, s -> new MetaNotFoundException("unknown databases, dbName=" + s,
+                        ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return getDbOrException(dbId, s -> new MetaNotFoundException("unknown databases, dbId=" + s));
+        return getDbOrException(dbId, s -> new MetaNotFoundException("unknown databases, dbId=" + s,
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrDdlException(String dbName) throws DdlException {
-        return getDbOrException(dbName, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbName, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrDdlException(long dbId) throws DdlException {
-        return getDbOrException(dbId, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbId, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return getDbOrException(dbName, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbName, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return getDbOrException(dbId, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbId, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public EditLog getEditLog() {
@@ -5379,7 +5427,7 @@ public class Catalog {
             }
 
             // set this group as unstable
-            colocateTableIndex.markGroupUnstable(groupId, false /* edit log is along with modify table log */);
+            colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user", false /* edit log is along with modify table log */);
             table.setColocateGroup(colocateGroup);
         } else {
             // unset colocation group
@@ -5808,7 +5856,7 @@ public class Catalog {
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
         if (!auth.checkDbPriv(ctx, qualifiedDb, PrivPredicate.SHOW)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_DB_ACCESS_DENIED, ctx.getQualifiedUser(), qualifiedDb);
+            ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
         this.getDbOrDdlException(qualifiedDb);

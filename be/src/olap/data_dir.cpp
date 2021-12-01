@@ -28,6 +28,9 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
+#include <boost/interprocess/sync/file_lock.hpp>
+#include <filesystem>
+#include <fstream>
 #include <set>
 #include <sstream>
 
@@ -142,7 +145,31 @@ Status DataDir::_init_cluster_id() {
             _cluster_id = remote_cluster_id;
         }
     }
-    return Status::OK();
+
+    // obtain lock of all cluster id paths
+    FILE* fp = nullptr;
+    fp = fopen(cluster_id_path.c_str(), "r+b");
+    if (fp == nullptr) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(
+                        strings::Substitute("failed to open cluster id file $0", cluster_id_path)),
+                "open file failed");
+    }
+
+    int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
+    if (lock_res < 0) {
+        fclose(fp);
+        fp = nullptr;
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(
+                        strings::Substitute("failed to flock cluster id file $0", cluster_id_path)),
+                "flock file failed");
+    }
+
+    // obtain cluster id of all root paths
+    auto st = _read_cluster_id(cluster_id_path, &_cluster_id);
+    fclose(fp);
+    return st;
 }
 
 Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id) {
@@ -189,6 +216,47 @@ Status DataDir::_init_capacity() {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
                 "failed to create data root path $0", data_path)), "create_dirs failed");
     }
+
+    FILE* mount_tablet = nullptr;
+    if ((mount_tablet = setmntent(kMtabPath, "r")) == nullptr) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(strings::Substitute("setmntent file $0 failed, err=$1", _path,
+                                                    errno_to_string(errno))),
+                "setmntent file failed");
+    }
+
+    bool is_find = false;
+    struct mntent* mount_entry = nullptr;
+    struct mntent ent;
+    char buf[1024];
+    while ((mount_entry = getmntent_r(mount_tablet, &ent, buf, sizeof(buf))) != nullptr) {
+        if (strcmp(_path.c_str(), mount_entry->mnt_dir) == 0 ||
+            strcmp(_path.c_str(), mount_entry->mnt_fsname) == 0) {
+            is_find = true;
+            break;
+        }
+
+        if (stat(mount_entry->mnt_fsname, &s) == 0 && s.st_rdev == mount_device) {
+            is_find = true;
+            break;
+        }
+
+        if (stat(mount_entry->mnt_dir, &s) == 0 && s.st_dev == mount_device) {
+            is_find = true;
+            break;
+        }
+    }
+
+    endmntent(mount_tablet);
+
+    if (!is_find) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(strings::Substitute("file system $0 not found", _path)),
+                "find file system failed");
+    }
+
+    _file_system = mount_entry->mnt_fsname;
+
     return Status::OK();
 }
 
@@ -460,10 +528,10 @@ OLAPStatus DataDir::load() {
     auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](
                                     int64_t tablet_id, int32_t schema_hash,
                                     const std::string& value) -> bool {
-        OLAPStatus status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash,
-                                                                   value, false, false, false, false);
-        if (status != OLAP_SUCCESS && status != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
-            && status != OLAP_ERR_ENGINE_INSERT_OLD_TABLET) {
+        OLAPStatus status = _tablet_manager->load_tablet_from_meta(
+                this, tablet_id, schema_hash, value, false, false, false, false);
+        if (status != OLAP_SUCCESS && status != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR &&
+            status != OLAP_ERR_ENGINE_INSERT_OLD_TABLET) {
             // load_tablet_from_meta() may return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
             // which means the tablet status is DELETED
             // This may happen when the tablet was just deleted before the BE restarted,
@@ -473,9 +541,9 @@ OLAPStatus DataDir::load() {
             // Therefore, we believe that this situation is not a failure.
 
             // Besides, load_tablet_from_meta() may return OLAP_ERR_ENGINE_INSERT_OLD_TABLET
-            // when BE is restarting and the older tablet have been added to the 
+            // when BE is restarting and the older tablet have been added to the
             // garbage collection queue but not deleted yet.
-            // In this case, since the data_dirs are parallel loaded, a later loaded tablet 
+            // In this case, since the data_dirs are parallel loaded, a later loaded tablet
             // may be older than previously loaded one, which should not be acknowledged as a
             // failure.
             LOG(WARNING) << "load tablet from header failed. status:" << status
@@ -582,7 +650,8 @@ void DataDir::remove_pending_ids(const std::string& id) {
 // gc unused tablet schemahash dir
 void DataDir::perform_path_gc_by_tablet() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
-    _check_path_cv.wait(lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
+    _check_path_cv.wait(
+            lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
     if (_stop_bg_worker) {
         return;
     }
@@ -714,8 +783,8 @@ void DataDir::perform_path_scan() {
                 _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
 
                 std::set<std::string> rowset_files;
-                ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr,
-                                                 &rowset_files, Env::Default());
+                ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
+                                                 Env::Default());
                 if (!ret.ok()) {
                     LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path
                                  << "] error[" << ret.to_string() << "]";
