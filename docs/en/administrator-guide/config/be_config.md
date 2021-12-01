@@ -192,11 +192,11 @@ This configuration is mainly used to modify the parameter `socket_max_unwritten_
 
 Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
 
-### `brpc_request_rowbatch_max_bytes`
+### `transfer_data_by_brpc_attachment`
 
-* Type: int64
-* Description: This configuration is used to control the maximum length of RowBatch in the ProtoBuf Request. If it exceeds the maximum length, it will be transferred to Controller Attachment. Note that when the length of ProtoBuf Request exceeds 2G, an error will be reported: Bad request, error_text=[E1003]Fail to compress request, so this value should not be greater than 2G.
-* Default value: 2G
+* Type: bool
+* Description: This configuration is used to control whether to transfer the RowBatch in the ProtoBuf Request to the Controller Attachment and then send it through brpc. When the length of ProtoBuf Request exceeds 2G, an error will be reported: Bad request, error_text=[E1003]Fail to compress request, Putting RowBatch in Controller Attachment will be faster and avoid this error.
+* Default value: false
 
 ### `brpc_num_threads`
 

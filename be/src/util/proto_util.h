@@ -24,8 +24,7 @@ namespace doris {
 // and it is expected that performance can be improved.
 template <typename Params, typename Closure>
 inline void request_row_batch_transfer_attachment(Params* brpc_request, Closure* closure) {
-    if (brpc_request->has_row_batch() &&
-        brpc_request->row_batch().ByteSizeLong() > config::brpc_request_rowbatch_max_bytes) {
+    if (brpc_request->has_row_batch() && config::transfer_data_by_brpc_attachment == true) {
         butil::IOBuf attachment;
         auto row_batch = brpc_request->mutable_row_batch();
         row_batch->set_transfer_by_attachment(true);
