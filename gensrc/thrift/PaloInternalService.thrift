@@ -156,6 +156,10 @@ struct TQueryOptions {
 
   // the resource limitation of this query
   42: optional TResourceLimit resource_limit
+
+  // show bitmap data in result, if use this in mysql cli may make the terminal
+  // output corrupted character
+  43: optional bool return_object_data_as_binary = false
 }
     
 

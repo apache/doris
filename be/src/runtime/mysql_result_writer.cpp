@@ -33,8 +33,8 @@ namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
                                      const std::vector<ExprContext*>& output_expr_ctxs,
-                                     RuntimeProfile* parent_profile)
-        : ResultWriter(),
+                                     RuntimeProfile* parent_profile, bool output_object_data)
+        : ResultWriter(output_object_data),
           _sinker(sinker),
           _output_expr_ctxs(output_expr_ctxs),
           _row_buffer(nullptr),
@@ -115,7 +115,18 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
 
     case TYPE_HLL:
     case TYPE_OBJECT: {
-        buf_ret = _row_buffer->push_null();
+        if (_output_object_data) {
+            const StringValue* string_val = (const StringValue*)(item);
+
+            if (string_val->ptr == nullptr) {
+                buf_ret = _row_buffer->push_null();
+            } else {
+                buf_ret = _row_buffer->push_string(string_val->ptr, string_val->len);
+            }
+        } else {
+            buf_ret = _row_buffer->push_null();
+        }
+
         break;
     }
 
