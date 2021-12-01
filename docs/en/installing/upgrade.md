@@ -43,7 +43,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
      $ mysql-client> admin set frontend config("disable_balance" = "true");
 
      # Turn off the replica balance logic of the colocation table. After it is closed, the replica redistribution operation of the colocation table will no longer be triggered.
-     $ mysql-client> admin set frontend config("disable_colocate_balance");
+     $ mysql-client> admin set frontend config("disable_colocate_balance" = "true");
 
      # Turn off the replica scheduling logic. After shutting down, all generated replica repair and balancing tasks will no longer be scheduled.
      $ mysql-client> admin set frontend config("disable_tablet_scheduler" = "true");

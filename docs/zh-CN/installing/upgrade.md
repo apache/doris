@@ -42,7 +42,7 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 	$ mysql-client > admin set frontend config("disable_balance" = "true");
 
 	# 关闭 colocation 表的副本均衡逻辑。关闭后，不会再出发 colocation 表的副本重分布操作。
-	$ mysql-client > admin set frontend config("disable_colocate_balance");
+	$ mysql-client > admin set frontend config("disable_colocate_balance" = "true");
 
 	# 关闭副本调度逻辑。关闭后，所有已产生的副本修复和均衡任务不会再被调度。
 	$ mysql-client > admin set frontend config("disable_tablet_scheduler" = "true");
