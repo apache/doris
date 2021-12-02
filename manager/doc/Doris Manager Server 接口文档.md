@@ -504,6 +504,8 @@
 > |data.startTime |Date | 任务开始时间 |
 > |data.endTime |Date | 任务终止时间      |
 > |data.finish |int | 任务执行完成标志 |
+> |data.taskRole |String | 任务所属角色 FE BE BROKER，安装agent和组件集群为空 |
+
 
 **接口示例**
 
@@ -528,7 +530,8 @@
             "endTime": "2021-11-02T01:33:20.000+00:00",
             "executorId": "377bb55156774cb7a72804fbba207e94",
             "result": null,
-            "finish": "YES"
+            "finish": "YES",
+            "taskRole": "FE"
         },
         {
             "id": 7,
@@ -541,7 +544,8 @@
             "endTime": "2021-11-02T01:33:20.000+00:00",
             "executorId": "f052ba23ad9d4428900d328a7979d7a2",
             "result": null,
-            "finish": "YES"
+            "finish": "YES",
+            "taskRole": "BE"
         }
     ]
 }
