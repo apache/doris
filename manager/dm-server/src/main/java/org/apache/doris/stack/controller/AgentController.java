@@ -28,6 +28,7 @@ import org.apache.doris.stack.model.request.DorisInstallReq;
 import org.apache.doris.stack.model.request.DorisStartReq;
 import org.apache.doris.stack.service.AgentProcess;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -124,9 +125,9 @@ public class AgentController {
      * query hardware info
      */
     @ApiOperation(value = "query hardware info")
-    @RequestMapping(value = "/hardware", method = RequestMethod.GET)
-    public RResult hardwareInfo(@RequestParam String host) {
-        return RResult.success(agentProcess.hardwareInfo(host));
+    @RequestMapping(value = "/hardware/{clusterId}", method = RequestMethod.GET)
+    public RResult hardwareInfo(@PathVariable int clusterId) {
+        return RResult.success(agentProcess.hardwareInfo(clusterId));
     }
 
 }

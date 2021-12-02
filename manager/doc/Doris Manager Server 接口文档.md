@@ -831,7 +831,7 @@
 
 **URL**
 
-> /api/agent/hardware
+> /api/agent/hardware/{clusterId}
 
 **支持格式**
 
@@ -855,7 +855,7 @@
 
 **接口示例**
 
-> 地址：http://localhost:9601/api/agent/hardware
+> 地址：http://localhost:9601/api/agent/hardware/1
 
 > 请求参数：无
 
@@ -864,9 +864,10 @@
 {
     "msg": "success",
     "code": 0,
-    "data": {
+    "data": [{
         "cpu": "Intel(R) Xeon(R) Silver 4116 CPU @ 2.10GHz",
-        "totalMemory": "15.5 GiB"
-    }
+        "totalMemory": "15.5 GiB",
+        "host": "127.0.0.1"
+    }]
 }
 ```
