@@ -15,39 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.common.domain;
+package org.apache.doris.manager.agent.command;
 
-public enum CommandType {
-    INSTALL_FE,
+import org.apache.doris.manager.agent.exception.AgentException;
+import org.apache.doris.manager.agent.service.Service;
+import org.apache.doris.manager.agent.service.ServiceContext;
+import org.apache.doris.manager.common.domain.ServiceRole;
 
-    INSTALL_BE,
+import java.util.Objects;
 
-    START_FE,
-
-    STOP_FE,
-
-    START_BE,
-
-    STOP_BE,
-
-    WRITE_FE_CONF,
-
-    WRITE_BE_CONF,
-
-    INSTALL_BROKER,
-
-    START_BROKER,
-
-    STOP_BROKER,
-
-    WRITE_BROKER_CONF;
-
-    public static CommandType findByName(String name) {
-        for (CommandType type : CommandType.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
+public abstract class BrokerCommand extends ExpandCommand {
+    @Override
+    void beforeSetup() {
+        Service service = ServiceContext.getServiceMap().get(ServiceRole.BROKER);
+        if (Objects.isNull(service)) {
+            throw new AgentException("service broker not installed or register");
         }
-        return null;
     }
 }

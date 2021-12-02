@@ -90,6 +90,8 @@ public class TaskInstanceEntity {
     @Column(name = "skip", nullable = false)
     private Flag skip;
 
+    private String taskRole;
+
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;

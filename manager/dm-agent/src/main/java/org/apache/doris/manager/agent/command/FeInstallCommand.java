@@ -21,7 +21,6 @@ import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.agent.register.AgentContext;
 import org.apache.doris.manager.agent.service.FeService;
-import org.apache.doris.manager.agent.service.Service;
 import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.ITaskHandlerFactory;
 import org.apache.doris.manager.agent.task.QueuedTaskHandlerFactory;
@@ -32,7 +31,6 @@ import org.apache.doris.manager.agent.task.TaskHandlerFactory;
 import org.apache.doris.manager.agent.task.TaskHook;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
-import org.apache.doris.manager.common.domain.ServiceRole;
 
 import java.util.Objects;
 
@@ -77,11 +75,6 @@ public class FeInstallCommand extends Command {
     }
 
     private void validCommand() {
-        Service service = ServiceContext.getServiceMap().get(ServiceRole.FE);
-        if (Objects.nonNull(service)) {
-            throw new AgentException("service fe has installed");
-        }
-
         if (Objects.isNull(requestBody.getInstallDir()) || Objects.isNull(requestBody.getPackageUrl())) {
             throw new AgentException("required parameters are missing in body param");
         }

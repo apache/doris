@@ -20,6 +20,7 @@ package org.apache.doris.stack.component;
 import com.alibaba.fastjson.JSON;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.TaskResult;
@@ -116,9 +117,13 @@ public class TaskInstanceComponent {
             return true;
         }
         List<TaskInstanceEntity> taskInstanceEntities = taskInstanceRepository.queryTasksByProcessStep(processId, parent);
+        if (ObjectUtils.isEmpty(taskInstanceEntities)) {
+            log.error("parent step {} has no task", processType.name());
+            return false;
+        }
         for (TaskInstanceEntity task : taskInstanceEntities) {
             if (Flag.NO.equals(task.getFinish())) {
-                log.info("task {} is unsuccess", task.getTaskType());
+                log.error("task {} is unfinish", task.getTaskType());
                 return false;
             }
         }

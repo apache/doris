@@ -37,7 +37,7 @@ if [ -f $pidfile ]; then
 
    if kill -9 $pid > /dev/null 2>&1; then
         echo "stop $pidcomm, and remove pid file. "
-        rm $pidfile
+        rm -f $pidfile
    fi
 fi
 

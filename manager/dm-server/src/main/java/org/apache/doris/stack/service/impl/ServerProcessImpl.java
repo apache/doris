@@ -51,6 +51,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * server
@@ -149,7 +150,8 @@ public class ServerProcessImpl implements ServerProcess {
     @Override
     public List<AgentRoleEntity> agentRole(String host) {
         List<AgentRoleEntity> agentRoles = agentRoleComponent.queryAgentByHost(host);
-        return agentRoles;
+        List<AgentRoleEntity> result = agentRoles.stream().filter(m -> m.getRegister() != null && m.getRegister().typeIsYes()).collect(Collectors.toList());
+        return result;
     }
 
     @Override

@@ -92,7 +92,6 @@ public abstract class Service {
         return "Service{"
                 + "serviceRole=" + serviceRole
                 + ", installDir='" + installDir + '\''
-                + ", httpPort=" + httpPort
                 + '}';
     }
 }

@@ -91,9 +91,9 @@ public class AgentController {
     }
 
     /**
-     * register role service (be/fe)
+     * register role service (be/fe/broker)
      */
-    @ApiOperation(value = "register role service (be/fe)")
+    @ApiOperation(value = "register role service (be/fe/broker)")
     @RequestMapping(value = "/register", method = RequestMethod.POST)
     public RResult register(@RequestBody AgentRoleRegister agentReg) {
         boolean register = agentProcess.register(agentReg);

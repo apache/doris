@@ -27,7 +27,7 @@ import lombok.NoArgsConstructor;
 public class DorisInstall {
     private String host;
     /**
-     * be / fe
+     * be / fe / broker
      */
     private String role;
 
