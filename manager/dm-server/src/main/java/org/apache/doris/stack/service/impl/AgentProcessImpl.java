@@ -38,6 +38,7 @@ import org.apache.doris.manager.common.domain.WriteBrokerConfCommandRequestBody;
 import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
+import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
 import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.component.TaskInstanceComponent;
@@ -100,6 +101,8 @@ public class AgentProcessImpl implements AgentProcess {
     private AgentCache agentCache;
     @Autowired
     private AgentRoleComponent agentRoleComponent;
+    @Autowired
+    private AgentComponent agentComponent;
     @Autowired
     private ProcessInstanceComponent processInstanceComponent;
     @Autowired
@@ -636,9 +639,21 @@ public class AgentProcessImpl implements AgentProcess {
     }
 
     @Override
-    public HardwareInfo hardwareInfo(String host) {
-        int port = agentCache.agentPort(host);
-        HardwareInfo hardwareInfo = agentRest.hardwareInfo(host, port);
-        return hardwareInfo;
+    public List<HardwareInfo> hardwareInfo(int clusterId) {
+        List<HardwareInfo> hardwareInfos = Lists.newArrayList();
+        List<AgentEntity> agentEntities = agentComponent.queryAgentNodes(clusterId);
+        for (AgentEntity agent : agentEntities) {
+            if (!AgentStatus.RUNNING.equals(agent.getStatus())) {
+                continue;
+            }
+            HardwareInfo hardware = agentRest.hardwareInfo(agent.getHost(), agent.getPort());
+            if (hardware == null) {
+                log.error("request host hardware failed:{}", agent.getHost());
+                continue;
+            }
+            hardware.setHost(agent.getHost());
+            hardwareInfos.add(hardware);
+        }
+        return hardwareInfos;
     }
 }

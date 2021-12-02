@@ -57,5 +57,5 @@ public interface AgentProcess {
 
     Object log(String host, String type);
 
-    HardwareInfo hardwareInfo(String host);
+    List<HardwareInfo> hardwareInfo(int clusterId);
 }
