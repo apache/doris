@@ -422,6 +422,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _is_in_memory = schema.is_in_memory();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
+    _sort_type = schema.sort_type();
+    _sort_col_num = schema.sort_col_num();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
@@ -440,6 +442,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_is_in_memory(_is_in_memory);
     tablet_meta_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_meta_pb->set_sequence_col_idx(_sequence_col_idx);
+    tablet_meta_pb->set_sort_type(_sort_type);
+    tablet_meta_pb->set_sort_col_num(_sort_col_num);
 }
 
 uint32_t TabletSchema::mem_size() const {
