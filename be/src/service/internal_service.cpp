@@ -32,6 +32,7 @@
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/md5.h"
+#include "util/proto_util.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -59,7 +60,15 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
                                             google::protobuf::Closure* done) {
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " node=" << request->node_id();
-    _exec_env->stream_mgr()->transmit_data(request, &done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    attachment_transfer_request_row_batch<PTransmitDataParams>(request, cntl);
+    auto st = _exec_env->stream_mgr()->transmit_data(request, &done);
+    if (!st.ok()) {
+        LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
+                     << ", fragment_instance_id=" << print_id(request->finst_id())
+                     << ", node=" << request->node_id();
+    }
+    st.to_protobuf(response->mutable_status());
     if (done != nullptr) {
         done->Run();
     }
@@ -104,7 +113,7 @@ void PInternalServiceImpl<T>::exec_plan_fragment(google::protobuf::RpcController
 }
 
 template <typename T>
-void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* controller,
+void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* cntl_base,
                                                       const PTabletWriterAddBatchRequest* request,
                                                       PTabletWriterAddBatchResult* response,
                                                       google::protobuf::Closure* done) {
@@ -115,12 +124,14 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
     // this will influence query execution, because the pthreads under bthread may be
     // exhausted, so we put this to a local thread pool to process
     int64_t submit_task_time_ns = MonotonicNanos();
-    _tablet_worker_pool.offer([request, response, done, submit_task_time_ns, this]() {
+    _tablet_worker_pool.offer([cntl_base, request, response, done, submit_task_time_ns, this]() {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+            attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
             auto st = _exec_env->load_channel_mgr()->add_batch(*request,
                                                                response->mutable_tablet_vec());
             if (!st.ok()) {
