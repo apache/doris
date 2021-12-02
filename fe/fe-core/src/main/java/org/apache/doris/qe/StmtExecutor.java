@@ -418,7 +418,7 @@ public class StmtExecutor implements ProfileWriter {
             throw e;
         } catch (UserException e) {
             LOG.warn("execute Exception.", e);
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setInternalErrorCode(e.getErrorCode());
         } catch (Exception e) {
             LOG.warn("execute Exception", e);

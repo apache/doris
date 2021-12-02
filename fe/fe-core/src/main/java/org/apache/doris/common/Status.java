@@ -21,9 +21,6 @@ import org.apache.doris.proto.Status.PStatus;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
-/**
- * PStatus和TStatus的java类
- */
 public class Status {
     public static final Status OK = new Status();
     public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
@@ -72,10 +69,6 @@ public class Status {
         return this.errorCode == TStatusCode.THRIFT_RPC_ERROR;
     }
 
-    public boolean isTimeout() {
-        return this.errorCode == TStatusCode.TIMEOUT;
-    }
-    
     public void setStatus(Status status) {
         this.errorCode = status.errorCode;
         this.errorMsg = status.getErrorMsg();

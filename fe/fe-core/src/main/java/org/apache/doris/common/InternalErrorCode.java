@@ -38,7 +38,6 @@ public enum InternalErrorCode {
     CREATE_TASKS_ERR(103),
     TASKS_ABORT_ERR(104),
 
-
     // for DQL
     // Caused by user
     ANALYSIS_ERR(400),
@@ -75,6 +74,9 @@ public enum InternalErrorCode {
                 return CANCELLED_ERR;
             case MEM_LIMIT_EXCEEDED:
                 return RESOURCE_LIMIT_EXCEEDED_ERR;
+            case ANALYSIS_ERROR:
+            case INCOMPLETE:  // This status code is not used now.
+                return ANALYSIS_ERR;
             default:
                 return INTERNAL_ERR;
         }

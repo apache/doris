@@ -56,7 +56,7 @@ public class UserException extends Exception {
         mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
     }
 
-    public void setErrorCode(InternalErrorCode errorCode) {
+    protected void setErrorCode(InternalErrorCode errorCode) {
         this.errorCode = errorCode;
     }
 

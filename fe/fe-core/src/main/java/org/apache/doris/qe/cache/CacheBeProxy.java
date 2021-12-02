@@ -90,7 +90,7 @@ public class CacheBeProxy extends CacheProxy {
             status.update(TStatusCode.INTERNAL_ERROR, "execution exception");
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
-            status.update(TStatusCode.INTERNAL_ERROR, "query timeout");
+            status.update(TStatusCode.TIMEOUT, "query cache timeout");
         }
         return null;
     }

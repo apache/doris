@@ -136,7 +136,7 @@ public class ConnectProcessor {
                     case TIMEOUT_ERR:
                     case CANCELLED_ERR:
                         MetricRepo.COUNTER_QUERY_TIMEOUT.increase(1L);
-                        // There is no `break` here, because the timeout query is also a failed query
+                        break;
                     default:
                         MetricRepo.COUNTER_QUERY_ERR.increase(1L);
                 }
@@ -241,7 +241,6 @@ public class ConnectProcessor {
         } catch (UserException e) {
             LOG.warn("Process one query failed because.", e);
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setInternalErrorCode(e.getErrorCode());
         } catch (Throwable e) {
             // Catch all throwable.

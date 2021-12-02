@@ -32,7 +32,7 @@ public class AnalysisException extends UserException {
     }
 
     public AnalysisException(String msg, ErrorCode mysqlErrorCode) {
-        super(msg);
+        super(InternalErrorCode.ANALYSIS_ERR, msg);
         setMysqlErrorCode(mysqlErrorCode);
     }
 }

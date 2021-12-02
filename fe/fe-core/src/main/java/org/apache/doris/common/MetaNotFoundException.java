@@ -22,11 +22,11 @@ package org.apache.doris.common;
  */
 public class MetaNotFoundException extends UserException {
     public MetaNotFoundException(String msg) {
-        super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
+        super(msg);
     }
 
     public MetaNotFoundException(String msg, ErrorCode mysqlErrorCode) {
-        super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
+        super(msg);
         setMysqlErrorCode(mysqlErrorCode);
     }
 
@@ -35,7 +35,7 @@ public class MetaNotFoundException extends UserException {
     }
 
     public MetaNotFoundException(Throwable e) {
-        super(InternalErrorCode.META_NOT_FOUND_ERR, "", e);
+        super(e);
     }
 
     public MetaNotFoundException(String msg, Throwable e) {

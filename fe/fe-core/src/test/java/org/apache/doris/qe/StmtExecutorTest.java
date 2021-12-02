@@ -333,10 +333,10 @@ public class StmtExecutorTest {
         testFailBase(queryStmt, parser, planner, coordinator, () -> new MockUp<Coordinator>(Coordinator.class) {
             @Mock
             public void exec() throws Exception {
-                throw new UserException(InternalErrorCode.INSTANCE_EXHAUST_ERR,
+                throw new UserException(InternalErrorCode.RESOURCE_LIMIT_EXCEEDED_ERR,
                         "reach max_query_instances " + 1);
             }
-        }, InternalErrorCode.INSTANCE_EXHAUST_ERR);
+        }, InternalErrorCode.RESOURCE_LIMIT_EXCEEDED_ERR);
     }
 
     @Test
