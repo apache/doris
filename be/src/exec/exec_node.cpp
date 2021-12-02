@@ -164,12 +164,7 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         profile = print_plan_node_type(tnode.node_type);
     }
     init_runtime_profile(profile);
-
-    if (tnode.__isset.vconjunct) {
-        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
-                                                                   _vconjunct_ctx_ptr.get()));
-    }
+    
     RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
 
     return Status::OK();
