@@ -51,7 +51,9 @@
         "next_column_unique_id": 3,
         "is_in_memory": false,
         "delete_sign_idx": -1,
-        "sequence_col_idx": -1
+        "sequence_col_idx": -1,
+        "sort_type": "LEXICAL",
+        "sort_col_num": 0
     },
     "rs_metas": [
         {

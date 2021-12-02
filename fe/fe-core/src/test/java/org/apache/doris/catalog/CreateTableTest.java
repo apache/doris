@@ -478,4 +478,45 @@ public class CreateTableTest {
                                 ");"));
 
     }
+
+    @Test
+    public void testZOrderTable() {
+        // create lexically sort table
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.zorder_tbl1\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1'," +
+                        " 'data_sort.sort_type' = 'lexical');"));
+
+        // create z-order sort table, default col_num
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.zorder_tbl2\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1'," +
+                        " 'data_sort.sort_type' = 'zorder');"));
+
+        // create z-order sort table, define sort_col_num
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.zorder_tbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1'," +
+                        " 'data_sort.sort_type' = 'zorder'," +
+                        " 'data_sort.col_num' = '2');"));
+        // create z-order sort table, only 1 sort column
+        ExceptionChecker
+                .expectThrowsWithMsg(AnalysisException.class, "z-order needs 2 columns at least, 3 columns at most",
+                        () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1'," +
+                                " 'data_sort.sort_type' = 'zorder'," +
+                                " 'data_sort.col_num' = '1');"));
+        // create z-order sort table, sort column is empty
+        ExceptionChecker
+                .expectThrowsWithMsg(AnalysisException.class, "param data_sort.col_num error",
+                        () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1'," +
+                                " 'data_sort.sort_type' = 'zorder'," +
+                                " 'data_sort.col_num' = '');"));
+    }
 }

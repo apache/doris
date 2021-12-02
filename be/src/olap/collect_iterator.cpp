@@ -56,6 +56,8 @@ OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 void CollectIterator::build_heap(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
     DCHECK(rs_readers.size() == _children.size());
     _reverse = _reader->_tablet->tablet_schema().keys_type() == KeysType::UNIQUE_KEYS;
+    SortType sort_type = _reader->_tablet->tablet_schema().sort_type();
+    int sort_col_num = _reader->_tablet->tablet_schema().sort_col_num();
     if (_children.empty()) {
         _inner_iter.reset(nullptr);
         return;
@@ -86,18 +88,19 @@ void CollectIterator::build_heap(const std::vector<RowsetReaderSharedPtr>& rs_re
                 ++i;
             }
             Level1Iterator* cumu_iter =
-                    new Level1Iterator(cumu_children, cumu_children.size() > 1, _reverse, _reader->_sequence_col_idx);
+                    new Level1Iterator(cumu_children, cumu_children.size() > 1, _reverse,
+                                       _reader->_sequence_col_idx, sort_type, sort_col_num);
             cumu_iter->init();
             _inner_iter.reset(new Level1Iterator(std::list<LevelIterator*>{*base_reader_child, cumu_iter}, _merge,
-                    _reverse, _reader->_sequence_col_idx));
+                    _reverse, _reader->_sequence_col_idx, sort_type, sort_col_num));
         } else {
             // _children.size() == 1
             _inner_iter.reset(new Level1Iterator(_children, _merge,
-                    _reverse, _reader->_sequence_col_idx));
+                    _reverse, _reader->_sequence_col_idx, sort_type, sort_col_num));
         }
     } else {
         _inner_iter.reset(new Level1Iterator(_children, _merge,
-                _reverse, _reader->_sequence_col_idx));
+                _reverse, _reader->_sequence_col_idx, sort_type, sort_col_num));
     }
     _inner_iter->init();
     // Clear _children earlier to release any related references
@@ -121,6 +124,34 @@ bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a
         auto seq_second_cell = second->cell(_sequence_id_idx);
         auto res = first->schema()->column(_sequence_id_idx)->compare_cell(seq_first_cell, seq_second_cell);
         if (res != 0) return res < 0;
+    }
+    // if row cursors equal, compare data version.
+    // read data from higher version to lower version.
+    // for UNIQUE_KEYS just read the highest version and no need agg_update.
+    // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
+    if (_reverse) {
+        return a->version() < b->version();
+    }
+    return a->version() > b->version();
+}
+
+CollectIterator::BaseComparator::BaseComparator(
+        std::shared_ptr<LevelIteratorComparator>& cmp) {
+    _cmp = cmp;
+}
+
+bool CollectIterator::BaseComparator::operator()(const LevelIterator* a, const LevelIterator* b) {
+    return _cmp->operator()(a, b);
+}
+
+bool CollectIterator::LevelZorderIteratorComparator::operator()(const LevelIterator* a,
+                                                                    const LevelIterator* b) {
+    // First compare row cursor.
+    const RowCursor* first = a->current_row();
+    const RowCursor* second = b->current_row();
+    int cmp_res = _comparator.compare_row(*first, *second);
+    if (cmp_res != 0) {
+        return cmp_res > 0;
     }
     // if row cursors equal, compare data version.
     // read data from higher version to lower version.
@@ -233,8 +264,11 @@ OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* de
 }
 
 CollectIterator::Level1Iterator::Level1Iterator(
-        std::list<CollectIterator::LevelIterator*> children, bool merge, bool reverse, int sequence_id_idx)
-        : _children(std::move(children)), _merge(merge), _reverse(reverse), _sequence_id_idx(sequence_id_idx) {}
+        const std::list<CollectIterator::LevelIterator*>& children,
+        bool merge, bool reverse, int sequence_id_idx,
+        SortType sort_type, int sort_col_num)
+        : _children(children), _merge(merge), _reverse(reverse),
+        _sort_type(sort_type), _sort_col_num(sort_col_num) {}
 
 CollectIterator::LevelIterator::~LevelIterator() = default;
 
@@ -304,7 +338,14 @@ OLAPStatus CollectIterator::Level1Iterator::init() {
 
     // Only when there are multiple children that need to be merged
     if (_merge && _children.size() > 1) {
-        _heap.reset(new MergeHeap(LevelIteratorComparator(_reverse, _sequence_id_idx)));
+        std::shared_ptr<LevelIteratorComparator> cmp;
+        if (_sort_type == SortType::ZORDER) {
+            cmp = std::make_shared<LevelZorderIteratorComparator>(_reverse, _sequence_id_idx,  _sort_col_num);
+        } else {
+            cmp = std::make_shared<LevelIteratorComparator>(_reverse, _sequence_id_idx);
+        }
+        BaseComparator bcmp(cmp);
+        _heap.reset(new MergeHeap(bcmp));
         for (auto child : _children) {
             DCHECK(child != nullptr);
             DCHECK(child->current_row() != nullptr);
