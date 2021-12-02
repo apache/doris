@@ -19,6 +19,7 @@ package org.apache.doris.stack.service.impl;
 
 import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -48,7 +49,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * agent task service
@@ -103,7 +103,13 @@ public class ProcessTaskImpl implements ProcessTask {
         Preconditions.checkArgument(processEntity != null, "can not find processId " + processId);
         refreshAgentTaskStatus(processId);
         List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessStep(processId, processEntity.getProcessType());
-        List<TaskInstanceEntity> resultTasks = taskEntities.stream().filter(m -> !m.getSkip().typeIsYes()).collect(Collectors.toList());
+        List<TaskInstanceEntity> resultTasks = Lists.newArrayList();
+        for (TaskInstanceEntity task : taskEntities) {
+            if (task.getSkip().typeIsYes()) {
+                continue;
+            }
+            task.setTaskRole(task.getTaskType().parseTaskRole());
+        }
         return resultTasks;
     }
 

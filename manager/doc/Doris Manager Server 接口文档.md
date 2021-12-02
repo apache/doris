@@ -235,11 +235,11 @@
 {
     "processId":"1",
     "deployConfigs":[{
-        "host":["10.220.147.155"],
+        "hosts":["10.220.147.155"],
         "role":"FE",
         "conf":"LOG_DIR = ${DORIS_HOME}/log\nDATE = `date +%Y%m%d-%H%M%S`\nJAVA_OPTS=\"-Xmx4096m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$DORIS_HOME/log/fe.gc.log.$DATE\"\nJAVA_OPTS_FOR_JDK_9=\"-Xmx4096m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xlog:gc*:$DORIS_HOME/log/fe.gc.log.$DATE:time\"\nsys_log_level = INFO\nmeta_dir = /usr/local/doris/fe/doris-meta\nhttp_port = 8030\nrpc_port = 9020\nquery_port = 9030\nedit_log_port = 9010\nmysql_service_nio_enabled = true"
     },{
-        "host":["10.220.147.155"],
+        "hosts":["10.220.147.155"],
         "role":"BE",
         "conf":"PPROF_TMPDIR=\"$DORIS_HOME/log/\"\nsys_log_level = INFO\nbe_port = 19060\nbe_rpc_port = 19070\nwebserver_port = 18040\nheartbeat_service_port = 19050\nbrpc_port = 18060\nstorage_root_path = /usr/local/doris/be/storage\n"
     }]

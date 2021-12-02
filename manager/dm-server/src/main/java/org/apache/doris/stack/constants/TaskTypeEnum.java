@@ -17,6 +17,8 @@
 
 package org.apache.doris.stack.constants;
 
+import org.apache.doris.manager.common.domain.ServiceRole;
+
 /**
  * task type
  **/
@@ -43,4 +45,27 @@ public enum TaskTypeEnum {
         return this != INSTALL_AGENT && this != JOIN_BE;
     }
 
+    /**
+     * parse task role: FE BE BROKER
+     */
+    public String parseTaskRole() {
+        if (this == INSTALL_FE
+                || this == DEPLOY_FE_CONFIG
+                || this == START_FE
+                || this == STOP_FE) {
+            return ServiceRole.FE.name();
+        } else if (this == INSTALL_BE
+                || this == DEPLOY_BE_CONFIG
+                || this == START_BE
+                || this == STOP_BE) {
+            return ServiceRole.BE.name();
+        } else if (this == INSTALL_BROKER
+                || this == DEPLOY_BROKER_CONFIG
+                || this == START_BROKER
+                || this == STOP_BROKER) {
+            return ServiceRole.BROKER.name();
+        } else {
+            return null;
+        }
+    }
 }
