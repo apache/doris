@@ -49,6 +49,8 @@ struct TTabletSchema {
     8: optional bool is_in_memory
     9: optional i32 delete_sign_idx = -1
     10: optional i32 sequence_col_idx = -1
+    11: optional Types.TSortType sort_type
+    12: optional i32 sort_col_num
 }
 
 // this enum stands for different storage format in src_backends
