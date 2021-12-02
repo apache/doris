@@ -19,10 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.common.UserException;
 
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 // TODO: extend BlobStorage
 public class HDFSStorage {
