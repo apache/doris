@@ -109,6 +109,7 @@ public class ProcessTaskImpl implements ProcessTask {
                 continue;
             }
             task.setTaskRole(task.getTaskType().parseTaskRole());
+            resultTasks.add(task);
         }
         return resultTasks;
     }
