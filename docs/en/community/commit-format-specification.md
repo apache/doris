@@ -52,7 +52,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * chore: Modification of build tool
         * revert: Revert a previous commit
         * deps: Modification of third-party dependency Library
-		* community: Such as modification of Github issue template.
+        * community: Such as modification of Github issue template.
 
         Some tips：
         

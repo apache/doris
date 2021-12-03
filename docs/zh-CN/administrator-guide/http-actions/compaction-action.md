@@ -84,7 +84,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
         "[50-50] 0 DELETE NONOVERLAPPING 574.00 B",
         "[51-51] 5 DATA OVERLAPPING 574.00 B"
     ],
-	"missing_rowsets": [],
+    "missing_rowsets": [],
     "stale version path": [
         {
             "path id": "2",

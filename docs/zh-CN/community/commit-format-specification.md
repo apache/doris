@@ -39,7 +39,7 @@ Commit 分为“标题”和“内容”。原则上标题全部小写。内容�
         
         * fix：bug修复
         * feature：新增功能
-		* feature-wip：开发中的功能，比如某功能的部分代码。
+        * feature-wip：开发中的功能，比如某功能的部分代码。
         * improvement：原有功能的优化和改进
         * docs：文档
         * style：代码风格调整
@@ -50,7 +50,7 @@ Commit 分为“标题”和“内容”。原则上标题全部小写。内容�
         * chore：构建工具的修改
         * revert：回滚
         * deps：第三方依赖库的修改
-		* community：社区相关的修改，如修改 Github Issue 模板等。
+        * community：社区相关的修改，如修改 Github Issue 模板等。
 
         几点说明：
         
