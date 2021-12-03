@@ -298,39 +298,6 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     ```
 
     **但由于查询语句带了一个顶层的排序节点，所以这个查询即使开启并发导出的 session 变量，也是无法并发导出的。**
-
-7. 示例7
-
-    使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 csv。
-
-    ```
-    select * from tbl
-    into outfile "hdfs://path/to/result_"
-    format as csv
-    properties
-    (
-        "hdfs.fs.defaultfs" = "hdfs://namenode:port",
-    );
-    ```
-   
-
-8. 示例8
-
-    使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 csv。使用并设置 kerberos 认证信息。
-
-    ```
-    select * from tbl
-    into outfile "hdfs://path/to/result_"
-    format as csv
-    properties
-    (
-        "hdfs.fs.defaultfs" = "hdfs://namenode:port",
-        "hdfs.hadoop.security.authentication" = "kerberos",
-        "hdfs.kerberos_principal" = "doris@your.com",
-        "hdfs.kerberos_keytab" = "/home/doris/my.keytab"
-    );
-    ```
-
     
 ## 返回结果
 
