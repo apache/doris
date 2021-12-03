@@ -80,6 +80,8 @@ protected:
     std::shared_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     MemPool _mem_pool;
+    // Mem pool used to allocate row data, it will transfer to rowbatch or clear
+    MemPool _row_mem_pool;
 
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;

@@ -213,11 +213,11 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                     case orc::BOOLEAN: {
                         int64_t value = ((orc::LongVectorBatch*)cvb)->data[_current_line_of_group];
                         if (value == 0) {
-                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(5));
+                            str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(5));
                             memcpy(str_slot->ptr, "false", 5);
                             str_slot->len = 5;
                         } else {
-                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(4));
+                            str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(4));
                             memcpy(str_slot->ptr, "true", 4);
                             str_slot->len = 4;
                         }
@@ -229,7 +229,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                     case orc::LONG: {
                         int64_t value = ((orc::LongVectorBatch*)cvb)->data[_current_line_of_group];
                         wbytes = sprintf((char*)tmp_buf, "%ld", value);
-                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
                         break;
@@ -238,7 +238,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                     case orc::DOUBLE: {
                         double value = ((orc::DoubleVectorBatch*)cvb)->data[_current_line_of_group];
                         wbytes = sprintf((char*)tmp_buf, "%.9f", value);
-                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
                         break;
@@ -249,7 +249,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                     case orc::STRING: {
                         char* value = ((orc::StringVectorBatch*)cvb)->data[_current_line_of_group];
                         wbytes = ((orc::StringVectorBatch*)cvb)->length[_current_line_of_group];
-                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(wbytes));
                         memcpy(str_slot->ptr, value, wbytes);
                         str_slot->len = wbytes;
                         break;
@@ -292,7 +292,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                                 decimal_str.substr(decimal_str.size() - scale);
                         }
 
-                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(v.size()));
+                        str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(v.size()));
                         memcpy(str_slot->ptr, v.c_str(), v.size());
                         str_slot->len = v.size();
                         break;
@@ -313,7 +313,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                         dtv.cast_to_date();
                         char* buf_end = dtv.to_string((char*)tmp_buf);
                         wbytes = buf_end - (char*)tmp_buf - 1;
-                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
                         break;
@@ -333,7 +333,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                         }
                         char* buf_end = dtv.to_string((char*)tmp_buf);
                         wbytes = buf_end - (char*)tmp_buf - 1;
-                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        str_slot->ptr = reinterpret_cast<char*>(_row_mem_pool.allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
                         break;
@@ -358,9 +358,13 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            if (fill_dest_tuple(tuple, tuple_pool)) {
+            if (fill_dest_tuple(tuple, &_row_mem_pool)) {
+                tuple_pool->acquire_data(&_row_mem_pool, false);
                 break; // get one line, break from while
-            }          // else skip this line and continue get_next to return
+            } else { 
+                // else skip this line and continue get_next to return
+                _row_mem_pool.clear();
+            }       
         }
         return Status::OK();
     } catch (orc::ParseError& e) {

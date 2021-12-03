@@ -46,6 +46,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                                             state->instance_mem_tracker())),
 #endif
           _mem_pool(_mem_tracker.get()),
+          _row_mem_pool(_mem_tracker.get()),
           _dest_tuple_desc(nullptr),
           _pre_filter_ctxs(pre_filter_ctxs),
           _strict_mode(false),

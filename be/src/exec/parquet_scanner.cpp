@@ -82,7 +82,7 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             _cur_file_eof = false;
         }
         RETURN_IF_ERROR(
-                _cur_file_reader->read(_src_tuple, _src_slot_descs, tuple_pool, &_cur_file_eof));
+                _cur_file_reader->read(_src_tuple, _src_slot_descs, &_row_mem_pool, &_cur_file_eof));
         // range of current file
         const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
         if (range.__isset.num_of_columns_from_file) {
@@ -92,8 +92,11 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(tuple, tuple_pool)) {
+        if (fill_dest_tuple(tuple, &_row_mem_pool)) {
+            tuple_pool->acquire_data(&_row_mem_pool, false);
             break; // break if true
+        } else {
+            _row_mem_pool.clear();
         }
     }
     if (_scanner_eof) {

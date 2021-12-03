@@ -87,7 +87,7 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         }
 
         bool is_empty_row = false;
-        RETURN_IF_ERROR(_cur_json_reader->read_json_row(_src_tuple, _src_slot_descs, tuple_pool,
+        RETURN_IF_ERROR(_cur_json_reader->read_json_row(_src_tuple, _src_slot_descs, &_row_mem_pool,
                                                     &is_empty_row, &_cur_reader_eof));
 
         if (is_empty_row) {
@@ -96,8 +96,11 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         }
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(tuple, tuple_pool)) {
+        if (fill_dest_tuple(tuple, &_row_mem_pool)) {
+            tuple_pool->acquire_data(&_row_mem_pool, false);
             break; // break if true
+        } else {
+            _row_mem_pool.clear();
         }
     }
     if (_scanner_eof) {
