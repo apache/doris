@@ -137,6 +137,12 @@ FE 的配置项有两种方式进行配置：
 
 用于设置 GRPC 客户端通道的初始流窗口大小，也用于设置最大消息大小。当结果集较大时，可能需要增大该值。
 
+### min_table_replication_num
+
+默认值：1
+
+用于设置单个表的最小replication数量。
+
 ### min_replication_num_per_tablet
 
 默认值：1

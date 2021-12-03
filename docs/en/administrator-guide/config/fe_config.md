@@ -138,6 +138,12 @@ Default：1G
 
 Used to set the initial flow window size of the GRPC client channel, and also used to max message size.  When the result set is large, you may need to increase this value.
 
+### min_table_replication_num
+
+Default: 1
+
+Used to set minimal number of replication per table.
+
 ### min_replication_num_per_tablet
 
 Default: 1

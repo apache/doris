@@ -3731,6 +3731,10 @@ public class Catalog {
         if (replicaAlloc.isNotSet()) {
             replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
+        if (replicaAlloc.getTotalReplicaNum() < Config.min_table_replication_num) {
+            throw new DdlException(
+                    String.format("replication_num is smaller than min_table_replication_num(%s)", Config.min_table_replication_num));
+        }
         olapTable.setReplicationAllocation(replicaAlloc);
 
         // set in memory

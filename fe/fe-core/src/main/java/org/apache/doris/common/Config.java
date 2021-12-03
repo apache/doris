@@ -1544,4 +1544,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_tablet_scheduler = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static short min_table_replication_num = 1;
 }
