@@ -838,7 +838,6 @@ void AggregateFunctions::string_concat_update(FunctionContext* ctx, const String
     if (result->is_null || !result->ptr) {
         // Header of the intermediate state holds the length of the first separator.
         const auto header_len = sizeof(StringConcatHeader);
-        DCHECK(header_len == sizeof(sep->len));
         *result = StringVal(ctx->allocate(header_len), header_len);
         *reinterpret_cast<StringConcatHeader*>(result->ptr) = sep->len;
     }
