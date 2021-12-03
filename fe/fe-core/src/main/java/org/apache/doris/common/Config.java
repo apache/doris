@@ -1554,5 +1554,5 @@ public class Config extends ConfigBase {
      * Set this config to true may cause loading task failed, but will speed up the process of tablet balance and repair.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean force_drop_redundant_replica = false;
+    public static boolean enable_force_drop_redundant_replica = false;
 }
