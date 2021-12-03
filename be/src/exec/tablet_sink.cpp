@@ -31,6 +31,7 @@
 #include "util/brpc_stub_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
+#include "util/proto_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -409,6 +410,9 @@ void NodeChannel::try_send_batch() {
         DCHECK(_pending_batches_num == 0);
     }
 
+    request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
+                                          ReusableClosure<PTabletWriterAddBatchResult>>(
+            &request, _add_batch_closure);
     _add_batch_closure->set_in_flight();
     _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
                                    _add_batch_closure);

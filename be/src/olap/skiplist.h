@@ -67,7 +67,7 @@ public:
     // and will allocate memory using "*mem_pool".
     // NOTE: Objects allocated in the mem_pool must remain allocated for
     // the lifetime of the skiplist object.
-    explicit SkipList(Comparator cmp, MemPool* mem_pool, bool can_dup);
+    explicit SkipList(Comparator* cmp, MemPool* mem_pool, bool can_dup);
 
     // Insert key into the list.
     void Insert(const Key& key, bool* overwritten);
@@ -121,7 +121,7 @@ public:
 
 private:
     // Immutable after construction
-    Comparator const compare_;
+    Comparator* const compare_;
     // When value is true, means indicates that duplicate values are allowed.
     bool _can_dup;
     MemPool* const _mem_pool; // MemPool used for allocations of nodes
@@ -139,7 +139,7 @@ private:
 
     Node* NewNode(const Key& key, int height);
     int RandomHeight();
-    bool Equal(const Key& a, const Key& b) const { return (compare_(a, b) == 0); }
+    bool Equal(const Key& a, const Key& b) const { return ((*compare_)(a, b) == 0); }
 
     // Return true if key is greater than the data stored in "n"
     bool KeyIsAfterNode(const Key& key, Node* n) const;
@@ -277,7 +277,7 @@ int SkipList<Key, Comparator>::RandomHeight() {
 template <typename Key, class Comparator>
 bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
     // nullptr n is considered infinite
-    return (n != nullptr) && (compare_(n->key, key) < 0);
+    return (n != nullptr) && ((*compare_)(n->key, key) < 0);
 }
 
 template <typename Key, class Comparator>
@@ -308,9 +308,9 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLessTha
     Node* x = head_;
     int level = GetMaxHeight() - 1;
     while (true) {
-        DCHECK(x == head_ || compare_(x->key, key) < 0);
+        DCHECK(x == head_ || (*compare_)(x->key, key) < 0);
         Node* next = x->Next(level);
-        if (next == nullptr || compare_(next->key, key) >= 0) {
+        if (next == nullptr || (*compare_)(next->key, key) >= 0) {
             if (level == 0) {
                 return x;
             } else {
@@ -343,7 +343,7 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast() 
 }
 
 template <typename Key, class Comparator>
-SkipList<Key, Comparator>::SkipList(Comparator cmp, MemPool* mem_pool, bool can_dup)
+SkipList<Key, Comparator>::SkipList(Comparator* cmp, MemPool* mem_pool, bool can_dup)
         : compare_(cmp),
           _can_dup(can_dup),
           _mem_pool(mem_pool),
