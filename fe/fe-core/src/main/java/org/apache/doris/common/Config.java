@@ -1545,7 +1545,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_tablet_scheduler = false;
 
-	/*
+    /*
      * When doing clone or repair tablet task, there may be replica is REDUNDANT state, which
      * should be dropped later. But there are be loading task on these replicas, so the default strategy
      * is to wait until the loading task finished before dropping them.
