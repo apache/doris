@@ -1866,7 +1866,6 @@ public class SingleNodePlanner {
         PlanNode scanNode = null;
         if (tblRef instanceof BaseTableRef) {
             scanNode = createScanNode(analyzer, tblRef, selectStmt);
-            return scanNode;
         }
         if (tblRef instanceof InlineViewRef) {
             scanNode = createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
