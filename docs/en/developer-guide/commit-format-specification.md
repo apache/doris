@@ -41,6 +41,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         
         * fix: Bug fix
         * feature: New feature
+        * feature-wip: Feature works-in-porgress.
         * improvement: Optimization and improvement for the original feature. 
         * docs: Documents
         * style: Code style adjustment
@@ -51,6 +52,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * chore: Modification of build tool
         * revert: Revert a previous commit
         * deps: Modification of third-party dependency Library
+		* community: Such as modification of Github issue template.
 
         Some tips：
         
