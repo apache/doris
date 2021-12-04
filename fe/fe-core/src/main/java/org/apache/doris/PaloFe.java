@@ -279,7 +279,7 @@ public class PaloFe {
                 }
                 if (cmd.hasOption('m') || cmd.hasOption("metaversion")) {
                     try {
-                        metaVersion = Integer.valueOf(cmd.getOptionValue("metaversion"));
+                        metaVersion = Integer.parseInt(cmd.getOptionValue("metaversion"));
                     } catch (NumberFormatException e) {
                         System.err.println("Invalid meta version format");
                         System.exit(-1);
@@ -288,19 +288,16 @@ public class PaloFe {
 
                 BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
                 return new CommandLineOptions(false, "", bdbOpts);
+
+            } else {
+                System.err.println("Invalid options when running bdb je tools");
+                System.exit(-1);
             }
-        } else {
-            System.err.println("Invalid options when running bdb je tools");
-            System.exit(-1);
         }
+
+        // helper node is null, means no helper node is specified
+        return new CommandLineOptions(false, null, null);
     }
-
-    // helper node is null, means no helper node is specified
-        return new
-
-    CommandLineOptions(false,null,null);
-
-}
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
