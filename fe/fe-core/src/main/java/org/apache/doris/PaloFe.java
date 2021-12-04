@@ -133,7 +133,7 @@ public class PaloFe {
             FeServer feServer = new FeServer(Config.rpc_port);
 
             feServer.start();
-            
+
             if (!Config.enable_http_server_v2) {
                 HttpServer httpServer = new HttpServer(
                         Config.http_port,
@@ -248,7 +248,7 @@ public class PaloFe {
                 // list bdb je databases
                 BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
                 return new CommandLineOptions(false, "", bdbOpts);
-            } 
+            }
             if (cmd.hasOption('d') || cmd.hasOption("db")) {
                 // specify a database
                 String dbName = cmd.getOptionValue("db");
@@ -285,19 +285,22 @@ public class PaloFe {
                         System.exit(-1);
                     }
                 }
-                
+
                 BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
                 return new CommandLineOptions(false, "", bdbOpts);
-                }
-            } else {
-                System.err.println("Invalid options when running bdb je tools");
-                System.exit(-1);
             }
+        } else {
+            System.err.println("Invalid options when running bdb je tools");
+            System.exit(-1);
         }
-
-        // helper node is null, means no helper node is specified
-        return new CommandLineOptions(false, null, null);
     }
+
+    // helper node is null, means no helper node is specified
+        return new
+
+    CommandLineOptions(false,null,null);
+
+}
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
