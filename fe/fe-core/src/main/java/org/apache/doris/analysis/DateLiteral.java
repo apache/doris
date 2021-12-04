@@ -537,6 +537,65 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    public DateLiteral truncDate(String unit) throws AnalysisException {
+        DateLiteral dateLiteral = new DateLiteral(getTimeFormatter(), type);
+        switch (unit) {
+            case "second":
+                break;
+            case "minute":
+                dateLiteral.second = 0;
+                break;
+            case "hour":
+                dateLiteral.second = 0;
+                dateLiteral.minute = 0;
+                break;
+            case "day":
+                dateLiteral.second = 0;
+                dateLiteral.minute = 0;
+                dateLiteral.hour = 0;
+                break;
+            case "week":
+                dateLiteral.second = 0;
+                dateLiteral.minute = 0;
+                dateLiteral.hour = 0;
+                dateLiteral = dateLiteral.plusDays(-getTimeFormatter().getDayOfWeek());
+                break;
+            case "month":
+                dateLiteral.second = 0;
+                dateLiteral.minute = 0;
+                dateLiteral.hour = 0;
+                dateLiteral.day = 1;
+                break;
+            case "quarter":
+                dateLiteral.second = 0;
+                dateLiteral.minute = 0;
+                dateLiteral.hour = 0;
+                dateLiteral.day = 1;
+                if (dateLiteral.month <= 3) {
+                    dateLiteral.month = 1;
+                }else if (dateLiteral.month <= 6) {
+                    dateLiteral.month = 4;
+                }else if (dateLiteral.month <= 9) {
+                    dateLiteral.month = 7;
+                }else {
+                    dateLiteral.month = 10;
+                }
+                break;
+            case "year":
+                dateLiteral.second = 0;
+                dateLiteral.minute = 0;
+                dateLiteral.hour = 0;
+                dateLiteral.day = 1;
+                dateLiteral.month = 1;
+                break;
+            default:
+                throw new AnalysisException("date_trunc function can't support argument other than " +
+                        "second|minute|hour|day|month|year|week|quarter");
+        }
+        return dateLiteral;
+
+    }
+
     private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         boolean escaped = false;

@@ -826,6 +826,13 @@ public class FunctionCallExpr extends Expr {
         } else {
             this.type = fn.getReturnType();
         }
+
+        if (fnName.getFunction().equalsIgnoreCase("date_trunc")) {
+            if (children.size() != 2) {
+                throw new AnalysisException("date_trunc function must have 2 arguments");
+            }
+        }
+
         // rewrite return type if is nested type function
         analyzeNestedFunction();
     }
