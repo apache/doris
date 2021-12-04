@@ -122,6 +122,38 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select current_time();",
                 "");
+
+        testConstantExpressResult(
+                "select date_trunc(\"2021-12-02 19:15:18\",'second');",
+                "'2021-12-02 19:15:18'");
+
+        testConstantExpressResult(
+                "select date_trunc('2021-12-02 19:15:18','minute');",
+                "'2021-12-02 19:15:00'");
+
+        testConstantExpressResult(
+                "select date_trunc('2021-12-02 19:15:18','hour');",
+                "'2021-12-02 19:00:00'");
+
+        testConstantExpressResult(
+                "select date_trunc('2021-12-02 19:15:18','day');",
+                "'2021-12-02 00:00:00'");
+
+        testConstantExpressResult(
+                "select date_trunc('2021-12-02 19:15:18','week');",
+                "'2021-11-28 00:00:00'");
+
+        testConstantExpressResult(
+                "select date_trunc('2021-12-02 19:15:18','month');",
+                "'2021-12-01 00:00:00'");
+
+        testConstantExpressResult(
+                "select date_trunc('2021-12-02 19:15:18','quarter');",
+                "'2021-10-01 00:00:00'");
+
+        testConstantExpressResult(
+                "select date_trunc('2021-12-02 19:15:18','year');",
+                "'2021-01-01 00:00:00'");
     }
 
     @Test

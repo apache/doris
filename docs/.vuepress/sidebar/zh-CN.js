@@ -284,6 +284,7 @@ module.exports = [
               "date_add",
               "date_format",
               "date_sub",
+              "date_trunc(建设中)",
               "datediff",
               "day",
               "dayname",
