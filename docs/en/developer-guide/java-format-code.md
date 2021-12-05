@@ -48,9 +48,9 @@ javax
 
 ## Checkstyle
 
-Now we have formatter-check in CI to check the code format.
+Now we have `formatter-check` in `CI` to check the code format.
 
-If you use IDEA to develop Java code, please install `Checkstyle-IDEA` plugin.
+If you use `IDEA` to develop Java code, please install `Checkstyle-IDEA` plugin.
 
 Setting the `checkstyle.xml` file in `Tools->Checkstyle`.
 
