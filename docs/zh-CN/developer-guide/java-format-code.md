@@ -48,7 +48,7 @@ javax
 
 ## Checkstyle
 
-现在的 CI 之中会有 formatter-check 进行代码格式化检测。
+现在的 `CI` 之中会有 `formatter-check` 进行代码格式化检测。
 
 如果使用 `IDEA` 进行 Java 开发，请在设置中安装 `Checkstyle-IDEA` 插件。
 
