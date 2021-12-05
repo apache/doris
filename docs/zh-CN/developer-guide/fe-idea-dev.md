@@ -54,7 +54,7 @@ JDK1.8+, IntelliJ IDEA
         ③ brew install thrift@0.13.0
         参考链接: https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c 
 
-4如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：
+4. 如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：
 
     ```
     cd fe
