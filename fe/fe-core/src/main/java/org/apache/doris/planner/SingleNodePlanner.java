@@ -1862,19 +1862,22 @@ public class SingleNodePlanner {
      * table ref is not implemented.
      */
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
-            throws UserException, AnalysisException {
+            throws UserException {
+        PlanNode scanNode = null;
         if (tblRef instanceof BaseTableRef) {
-            PlanNode scanNode = createScanNode(analyzer, tblRef, selectStmt);
-            List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
-            if (lateralViewRefs != null && lateralViewRefs.size() != 0) {
-                return createTableFunctionNode(analyzer, scanNode, lateralViewRefs, selectStmt);
-            }
-            return scanNode;
+            scanNode = createScanNode(analyzer, tblRef, selectStmt);
         }
         if (tblRef instanceof InlineViewRef) {
-            return createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
+            scanNode = createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
         }
-        throw new UserException("unknown TableRef node");
+        if (scanNode == null) {
+            throw new UserException("unknown TableRef node");
+        }
+        List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
+        if (lateralViewRefs == null || lateralViewRefs.size() == 0) {
+            return scanNode;
+        }
+        return createTableFunctionNode(analyzer, scanNode, lateralViewRefs, selectStmt);
     }
 
     private PlanNode createTableFunctionNode(Analyzer analyzer, PlanNode inputNode,

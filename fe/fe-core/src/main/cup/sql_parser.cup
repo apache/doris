@@ -4066,10 +4066,16 @@ table_ref_list ::=
   ;
 
 table_ref ::=
-  base_table_ref:b
-  {: RESULT = b; :}
-  | inline_view_ref:s
-  {: RESULT = s; :}
+  base_table_ref:b opt_lateral_view_ref_list:lateralViewRefList
+  {:
+    b.setLateralViewRefs(lateralViewRefList);
+    RESULT = b;
+  :}
+  | inline_view_ref:s opt_lateral_view_ref_list:lateralViewRefList
+  {:
+    s.setLateralViewRefs(lateralViewRefList);
+    RESULT = s;
+  :}
   ;
 
 inline_view_ref ::=
@@ -4095,9 +4101,8 @@ base_table_ref_list ::=
 
 base_table_ref ::=
     table_name:name opt_partition_names:partitionNames opt_table_alias:alias opt_common_hints:commonHints
-    opt_lateral_view_ref_list:lateralViewRefList
     {:
-        RESULT = new TableRef(name, alias, partitionNames, commonHints, lateralViewRefList);
+        RESULT = new TableRef(name, alias, partitionNames, commonHints);
     :}
     ;
 
