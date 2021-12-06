@@ -58,13 +58,13 @@ JDK1.8+, IntelliJ IDEA
 
     ```
     cd fe
-    mvn  generate-sources
+    mvn generate-sources
     ```
 
     如果出现错误，则执行：
 
     ```
-    cd fe && mvn install -DskipTests
+    cd fe && mvn clean install -DskipTests
     ```
 
 或者通过图形界面运行运行 maven 命令生成
