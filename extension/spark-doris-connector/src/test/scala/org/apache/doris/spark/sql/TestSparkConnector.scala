@@ -67,6 +67,8 @@ class TestSparkConnector {
       .option("password", dorisPwd)
       //specify your field
       .option("doris.write.field", "name,gender")
+      .option("sink.batch.size",2)
+      .option("sink.max-retries",2)
       .save()
     session.stop()
   }
@@ -108,6 +110,8 @@ class TestSparkConnector {
       .option("doris.fenodes", dorisFeNodes)
       .option("user", dorisUser)
       .option("password", dorisPwd)
+      .option("sink.batch.size",2)
+      .option("sink.max-retries",2)
       .start().awaitTermination()
   }
 }
