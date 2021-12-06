@@ -217,7 +217,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                                                           const std::string& compaction_type) {
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            _update_cumulative_compaction_policy();
+            _create_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr ||
         tablet->get_cumulative_compaction_policy()->name() != cumulative_compaction_policy->name()) {
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
@@ -283,7 +283,7 @@ void CompactionAction::handle(HttpRequest* req) {
     }
 }
 
-std::shared_ptr<CumulativeCompactionPolicy> CompactionAction::_update_cumulative_compaction_policy() {
+std::shared_ptr<CumulativeCompactionPolicy> CompactionAction::_create_cumulative_compaction_policy() {
     std::string current_policy = "";
     {
         std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
