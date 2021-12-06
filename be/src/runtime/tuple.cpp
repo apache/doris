@@ -73,14 +73,17 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
          i != desc.string_slots().end(); ++i) {
         DCHECK((*i)->type().is_string_type());
 
+        StringValue* string_v = dst->get_string_slot((*i)->tuple_offset());
         if (!dst->is_null((*i)->null_indicator_offset())) {
-            StringValue* string_v = dst->get_string_slot((*i)->tuple_offset());
             if (string_v->len != 0) {
                 int offset = pool->total_allocated_bytes();
                 char* string_copy = reinterpret_cast<char*>(pool->allocate(string_v->len));
                 memory_copy(string_copy, string_v->ptr, string_v->len);
                 string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(offset) : string_copy);
             }
+        } else {
+            string_v->ptr = nullptr;
+            string_v->len = 0;
         }
     }
 
@@ -187,12 +190,15 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, boo
 
     for (auto slot_desc : desc.string_slots()) {
         DCHECK(slot_desc->type().is_string_type());
+        StringValue* string_v = dst->get_string_slot(slot_desc->tuple_offset());
         if (!dst->is_null(slot_desc->null_indicator_offset())) {
-            StringValue* string_v = dst->get_string_slot(slot_desc->tuple_offset());
             memory_copy(*data, string_v->ptr, string_v->len);
             string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
             *data += string_v->len;
             *offset += string_v->len;
+        } else {
+            string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
+            string_v->len = 0;
         }
     }
 
