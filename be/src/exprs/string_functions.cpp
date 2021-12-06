@@ -22,37 +22,17 @@
 #include <algorithm>
 
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
 #include "fmt/format.h"
 #include "math_functions.h"
 #include "runtime/string_value.hpp"
-#include "runtime/tuple_row.h"
+#include "util/simd/vstring_function.h"
 #include "util/url_parser.h"
-#include "util/vectorized-tool/lower.h"
-#include "util/vectorized-tool/upper.h"
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
 
 void StringFunctions::init() {}
 
-size_t get_utf8_byte_length(unsigned char byte) {
-    size_t char_size = 0;
-    if (byte >= 0xFC) {
-        char_size = 6;
-    } else if (byte >= 0xF8) {
-        char_size = 5;
-    } else if (byte >= 0xF0) {
-        char_size = 4;
-    } else if (byte >= 0xE0) {
-        char_size = 3;
-    } else if (byte >= 0xC0) {
-        char_size = 2;
-    } else {
-        char_size = 1;
-    }
-    return char_size;
-}
 size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
@@ -353,7 +333,7 @@ StringVal StringFunctions::lower(FunctionContext* context, const StringVal& str)
     if (UNLIKELY(result.is_null)) {
         return result;
     }
-    Lower::to_lower(str.ptr, str.len, result.ptr);
+    simd::VStringFunctions::to_lower(str.ptr, str.len, result.ptr);
     return result;
 }
 
@@ -365,7 +345,7 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
     if (UNLIKELY(result.is_null)) {
         return result;
     }
-    Upper::to_upper(str.ptr, str.len, result.ptr);
+    simd::VStringFunctions::to_upper(str.ptr, str.len, result.ptr);
     return result;
 }
 
@@ -379,57 +359,20 @@ StringVal StringFunctions::reverse(FunctionContext* context, const StringVal& st
         return result;
     }
 
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-        std::copy(str.ptr + i, str.ptr + i + char_size, result.ptr + result.len - i - char_size);
-    }
-
+    simd::VStringFunctions::reverse(str, result);
     return result;
 }
 
 StringVal StringFunctions::trim(FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return StringVal::null();
-    }
-    // Find new starting position.
-    int32_t begin = 0;
-    while (begin < str.len && str.ptr[begin] == ' ') {
-        ++begin;
-    }
-    // Find new ending position.
-    int32_t end = str.len - 1;
-    while (end > begin && str.ptr[end] == ' ') {
-        --end;
-    }
-    return StringVal(str.ptr + begin, end - begin + 1);
+    return simd::VStringFunctions::trim(str);
 }
 
 StringVal StringFunctions::ltrim(FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return StringVal::null();
-    }
-    // Find new starting position.
-    int32_t begin = 0;
-    while (begin < str.len && str.ptr[begin] == ' ') {
-        ++begin;
-    }
-    return StringVal(str.ptr + begin, str.len - begin);
+    return simd::VStringFunctions::ltrim(str);
 }
 
 StringVal StringFunctions::rtrim(FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return StringVal::null();
-    }
-    if (str.len == 0) {
-        return str;
-    }
-    // Find new ending position.
-    int32_t end = str.len - 1;
-    while (end > 0 && str.ptr[end] == ' ') {
-        --end;
-    }
-    DCHECK_GE(end, 0);
-    return StringVal(str.ptr, (str.ptr[end] == ' ') ? end : end + 1);
+    return simd::VStringFunctions::rtrim(str);
 }
 
 IntVal StringFunctions::ascii(FunctionContext* context, const StringVal& str) {
