@@ -142,11 +142,10 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public TableRef(TableName name, String alias, PartitionNames partitionNames) {
-        this(name, alias, partitionNames, null, null);
+        this(name, alias, partitionNames, null);
     }
 
-    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints,
-                    ArrayList<LateralViewRef> lateralViewRefs) {
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
             aliases_ = new String[]{alias};
@@ -156,7 +155,6 @@ public class TableRef implements ParseNode, Writable {
         }
         this.partitionNames = partitionNames;
         this.commonHints = commonHints;
-        this.lateralViewRefs = lateralViewRefs;
         isAnalyzed = false;
     }
     // Only used to clone
@@ -333,8 +331,22 @@ public class TableRef implements ParseNode, Writable {
         return sortColumn;
     }
 
+    public void setLateralViewRefs(ArrayList<LateralViewRef> lateralViewRefs) {
+        this.lateralViewRefs = lateralViewRefs;
+    }
+
     public ArrayList<LateralViewRef> getLateralViewRefs() {
         return lateralViewRefs;
+    }
+
+    protected void analyzeLateralViewRef(Analyzer analyzer) throws UserException {
+        if (lateralViewRefs == null) {
+            return;
+        }
+        for (LateralViewRef lateralViewRef : lateralViewRefs) {
+            lateralViewRef.setRelatedTable(this);
+            lateralViewRef.analyze(analyzer);
+        }
     }
 
     protected void analyzeSortHints() throws AnalysisException {
