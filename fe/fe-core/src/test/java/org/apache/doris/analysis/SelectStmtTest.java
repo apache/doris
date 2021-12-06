@@ -111,7 +111,7 @@ public class SelectStmtTest {
         String tbl2 = "CREATE TABLE db1.table2 (\n" +
                 "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
                 "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
-                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `username` varchar(32) NOT NULL DEFAULT \"\" COMMENT \"\",\n" +
                 "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
@@ -754,5 +754,14 @@ public class SelectStmtTest {
         stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM " +
                 "`default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2)"));
+    }
+
+    @Test
+    public void testSelectOuterJoinSql() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql1 = "select l.citycode, group_concat(r.username) from db1.table1 l left join db1.table2 r on l.citycode=r.citycode group by l.citycode";
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        Assert.assertTrue(stmt1.getAnalyzer().getSlotDesc(new SlotId(2)).getIsNullable());
+        Assert.assertTrue(stmt1.getAnalyzer().getSlotDescriptor("r.username").getIsNullable());
     }
 }
