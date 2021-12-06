@@ -143,7 +143,7 @@ enum PPlanFragmentCancelReason {
     USER_CANCEL = 2;
     INTERNAL_ERROR = 3;
     TIMEOUT = 4;
-    MEMORY_EXCEED_LIMIT = 5;
+    MEMORY_LIMIT_EXCEED = 5;
 };
 
 message PCancelPlanFragmentRequest {

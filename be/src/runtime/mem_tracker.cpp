@@ -17,15 +17,14 @@
 
 #include "runtime/mem_tracker.h"
 
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/join.hpp>
+#include <fmt/format.h>
+
 #include <cstdint>
 #include <limits>
 #include <memory>
 
 #include "exec/exec_node.h"
 #include "gutil/once.h"
-#include "gutil/strings/substitute.h"
 #include "runtime/bufferpool/reservation_tracker_counters.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -36,9 +35,9 @@
 #include "util/mem_info.h"
 #include "util/pretty_printer.h"
 #include "util/stack_util.h"
+#include "util/string_util.h"
 #include "util/uid_util.h"
 
-using boost::join;
 using std::deque;
 using std::endl;
 using std::greater;
@@ -50,14 +49,13 @@ using std::string;
 
 using std::vector;
 using std::weak_ptr;
-using strings::Substitute;
 
 namespace doris {
 
 const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
 // Name for query MemTrackers. '$0' is replaced with the query id.
-const std::string QUERY_MEM_TRACKER_LABEL_FORMAT = "queryId=$0";
+const std::string QUERY_MEM_TRACKER_LABEL_FORMAT = "queryId={}";
 
 /// Calculate the soft limit for a MemTracker based on the hard limit 'limit'.
 static int64_t CalcSoftLimit(int64_t limit) {
@@ -112,7 +110,7 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, i
         real_parent = parent;
         if (reset_label_name) {
             std::vector<string> tmp_result;
-            boost::split(tmp_result, parent->label(), boost::is_any_of(":"));
+            tmp_result = split(parent->label(), ":");
             label_name = label + ":" + tmp_result[tmp_result.size() - 1];
         } else {
             label_name = label;
@@ -149,7 +147,7 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(int64_t byte_limit, const 
         real_parent = parent;
         if (reset_label_name) {
             std::vector<string> tmp_result;
-            boost::split(tmp_result, parent->label(), boost::is_any_of(":"));
+            tmp_result = split(parent->label(), ":");
             label_name = label + ":" + tmp_result[tmp_result.size() - 1];
         } else {
             label_name = label;
@@ -219,7 +217,7 @@ void MemTracker::EnableReservationReporting(const ReservationTrackerCounters& co
 
 int64_t MemTracker::GetLowestLimit(MemLimit mode) const {
     if (limit_trackers_.empty()) return -1;
-    int64_t min_limit = numeric_limits<int64_t>::max();
+    int64_t min_limit = std::numeric_limits<int64_t>::max();
     for (MemTracker* limit_tracker : limit_trackers_) {
         DCHECK(limit_tracker->has_limit());
         min_limit = std::min(min_limit, limit_tracker->GetLimit(mode));
@@ -268,28 +266,28 @@ int64_t MemTracker::GetPoolMemReserved() {
     return mem_reserved;
 }
 
-std::shared_ptr<MemTracker> QueryMemTrackerRegistry::RegisterQueryMemTracker(
+std::shared_ptr<MemTracker> QueryMemTrackerRegistry::register_query_mem_tracker(
         const std::string& query_id, int64_t mem_limit) {
     DCHECK(!query_id.empty());
-    VLOG(2) << "Register query memory tracker, query id: " << query_id
-            << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
+    VLOG_FILE << "Register query memory tracker, query id: " << query_id
+              << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
 
     // First time this query_id registered, make a new object, otherwise do nothing.
     // Combine CreateTracker and emplace into one operation to avoid the use of locks
     _query_mem_trackers.try_emplace_l(
             query_id, [](std::shared_ptr<MemTracker>) {},
             MemTracker::CreateTracker(mem_limit,
-                                      strings::Substitute(QUERY_MEM_TRACKER_LABEL_FORMAT, query_id),
+                                      fmt::format(QUERY_MEM_TRACKER_LABEL_FORMAT, query_id),
                                       ExecEnv::GetInstance()->all_query_mem_tracker(), false, false,
                                       MemTrackerLevel::OVERVIEW, query_id));
-    std::shared_ptr<MemTracker> tracker = GetQueryMemTracker(query_id);
+    std::shared_ptr<MemTracker> tracker = get_query_mem_tracker(query_id);
     if (tracker != nullptr) {
-        tracker->set_exist_transfer_control();
+        tracker->exist_consume_or_release_missing();
     }
     return tracker;
 }
 
-std::shared_ptr<MemTracker> QueryMemTrackerRegistry::GetQueryMemTracker(
+std::shared_ptr<MemTracker> QueryMemTrackerRegistry::get_query_mem_tracker(
         const std::string& query_id) {
     DCHECK(!query_id.empty());
     std::shared_ptr<MemTracker> tracker = nullptr;
@@ -299,7 +297,7 @@ std::shared_ptr<MemTracker> QueryMemTrackerRegistry::GetQueryMemTracker(
     return tracker;
 }
 
-void QueryMemTrackerRegistry::DeregisterQueryMemTracker() {
+void QueryMemTrackerRegistry::deregister_query_mem_tracker() {
     std::vector<std::string> expired_querys;
     for (auto it = _query_mem_trackers.begin(); it != _query_mem_trackers.end(); it++) {
         // No RuntimeState uses this query MemTracker, it is only referenced by this map, delete it
@@ -310,7 +308,7 @@ void QueryMemTrackerRegistry::DeregisterQueryMemTracker() {
     for (auto qid : expired_querys) {
         DCHECK(_query_mem_trackers[qid].use_count() == 1);
         _query_mem_trackers.erase(qid);
-        VLOG(2) << "Deregister query memory tracker, query id: " << qid;
+        VLOG_FILE << "Deregister query memory tracker, query id: " << qid;
     }
 }
 
@@ -321,7 +319,7 @@ MemTracker::~MemTracker() {
     delete reservation_counters_.load();
 
     if (parent()) {
-        if (!exist_transfer_control()) {
+        if (!consume_or_release_missing()) {
             DCHECK(consumption() == 0) << "Memory tracker " << debug_string()
                                        << " has unreleased consumption " << consumption();
         }
@@ -453,7 +451,7 @@ std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
     if (max_recursive_depth == 0) return ss.str();
 
     // Recurse and get information about the children
-    std::string new_prefix = strings::Substitute("  $0", prefix);
+    std::string new_prefix = fmt::format("  {}", prefix);
     int64_t child_consumption;
     std::string child_trackers_usage;
     list<weak_ptr<MemTracker>> children;

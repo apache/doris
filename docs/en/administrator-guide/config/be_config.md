@@ -1441,10 +1441,10 @@ The size of the buffer before flashing
   ```
 * Default: 0
 
-### `untracked_mem_limit`
+### `mem_tracker_consume_min_size_mbytes`
 
 * Type: int32
-* Description: The maximum buffer length allowed when TCMalloc Hook consumes/releases MemTracker, that is, the minimum batch of consume/release. Increasing this value will increase the frequency of consume/release.
+* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Increasing this value will increase the frequency of consume/release.
 * Default: 4M
 
 ### `max_segment_num_per_rowset`

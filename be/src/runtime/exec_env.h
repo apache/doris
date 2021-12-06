@@ -20,6 +20,7 @@
 
 #include "common/status.h"
 #include "olap/options.h"
+#include "runtime/mem_tracker.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -96,7 +97,7 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    const bool is_init() { return _is_init; }
+    const bool initialized() { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
@@ -118,7 +119,9 @@ public:
 
     std::shared_ptr<MemTracker> process_mem_tracker() { return _process_mem_tracker; }
     std::shared_ptr<MemTracker> all_query_mem_tracker() { return _all_query_mem_tracker; }
-    QueryMemTrackerRegistry* query_mem_tracker_registry() { return _query_mem_tracker_registry; }
+    QueryMemTrackerRegistry* query_mem_tracker_registry() {
+        return _query_mem_tracker_registry.get();
+    }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
@@ -187,7 +190,7 @@ private:
     std::shared_ptr<MemTracker> _process_mem_tracker = nullptr;
     // The ancestor for all querys tracker.
     std::shared_ptr<MemTracker> _all_query_mem_tracker = nullptr;
-    QueryMemTrackerRegistry* _query_mem_tracker_registry = nullptr;
+    std::unique_ptr<QueryMemTrackerRegistry> _query_mem_tracker_registry;
     ThreadResourceMgr* _thread_mgr = nullptr;
 
     // The following two thread pools are used in different scenarios.

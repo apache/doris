@@ -1460,10 +1460,10 @@ webserver默认工作线程数
   ```
 * 默认值: 0
 
-### `untracked_mem_limit`
+### `mem_tracker_consume_min_size_mbytes`
 
 * 类型: int32
-* 描述: TCMalloc Hook consume/release MemTracker时允许的最大缓存长度，即consume/release的最小批次。增大该值会增加consume/release的频率。
+* 描述: TCMalloc Hook consume/release MemTracker时的最小长度，小于该值的consume size会持续累加，避免频繁调用MemTracker的consume/release，增大该值会增加consume/release的频率。
 * 默认值: 4M
 
 ### `max_segment_num_per_rowset`

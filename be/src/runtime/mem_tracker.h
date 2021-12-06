@@ -59,7 +59,7 @@ enum class MemTrackerLevel { OVERVIEW = 0, TASK, VERBOSE };
 // 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
 //    after the release is called on the parent MemTracker,
 //    the child ~MemTracker will cause repeated releases.
-static const int MIN_NEGATIVE_CONSUMPTION_VALUE = -4 * 1024 * 1024;
+static const int MIN_NEGATIVE_CONSUMPTION_VALUE = -10 * 1024 * 1024;
 
 class ObjectPool;
 class MemTracker;
@@ -157,7 +157,8 @@ public:
             tracker->consumption_->add(bytes);
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
                 DCHECK_GE(tracker->consumption_->current_value(),
-                          std::min(MIN_NEGATIVE_CONSUMPTION_VALUE, -config::untracked_mem_limit));
+                          std::min(MIN_NEGATIVE_CONSUMPTION_VALUE,
+                                   -config::mem_tracker_consume_min_size_mbytes * 10));
             }
         }
     }
@@ -266,8 +267,12 @@ public:
             /// trackers since we can enforce that the reported memory usage is internally
             /// consistent.)
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
+                // A query corresponds to multiple threads, and each thread may have
+                // config::mem_tracker_consume_min_size_mbytes. The length is not cosumeed. Here,
+                // 10 is just a guess.
                 DCHECK_GE(tracker->consumption_->current_value(),
-                          std::min(MIN_NEGATIVE_CONSUMPTION_VALUE, -config::untracked_mem_limit))
+                          std::min(MIN_NEGATIVE_CONSUMPTION_VALUE,
+                                   -config::mem_tracker_consume_min_size_mbytes * 10))
                         << std::endl
                         << tracker->LogUsage(UNLIMITED_DEPTH);
             }
@@ -341,9 +346,9 @@ public:
         }
     }
 
-    bool exist_transfer_control() { return _exist_transfer_control; }
+    bool consume_or_release_missing() { return _consume_or_release_missing; }
 
-    void set_exist_transfer_control() { _exist_transfer_control = true; }
+    void exist_consume_or_release_missing() { _consume_or_release_missing = true; }
 
     /// Returns the lowest limit for this tracker and its ancestors. Returns
     /// -1 if there is no limit.
@@ -536,10 +541,10 @@ private:
     /// Lock to protect GcMemory(). This prevents many GCs from occurring at once.
     std::mutex gc_lock_;
 
-    /// True if this is a Query MemTracker returned from RegisterQueryMemTracker().
+    /// True if this is a Query MemTracker returned from register_query_mem_tracker().
     bool _is_query_mem_tracker = false;
 
-    /// Only valid for MemTrackers returned from RegisterQueryMemTracker()
+    /// Only valid for MemTrackers returned from register_query_mem_tracker()
     std::string query_id_;
 
     /// Hard limit on memory consumption, in bytes. May not be exceeded. If limit_ == -1,
@@ -550,9 +555,9 @@ private:
     /// TryConsume() can opt not to exceed this limit. If -1, there is no consumption limit.
     const int64_t soft_limit_;
 
-    // Whether memory control transfer occurs, between mem trackers. Happened at:
-    // The current tracker calls consume/release, and other threads call release/consume.
-    bool _exist_transfer_control = false;
+    // Is there a situation where different MemTracker calls consume and release in the same block.
+    // Happened at: The current tracker calls consume/release, and other threads call release/consume.
+    bool _consume_or_release_missing = false;
 
     std::string label_;
 
@@ -620,12 +625,12 @@ public:
     // memory usage of all querys executing. The first time this is called for a query,
     // a new MemTracker object is created with the process tracker as its parent.
     // Newly created trackers will always have a limit of -1.
-    std::shared_ptr<MemTracker> RegisterQueryMemTracker(const std::string& query_id,
-                                                        int64_t mem_limit = -1);
+    std::shared_ptr<MemTracker> register_query_mem_tracker(const std::string& query_id,
+                                                           int64_t mem_limit = -1);
 
-    std::shared_ptr<MemTracker> GetQueryMemTracker(const std::string& query_id);
+    std::shared_ptr<MemTracker> get_query_mem_tracker(const std::string& query_id);
 
-    void DeregisterQueryMemTracker();
+    void deregister_query_mem_tracker();
 
 private:
     // All per-query MemTracker objects.

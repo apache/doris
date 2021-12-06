@@ -93,7 +93,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _extdatasource_client_cache =
             new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
-    _query_mem_tracker_registry = new QueryMemTrackerRegistry();
+    _query_mem_tracker_registry.reset(new QueryMemTrackerRegistry());
     _thread_mgr = new ThreadResourceMgr();
     _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
                                                config::doris_scanner_thread_pool_queue_size);
@@ -304,7 +304,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
-    SAFE_DELETE(_query_mem_tracker_registry);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_extdatasource_client_cache);
     SAFE_DELETE(_frontend_client_cache);

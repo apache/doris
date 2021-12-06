@@ -57,7 +57,7 @@ public:
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_buffer_reservation = new ReservationTracker();
-        _env->_query_mem_tracker_registry = new QueryMemTrackerRegistry();
+        _env->_query_mem_tracker_registry.reset(new QueryMemTrackerRegistry());
         ThreadPoolBuilder("SendBatchThreadPool")
                 .set_min_threads(1)
                 .set_max_threads(5)
@@ -74,7 +74,6 @@ public:
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);
         SAFE_DELETE(_env->_buffer_reservation);
-        SAFE_DELETE(_env->_query_mem_tracker_registry);
         if (_server) {
             _server->Stop(100);
             _server->Join();

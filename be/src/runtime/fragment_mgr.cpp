@@ -470,7 +470,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
-    thread_local_ctx.attach_query(exec_state->query_id(), exec_state->fragment_instance_id());
+    thread_local_ctx.attach(ThreadContext::QUERY, print_id(exec_state->query_id()),
+                            exec_state->fragment_instance_id());
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
@@ -491,7 +492,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
 
     // Callback after remove from this id
     cb(exec_state->executor());
-    thread_local_ctx.unattach_query();
+    thread_local_ctx.detach();
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
