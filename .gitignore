@@ -66,10 +66,7 @@ fe/fe-common/.classpath
 rpc_data/
 
 ## ignore sample target
-samples/doris-demo/stream-load-demo/target
-samples/doris-demo/spring-jdbc-demo/target
-samples/doris-demo/flink-demo/target
-samples/doris-demo/spark-demo/target
+samples/doris-demo/*/target
 
 # ignore vscode project file
 .vscode
