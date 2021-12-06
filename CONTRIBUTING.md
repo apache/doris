@@ -23,7 +23,7 @@ Thank you very much for your interest in the Doris project. We welcome your sugg
 
 Your suggestions, comments and comments on Doris can be made directly through GitHub's [Issues] (https://github.com/apache/incubator-doris/issues/new/selection).
 
-There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Commiter of Aapche with Apache mailbox and be included in the list of [Apache Commiters] (http://people.apache.org/committer-index.html).
+There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Commiter of Apache with Apache mailbox and be included in the list of [Apache Commiters] (http://people.apache.org/committer-index.html).
 
 Any questions, you can contact us to get timely answers, including Wechat, Gitter (GitHub instant messaging tool), e-mail and so on.
 

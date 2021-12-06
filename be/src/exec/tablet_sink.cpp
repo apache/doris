@@ -31,8 +31,9 @@
 #include "util/brpc_stub_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
-#include "util/time.h"
+#include "util/proto_util.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -62,22 +63,24 @@ NodeChannel::~NodeChannel() {
 // returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
     _tuple_desc = _parent->_output_tuple_desc;
-    _node_info = _parent->_nodes_info->find_node(_node_id);
-    if (_node_info == nullptr) {
+    auto node = _parent->_nodes_info->find_node(_node_id);
+    if (node == nullptr) {
         std::stringstream ss;
         ss << "unknown node id, id=" << _node_id;
         _cancelled = true;
         return Status::InternalError(ss.str());
     }
 
+    _node_info = *node;
+
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
     _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
 
-    _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info->host, _node_info->brpc_port);
+    _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info.host, _node_info.brpc_port);
     if (_stub == nullptr) {
-        LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
-                     << ", port=" << _node_info->brpc_port;
+        LOG(WARNING) << "Get rpc stub failed, host=" << _node_info.host
+                     << ", port=" << _node_info.brpc_port;
         _cancelled = true;
         return Status::InternalError("get rpc stub failed");
     }
@@ -86,6 +89,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _cur_add_batch_request.set_allocated_id(&_parent->_load_id);
     _cur_add_batch_request.set_index_id(_index_id);
     _cur_add_batch_request.set_sender_id(_parent->_sender_id);
+    _cur_add_batch_request.set_backend_id(_node_id);
     _cur_add_batch_request.set_eos(false);
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
@@ -93,7 +97,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
-    _name = "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
+    _name = fmt::format("NodeChannel[{}-{}]", _index_id, _node_id);
     return Status::OK();
 }
 
@@ -142,6 +146,10 @@ void NodeChannel::_cancel_with_msg(const std::string& msg) {
 Status NodeChannel::open_wait() {
     _open_closure->join();
     if (_open_closure->cntl.Failed()) {
+        if (!ExecEnv::GetInstance()->brpc_stub_cache()->available(_stub, _node_info.host,
+                                                                  _node_info.brpc_port)) {
+            ExecEnv::GetInstance()->brpc_stub_cache()->erase(_open_closure->cntl.remote_side());
+        }
         std::stringstream ss;
         ss << "failed to open tablet writer, error=" << berror(_open_closure->cntl.ErrorCode())
            << ", error_text=" << _open_closure->cntl.ErrorText();
@@ -163,10 +171,8 @@ Status NodeChannel::open_wait() {
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
-        std::stringstream ss;
-        ss << name() << " add batch req rpc failed, " << print_load_info()
-           << ", node=" << node_info()->id << ":" << node_info()->brpc_port;
-        _cancel_with_msg(ss.str());
+        _cancel_with_msg(
+                fmt::format("{}, err: {}", channel_info(), _add_batch_closure->cntl.ErrorText()));
     });
 
     _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
@@ -183,14 +189,8 @@ Status NodeChannel::open_wait() {
                 _add_batches_finished = true;
             }
         } else {
-            std::stringstream ss;
-            // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
-            //             But I don't know why. so here I print node_info()->id instead of node_info()->host
-            //             to avoid BE crash. It needs further observation.
-            ss << name() << " add batch req success but status isn't ok, " << print_load_info()
-               << ", backend id=" << node_info()->id << ":" << node_info()->brpc_port
-               << ", errmsg=" << status.get_error_msg();
-            _cancel_with_msg(ss.str());
+            _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
+                                         channel_info(), status.get_error_msg()));
         }
 
         if (result.has_execution_time_us()) {
@@ -292,7 +292,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         SleepFor(MonoDelta::FromMilliseconds(1));
     }
     timer.stop();
-    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
+    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms"
+                  << ", " << _load_info;
 
     if (_add_batches_finished) {
         {
@@ -317,10 +318,10 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     return Status::InternalError(ss.str());
 }
 
-void NodeChannel::cancel() {
+void NodeChannel::cancel(const std::string& cancel_msg) {
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
-    _cancelled = true;
+    _cancel_with_msg(cancel_msg);
 
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
@@ -349,7 +350,7 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thr
     }
     bool is_finished = true;
     if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
-            _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
+        _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
         auto s = thread_pool_token->submit_func(std::bind(&NodeChannel::try_send_batch, this));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
@@ -378,13 +379,17 @@ void NodeChannel::try_send_batch() {
     if (row_batch->num_rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         row_batch->serialize(request.mutable_row_batch());
+        if (request.row_batch().ByteSizeLong() >= double(config::brpc_max_body_size) * 0.95f) {
+            LOG(WARNING) << "send batch too large, this rpc may failed. send size: "
+                         << request.row_batch().ByteSizeLong() << ", " << channel_info();
+        }
     }
 
     _add_batch_closure->reset();
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
-            cancel();
+            cancel(fmt::format("{}, err: timeout", channel_info()));
         } else {
             remain_ms = _min_rpc_timeout_ms;
         }
@@ -405,9 +410,12 @@ void NodeChannel::try_send_batch() {
         DCHECK(_pending_batches_num == 0);
     }
 
+    request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
+                                          ReusableClosure<PTabletWriterAddBatchResult>>(
+            &request, _add_batch_closure);
     _add_batch_closure->set_in_flight();
-    _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
-                                   &_add_batch_closure->result, _add_batch_closure);
+    _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
+                                   _add_batch_closure);
 
     _next_packet_seq++;
     _last_patch_processed_finished = true;
@@ -458,6 +466,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             }
             channel->add_tablet(tablet);
             channels.push_back(channel);
+            _tablets_by_channel[node_id].insert(tablet.tablet_id);
         }
         _channels_by_tablet.emplace(tablet.tablet_id, std::move(channels));
     }
@@ -481,16 +490,22 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     }
 
     if (has_intolerable_failure()) {
-        std::stringstream ss;
-        ss << "index channel has intolerable failure. " << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str());
+        std::stringstream ss2;
+        ss2 << "index channel has intolerable failure. " << BackendOptions::get_localhost()
+            << ", err: " << ss.str();
+        return Status::InternalError(ss2.str());
     }
 
     return Status::OK();
 }
 
 bool IndexChannel::has_intolerable_failure() {
-    return _failed_channels.size() >= ((_parent->_num_replicas + 1) / 2);
+    for (const auto& it : _failed_channels) {
+        if (it.second.size() >= ((_parent->_num_replicas + 1) / 2)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -671,12 +686,10 @@ Status OlapTableSink::open(RuntimeState* state) {
             auto st = ch->open_wait();
             if (!st.ok()) {
                 std::stringstream err;
-                err << ch->name() << ": tablet open failed, " << ch->print_load_info()
-                    << ", node=" << ch->node_info()->host << ":" << ch->node_info()->brpc_port
-                    << ", errmsg=" << st.get_error_msg();
+                err << ch->channel_info() << ", tablet open failed, err: " << st.get_error_msg();
                 LOG(WARNING) << err.str();
-                index_channel->mark_as_failed(ch);
                 ss << err.str() << "; ";
+                index_channel->mark_as_failed(ch);
             }
         });
 
@@ -685,7 +698,8 @@ Status OlapTableSink::open(RuntimeState* state) {
             return Status::InternalError(ss.str());
         }
     }
-    int32_t send_batch_parallelism = MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
+    int32_t send_batch_parallelism =
+            MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
@@ -697,13 +711,15 @@ Status OlapTableSink::open(RuntimeState* state) {
 
 Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     SCOPED_TIMER(_profile->total_time_counter());
-    _number_input_rows += input_batch->num_rows();
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
-    state->update_num_rows_load_total(input_batch->num_rows());
-    state->update_num_bytes_load_total(input_batch->total_byte_size());
-    DorisMetrics::instance()->load_rows->increment(input_batch->num_rows());
-    DorisMetrics::instance()->load_bytes->increment(input_batch->total_byte_size());
+    int64_t num_rows = input_batch->num_rows();
+    int64_t num_bytes = input_batch->total_byte_size();
+    _number_input_rows += num_rows;
+    state->update_num_rows_load_total(num_rows);
+    state->update_num_bytes_load_total(num_bytes);
+    DorisMetrics::instance()->load_rows->increment(num_rows);
+    DorisMetrics::instance()->load_bytes->increment(num_bytes);
     RowBatch* batch = input_batch;
     if (!_output_expr_ctxs.empty()) {
         SCOPED_RAW_TIMER(&_convert_batch_ns);
@@ -785,9 +801,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                             if (!s.ok()) {
                                 // 'status' will store the last non-ok status of all channels
                                 status = s;
-                                LOG(WARNING) << ch->name() << ": close channel failed, "
-                                             << ch->print_load_info()
-                                             << ". error_msg=" << s.get_error_msg();
+                                LOG(WARNING)
+                                        << ch->channel_info()
+                                        << ", close channel failed, err: " << s.get_error_msg();
                             }
                             ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                             &mem_exceeded_block_ns, &queue_push_lock_ns,
@@ -836,7 +852,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         LOG(INFO) << ss.str();
     } else {
         for (auto channel : _channels) {
-            channel->for_each_node_channel([](NodeChannel* ch) { ch->cancel(); });
+            channel->for_each_node_channel(
+                    [&status](NodeChannel* ch) { ch->cancel(status.get_error_msg()); });
         }
     }
 
@@ -845,6 +862,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     _stop_background_threads_latch.count_down();
     if (_sender_thread) {
         _sender_thread->join();
+        _send_batch_thread_pool_token->shutdown();
     }
 
     Expr::close(_output_expr_ctxs, state);
@@ -957,7 +975,8 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 if (str_val->len > desc->type().MAX_STRING_LENGTH) {
                     ss << "the length of input is too long than schema. "
                        << "column_name: " << desc->col_name() << "; "
-                       << "first 128 bytes of input_str: [" << std::string(str_val->ptr, 128) << "] "
+                       << "first 128 bytes of input_str: [" << std::string(str_val->ptr, 128)
+                       << "] "
                        << "schema length: " << desc->type().MAX_STRING_LENGTH << "; "
                        << "actual length: " << str_val->len << "; ";
                     row_valid = false;
@@ -1020,7 +1039,8 @@ void OlapTableSink::_send_batch_process() {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num, this](NodeChannel* ch) {
-                running_channels_num += ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
+                running_channels_num +=
+                        ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
             });
         }
 

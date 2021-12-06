@@ -48,7 +48,7 @@ class MemTracker;
 namespace vectorized {
 class Block;
 class VExpr;
-}
+} // namespace vectorized
 
 using std::string;
 using std::stringstream;
@@ -248,9 +248,9 @@ protected:
         /// managed externally.
         bool AddBatchWithTimeout(RowBatch* batch, int64_t timeout_micros);
 
-        /// Gets a row batch from the queue. Returns NULL if there are no more.
+        /// Gets a row batch from the queue. Returns nullptr if there are no more.
         /// This function blocks.
-        /// Returns NULL after Shutdown().
+        /// Returns nullptr after Shutdown().
         RowBatch* GetBatch();
 
         /// Deletes all row batches in cleanup_queue_. Not valid to call AddBatch()
@@ -289,7 +289,7 @@ protected:
     int64_t _limit; // -1: no limit
     int64_t _num_rows_returned;
 
-    boost::scoped_ptr<RuntimeProfile> _runtime_profile;
+    std::unique_ptr<RuntimeProfile> _runtime_profile;
 
     /// Account for peak memory used by this node
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -299,7 +299,7 @@ protected:
 
     /// MemPool for allocating data structures used by expression evaluators in this node.
     /// Created in Prepare().
-    boost::scoped_ptr<MemPool> _expr_mem_pool;
+    std::unique_ptr<MemPool> _expr_mem_pool;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
@@ -323,7 +323,7 @@ protected:
     bool is_closed() const { return _is_closed; }
 
     // TODO(zc)
-    /// Pointer to the containing SubplanNode or NULL if not inside a subplan.
+    /// Pointer to the containing SubplanNode or nullptr if not inside a subplan.
     /// Set by SubplanNode::Init(). Not owned.
     // SubplanNode* containing_subplan_;
 

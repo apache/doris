@@ -24,7 +24,6 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
@@ -52,20 +51,11 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) tbl;
-            
             if (partitions.isEmpty()) {
                 partitions.addAll(olapTable.getPartitionNames());
             } else {
@@ -81,7 +71,7 @@ public class MetadataViewer {
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
                 long visibleVersion = partition.getVisibleVersion();
-                short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
@@ -94,7 +84,7 @@ public class MetadataViewer {
                             
                             ReplicaStatus status = ReplicaStatus.OK;
                             Backend be = infoService.getBackend(replica.getBackendId());
-                            if (be == null || !be.isAvailable() || replica.isBad()) {
+                            if (be == null || !be.isAlive() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {
@@ -147,7 +137,7 @@ public class MetadataViewer {
                 }
             }
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;
@@ -177,19 +167,10 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) tbl;
             List<Long> partitionIds = Lists.newArrayList();
             if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -243,23 +224,23 @@ public class MetadataViewer {
                 row.add(String.valueOf(beId));
                 row.add(String.valueOf(countMap.get(beId)));
                 row.add(String.valueOf(sizeMap.get(beId)));
-                row.add(graph(countMap.get(beId), totalReplicaNum, beIds.size()));
+                row.add(graph(countMap.get(beId), totalReplicaNum));
                 row.add(totalReplicaNum == countMap.get(beId) ? "100.00%" : df.format((double) countMap.get(beId) / totalReplicaNum));
-                row.add(graph(sizeMap.get(beId), totalReplicaSize, beIds.size()));
+                row.add(graph(sizeMap.get(beId), totalReplicaSize));
                 row.add(totalReplicaSize == sizeMap.get(beId) ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 result.add(row);
             }
             
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;
     }
 
-    private static String graph(long num, long totalNum, int mod) {
+    private static String graph(long num, long totalNum) {
         StringBuilder sb = new StringBuilder();
-        long normalized = num == totalNum ? totalNum : (int) Math.ceil(num * mod / totalNum);
+        long normalized = num == totalNum ? 100 : (int) Math.ceil(num * 100 / totalNum);
         for (int i = 0; i < normalized; ++i) {
             sb.append(">");
         }
@@ -282,41 +263,20 @@ public class MetadataViewer {
             throw new DdlException("Should specify one and only one partitions");
         }
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) tbl;
-            long partitionId = -1;
+            Partition partition = null;
             // check partition
             for (String partName : partitionNames.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+                partition = olapTable.getPartition(partName, partitionNames.isTemp());
                 if (partition == null) {
                     throw new DdlException("Partition does not exist: " + partName);
                 }
-                partitionId = partition.getId();
                 break;
             }
-
-            // backend id -> replica count
-            Map<Long, Integer> countMap = Maps.newHashMap();
-            // backend id -> replica size
-            Map<Long, Long> sizeMap = Maps.newHashMap();
-            // init map
-            List<Long> beIds = infoService.getBackendIds(false);
-            for (long beId : beIds) {
-                countMap.put(beId, 0);
-            }
-
-            Partition partition = olapTable.getPartition(partitionId);
             DistributionInfo distributionInfo = partition.getDistributionInfo();
             List<Long> tabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
             for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
@@ -339,12 +299,12 @@ public class MetadataViewer {
                 List<String> row = Lists.newArrayList();
                 row.add(String.valueOf(i));
                 row.add(tabletInfos.get(i).toString());
-                row.add(graph(tabletInfos.get(i), totalSize, tabletInfos.size()));
+                row.add(graph(tabletInfos.get(i), totalSize));
                 row.add(totalSize == tabletInfos.get(i) ? "100.00%" : df.format((double) tabletInfos.get(i) / totalSize));
                 result.add(row);
             }
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;

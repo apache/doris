@@ -78,6 +78,7 @@ Status ResultSink::prepare(RuntimeState* state) {
         _writer.reset(new (std::nothrow)
                               MysqlResultWriter(_sender.get(), _output_expr_ctxs, _profile));
         break;
+    // deprecated
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
         _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,
@@ -117,10 +118,11 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     // close sender, this is normal path end
     if (_sender) {
         _sender->update_num_written_rows(_writer->get_written_rows());
+        _sender->update_max_peak_memory_bytes();
         _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(
-            time(NULL) + config::result_buffer_cancelled_interval_time,
+            time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
 
     Expr::close(_output_expr_ctxs, state);

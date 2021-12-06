@@ -333,10 +333,10 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
     // zero size means the src input is a agg object
     if (src.len == 0) {
         auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
-        return {bitmap->cardinality()};
+        return {static_cast<int64_t>(bitmap->cardinality())};
     } else {
         BitmapValue bitmap((char*)src.ptr);
-        return {bitmap.cardinality()};
+        return {static_cast<int64_t>(bitmap.cardinality())};
     }
 }
 
@@ -489,6 +489,43 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
     }
     return serialize(ctx, &bitmap);
 }
+BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVal& lhs,
+                                            const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BigIntVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    if (rhs.len == 0) {
+        return bitmap.and_cardinality(*reinterpret_cast<BitmapValue*>(rhs.ptr));
+    } else {
+        return bitmap.and_cardinality(BitmapValue((char*)rhs.ptr));
+    }
+}
+
+BigIntVal BitmapFunctions::bitmap_or_count(FunctionContext* ctx, const StringVal& lhs,
+                                           const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BigIntVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    if (rhs.len == 0) {
+        return bitmap.or_cardinality(*reinterpret_cast<BitmapValue*>(rhs.ptr));
+    } else {
+        return bitmap.or_cardinality(BitmapValue((char*)rhs.ptr));
+    }
+}
 
 StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs,
                                       const StringVal& rhs) {
@@ -510,6 +547,25 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs,
+                                            const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BigIntVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    if (rhs.len == 0) {
+        return bitmap.xor_cardinality(*reinterpret_cast<BitmapValue*>(rhs.ptr));
+    } else {
+        return bitmap.xor_cardinality(BitmapValue((char*)rhs.ptr));
+    }
+}
+
 StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs,
                                       const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
@@ -528,6 +584,30 @@ StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs
         bitmap -= BitmapValue((char*)rhs.ptr);
     }
     return serialize(ctx, &bitmap);
+}
+
+StringVal BitmapFunctions::bitmap_and_not(FunctionContext* ctx, const StringVal& lhs,
+                                          const StringVal& rhs) {
+    return bitmap_xor(ctx, lhs, bitmap_and(ctx, lhs, rhs));
+}
+
+BigIntVal BitmapFunctions::bitmap_and_not_count(FunctionContext* ctx, const StringVal& lhs,
+                                                const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BigIntVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    if (rhs.len == 0) {
+        return bitmap.andnot_cardinality(*reinterpret_cast<BitmapValue*>(rhs.ptr));
+    } else {
+        return bitmap.andnot_cardinality(BitmapValue((char*)rhs.ptr));
+    }
 }
 
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
@@ -595,6 +675,96 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
     }
 
     return {bitmap.cardinality() != 0};
+}
+
+BooleanVal BitmapFunctions::bitmap_has_all(FunctionContext* ctx, const StringVal& lhs,
+                                           const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BooleanVal::null();
+    }
+
+    if (lhs.len != 0 && rhs.len != 0) {
+        BitmapValue bitmap = BitmapValue(reinterpret_cast<char*>(lhs.ptr));
+        int64_t lhs_cardinality = bitmap.cardinality();
+        bitmap |= BitmapValue(reinterpret_cast<char*>(rhs.ptr));
+        return {bitmap.cardinality() == lhs_cardinality};
+    } else if (rhs.len != 0) {
+        return {false};
+    } else {
+        return {true};
+    }
+}
+
+BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src) {
+    if (src.is_null) {
+        return BigIntVal::null();
+    }
+
+    if (src.len == 0) {
+        return reinterpret_cast<BitmapValue*>(src.ptr)->maximum();
+    } else {
+        auto bitmap = BitmapValue((char*)src.ptr);
+        return bitmap.maximum();
+    }
+}
+
+StringVal BitmapFunctions::bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src,
+                                                  const BigIntVal& range_start,
+                                                  const BigIntVal& range_end) {
+    if (src.is_null || range_start.is_null || range_end.is_null) {
+        return StringVal::null();
+    }
+    if (range_start.val >= range_end.val || range_start.val < 0 || range_end.val < 0) {
+        return StringVal::null();
+    }
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        bitmap.sub_range(range_start.val, range_end.val, &ret_bitmap);
+    }
+
+    return serialize(ctx, &ret_bitmap);
+}
+
+StringVal BitmapFunctions::sub_bitmap(FunctionContext* ctx, const StringVal& src,
+                                      const BigIntVal& offset, const BigIntVal& cardinality_limit) {
+    if (src.is_null || offset.is_null || cardinality_limit.is_null || cardinality_limit.val <= 0) {
+        return StringVal::null();
+    }
+
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        if (bitmap.offset_limit(offset.val, cardinality_limit.val, &ret_bitmap) == 0) {
+            return StringVal::null();
+        }
+    }
+
+    return serialize(ctx, &ret_bitmap);
+}
+
+StringVal BitmapFunctions::bitmap_subset_limit(FunctionContext* ctx, const StringVal& src,
+                                               const BigIntVal& range_start,
+                                               const BigIntVal& cardinality_limit) {
+    if (src.is_null || range_start.is_null || cardinality_limit.is_null) {
+        return StringVal::null();
+    }
+    if (range_start.val < 0 || cardinality_limit.val < 0) {
+        return StringVal::null();
+    }
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        bitmap.sub_limit(range_start.val, cardinality_limit.val, &ret_bitmap);
+    }
+
+    return serialize(ctx, &ret_bitmap);
 }
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(FunctionContext* ctx,

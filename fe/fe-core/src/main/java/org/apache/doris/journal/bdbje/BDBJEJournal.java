@@ -37,6 +37,7 @@ import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+import com.sleepycat.je.rep.RollbackException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,9 +46,6 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.Socket;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -81,19 +79,10 @@ public class BDBJEJournal implements Journal {
      * node name is ip_port (the port is edit_log_port)
      */
     private void initBDBEnv(String nodeName) {
-        environmentPath = Catalog.getCurrentCatalog().getBdbDir();
-        try {
-            Pair<String, Integer> selfNode = Catalog.getCurrentCatalog().getSelfNode();
-            if (isPortUsing(selfNode.first, selfNode.second)) {
-                LOG.error("edit_log_port {} is already in use. will exit.", selfNode.second);
-                System.exit(-1);
-            }
-            selfNodeName = nodeName;
-            selfNodeHostPort = selfNode.first + ":" + selfNode.second;
-        } catch (IOException e) {
-            LOG.error(e);
-            System.exit(-1);
-        }
+        environmentPath = Catalog.getServingCatalog().getBdbDir();
+        Pair<String, Integer> selfNode = Catalog.getServingCatalog().getSelfNode();
+        selfNodeName = nodeName;
+        selfNodeHostPort = selfNode.first + ":" + selfNode.second;
     }
 
     /*
@@ -155,8 +144,10 @@ public class BDBJEJournal implements Journal {
                 // Parameter null means auto commit
                 if (currentJournalDB.put(null, theKey, theData) == OperationStatus.SUCCESS) {
                     writeSucceed = true;
-                    LOG.debug("master write journal {} finished. db name {}, current time {}",
-                              id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("master write journal {} finished. db name {}, current time {}",
+                                id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
+                    }
                     break;
                 }
             } catch (DatabaseException e) {
@@ -191,7 +182,7 @@ public class BDBJEJournal implements Journal {
 
     @Override
     public JournalEntity read(long journalId) {
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             return null;
         }
@@ -252,7 +243,7 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             return ret;
         }
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             return ret;
         }
@@ -275,7 +266,7 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             return ret;
         }
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             return ret;
         }
@@ -307,11 +298,11 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             File dbEnv = new File(environmentPath);
             bdbEnvironment = new BDBEnvironment();
-            Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
+            Pair<String, Integer> helperNode = Catalog.getServingCatalog().getHelperNode();
             String helperHostPort = helperNode.first + ":" + helperNode.second;
             try {
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort,
-                                     helperHostPort, Catalog.getCurrentCatalog().isElectable());
+                        helperHostPort, Catalog.getServingCatalog().isElectable());
             } catch (Exception e) {
                 LOG.error("catch an exception when setup bdb environment. will exit.", e);
                 System.exit(-1);
@@ -319,11 +310,10 @@ public class BDBJEJournal implements Journal {
         }
         
         // Open a new journal database or get last existing one as current journal database
-        Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
         List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
-                dbNames = bdbEnvironment.getDatabaseNames();
+                dbNames = getDatabaseNames();
                 
                 if (dbNames == null) {
                     LOG.error("fail to get dbNames while open bdbje journal. will exit");
@@ -332,44 +322,51 @@ public class BDBJEJournal implements Journal {
                 if (dbNames.size() == 0) {
                     /*
                      *  This is the very first time to open. Usually, we will open a new database named "1".
-                     *  But when we start cluster with an image file copied from other cluster, 
+                     *  But when we start cluster with an image file copied from other cluster,
                      *  here we should open database with name image max journal id + 1.
-                     *  (default Catalog.getCurrentCatalog().getReplayedJournalId() is 0)
+                     *  (default Catalog.getServingCatalog().getReplayedJournalId() is 0)
                      */
-                    String dbName = Long.toString(Catalog.getCurrentCatalog().getReplayedJournalId() + 1);
+                    String dbName = Long.toString(Catalog.getServingCatalog().getReplayedJournalId() + 1);
                     LOG.info("the very first time to open bdb, dbname is {}", dbName);
                     currentJournalDB = bdbEnvironment.openDatabase(dbName);
                 } else {
                     // get last database as current journal database
                     currentJournalDB = bdbEnvironment.openDatabase(dbNames.get(dbNames.size() - 1).toString());
                 }
-                
+
                 // set next journal id
                 nextJournalId.set(getMaxJournalId() + 1);
-                
+
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
-                // Copy the missing log files from a member of the replication group who owns the files
-                LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
-                NetworkRestore restore = new NetworkRestore();
-                NetworkRestoreConfig config = new NetworkRestoreConfig();
-                config.setRetainLogFiles(false);
-                restore.execute(insufficientLogEx, config);
-                bdbEnvironment.close();
-                bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort, 
-                                     helperNode.first + ":" + helperNode.second, Catalog.getCurrentCatalog().isElectable());
+                reSetupBdbEnvironment(insufficientLogEx);
             }
         }
     }
-    
+
+    private void reSetupBdbEnvironment(InsufficientLogException insufficientLogEx) {
+        LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
+        // Copy the missing log files from a member of the replication group who owns the files
+        // ATTN: here we use `getServingCatalog()`, because only serving catalog has helper nodes.
+        Pair<String, Integer> helperNode = Catalog.getServingCatalog().getHelperNode();
+        NetworkRestore restore = new NetworkRestore();
+        NetworkRestoreConfig config = new NetworkRestoreConfig();
+        config.setRetainLogFiles(false);
+        restore.execute(insufficientLogEx, config);
+        bdbEnvironment.close();
+        bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
+                helperNode.first + ":" + helperNode.second,
+                Catalog.getServingCatalog().isElectable());
+    }
+
     @Override
     public void deleteJournals(long deleteToJournalId) {
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             LOG.info("delete database names is null.");
             return;
         }
-        
+
         String msg = "existing database names: ";
         for (long name : dbNames) {
             msg += name + " ";
@@ -393,7 +390,7 @@ public class BDBJEJournal implements Journal {
     
     @Override
     public long getFinalizedJournalId() {
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             LOG.error("database name is null.");
             return 0;
@@ -417,20 +414,38 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             return null;
         }
-        
-        return bdbEnvironment.getDatabaseNames();
-    }
-    
-    public boolean isPortUsing(String host, int port) throws UnknownHostException {  
-        boolean flag = false;  
-        InetAddress theAddress = InetAddress.getByName(host);
-        try {  
-            Socket socket = new Socket(theAddress, port);
-            flag = true;
-            socket.close();
-        } catch (IOException e) {
-            // do nothing
-        }  
-        return flag;  
+
+        // Open a new journal database or get last existing one as current journal database
+        List<Long>  dbNames = null;
+        for (int i = 0; i < RETRY_TIME; i++) {
+            try {
+                dbNames = bdbEnvironment.getDatabaseNames();
+                break;
+            } catch (InsufficientLogException insufficientLogEx) {
+                /*
+                 * If this is not a checkpoint thread, which means this maybe the FE startup thread,
+                 * or a replay thread. We will reopen bdbEnvironment for these 2 cases to get valid log
+                 * from helper nodes.
+                 *
+                 * The checkpoint thread will only run on Master FE. And Master FE should not encounter
+                 * these exception. So if it happens, throw exception out.
+                 */
+                if (!Catalog.isCheckpointThread()) {
+                    reSetupBdbEnvironment(insufficientLogEx);
+                } else {
+                    throw insufficientLogEx;
+                }
+            } catch (RollbackException rollbackEx) {
+                if (!Catalog.isCheckpointThread()) {
+                    LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
+                    bdbEnvironment.closeReplicatedEnvironment();
+                    bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
+                } else {
+                    throw rollbackEx;
+                }
+            }
+        }
+
+        return dbNames;
     }
 }

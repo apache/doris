@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "util/blocking_priority_queue.hpp"
 #include "util/stopwatch.hpp"
+#include "util/thread_group.h"
 
 namespace doris {
 
@@ -156,7 +157,7 @@ private:
     BlockingPriorityQueue<T> _work_queue;
 
     // Collection of worker threads that process work from the queue.
-    boost::thread_group _threads;
+    ThreadGroup _threads;
 
     // Guards _shutdown and _empty_cv
     std::mutex _lock;

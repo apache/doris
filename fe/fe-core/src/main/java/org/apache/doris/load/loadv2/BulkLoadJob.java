@@ -63,8 +63,10 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.stream.Collectors;
 
 /**
  * parent class of BrokerLoadJob and SparkLoadJob from load stmt
@@ -110,13 +112,10 @@ public abstract class BulkLoadJob extends LoadJob {
     public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         // create job
-        BulkLoadJob bulkLoadJob = null;
+        BulkLoadJob bulkLoadJob;
         try {
             switch (stmt.getEtlJobType()) {
                 case BROKER:
@@ -165,50 +164,27 @@ public abstract class BulkLoadJob extends LoadJob {
     }
 
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + " has been deleted");
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override
     public Set<String> getTableNamesForShow() {
-        Set<String> result = Sets.newHashSet();
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            for (long tableId : fileGroupAggInfo.getAllTableIds()) {
-                result.add(String.valueOf(tableId));
-            }
-            return result;
-        }
-        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
-            Table table = database.getTable(tableId);
-            if (table == null) {
-                result.add(String.valueOf(tableId));
-            } else {
-                result.add(table.getName());
-            }
-        }
-        return result;
+        Optional<Database> db = Catalog.getCurrentCatalog().getDb(dbId);
+        return fileGroupAggInfo.getAllTableIds().stream()
+                .map(tableId -> db.flatMap(d -> d.getTable(tableId)).map(Table::getName).orElse(String.valueOf(tableId)))
+                .collect(Collectors.toSet());
     }
 
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
         // The database will not be locked in here.
         // The getTable is a thread-safe method called without read lock of database
         for (long tableId : fileGroupAggInfo.getAllTableIds()) {
-            Table table = database.getTable(tableId);
-            if (table == null) {
-                throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
-            } else {
-                result.add(table.getName());
-            }
+            Table table = database.getTableOrMetaException(tableId);
+            result.add(table.getName());
         }
         return result;
     }
@@ -274,12 +250,9 @@ public abstract class BulkLoadJob extends LoadJob {
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        LoadStmt stmt = null;
+        LoadStmt stmt;
         try {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
-            if (db == null) {
-                throw new DdlException("Database[" + dbId + "] does not exist");
-            }
+            Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
             stmt = (LoadStmt) SqlParserUtils.getStmt(parser, originStmt.idx);
             for (DataDescription dataDescription : stmt.getDataDescriptions()) {
                 dataDescription.analyzeWithoutCheckPriv(db.getFullName());

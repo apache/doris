@@ -73,14 +73,17 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
          i != desc.string_slots().end(); ++i) {
         DCHECK((*i)->type().is_string_type());
 
+        StringValue* string_v = dst->get_string_slot((*i)->tuple_offset());
         if (!dst->is_null((*i)->null_indicator_offset())) {
-            StringValue* string_v = dst->get_string_slot((*i)->tuple_offset());
             if (string_v->len != 0) {
                 int offset = pool->total_allocated_bytes();
                 char* string_copy = reinterpret_cast<char*>(pool->allocate(string_v->len));
                 memory_copy(string_copy, string_v->ptr, string_v->len);
                 string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(offset) : string_copy);
             }
+        } else {
+            string_v->ptr = nullptr;
+            string_v->len = 0;
         }
     }
 
@@ -187,12 +190,15 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, boo
 
     for (auto slot_desc : desc.string_slots()) {
         DCHECK(slot_desc->type().is_string_type());
+        StringValue* string_v = dst->get_string_slot(slot_desc->tuple_offset());
         if (!dst->is_null(slot_desc->null_indicator_offset())) {
-            StringValue* string_v = dst->get_string_slot(slot_desc->tuple_offset());
             memory_copy(*data, string_v->ptr, string_v->len);
             string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
             *data += string_v->len;
             *offset += string_v->len;
+        } else {
+            string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
+            string_v->len = 0;
         }
     }
 
@@ -274,18 +280,19 @@ void Tuple::materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
         // TODO: revisit this logic in the FE
         PrimitiveType slot_type = slot_desc->type().type;
         PrimitiveType expr_type = materialize_expr_ctxs[mat_expr_index]->root()->type().type;
-        if ((slot_type == TYPE_CHAR) || (slot_type == TYPE_VARCHAR) || (slot_type == TYPE_HLL)) {
-            DCHECK((expr_type == TYPE_CHAR) || (expr_type == TYPE_VARCHAR) ||
-                   (expr_type == TYPE_HLL));
-        } else if ((slot_type == TYPE_DATE) || (slot_type == TYPE_DATETIME)) {
-            DCHECK((expr_type == TYPE_DATE) || (expr_type == TYPE_DATETIME));
+        if (slot_type == TYPE_CHAR || slot_type == TYPE_VARCHAR || slot_type == TYPE_HLL ||
+            slot_type == TYPE_STRING) {
+            DCHECK(expr_type == TYPE_CHAR || expr_type == TYPE_VARCHAR || expr_type == TYPE_HLL ||
+                   expr_type == TYPE_STRING);
+        } else if (slot_type == TYPE_DATE || slot_type == TYPE_DATETIME) {
+            DCHECK(expr_type == TYPE_DATE || expr_type == TYPE_DATETIME);
         } else if (slot_type == TYPE_ARRAY) {
-            DCHECK((expr_type == TYPE_ARRAY));
+            DCHECK(expr_type == TYPE_ARRAY);
         } else {
             DCHECK(slot_type == TYPE_NULL || slot_type == expr_type);
         }
         void* src = materialize_expr_ctxs[mat_expr_index]->get_value(row);
-        if (src != NULL) {
+        if (src != nullptr) {
             void* dst = get_slot(slot_desc->tuple_offset());
             RawValue::write(src, dst, slot_desc->type(), pool);
             if (collect_string_vals) {

@@ -43,21 +43,21 @@ Status SchemaSchemataScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initial.");
     }
     TGetDbsParams db_params;
-    if (NULL != _param->wild) {
+    if (nullptr != _param->wild) {
         db_params.__set_pattern(*(_param->wild));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             db_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
     } else {
@@ -88,7 +88,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->len = strlen("utf8") + 1;
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memory failed.");
         }
         memcpy(str_slot->ptr, "utf8", str_slot->len);
@@ -99,7 +99,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->len = strlen("utf8_general_ci") + 1;
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memory failed.");
         }
         memcpy(str_slot->ptr, "utf8_general_ci", str_slot->len);
@@ -114,8 +114,8 @@ Status SchemaSchemataScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eo
     if (!_is_init) {
         return Status::InternalError("Used before Initialized.");
     }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
     }
     if (_db_index >= _db_result.dbs.size()) {
         *eos = true;

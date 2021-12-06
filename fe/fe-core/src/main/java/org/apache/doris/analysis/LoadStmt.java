@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -330,17 +329,12 @@ public class LoadStmt extends DdlStmt {
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = Catalog.getCurrentCatalog().getDb(label.getDbName());
-            if (db == null) {
-                throw new AnalysisException("database: " + label.getDbName() + "not  found.");
-            }
-            Table table = db.getTable(dataDescription.getTableName());
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND &&
-                    (!(table instanceof OlapTable) || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
+            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(label.getDbName());
+            OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && table.getKeysType() != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
             }
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
-                    && !((table instanceof OlapTable) && ((OlapTable) table).hasDeleteSign()) ) {
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
                 throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
             }
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {

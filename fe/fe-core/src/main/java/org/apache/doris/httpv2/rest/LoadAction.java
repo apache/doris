@@ -17,8 +17,6 @@
 
 package org.apache.doris.httpv2.rest;
 
-import io.netty.handler.codec.http.HttpHeaderNames;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -27,6 +25,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
@@ -43,6 +42,8 @@ import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import io.netty.handler.codec.http.HttpHeaderNames;
 
 @RestController
 public class LoadAction extends RestBaseController {
@@ -128,14 +129,17 @@ public class LoadAction extends RestBaseController {
                 }
             } else {
                 // Choose a backend sequentially.
-                List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
+                SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                        new SystemInfoService.BeAvailablePredicate(false, false, true);
+                List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                        1, beAvailablePredicate, false, clusterName, null, null);
                 if (backendIds == null) {
-                    return new RestBaseResult("No backend alive.");
+                    return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
                 }
 
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
                 if (backend == null) {
-                    return new RestBaseResult("No backend alive.");
+                    return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
                 }
 
                 redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());

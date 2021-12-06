@@ -206,6 +206,13 @@ under the License.
         语法:
             MODIFY COLUMN col1 COMMENT "new column comment"
 
+	12. 修改引擎类型
+
+		仅支持将 MySQL 类型修改为 ODBC 类型。driver 的值为 odbc.init 配置中的 driver 名称。
+
+		语法：
+			MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
+
     rename 支持对以下名称进行修改：
     1. 修改表名
         语法：
@@ -390,6 +397,10 @@ under the License.
     20. 修改列注释
 
         ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
+
+	21. 修改引擎类型
+
+		ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
     
     [rename]
     1. 将名为 table1 的表修改为 table2

@@ -275,6 +275,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return tupleIds;
     }
 
+    public void resetTupleIds(ArrayList<TupleId> tupleIds) {
+        this.tupleIds = tupleIds;
+    }
+
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
         return tupleIds;
@@ -795,7 +799,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-    public String getPlanTreeExplanStr() {
+    public String getPlanTreeExplainStr() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
         sb.append("\n[Fragment: ").append(getFragmentId().asInt()).append("]");

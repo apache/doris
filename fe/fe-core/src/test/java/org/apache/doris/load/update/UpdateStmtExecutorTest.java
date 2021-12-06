@@ -71,8 +71,6 @@ public class UpdateStmtExecutorTest {
         Deencapsulation.setField(updateStmt, "analyzer", analyzer);
         new Expectations() {
             {
-                catalog.getDb("db");
-                result = db;
                 db.getId();
                 result = 1;
                 analyzer.getContext().queryId();

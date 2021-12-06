@@ -69,6 +69,11 @@ struct JsonPath {
     }
 };
 
+struct JsonState {
+    std::vector<JsonPath> json_paths;
+    rapidjson::Document document;
+};
+
 class JsonFunctions {
 public:
     static void init();
@@ -87,6 +92,13 @@ public:
                                              const std::string_view& path_string,
                                              const JsonFunctionType& fntype,
                                              rapidjson::Document* document);
+
+    static doris_udf::StringVal json_array(doris_udf::FunctionContext* context, int num_args,
+                                           const doris_udf::StringVal* json_str);
+    static doris_udf::StringVal json_object(doris_udf::FunctionContext* context, int num_args,
+                                            const doris_udf::StringVal* json_str);
+    static doris_udf::StringVal json_quote(doris_udf::FunctionContext* context,
+                                           const doris_udf::StringVal& json_str);
 
     /**
      * The `document` parameter must be has parsed.
@@ -122,6 +134,9 @@ private:
                                          bool is_insert_null = false);
     static void get_parsed_paths(const std::vector<std::string>& path_exprs,
                                  std::vector<JsonPath>* parsed_paths);
+    static rapidjson::Value parse_str_with_flag(const StringVal& arg, const StringVal& flag,
+                                                const int num,
+                                                rapidjson::Document::AllocatorType& allocator);
 };
 } // namespace doris
 #endif

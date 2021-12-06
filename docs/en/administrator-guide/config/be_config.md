@@ -192,6 +192,12 @@ This configuration is mainly used to modify the parameter `socket_max_unwritten_
 
 Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
 
+### `transfer_data_by_brpc_attachment`
+
+* Type: bool
+* Description: This configuration is used to control whether to transfer the RowBatch in the ProtoBuf Request to the Controller Attachment and then send it through brpc. When the length of ProtoBuf Request exceeds 2G, an error will be reported: Bad request, error_text=[E1003]Fail to compress request, Putting RowBatch in Controller Attachment will be faster and avoid this error.
+* Default value: false
+
 ### `brpc_num_threads`
 
 This configuration is mainly used to modify the number of bthreads for brpc. The default value is set to -1, which means the number of bthreads is #cpu-cores.
@@ -283,7 +289,7 @@ Dictionary compression column size, less than this value using dictionary compre
 Tablet scan frequency can be taken into consideration when selecting an tablet for compaction and preferentially do compaction for those tablets which are scanned frequently during a latest period of time at the present.
 Tablet score can be calculated like this:
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_compaction_score_factor * compaction_score
 
 ### `compaction_task_num_per_disk`
 
@@ -348,6 +354,14 @@ CumulativeCompaction skips the most recently released increments to prevent comp
 * Default value: 10
 
 Similar to `base_compaction_trace_threshold`.
+
+### disable_compaction_trace_log
+
+* Type: bool
+* Description: disable the trace log of compaction
+* Default value: true
+
+If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 
 ### `cumulative_compaction_policy`
 
@@ -574,11 +588,12 @@ Default：32768
 
 File handle cache capacity, 32768 file handles are cached by default.
 
-### `file_descriptor_cache_clean_interval`
+### `cache_clean_interval`
 
-Default：3600（s）
+Default：1800(s)
 
 File handle cache cleaning interval, used to clean up file handles that have not been used for a long time.
+Also the clean interval of Segment Cache.
 
 ### `flush_thread_num_per_store`
 
@@ -1131,11 +1146,17 @@ Cache for storage page size
 * Type: string
 
 * Description: data root path, separate by ';'.you can specify the storage medium of each root path, HDD or SSD. you can add capacity limit at the end of each root path, seperate by ','
-eg: storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
+
+    eg.1: `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
 
     * 1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
     * 2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
     * 3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
+    
+    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+      
+    * 1./home/disk1/doris,medium:hdd,capacity:10，capacity limit is 10GB, HDD;
+    * 2./home/disk2/doris,medium:ssd,capacity:50，capacity limit is 50GB, SSD;
 
 * Default: ${DORIS_HOME}
 
@@ -1413,3 +1434,37 @@ The size of the buffer before flashing
     DEBUG = 1
   ```
 * Default: 0
+
+### `max_segment_num_per_rowset`
+
+* Type: int32
+* Description: Used to limit the number of segments in the newly generated rowset when importing. If the threshold is exceeded, the import will fail with error -238. Too many segments will cause compaction to take up a lot of memory and cause OOM errors.
+* Default value: 200
+
+### `remote_storage_read_buffer_mb`
+
+* Type: int32
+* Description: The cache size used when reading files on hdfs or object storage.
+* Default value: 16MB
+
+Increasing this value can reduce the number of calls to read remote data, but it will increase memory overhead.
+
+### `external_table_connect_timeout_sec`
+
+* Type: int32
+* Description: The timeout when establishing connection with external table such as ODBC table.
+* Default value: 5 seconds
+
+### `segment_cache_capacity`
+
+* Type: int32
+* Description: The maximum number of Segments cached by Segment Cache.
+* Default value: 1000000
+
+The default value is currently only an empirical value, and may need to be modified according to actual scenarios. Increasing this value can cache more segments and avoid some IO. Decreasing this value will reduce memory usage.
+
+### `auto_refresh_brpc_channel`
+
+* Type: bool
+* Description: When obtaining a brpc connection, judge the availability of the connection through hand_shake rpc, and re-establish the connection if it is not available 。
+* Default value: false

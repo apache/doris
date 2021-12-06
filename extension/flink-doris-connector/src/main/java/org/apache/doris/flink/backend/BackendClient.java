@@ -126,14 +126,14 @@ public class BackendClient {
         for (int attempt = 0; attempt < retries; ++attempt) {
             logger.debug("Attempt {} to openScanner {}.", attempt, routing);
             try {
-                TScanOpenResult result = client.open_scanner(openParams);
+                TScanOpenResult result = client.openScanner(openParams);
                 if (result == null) {
                     logger.warn("Open scanner result from {} is null.", routing);
                     continue;
                 }
-                if (!TStatusCode.OK.equals(result.getStatus().getStatus_code())) {
+                if (!TStatusCode.OK.equals(result.getStatus().getStatusCode())) {
                     logger.warn("The status of open scanner result from {} is '{}', error message is: {}.",
-                            routing, result.getStatus().getStatus_code(), result.getStatus().getError_msgs());
+                            routing, result.getStatus().getStatusCode(), result.getStatus().getErrorMsgs());
                     continue;
                 }
                 return result;
@@ -163,14 +163,14 @@ public class BackendClient {
         for (int attempt = 0; attempt < retries; ++attempt) {
             logger.debug("Attempt {} to getNext {}.", attempt, routing);
             try {
-                result = client.get_next(nextBatchParams);
+                result = client.getNext(nextBatchParams);
                 if (result == null) {
                     logger.warn("GetNext result from {} is null.", routing);
                     continue;
                 }
-                if (!TStatusCode.OK.equals(result.getStatus().getStatus_code())) {
+                if (!TStatusCode.OK.equals(result.getStatus().getStatusCode())) {
                     logger.warn("The status of get next result from {} is '{}', error message is: {}.",
-                            routing, result.getStatus().getStatus_code(), result.getStatus().getError_msgs());
+                            routing, result.getStatus().getStatusCode(), result.getStatus().getErrorMsgs());
                     continue;
                 }
                 return result;
@@ -179,11 +179,11 @@ public class BackendClient {
                 ex = e;
             }
         }
-        if (result != null && (TStatusCode.OK != (result.getStatus().getStatus_code()))) {
-            logger.error(ErrorMessages.DORIS_INTERNAL_FAIL_MESSAGE, routing, result.getStatus().getStatus_code(),
-                    result.getStatus().getError_msgs());
-            throw new DorisInternalException(routing.toString(), result.getStatus().getStatus_code(),
-                    result.getStatus().getError_msgs());
+        if (result != null && (TStatusCode.OK != (result.getStatus().getStatusCode()))) {
+            logger.error(ErrorMessages.DORIS_INTERNAL_FAIL_MESSAGE, routing, result.getStatus().getStatusCode(),
+                    result.getStatus().getErrorMsgs());
+            throw new DorisInternalException(routing.toString(), result.getStatus().getStatusCode(),
+                    result.getStatus().getErrorMsgs());
         }
         logger.error(ErrorMessages.CONNECT_FAILED_MESSAGE, routing);
         throw new ConnectedFailedException(routing.toString(), ex);
@@ -199,14 +199,14 @@ public class BackendClient {
         for (int attempt = 0; attempt < retries; ++attempt) {
             logger.debug("Attempt {} to closeScanner {}.", attempt, routing);
             try {
-                TScanCloseResult result = client.close_scanner(closeParams);
+                TScanCloseResult result = client.closeScanner(closeParams);
                 if (result == null) {
                     logger.warn("CloseScanner result from {} is null.", routing);
                     continue;
                 }
-                if (!TStatusCode.OK.equals(result.getStatus().getStatus_code())) {
+                if (!TStatusCode.OK.equals(result.getStatus().getStatusCode())) {
                     logger.warn("The status of get next result from {} is '{}', error message is: {}.",
-                            routing, result.getStatus().getStatus_code(), result.getStatus().getError_msgs());
+                            routing, result.getStatus().getStatusCode(), result.getStatus().getErrorMsgs());
                     continue;
                 }
                 break;

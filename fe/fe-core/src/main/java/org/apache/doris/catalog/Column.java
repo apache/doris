@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
@@ -83,7 +84,7 @@ public class Column implements Writable {
     private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
     // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
-    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being relayed.
+    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
     private Expr defineExpr; // use to define column in materialize view
     @SerializedName(value = "visible")
     private boolean visible;
@@ -200,6 +201,10 @@ public class Column implements Writable {
     }
 
     public void setIsKey(boolean isKey) {
+        // column is key, aggregationType is always null, isAggregationTypeImplicit is always false.
+        if (isKey) {
+            setAggregationType(null, false);
+        }
         this.isKey = isKey;
     }
 
@@ -298,7 +303,14 @@ public class Column implements Writable {
     }
 
     public String getComment() {
-        return comment;
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
+        if (!escapeQuota) {
+            return comment;
+        }
+        return SqlUtils.escapeQuota(comment);
     }
 
     public int getOlapColumnIndexSize() {
@@ -332,13 +344,13 @@ public class Column implements Writable {
         tColumn.setVisible(visible);
         tColumn.setChildrenColumn(new ArrayList<>());
         toChildrenThrift(this, tColumn);
-
-        // The define expr does not need to be serialized here for now.
-        // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
-        // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
-        if (this.defineExpr != null) {
-            tColumn.setDefineExpr(this.defineExpr.treeToThrift());
-        }
+        
+        // ATTN:
+        // Currently, this `toThrift()` method is only used from CreateReplicaTask.
+        // And CreateReplicaTask does not need `defineExpr` field.
+        // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in `AlterReplicaTask`.
+        // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
+        // If we need to use `defineExpr` and call defineExpr.treeToThrift(), make sure it is analyzed, or NPE will thrown.
         return tColumn;
     }
 
@@ -401,7 +413,8 @@ public class Column implements Writable {
         }
 
         // now we support convert decimal to varchar type
-        if (getDataType() == PrimitiveType.DECIMALV2 && other.getDataType() == PrimitiveType.VARCHAR) {
+        if (getDataType() == PrimitiveType.DECIMALV2 && (other.getDataType() == PrimitiveType.VARCHAR
+                || other.getDataType() == PrimitiveType.STRING)) {
             return;
         }
 
@@ -488,7 +501,7 @@ public class Column implements Writable {
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             sb.append("DEFAULT \"").append(defaultValue).append("\" ");
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(getComment(true)).append("\"");
 
         return sb.toString();
     }

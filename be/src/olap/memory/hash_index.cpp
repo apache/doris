@@ -50,7 +50,7 @@ struct alignas(64) HashChunk {
 const uint64_t HashIndex::npos;
 
 HashIndex::HashIndex(size_t capacity)
-        : _size(0), _max_size(0), _num_chunks(0), _chunk_mask(0), _chunks(NULL) {
+        : _size(0), _max_size(0), _num_chunks(0), _chunk_mask(0), _chunks(nullptr) {
     size_t min_chunk = (capacity * 14 / 12 + HashChunk::CAPACITY - 1) / HashChunk::CAPACITY;
     if (min_chunk == 0) {
         return;

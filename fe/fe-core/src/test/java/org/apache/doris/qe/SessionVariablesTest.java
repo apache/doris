@@ -51,9 +51,9 @@ public class SessionVariablesTest {
         Assert.assertTrue(numOfForwardVars >= 6);
         Assert.assertEquals(numOfForwardVars, vars.size());
 
-        vars.put(SessionVariable.IS_REPORT_SUCCESS, "true");
+        vars.put(SessionVariable.ENABLE_PROFILE, "true");
         sessionVariable.setForwardedSessionVariables(vars);
-        Assert.assertEquals(true, sessionVariable.isReportSucc);
+        Assert.assertEquals(true, sessionVariable.enableProfile);
     }
 
     @Test

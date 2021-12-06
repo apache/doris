@@ -210,7 +210,7 @@ bool EvHttpServer::register_handler(const HttpMethod& method, const std::string&
     if (result) {
         result = root->insert(path, handler);
     }
-    
+
     return result;
 }
 

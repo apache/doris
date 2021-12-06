@@ -21,8 +21,8 @@
 
 #include <vector>
 
-#include "util/logging.h"
 #include "test_util/test_util.h"
+#include "util/logging.h"
 
 using namespace doris;
 using namespace std;
@@ -68,7 +68,10 @@ public:
         _s_current->_deleted_values.push_back(DecodeValue(v));
     }
 
-    static const int kCacheSize = 1000;
+    // there is 16 shards in ShardedLRUCache
+    // And the LRUHandle size is about 100B. So the cache size should big enough
+    // to run the UT.
+    static const int kCacheSize = 1000 * 16;
     std::vector<int> _deleted_keys;
     std::vector<int> _deleted_values;
     Cache* _cache;
@@ -80,9 +83,9 @@ public:
     int Lookup(int key) {
         std::string result;
         Cache::Handle* handle = _cache->lookup(EncodeKey(&result, key));
-        const int r = (handle == NULL) ? -1 : DecodeValue(_cache->value(handle));
+        const int r = (handle == nullptr) ? -1 : DecodeValue(_cache->value(handle));
 
-        if (handle != NULL) {
+        if (handle != nullptr) {
             _cache->release(handle);
         }
 
@@ -92,7 +95,7 @@ public:
     void Insert(int key, int value, int charge) {
         std::string result;
         _cache->release(_cache->insert(EncodeKey(&result, key), EncodeValue(value), charge,
-                                       &CacheTest::Deleter));
+                    &CacheTest::Deleter));
     }
 
     void InsertDurable(int key, int value, int charge) {
@@ -158,6 +161,9 @@ TEST_F(CacheTest, EntriesArePinned) {
     Insert(100, 101, 1);
     std::string result1;
     Cache::Handle* h1 = _cache->lookup(EncodeKey(&result1, 100));
+    if (h1 == nullptr) {
+        std::cout << "h1 is null" << std::endl;
+    }
     ASSERT_EQ(101, DecodeValue(_cache->value(h1)));
 
     Insert(100, 102, 1);
@@ -224,36 +230,88 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
 }
 
 TEST_F(CacheTest, Usage) {
-    LRUCache cache;
-    cache.set_capacity(1000);
+    LRUCache cache(LRUCacheType::SIZE);
+    cache.set_capacity(1050);
 
+    // The lru usage is handle_size + charge = 96 - 1 = 95
+    // 95 + 3 means handle_size + key size
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(100, cache.get_usage());
+    ASSERT_EQ(198, cache.get_usage()); // 100 + 95 + 3
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(300, cache.get_usage());
+    ASSERT_EQ(496, cache.get_usage()); // 198 + 200 + 95 + 3
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(600, cache.get_usage());
+    ASSERT_EQ(894, cache.get_usage()); // 496 + 300 + 95 + 3
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(1000, cache.get_usage());
+    ASSERT_EQ(796, cache.get_usage()); // 894 + 400 + 95 + 3 - (300 + 100 + (95 + 3) * 2)
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(700, cache.get_usage());
+    ASSERT_EQ(896, cache.get_usage()); // 796 + 500 + 95 + 3 - (400 + 95 +3)
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(800, cache.get_usage());
+    ASSERT_EQ(996, cache.get_usage()); // 896 + 600 + 95 +3 - (500 + 95 + 3)
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(950, cache.get_usage());
+    ASSERT_EQ(1048, cache.get_usage()); // 996 + 950 + 95 +3 - (200 + 600 + (95 + 3) * 2)
+}
+
+TEST_F(CacheTest, Prune) {
+    LRUCache cache(LRUCacheType::NUMBER);
+    cache.set_capacity(5);
+
+    // The lru usage is handle_size + charge = 96 - 1 = 95
+    // 95 + 3 means handle_size + key size
+    CacheKey key1("100");
+    insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
+    ASSERT_EQ(1, cache.get_usage());
+
+    CacheKey key2("200");
+    insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
+    ASSERT_EQ(2, cache.get_usage());
+
+    CacheKey key3("300");
+    insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
+    ASSERT_EQ(3, cache.get_usage());
+
+    CacheKey key4("400");
+    insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
+    ASSERT_EQ(4, cache.get_usage());
+
+    CacheKey key5("500");
+    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    ASSERT_EQ(5, cache.get_usage());
+
+    CacheKey key6("600");
+    insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
+    ASSERT_EQ(5, cache.get_usage());
+
+    CacheKey key7("700");
+    insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
+    ASSERT_EQ(5, cache.get_usage());
+
+    auto pred = [](const void* value) -> bool {
+        return false;
+    };
+    cache.prune_if(pred);
+    ASSERT_EQ(5, cache.get_usage());
+
+    auto pred2 = [](const void* value) -> bool {
+        return true;
+    };
+    cache.prune_if(pred2);
+    ASSERT_EQ(0, cache.get_usage());
+
+    cache.prune();
+    ASSERT_EQ(0, cache.get_usage());
 }
 
 TEST_F(CacheTest, HeavyEntries) {
@@ -319,6 +377,7 @@ TEST(CacheHandleTest, HandleTableTest) {
         h->value = nullptr;
         h->deleter = nullptr;
         h->charge = 1;
+        h->total_size = sizeof(LRUHandle) - 1 + key->size() + 1;
         h->key_length = key->size();
         h->hash = 1; // make them in a same hash table linked-list
         h->refs = 0;
@@ -355,6 +414,7 @@ TEST(CacheHandleTest, HandleTableTest) {
         h->value = nullptr;
         h->deleter = nullptr;
         h->charge = 1;
+        h->total_size = sizeof(LRUHandle) - 1 + key->size() + 1;
         h->key_length = key->size();
         h->hash = 1; // make them in a same hash table linked-list
         h->refs = 0;

@@ -25,8 +25,17 @@ public class MetaNotFoundException extends UserException {
         super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
     }
 
+    public MetaNotFoundException(String msg, ErrorCode mysqlErrorCode) {
+        super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
+        setMysqlErrorCode(mysqlErrorCode);
+    }
+
     public MetaNotFoundException(InternalErrorCode errcode, String msg) {
         super(errcode, msg);
+    }
+
+    public MetaNotFoundException(Throwable e) {
+        super(e);
     }
 
     public MetaNotFoundException(String msg, Throwable e) {

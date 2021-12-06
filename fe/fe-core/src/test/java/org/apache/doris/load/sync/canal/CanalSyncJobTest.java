@@ -91,11 +91,11 @@ public class CanalSyncJobTest {
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
             {
-                catalog.getDb(10000L);
+                catalog.getDbNullable(10000L);
                 minTimes = 0;
                 result = database;
 
-                catalog.getDb("testDb");
+                catalog.getDbNullable("testDb");
                 minTimes = 0;
                 result = database;
 
@@ -115,7 +115,7 @@ public class CanalSyncJobTest {
                 minTimes = 0;
                 result = dbId;
 
-                database.getTable("testTbl");
+                database.getTableNullable("testTbl");
                 minTimes = 0;
                 result = table;
             }
@@ -335,7 +335,7 @@ public class CanalSyncJobTest {
             Assert.assertTrue(canalSyncJob.isPaused());
             // resume job
             canalSyncJob.resume();
-            Assert.assertTrue(canalSyncJob.isRunning());
+            Assert.assertSame(canalSyncJob.getJobState(), JobState.PENDING);
         } catch (UserException e) {
             Assert.fail();
         }
@@ -391,10 +391,6 @@ public class CanalSyncJobTest {
                 result = "mysqlDb";
                 channelDescription.getSrcTableName();
                 result = "mysqlTbl";
-                channelDescription.getColNames();
-                result = null;
-                channelDescription.getPartitionNames();
-                result = null;
             }
         };
         

@@ -90,11 +90,11 @@ public class LoadEtlTaskTest {
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
         new Expectations(catalog) {
             {
-                catalog.getDb(dbId);
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(db.getFullName());
+                catalog.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 
@@ -114,7 +114,7 @@ public class LoadEtlTaskTest {
         String cluster = Config.dpp_default_cluster;
         job.setClusterInfo(cluster, Load.clusterToDppConfig.get(cluster));
         // set partition load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         Source source = new Source(new ArrayList<String>());
         List<Source> sources = Lists.newArrayList();

@@ -85,6 +85,14 @@ public:
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src,
                            MemPool* mem_pool = nullptr) const {
+        if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr) {
+            auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
+            auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+            if (dst_slice->size < src_slice->size) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
+                dst_slice->data = *_long_text_buf;
+            }
+        }
         _agg_info->update(dest, src, mem_pool);
     }
 
@@ -135,7 +143,7 @@ public:
         }
     }
 
-    // Only compare column content, without considering NULL condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,
@@ -144,9 +152,9 @@ public:
 
     // Compare two types of cell.
     // This function differs compare in that this function compare cell which
-    // will consider the condition which cell may be NULL. While compare only
-    // compare column content without considering NULL condition.
-    // Only compare column content, without considering NULL condition.
+    // will consider the condition which cell may be nullptr. While compare only
+    // compare column content without considering nullptr condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,
@@ -172,6 +180,11 @@ public:
     // memory allocation.
     template <typename DstCellType, typename SrcCellType>
     void direct_copy(DstCellType* dst, const SrcCellType& src) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
         if (type() == OLAP_FIELD_TYPE_STRING) {
             auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
             auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
@@ -180,11 +193,6 @@ public:
                 dst_slice->data = *_long_text_buf;
                 dst_slice->size = src_slice->size;
             }
-        }
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
     }
@@ -239,6 +247,14 @@ public:
     // used by init scan key stored in string format
     // value_string should end with '\0'
     inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
+        if (type() == OLAP_FIELD_TYPE_STRING) {
+            auto slice = reinterpret_cast<Slice*>(buf);
+            if (slice->size < value_string.size()) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
+                slice->data = *_long_text_buf;
+                slice->size = value_string.size();
+            }
+        }
         return _type_info->from_string(buf, value_string);
     }
 
@@ -558,7 +574,7 @@ public:
         return type_value;
     }
 
-    // only varchar filed need modify zone map index when zone map max_value
+    // only varchar/string filed need modify zone map index when zone map max_value
     // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
     // for the last byte
     // In UTF8 encoding, here do not appear 0xff in last byte
@@ -612,6 +628,16 @@ public:
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         memset(slice->data, 0xFF, slice->size);
+    }
+    // only varchar/string filed need modify zone map index when zone map max_value
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
     }
 
     void set_to_zone_map_max(char* ch) const override {

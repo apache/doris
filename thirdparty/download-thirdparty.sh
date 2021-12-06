@@ -23,7 +23,6 @@
 # You can run this script multi-times.
 # Things will only be downloaded, unpacked and patched once.
 ################################################################
-
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
@@ -225,33 +224,19 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
-# glog patch
-cd $TP_SOURCE_DIR/$GLOG_SOURCE
-if [ ! -f $PATCHED_MARK ]; then
-    patch -p1 < $TP_PATCH_DIR/glog-0.3.3-vlog-double-lock-bug.patch
-    patch -p1 < $TP_PATCH_DIR/glog-0.3.3-for-palo2.patch
-    patch -p1 < $TP_PATCH_DIR/glog-0.3.3-remove-unwind-dependency.patch
-    # patch Makefile.am to make autoreconf work
-    patch -p0 < $TP_PATCH_DIR/glog-0.3.3-makefile.patch
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $GLOG_SOURCE"
-
-# re2 patch
-cd $TP_SOURCE_DIR/$RE2_SOURCE
-if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/re2-2017-05-01.patch 
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $RE2_SOURCE"
+ # glog patch
+ cd $TP_SOURCE_DIR/$GLOG_SOURCE
+ if [ ! -f $PATCHED_MARK ]; then
+     patch -p1 < $TP_PATCH_DIR/glog-0.4.0.patch
+     touch $PATCHED_MARK
+ fi
+ cd -
+ echo "Finished patching $GLOG_SOURCE"
 
 # mysql patch
 cd $TP_SOURCE_DIR/$MYSQL_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/mysql-5.7.18.patch
-    patch -Rp0 < $TP_PATCH_DIR/mysql-5.7.18-boost.patch
+    patch -p1 < $TP_PATCH_DIR/mysql-server-mysql-5.7.18.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -260,56 +245,16 @@ echo "Finished patching $MYSQL_SOURCE"
 # libevent patch
 cd $TP_SOURCE_DIR/$LIBEVENT_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
-    patch -p1 < $TP_PATCH_DIR/libevent_on_free_cb.patch
+    patch -p1 < $TP_PATCH_DIR/libevent.patch
     touch $PATCHED_MARK
 fi
 cd -
 echo "Finished patching $LIBEVENT_SOURCE"
 
-# thrift patch
-# cd $TP_SOURCE_DIR/$THRIFT_SOURCE
-# if [ ! -f $PATCHED_MARK ]; then
-#     patch -p0 < $TP_PATCH_DIR/thrift-0.9.3-aclocal.patch
-#     touch $PATCHED_MARK
-# fi
-# cd -
-# echo "Finished patching $THRIFT_SOURCE"
-
-# this patch is only used inside Baidu
-if test "x$PATCH_COMPILER_RT" == "xtrue"; then
-    cd $TP_SOURCE_DIR/$COMPILER_RT_SOURCE
-    if [ ! -f $PATCHED_MARK ]; then
-        patch -p0 < $TP_PATCH_DIR/compiler-rt.patch
-        touch $PATCHED_MARK
-    fi
-    cd -
-    echo "Finished patching $COMPILER_RT_SOURCE"
-fi
-
-# patch to llvm to support aarch64 platform
-cd $TP_SOURCE_DIR/$LLVM_SOURCE
-if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/llvm-3.4.2.patch
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $LLVM_SOURCE"
-
-# lz4 patch to disable shared library
-cd $TP_SOURCE_DIR/$LZ4_SOURCE
-if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/lz4-1.7.5.patch
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $LZ4_SOURCE"
-
 # s2 patch to disable shared library
 cd $TP_SOURCE_DIR/$S2_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p1 < $TP_PATCH_DIR/s2geometry-0.9.0.patch
-    # replace uint64 with uint64_t to make compiler happy
-    patch -p0 < $TP_PATCH_DIR/s2geometry-0.9.0-uint64.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -323,3 +268,16 @@ if [ ! -f $PATCHED_MARK ]; then
 fi
 cd -
 echo "Finished patching $HDFS3_SOURCE"
+
+# aws-c-cal patch to fix compile error
+# This bug has been fixed in new version of aws-c-cal
+if [ $AWS_C_CAL_SOURCE == "aws-c-cal-0.4.5" ]; then
+    cd $TP_SOURCE_DIR/$AWS_C_CAL_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p1 < $TP_PATCH_DIR/aws-c-cal-0.4.5.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+fi
+echo "Finished patching $AWS_C_CAL_SOURCE"
+

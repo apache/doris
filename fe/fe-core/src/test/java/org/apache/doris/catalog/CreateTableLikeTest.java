@@ -27,6 +27,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -35,6 +36,8 @@ import org.junit.Test;
 import java.io.File;
 import java.util.List;
 import java.util.UUID;
+
+import avro.shaded.com.google.common.collect.Lists;
 
 /**
  * @author wangcong
@@ -48,7 +51,7 @@ public class CreateTableLikeTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -110,10 +113,10 @@ public class CreateTableLikeTest {
                                                  String newTblName, String existedTblName, int rollupSize) throws Exception {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
-        Database newDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + existedDbName);
-        OlapTable newTbl = (OlapTable) newDb.getTable(newTblName);
-        OlapTable existedTbl = (OlapTable) existedDb.getTable(existedTblName);
+        Database newDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + existedDbName);
+        OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, rollupSize);
     }
 
@@ -123,10 +126,10 @@ public class CreateTableLikeTest {
 
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
-        Database newDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + existedDbName);
-        MysqlTable newTbl = (MysqlTable) newDb.getTable(newTblName);
-        MysqlTable existedTbl = (MysqlTable) existedDb.getTable(existedTblName);
+        Database newDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + existedDbName);
+        MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
+        MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
     }
 
@@ -284,8 +287,8 @@ public class CreateTableLikeTest {
                 ")\n" +
                 "PROPERTIES(\"replication_num\" = \"1\");";
 
-        String createTableLikeWithRollupSql1_1 = "create table test.table_like_rollup like test.table_with_rollup with rollup r1,r2";
-        String createTableLikeWithRollupSql1_2 = "create table test.table_like_rollup1 like test.table_with_rollup with rollup all";
+        String createTableLikeWithRollupSql1_1 = "create table test.table_like_rollup like test.table_with_rollup with rollup (r1,r2)";
+        String createTableLikeWithRollupSql1_2 = "create table test.table_like_rollup1 like test.table_with_rollup with rollup";
 
         String newDbName10 = "test";
         String existedDbName10 = "test";
@@ -295,8 +298,8 @@ public class CreateTableLikeTest {
         checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql1_1, newDbName10, existedDbName10, newTblName10_1, existedTblName10, 2);
         checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql1_2, newDbName10, existedDbName10, newTblName10_2, existedTblName10, 4);
 
-        String createTableLikeWithRollupSql2_1 = "create table test2.table_like_rollup like test.table_with_rollup with rollup r1,r2";
-        String createTableLikeWithRollupSql2_2 = "create table test2.table_like_rollup1 like test.table_with_rollup with rollup all";
+        String createTableLikeWithRollupSql2_1 = "create table test2.table_like_rollup like test.table_with_rollup with rollup (r1,r2)";
+        String createTableLikeWithRollupSql2_2 = "create table test2.table_like_rollup1 like test.table_with_rollup with rollup";
 
         String newDbName11 = "test2";
         String existedDbName11 = "test";
@@ -355,7 +358,8 @@ public class CreateTableLikeTest {
                 ")\n" +
                 "PROPERTIES(\"replication_num\" = \"1\");";
 
-        String createTableLikeWithRollupSq3 = "create table test.table_like_rollup like test.table_with_rollup with rollup r11";
+        String createTableLikeWithRollupSq3 = "create table test.table_like_rollup like test.table_with_rollup with rollup (r11)";
+
         String newDbName3 = "test";
         String existedDbName3 = "test";
         String newTblName3 = "table_like_rollup";

@@ -46,7 +46,7 @@ public:
                              std::shared_ptr<RowsetReader>* result) override;
 
     OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
-                           uint64_t request_block_row_count,
+                           uint64_t request_block_row_count, size_t key_num,
                            std::vector<OlapTuple>* ranges) override;
 
     OLAPStatus remove() override;
@@ -67,10 +67,6 @@ public:
 
     bool check_file_exist() override;
 
-    // when convert from old be, should set row num, index size, data size
-    // info by using segment's info
-    OLAPStatus reset_sizeinfo();
-
 protected:
     friend class RowsetFactory;
 
@@ -80,7 +76,7 @@ protected:
     // init segment groups
     OLAPStatus init() override;
 
-    OLAPStatus do_load(bool use_cache, std::shared_ptr<MemTracker>) override;
+    OLAPStatus do_load(bool use_cache) override;
 
     void do_close() override {}
 

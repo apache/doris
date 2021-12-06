@@ -398,6 +398,8 @@ struct TReportExecStatusParams {
   15: optional i64 loaded_rows
 
   16: optional i64 backend_id
+
+  17: optional i64 loaded_bytes
 }
 
 struct TFeResult {

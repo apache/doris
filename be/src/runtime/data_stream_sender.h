@@ -25,8 +25,16 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "gen_cpp/BackendService.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/data.pb.h" // for PRowBatch
+#include "gen_cpp/internal_service.pb.h"
+#include "service/backend_options.h"
+#include "service/brpc.h"
+#include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -50,6 +58,7 @@ class MemTracker;
 // across channels.
 class DataStreamSender : public DataSink {
 public:
+    DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc);
     // Construct a sender according to the output specification (sink),
     // sending to the given destinations.
     // Per_channel_buffer_size is the buffer size allocated to each channel
@@ -97,9 +106,132 @@ public:
 
     RuntimeState* state() { return _state; }
 
-private:
-    class Channel;
+protected:
+    const RowDescriptor& _row_desc;
+    // A channel sends data asynchronously via calls to transmit_data
+    // to a single destination ipaddress/node.
+    // It has a fixed-capacity buffer and allows the caller either to add rows to
+    // that buffer individually (AddRow()), or circumvent the buffer altogether and send
+    // TRowBatches directly (SendBatch()). Either way, there can only be one in-flight RPC
+    // at any one time (ie, sending will block if the most recent rpc hasn't finished,
+    // which allows the receiver node to throttle the sender by withholding acks).
+    // *Not* thread-safe.
+    class Channel {
+    public:
+        Channel(DataStreamSender* parent, const RowDescriptor& row_desc,
+                const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
+                PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
+                bool send_query_statistics_with_every_batch);
+        ~Channel();
+        // Initialize channel.
+        // Returns OK if successful, error indication otherwise.
+        Status init(RuntimeState* state);
 
+        // Copies a single row into this channel's output buffer and flushes buffer
+        // if it reaches capacity.
+        // Returns error status if any of the preceding rpcs failed, OK otherwise.
+        Status add_row(TupleRow* row);
+
+        // Asynchronously sends a row batch.
+        // Returns the status of the most recently finished transmit_data
+        // rpc (or OK if there wasn't one that hasn't been reported yet).
+        // if batch is nullptr, send the eof packet
+        Status send_batch(PRowBatch* batch, bool eos = false);
+
+        Status send_local_batch(bool eos);
+
+        Status send_local_batch(RowBatch* batch, bool use_move);
+
+        // Flush buffered rows and close channel. This function don't wait the response
+        // of close operation, client should call close_wait() to finish channel's close.
+        // We split one close operation into two phases in order to make multiple channels
+        // can run parallel.
+        Status close(RuntimeState* state);
+
+        // Get close wait's response, to finish channel close operation.
+        Status close_wait(RuntimeState* state);
+
+        int64_t num_data_bytes_sent() const { return _num_data_bytes_sent; }
+
+        PRowBatch* pb_batch() { return &_pb_batch; }
+
+        std::string get_fragment_instance_id_str() {
+            UniqueId uid(_fragment_instance_id);
+            return uid.to_string();
+        }
+
+        TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
+
+        bool is_local() { return _is_local; }
+
+        inline Status _wait_last_brpc() {
+            if (_closure == nullptr) return Status::OK();
+            auto cntl = &_closure->cntl;
+            brpc::Join(cntl->call_id());
+            if (cntl->Failed()) {
+                std::stringstream ss;
+                ss << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
+                   << ", error_text=" << cntl->ErrorText()
+                   << ", client: " << BackendOptions::get_localhost();
+                LOG(WARNING) << ss.str();
+                return Status::ThriftRpcError(ss.str());
+            }
+            return Status::OK();
+        }
+        // Serialize _batch into _thrift_batch and send via send_batch().
+        // Returns send_batch() status.
+        Status send_current_batch(bool eos = false);
+        Status close_internal();
+
+        DataStreamSender* _parent;
+        int _buffer_size;
+
+        const RowDescriptor& _row_desc;
+        TUniqueId _fragment_instance_id;
+        PlanNodeId _dest_node_id;
+
+        // the number of TRowBatch.data bytes sent successfully
+        int64_t _num_data_bytes_sent;
+        int64_t _packet_seq;
+
+        // we're accumulating rows into this batch
+        std::unique_ptr<RowBatch> _batch;
+
+        bool _need_close;
+        int _be_number;
+
+        TNetworkAddress _brpc_dest_addr;
+
+        // TODO(zc): initused for brpc
+        PUniqueId _finst_id;
+        PRowBatch _pb_batch;
+        PTransmitDataParams _brpc_request;
+        std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
+        RefCountClosure<PTransmitDataResult>* _closure = nullptr;
+        int32_t _brpc_timeout_ms = 500;
+        // whether the dest can be treated as query statistics transfer chain.
+        bool _is_transfer_chain;
+        bool _send_query_statistics_with_every_batch;
+        bool _is_local;
+    };
+
+    RuntimeProfile* _profile; // Allocated from _pool
+    PRowBatch* _current_pb_batch;
+    std::shared_ptr<MemTracker> _mem_tracker;
+    ObjectPool* _pool;
+    // Sender instance id, unique within a fragment.
+    int _sender_id;
+    RuntimeProfile::Counter* _serialize_batch_timer;
+    RuntimeProfile::Counter* _bytes_sent_counter;
+    // Used to counter send bytes under local data exchange
+    RuntimeProfile::Counter* _local_bytes_send_counter;
+    RuntimeProfile::Counter* _uncompressed_bytes_counter;
+    RuntimeState* _state;
+
+    std::vector<Channel*> _channels;
+    std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
+
+private:
     Status compute_range_part_code(RuntimeState* state, TupleRow* row, size_t* hash_value,
                                    bool* ignore);
 
@@ -110,13 +242,6 @@ private:
     Status process_distribute(RuntimeState* state, TupleRow* row, const PartitionInfo* part,
                               size_t* hash_val);
 
-    // Sender instance id, unique within a fragment.
-    int _sender_id;
-
-    RuntimeState* _state;
-    ObjectPool* _pool;
-    const RowDescriptor& _row_desc;
-
     int _current_channel_idx; // index of current channel to send to if _random == true
 
     TPartitionType::type _part_type;
@@ -126,30 +251,17 @@ private:
     // one while the other one is still being sent
     PRowBatch _pb_batch1;
     PRowBatch _pb_batch2;
-    PRowBatch* _current_pb_batch = nullptr;
 
     std::vector<ExprContext*> _partition_expr_ctxs; // compute per-row partition values
-
-    std::vector<Channel*> _channels;
-    std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
 
     // map from range value to partition_id
     // sorted in ascending orderi by range for binary search
     std::vector<PartitionInfo*> _partition_infos;
 
-    RuntimeProfile* _profile; // Allocated from _pool
-    RuntimeProfile::Counter* _serialize_batch_timer;
-    RuntimeProfile::Counter* _bytes_sent_counter;
-    RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
-
-    std::shared_ptr<MemTracker> _mem_tracker;
 
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput;
-
-    // Used to counter send bytes under local data exchange
-    RuntimeProfile::Counter* _local_bytes_send_counter;
 
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;

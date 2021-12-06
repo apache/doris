@@ -337,23 +337,23 @@ public class GlobalTransactionMgr implements Writable {
 
     // for replay idToTransactionState
     // check point also run transaction cleaner, the cleaner maybe concurrently modify id to 
-    public void replayUpsertTransactionState(TransactionState transactionState) {
+    public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
             dbTransactionMgr.replayUpsertTransactionState(transactionState);
         } catch (AnalysisException e) {
-            LOG.warn("replay upsert transaction [" + transactionState.getTransactionId() + "] failed", e);
+            throw new MetaNotFoundException(e);
         }
     }
 
     @Deprecated
     // Use replayBatchDeleteTransactions instead
-    public void replayDeleteTransactionState(TransactionState transactionState) {
+    public void replayDeleteTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
             dbTransactionMgr.replayDeleteTransaction(transactionState);
         } catch (AnalysisException e) {
-            LOG.warn("replay delete transaction [" + transactionState.getTransactionId() + "] failed", e);
+            throw new MetaNotFoundException(e);
         }
     }
 
@@ -375,7 +375,7 @@ public class GlobalTransactionMgr implements Writable {
         for (long dbId : dbIds) {
             List<Comparable> info = new ArrayList<Comparable>();
             info.add(dbId);
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -514,10 +514,7 @@ public class GlobalTransactionMgr implements Writable {
         long dbId = request.getDbId();
         int commitTimeoutSec = Config.commit_timeout_second;
         for (int i = 0; i < commitTimeoutSec; ++i) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
-            if (db == null) {
-                throw new AnalysisException("invalid db id: " + dbId);
-            }
+            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
             TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
             statusResult.status = new TStatus();
             TransactionStatus txnStatus = null;

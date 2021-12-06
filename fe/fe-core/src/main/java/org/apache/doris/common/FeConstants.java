@@ -30,7 +30,6 @@ public class FeConstants {
      */
     public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
-    public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
 
     public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
@@ -47,9 +46,6 @@ public class FeConstants {
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;
 
-    // default schema change scheduler interval is 500 millisecond
-    public static int default_schema_change_scheduler_interval_millisecond = 500;
-
     // general model
     // Current meta data version. Use this version to write journals and image
     public static int meta_version = FeMetaVersion.VERSION_CURRENT;
@@ -59,4 +55,6 @@ public class FeConstants {
 
     // use \N to indicate NULL
     public static String null_string = "\\N";
+
+    public static long tablet_checker_interval_ms = 20 * 1000L;
 }

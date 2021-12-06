@@ -20,6 +20,7 @@
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
+#include "util/tuple_row_zorder_compare.h"
 
 namespace doris {
 
@@ -72,15 +73,41 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(const bool reverse = false) : _reverse(reverse) {}
-        bool operator()(const LevelIterator* a, const LevelIterator* b);
+        LevelIteratorComparator(const bool reverse = false, int sequence_id_idx = -1) :
+            _reverse(reverse), _sequence_id_idx(sequence_id_idx) {}
+        virtual bool operator()(const LevelIterator* a, const LevelIterator* b);
 
     private:
         bool _reverse;
+        int _sequence_id_idx;
+    };
+
+    class LevelZorderIteratorComparator: public LevelIteratorComparator {
+    public:
+        LevelZorderIteratorComparator(const bool reverse = false, int sequence_id_idx = -1, const size_t sort_col_num = 0) :
+            _reverse(reverse), _sequence_id_idx(sequence_id_idx), _sort_col_num(sort_col_num) {
+            _comparator = TupleRowZOrderComparator(sort_col_num);
+        }
+        virtual bool operator()(const LevelIterator* a, const LevelIterator* b);
+
+    private:
+        bool _reverse = false;
+        int _sequence_id_idx;
+        size_t _sort_col_num = 0;
+        TupleRowZOrderComparator _comparator;
+    };
+
+    class BaseComparator {
+    public:
+        BaseComparator(std::shared_ptr<LevelIteratorComparator>& cmp);
+        bool operator()(const LevelIterator* a, const LevelIterator* b);
+
+    private:
+        std::shared_ptr<LevelIteratorComparator> _cmp;
     };
 
     typedef std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
-                                LevelIteratorComparator>
+                    BaseComparator>
             MergeHeap;
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {
@@ -116,7 +143,9 @@ private:
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(const std::list<LevelIterator*>& children, bool merge, bool reverse);
+
+        Level1Iterator(const std::list<LevelIterator*>& children, bool merge, bool reverse,
+                       int sequence_id_idx, SortType sort_type, int sort_col_num);
 
         OLAPStatus init() override;
 
@@ -149,9 +178,14 @@ private:
         bool _merge = true;
         bool _reverse = false;
         // used when `_merge == true`
+        // need to be cleared when deconstructing this Level1Iterator
+        // The child LevelIterator should be either in _heap or in _children
         std::unique_ptr<MergeHeap> _heap;
         // used when `_merge == false`
         int _child_idx = 0;
+        int _sequence_id_idx = -1;
+        SortType _sort_type;
+        int _sort_col_num;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;

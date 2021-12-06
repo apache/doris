@@ -33,6 +33,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Table;
@@ -62,12 +63,12 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -129,7 +130,7 @@ public class SparkLoadJobTest {
     public void testCreateFromLoadStmt(@Mocked Catalog catalog, @Injectable LoadStmt loadStmt,
                                        @Injectable DataDescription dataDescription, @Injectable LabelName labelName,
                                        @Injectable Database db, @Injectable OlapTable olapTable,
-                                       @Injectable ResourceMgr resourceMgr) {
+                                       @Injectable ResourceMgr resourceMgr) throws Exception {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
         Map<String, String> resourceProperties = Maps.newHashMap();
@@ -143,12 +144,10 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                catalog.getDb(dbName);
+                catalog.getDbOrDdlException(dbName);
                 result = db;
                 catalog.getResourceMgr();
                 result = resourceMgr;
-                db.getTable(tableName);
-                result = olapTable;
                 db.getId();
                 result = dbId;
                 loadStmt.getLabel();
@@ -174,29 +173,25 @@ public class SparkLoadJobTest {
             }
         };
 
-        try {
-            Assert.assertTrue(resource.getSparkConfigs().isEmpty());
-            resourceDesc.analyze();
-            BulkLoadJob bulkLoadJob = BulkLoadJob.fromLoadStmt(loadStmt);
-            SparkLoadJob sparkLoadJob = (SparkLoadJob) bulkLoadJob;
-            // check member
-            Assert.assertEquals(dbId, bulkLoadJob.dbId);
-            Assert.assertEquals(label, bulkLoadJob.label);
-            Assert.assertEquals(JobState.PENDING, bulkLoadJob.getState());
-            Assert.assertEquals(EtlJobType.SPARK, bulkLoadJob.getJobType());
-            Assert.assertEquals(resourceName, sparkLoadJob.getResourceName());
-            Assert.assertEquals(-1L, sparkLoadJob.getEtlStartTimestamp());
+        Assert.assertTrue(resource.getSparkConfigs().isEmpty());
+        resourceDesc.analyze();
+        BulkLoadJob bulkLoadJob = BulkLoadJob.fromLoadStmt(loadStmt);
+        SparkLoadJob sparkLoadJob = (SparkLoadJob) bulkLoadJob;
+        // check member
+        Assert.assertEquals(dbId, bulkLoadJob.dbId);
+        Assert.assertEquals(label, bulkLoadJob.label);
+        Assert.assertEquals(JobState.PENDING, bulkLoadJob.getState());
+        Assert.assertEquals(EtlJobType.SPARK, bulkLoadJob.getJobType());
+        Assert.assertEquals(resourceName, sparkLoadJob.getResourceName());
+        Assert.assertEquals(-1L, sparkLoadJob.getEtlStartTimestamp());
 
-            // check update spark resource properties
-            Assert.assertEquals(broker, bulkLoadJob.brokerDesc.getName());
-            Assert.assertEquals("user0", bulkLoadJob.brokerDesc.getProperties().get("username"));
-            Assert.assertEquals("password0", bulkLoadJob.brokerDesc.getProperties().get("password"));
-            SparkResource sparkResource = Deencapsulation.getField(sparkLoadJob, "sparkResource");
-            Assert.assertTrue(sparkResource.getSparkConfigs().containsKey("spark.executor.memory"));
-            Assert.assertEquals("1g", sparkResource.getSparkConfigs().get("spark.executor.memory"));
-        } catch (DdlException | AnalysisException e) {
-            Assert.fail(e.getMessage());
-        }
+        // check update spark resource properties
+        Assert.assertEquals(broker, bulkLoadJob.brokerDesc.getName());
+        Assert.assertEquals("user0", bulkLoadJob.brokerDesc.getProperties().get("username"));
+        Assert.assertEquals("password0", bulkLoadJob.brokerDesc.getProperties().get("password"));
+        SparkResource sparkResource = Deencapsulation.getField(sparkLoadJob, "sparkResource");
+        Assert.assertTrue(sparkResource.getSparkConfigs().containsKey("spark.executor.memory"));
+        Assert.assertEquals("1g", sparkResource.getSparkConfigs().get("spark.executor.memory"));
     }
 
     @Test
@@ -346,7 +341,7 @@ public class SparkLoadJobTest {
         long fileSize = 6L;
         filePathToSize.put(filePath, fileSize);
         PartitionInfo partitionInfo = new RangePartitionInfo();
-        partitionInfo.addPartition(partitionId, null, (short) 1, false);
+        partitionInfo.addPartition(partitionId, null, new ReplicaAllocation((short) 1), false);
 
         new Expectations() {
             {
@@ -355,8 +350,6 @@ public class SparkLoadJobTest {
                 result = status;
                 handler.getEtlFilePaths(etlOutputPath, (BrokerDesc) any);
                 result = filePathToSize;
-                catalog.getDb(dbId);
-                result = db;
                 db.getTablesOnIdOrderOrThrowException((List<Long>) any);
                 result = Lists.newArrayList(table);
                 table.getId();
@@ -426,13 +419,6 @@ public class SparkLoadJobTest {
     @Test
     public void testSubmitTasksWhenStateFinished(@Mocked Catalog catalog, @Injectable String originStmt,
                                                  @Injectable Database db) throws Exception {
-        new Expectations() {
-            {
-                catalog.getDb(dbId);
-                result = db;
-            }
-        };
-
         SparkLoadJob job = getEtlStateJob(originStmt);
         job.state = JobState.FINISHED;
         Set<Long> totalTablets = Deencapsulation.invoke(job, "submitPushTasks");
@@ -522,14 +508,8 @@ public class SparkLoadJobTest {
                 Maps.newHashMap());
         new Expectations() {
             {
-                catalog.getDb(dbId);
-                result = db;
                 catalog.getResourceMgr();
                 result = resourceMgr;
-                //db.getTable(anyLong);
-                //result = table;
-                //table.getName();
-                //result = "table1";
                 resourceMgr.getResource(anyString);
                 result = sparkResource;
                 Catalog.getCurrentCatalogJournalVersion();

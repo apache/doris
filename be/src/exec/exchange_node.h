@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_EXCHANGE_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_EXCHANGE_NODE_H
 
-#include <boost/scoped_ptr.hpp>
-
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
 #include "runtime/data_stream_recvr.h"
@@ -72,7 +70,7 @@ private:
     int _num_senders; // needed for _stream_recvr construction
 
     // created in prepare() and owned by the RuntimeState
-    boost::shared_ptr<DataStreamRecvr> _stream_recvr;
+    std::shared_ptr<DataStreamRecvr> _stream_recvr;
 
     // our input rows are a prefix of the rows we produce
     RowDescriptor _input_row_desc;
@@ -82,7 +80,7 @@ private:
     // Current batch of rows from the receiver queue being processed by this node.
     // Only valid if _is_merging is false. (If _is_merging is true, GetNext() is
     // delegated to the receiver). Owned by the stream receiver.
-    // boost::scoped_ptr<RowBatch> _input_batch;
+    // std::unique_ptr<RowBatch> _input_batch;
     RowBatch* _input_batch = nullptr;
 
     // Next row to copy from _input_batch. For non-merging exchanges, _input_batch

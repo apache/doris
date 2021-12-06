@@ -21,17 +21,18 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
 class FlushToken;
 class MemTable;
 class MemTracker;
+class RowBatch;
 class Schema;
 class StorageEngine;
 class Tuple;
 class TupleDescriptor;
+class TupleRow;
 class SlotDescriptor;
 
 enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
@@ -61,6 +62,7 @@ public:
     OLAPStatus init();
 
     OLAPStatus write(Tuple* tuple);
+    OLAPStatus write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
     // wait for all memtables to be flushed.
@@ -115,7 +117,10 @@ private:
     std::shared_ptr<MemTracker> _parent_mem_tracker;
     std::shared_ptr<MemTracker> _mem_tracker;
 
-    SpinLock _lock;
+    // The counter of number of segment flushed already.
+    int64_t _segment_counter = 0;
+
+    std::mutex _lock;
 };
 
 } // namespace doris

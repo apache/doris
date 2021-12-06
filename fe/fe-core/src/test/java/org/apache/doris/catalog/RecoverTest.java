@@ -47,7 +47,7 @@ public class RecoverTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -103,36 +103,20 @@ public class RecoverTest {
     }
 
     private static boolean checkDbExist(String dbName) {
-        Database db = Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
-        return db != null;
+        return Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)).isPresent();
     }
 
     private static boolean checkTableExist(String dbName, String tblName) {
-        Database db = Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
-        if (db == null) {
-            return false;
-        }
-
-        Table tbl = db.getTable(tblName);
-        return tbl != null;
+        return Catalog.getCurrentCatalog()
+                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+                .flatMap(db -> db.getTable(tblName)).isPresent();
     }
 
     private static boolean checkPartitionExist(String dbName, String tblName, String partName) {
-        Database db = Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
-        if (db == null) {
-            return false;
-        }
-
-        Table tbl = db.getTable(tblName);
-        if (tbl == null) {
-            return false;
-        }
-
-        Partition partition = tbl.getPartition(partName);
-        return partition != null;
+        return Catalog.getCurrentCatalog()
+                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+                .flatMap(db -> db.getTable(tblName)).map(table -> table.getPartition(partName)).isPresent();
     }
-
-
 
     @Test
     public void testRecover() throws Exception {

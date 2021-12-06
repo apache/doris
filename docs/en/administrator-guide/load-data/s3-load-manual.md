@@ -48,12 +48,12 @@ Other cloud storage systems can find relevant information compatible with S3 in 
 Like Broker Load just replace `WITH BROKER broker_name ()` with
 ```
     WITH S3
- (
+    (
         "AWS_ENDPOINT" = "AWS_ENDPOINT",
         "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
         "AWS_SECRET_KEY"="AWS_SECRET_KEY",
         "AWS_REGION" = "AWS_REGION"
-  )
+    )
 ```
 
 example:
@@ -75,4 +75,19 @@ example:
     (
         "timeout" = "3600"
     );
+```
+
+## FAQ
+
+S3 SDK uses virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the `use_path_style` parameter to force the use of path style:
+
+```
+   WITH S3
+   (
+         "AWS_ENDPOINT" = "AWS_ENDPOINT",
+         "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+         "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+         "AWS_REGION" = "AWS_REGION",
+         "use_path_style" = "true"
+   )
 ```

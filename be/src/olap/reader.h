@@ -62,12 +62,11 @@ struct ReaderParams {
     //     if config::disable_storage_page_cache is false, we use page cache
     bool use_page_cache = false;
     Version version = Version(-1, 0);
-    // possible values are "gt", "ge", "eq"
-    std::string range;
-    // possible values are "lt", "le"
-    std::string end_range;
+
     std::vector<OlapTuple> start_key;
     std::vector<OlapTuple> end_key;
+    bool start_key_include = false;
+    bool end_key_include = false;
 
     std::vector<TCondition> conditions;
     std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
@@ -83,24 +82,31 @@ struct ReaderParams {
     std::string to_string() const;
 };
 
+struct KeysParam {
+    ~KeysParam();
+
+    std::string to_string() const;
+
+    std::vector<RowCursor*> start_keys;
+    std::vector<RowCursor*> end_keys;
+    bool start_key_include = false;
+    bool end_key_include = false;
+};
+
 class Reader {
 public:
     Reader();
-    ~Reader();
+    virtual ~Reader();
 
     // Initialize Reader with tablet, data version and fetch range.
-    OLAPStatus init(const ReaderParams& read_params);
+    virtual OLAPStatus init(const ReaderParams& read_params);
 
-    void close();
-
-    // Reader next row with aggregation.
+    // Read next row with aggregation.
     // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
     // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
-                                         ObjectPool* agg_pool, bool* eof) {
-        return (this->*_next_row_func)(row_cursor, mem_pool, agg_pool, eof);
-    }
+    virtual OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
+                                         ObjectPool* agg_pool, bool* eof) = 0;
 
     uint64_t merged_rows() const { return _merged_rows; }
 
@@ -112,18 +118,7 @@ public:
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
-private:
-    struct KeysParam {
-        ~KeysParam();
-
-        std::string to_string() const;
-
-        std::string range;
-        std::string end_range;
-        std::vector<RowCursor*> start_keys;
-        std::vector<RowCursor*> end_keys;
-    };
-
+protected:
     friend class CollectIterator;
     friend class DeleteHandler;
 
@@ -165,27 +160,8 @@ private:
     void _init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
                                std::set<uint32_t>* load_bf_columns);
 
-    // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
-    // This is usually used for DUPLICATE KEY tables
-    OLAPStatus _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                bool* eof);
-    // Just same as _direct_next_row, but this is only for AGGREGATE KEY tables.
-    // And this is an optimization for AGGR tables.
-    // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    OLAPStatus _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
-                                        ObjectPool* agg_pool, bool* eof);
-    // For normal AGGREGATE KEY tables, read data by a merge heap.
-    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                 bool* eof);
-    // For UNIQUE KEY tables, read data by a merge heap.
-    // The difference from _agg_key_next_row is that it will read the data from high version to low version,
-    // to minimize the comparison time in merge heap.
-    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                    bool* eof);
-
     TabletSharedPtr tablet() { return _tablet; }
 
-private:
     std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::set<uint32_t> _load_bf_columns;
@@ -207,9 +183,6 @@ private:
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
-    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
-                                         ObjectPool* agg_pool, bool* eof) = nullptr;
-
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     bool _need_agg_finalize = true;
@@ -218,7 +191,7 @@ private:
     bool _filter_delete = false;
     bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
-    const RowCursor* _next_key = nullptr;
+
     std::unique_ptr<CollectIterator> _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;

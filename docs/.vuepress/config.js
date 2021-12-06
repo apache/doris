@@ -94,7 +94,13 @@ module.exports = {
             text: 'Download', link: '/en/downloads/downloads'
           }
         ],
-        sidebar: convertSidebar(require('./sidebar/en.js'), '/en/')
+        sidebar: convertSidebar(require('./sidebar/en.js'), '/en/'),
+        article: {
+          metaTime: 'Date',
+          metaAuthor: 'Author',
+          paginationPre: 'Prev',
+          paginationNext: 'Next'
+        }
       },
       '/zh-CN/': {
         algolia: buildAlgoliaSearchConfig('zh-CN'),
@@ -108,6 +114,12 @@ module.exports = {
         ],
         sidebar: {
           '/zh-CN/': convertSidebar(require('./sidebar/zh-CN.js'), '/zh-CN/')
+        },
+        article: {
+          metaTime: '时间',
+          metaAuthor: '作者',
+          paginationPre: '上一页',
+          paginationNext: '下一页'
         }
       }
     }

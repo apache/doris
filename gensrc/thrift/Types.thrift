@@ -78,7 +78,8 @@ enum TPrimitiveType {
   ARRAY,
   MAP,
   STRUCT,
-  STRING
+  STRING,
+  ALL
 }
 
 enum TTypeNodeType {
@@ -421,6 +422,11 @@ enum TMergeType {
   APPEND,
   MERGE,
   DELETE
+}
+
+enum TSortType {
+    LEXICAL,
+    ZORDER, 
 }
 
 // represent a user identity

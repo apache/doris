@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-INT MONTH (DATETIME date)
+`INT MONTH (DATETIME date)`
 
 
 Returns month information in the time type, ranging from 1,12

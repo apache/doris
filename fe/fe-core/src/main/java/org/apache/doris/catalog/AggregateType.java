@@ -64,6 +64,7 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DATETIME);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
+        primitiveTypeList.add(PrimitiveType.STRING);
         compatibilityMap.put(MIN, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
@@ -79,6 +80,7 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DATETIME);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
+        primitiveTypeList.add(PrimitiveType.STRING);
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();

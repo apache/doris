@@ -55,7 +55,7 @@ public:
         _rle_encoder.Put(value, run);
     }
 
-    // Returns whether the building nullmap contains NULL
+    // Returns whether the building nullmap contains nullptr
     bool has_null() const { return _has_null; }
 
     OwnedSlice finish() {
@@ -285,10 +285,9 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
 
-        bool is_page_full = (num_written < remaining);
         remaining -= num_written;
 
-        if (is_page_full) {
+        if (_page_builder->is_page_full()) {
             RETURN_IF_ERROR(finish_current_page());
         }
     }

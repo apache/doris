@@ -17,9 +17,6 @@
 
 package org.apache.doris.httpv2.restv2;
 
-import lombok.Getter;
-import lombok.Setter;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -28,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -37,20 +35,24 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import lombok.Getter;
+import lombok.Setter;
 
 /**
  * And meta info like databases, tables and schema
@@ -137,11 +139,12 @@ public class MetaInfoActionV2 extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-
         String fullDbName = getFullDbName(dbName);
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database does not exist: " + fullDbName);
+        Database db;
+        try {
+            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> tblNames = Lists.newArrayList();
@@ -207,30 +210,25 @@ public class MetaInfoActionV2 extends RestBaseController {
 
         String fullDbName = getFullDbName(dbName);
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SHOW);
-
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database does not exist: " + fullDbName);
-        }
-
         String withMvPara = request.getParameter(PARAM_WITH_MV);
-        boolean withMv = Strings.isNullOrEmpty(withMvPara) ? false : withMvPara.equals("1");
+        boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
-
-        TableSchemaInfo tableSchemaInfo = new TableSchemaInfo();
-        db.readLock();
         try {
-            Table tbl = db.getTable(tblName);
-            if (tbl == null) {
-                return ResponseEntityBuilder.okWithCommonError("Table does not exist: " + tblName);
-            }
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db.readLock();
+            try {
+                Table tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
 
-            tableSchemaInfo.setEngineType(tbl.getType().toString());
-            SchemaInfo schemaInfo = generateSchemaInfo(tbl, withMv);
-            tableSchemaInfo.setSchemaInfo(schemaInfo);
-            return ResponseEntityBuilder.ok(tableSchemaInfo);
-        } finally {
-            db.readUnlock();
+                TableSchemaInfo tableSchemaInfo = new TableSchemaInfo();
+                tableSchemaInfo.setEngineType(tbl.getType().toString());
+                SchemaInfo schemaInfo = generateSchemaInfo(tbl, withMv);
+                tableSchemaInfo.setSchemaInfo(schemaInfo);
+                return ResponseEntityBuilder.ok(tableSchemaInfo);
+            } finally {
+                db.readUnlock();
+            }
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
     }
 

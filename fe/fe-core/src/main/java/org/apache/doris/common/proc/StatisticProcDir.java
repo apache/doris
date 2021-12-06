@@ -18,34 +18,38 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Multimap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class StatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -57,166 +61,28 @@ public class StatisticProcDir implements ProcDirInterface {
 
     private Catalog catalog;
 
-    // db id -> set(tablet id)
-    Multimap<Long, Long> unhealthyTabletIds;
-    // db id -> set(tablet id)
-    Multimap<Long, Long> inconsistentTabletIds;
-    // db id -> set(tablet id)
-    Multimap<Long, Long> cloningTabletIds;
-    // db id -> set(tablet id)
-    Multimap<Long, Long> unrecoverableTabletIds;
-
     public StatisticProcDir(Catalog catalog) {
+        Preconditions.checkNotNull(catalog);
         this.catalog = catalog;
-        unhealthyTabletIds = HashMultimap.create();
-        inconsistentTabletIds = HashMultimap.create();
-        cloningTabletIds = HashMultimap.create();
-        unrecoverableTabletIds = HashMultimap.create();
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
-
-        BaseProcResult result = new BaseProcResult();
-
-        result.setNames(TITLE_NAMES);
-        List<Long> dbIds = catalog.getDbIds();
-        if (dbIds == null || dbIds.isEmpty()) {
-            // empty
-            return result;
-        }
-
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
-
-        int totalDbNum = 0;
-        int totalTableNum = 0;
-        int totalPartitionNum = 0;
-        int totalIndexNum = 0;
-        int totalTabletNum = 0;
-        int totalReplicaNum = 0;
-
-        unhealthyTabletIds.clear();
-        inconsistentTabletIds.clear();
-        cloningTabletIds = AgentTaskQueue.getTabletIdsByType(TTaskType.CLONE);
-        List<List<Comparable>> lines = new ArrayList<List<Comparable>>();
-        for (Long dbId : dbIds) {
-            if (dbId == 0) {
+        List<DBStatistic> statistics = catalog.getDbIds().parallelStream()
                 // skip information_schema database
-                continue;
-            }
-            Database db = catalog.getDb(dbId);
-            if (db == null) {
-                continue;
-            }
+                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDbNullable(id)))
+                .filter(Objects::nonNull).map(DBStatistic::new)
+                // sort by dbName
+                .sorted(Comparator.comparing(db -> db.db.getFullName()))
+                .collect(Collectors.toList());
 
-            ++totalDbNum;
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
-            db.readLock();
-            try {
-                int dbTableNum = 0;
-                int dbPartitionNum = 0;
-                int dbIndexNum = 0;
-                int dbTabletNum = 0;
-                int dbReplicaNum = 0;
-
-                for (Table table : db.getTables()) {
-                    if (table.getType() != TableType.OLAP) {
-                        continue;
-                    }
-
-                    ++dbTableNum;
-                    OlapTable olapTable = (OlapTable) table;
-                    table.readLock();
-                    try {
-                        for (Partition partition : olapTable.getAllPartitions()) {
-                            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-                            ++dbPartitionNum;
-                            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                                ++dbIndexNum;
-                                for (Tablet tablet : materializedIndex.getTablets()) {
-                                    ++dbTabletNum;
-                                    dbReplicaNum += tablet.getReplicas().size();
-
-                                    Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
-                                            infoService, db.getClusterName(),
-                                            partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                            replicationNum, aliveBeIdsInCluster);
-
-                                    // here we treat REDUNDANT as HEALTHY, for user friendly.
-                                    if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
-                                            && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR
-                                            && res.first != TabletStatus.UNRECOVERABLE) {
-                                        unhealthyTabletIds.put(dbId, tablet.getId());
-                                    } else if (res.first == TabletStatus.UNRECOVERABLE) {
-                                        unrecoverableTabletIds.put(dbId, tablet.getId());
-                                    }
-
-                                    if (!tablet.isConsistent()) {
-                                        inconsistentTabletIds.put(dbId, tablet.getId());
-                                    }
-                                } // end for tablets
-                            } // end for indices
-                        } // end for partitions
-                    } finally {
-                        table.readUnlock();
-                    }
-                } // end for tables
-
-                List<Comparable> oneLine = new ArrayList<Comparable>(TITLE_NAMES.size());
-                oneLine.add(dbId);
-                oneLine.add(db.getFullName());
-                oneLine.add(dbTableNum);
-                oneLine.add(dbPartitionNum);
-                oneLine.add(dbIndexNum);
-                oneLine.add(dbTabletNum);
-                oneLine.add(dbReplicaNum);
-                oneLine.add(unhealthyTabletIds.get(dbId).size());
-                oneLine.add(inconsistentTabletIds.get(dbId).size());
-                oneLine.add(cloningTabletIds.get(dbId).size());
-                oneLine.add(unrecoverableTabletIds.get(dbId).size());
-
-                lines.add(oneLine);
-
-                totalTableNum += dbTableNum;
-                totalPartitionNum += dbPartitionNum;
-                totalIndexNum += dbIndexNum;
-                totalTabletNum += dbTabletNum;
-                totalReplicaNum += dbReplicaNum;
-            } finally {
-                db.readUnlock();
-            }
-        } // end for dbs
-
-        // sort by dbName
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1);
-        Collections.sort(lines, comparator);
-
-        // add sum line after sort
-        List<Comparable> finalLine = new ArrayList<Comparable>(TITLE_NAMES.size());
-        finalLine.add("Total");
-        finalLine.add(totalDbNum);
-        finalLine.add(totalTableNum);
-        finalLine.add(totalPartitionNum);
-        finalLine.add(totalIndexNum);
-        finalLine.add(totalTabletNum);
-        finalLine.add(totalReplicaNum);
-        finalLine.add(unhealthyTabletIds.size());
-        finalLine.add(inconsistentTabletIds.size());
-        finalLine.add(cloningTabletIds.size());
-        finalLine.add(unrecoverableTabletIds.size());
-        lines.add(finalLine);
-
-        // add result
-        for (List<Comparable> line : lines) {
-            List<String> row = new ArrayList<String>(line.size());
-            for (Comparable comparable : line) {
-                row.add(comparable.toString());
-            }
-            result.addRow(row);
+        List<List<String>> rows = new ArrayList<>(statistics.size() + 1);
+        for (DBStatistic statistic : statistics) {
+            rows.add(statistic.toRow());
         }
+        rows.add(statistics.stream().reduce(new DBStatistic(), DBStatistic::reduce).toRow());
 
-        return result;
+        return new BaseProcResult(TITLE_NAMES, rows);
     }
 
     @Override
@@ -226,16 +92,144 @@ public class StatisticProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
-        long dbId = -1L;
         try {
-            dbId = Long.valueOf(dbIdStr);
+            long dbId = Long.parseLong(dbIdStr);
+            return catalog.getDb(dbId).map(IncompleteTabletsProcNode::new).orElse(null);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
+    }
 
-        return new IncompleteTabletsProcNode(unhealthyTabletIds.get(dbId),
-                inconsistentTabletIds.get(dbId),
-                cloningTabletIds.get(dbId),
-                unrecoverableTabletIds.get(dbId));
+    static class DBStatistic {
+        boolean summary;
+        Database db;
+        int dbNum;
+        int tableNum;
+        int partitionNum;
+        int indexNum;
+        int tabletNum;
+        int replicaNum;
+        int unhealthyTabletNum;
+        int inconsistentTabletNum;
+        int cloningTabletNum;
+        int badTabletNum;
+        Set<Long> unhealthyTabletIds;
+        Set<Long> inconsistentTabletIds;
+        Set<Long> cloningTabletIds;
+        Set<Long> unrecoverableTabletIds;
+
+        DBStatistic() {
+            this.summary = true;
+        }
+
+        DBStatistic(Database db) {
+            Preconditions.checkNotNull(db);
+            this.summary = false;
+            this.db = db;
+            this.dbNum = 1;
+            this.unhealthyTabletIds = new HashSet<>();
+            this.inconsistentTabletIds = new HashSet<>();
+            this.unrecoverableTabletIds = new HashSet<>();
+            this.cloningTabletIds = AgentTaskQueue.getTask(db.getId(), TTaskType.CLONE)
+                    .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
+
+            SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+            ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            db.getTables().stream().filter(t -> t != null && t.getType() == TableType.OLAP).forEach(t -> {
+                ++tableNum;
+                OlapTable olapTable = (OlapTable) t;
+                ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId()) ?
+                        colocateTableIndex.getGroup(olapTable.getId()) : null;
+                olapTable.readLock();
+                try {
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        ++partitionNum;
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                            ++indexNum;
+                            List<Tablet> tablets = materializedIndex.getTablets();
+                            for (int i = 0; i < tablets.size(); ++i) {
+                                Tablet tablet = tablets.get(i);
+                                ++tabletNum;
+                                replicaNum += tablet.getReplicas().size();
+
+                                TabletStatus res = null;
+                                if (groupId != null) {
+                                    Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
+                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc, backendsSet);
+                                } else {
+                                    Pair<TabletStatus, Priority> pair = tablet.getHealthStatusWithPriority(
+                                            infoService, db.getClusterName(),
+                                            partition.getVisibleVersion(), partition.getVisibleVersionHash(),
+                                            replicaAlloc, aliveBeIdsInCluster);
+                                    res = pair.first;
+                                }
+
+                                // here we treat REDUNDANT as HEALTHY, for user friendly.
+                                if (res != TabletStatus.HEALTHY && res != TabletStatus.REDUNDANT
+                                        && res != TabletStatus.COLOCATE_REDUNDANT && res != TabletStatus.NEED_FURTHER_REPAIR
+                                        && res != TabletStatus.UNRECOVERABLE) {
+                                    unhealthyTabletIds.add(tablet.getId());
+                                } else if (res == TabletStatus.UNRECOVERABLE) {
+                                    unrecoverableTabletIds.add(tablet.getId());
+                                }
+
+                                if (!tablet.isConsistent()) {
+                                    inconsistentTabletIds.add(tablet.getId());
+                                }
+                            } // end for tablets
+                        } // end for indices
+                    } // end for partitions
+                } finally {
+                    olapTable.readUnlock();
+                }
+            });
+            unhealthyTabletNum = unhealthyTabletIds.size();
+            inconsistentTabletNum = inconsistentTabletIds.size();
+            cloningTabletNum = cloningTabletIds.size();
+            badTabletNum = unrecoverableTabletIds.size();
+        }
+
+        DBStatistic reduce(DBStatistic other) {
+            if (this.summary) {
+                this.dbNum += other.dbNum;
+                this.tableNum += other.tableNum;
+                this.partitionNum += other.partitionNum;
+                this.indexNum += other.indexNum;
+                this.tabletNum += other.tabletNum;
+                this.replicaNum += other.replicaNum;
+                this.unhealthyTabletNum += other.unhealthyTabletNum;
+                this.inconsistentTabletNum += other.inconsistentTabletNum;
+                this.cloningTabletNum += other.cloningTabletNum;
+                this.badTabletNum += other.badTabletNum;
+                return this;
+            } else if (other.summary) {
+                return other.reduce(this);
+            } else {
+                return new DBStatistic().reduce(this).reduce(other);
+            }
+        }
+
+        List<String> toRow() {
+            List<Object> row = new ArrayList<>(TITLE_NAMES.size());
+            if (summary) {
+                row.add("Total");
+                row.add(dbNum);
+            } else {
+                row.add(db.getId());
+                row.add(db.getFullName());
+            }
+            row.add(tableNum);
+            row.add(partitionNum);
+            row.add(indexNum);
+            row.add(tabletNum);
+            row.add(replicaNum);
+            row.add(unhealthyTabletNum);
+            row.add(inconsistentTabletNum);
+            row.add(cloningTabletNum);
+            row.add(badTabletNum);
+            return row.stream().map(String::valueOf).collect(Collectors.toList());
+        }
     }
 }

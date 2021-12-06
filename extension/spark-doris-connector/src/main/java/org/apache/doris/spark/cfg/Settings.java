@@ -98,4 +98,17 @@ public abstract class Settings {
         Properties copy = asProperties();
         return IOUtils.propsToString(copy);
     }
+
+    @Override
+    public int hashCode() {
+        return asProperties().hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+        return asProperties().equals(((Settings) obj).asProperties());
+    }
 }

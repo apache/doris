@@ -143,8 +143,6 @@ public:
     // will return a valid row
     bool valid() const { return _valid; }
 
-    int is_partial_delete() const { return _block.delete_state() == DEL_PARTIAL_SATISFIED; }
-
     uint64_t data_id() const { return _iter->data_id(); }
 
 private:
@@ -204,7 +202,8 @@ Status MergeIteratorContext::_load_next_block() {
 class MergeIterator : public RowwiseIterator {
 public:
     // MergeIterator takes the ownership of input iterators
-    MergeIterator(std::list<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent) : _origin_iters(std::move(iters)) {
+    MergeIterator(std::list<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent, int sequence_id_idx)
+        : _origin_iters(std::move(iters)), _sequence_id_idx(sequence_id_idx) {
         // use for count the mem use of Block use in Merge
         _mem_tracker = MemTracker::CreateTracker(-1, "MergeIterator", parent, false);
     }
@@ -225,9 +224,13 @@ private:
     // It will be released after '_merge_heap' has been built.
     std::list<RowwiseIterator*> _origin_iters;
 
+    int _sequence_id_idx;
+
     std::unique_ptr<Schema> _schema;
 
     struct MergeContextComparator {
+        explicit MergeContextComparator(int idx) : sequence_id_idx(idx) {};
+
         bool operator()(const MergeIteratorContext* lhs, const MergeIteratorContext* rhs) const {
             auto lhs_row = lhs->current_row();
             auto rhs_row = rhs->current_row();
@@ -235,12 +238,23 @@ private:
             if (cmp_res != 0) {
                 return cmp_res > 0;
             }
+            
+            // Second: If sequence_id_idx != 0 means we need to compare sequence. sequence only use
+            // in unique key. so keep reverse order of sequence id here
+            if (sequence_id_idx != -1) {
+                auto l_cell = lhs_row.cell(sequence_id_idx);
+                auto r_cell = rhs_row.cell(sequence_id_idx);
+                auto res = lhs_row.schema()->column(sequence_id_idx)->compare_cell(l_cell, r_cell);
+                if (res != 0) return res < 0;
+            }
             // if row cursors equal, compare segment id.
             // here we sort segment id in reverse order, because of the row order in AGG_KEYS
             // dose no matter, but in UNIQUE_KEYS table we only read the latest is one, so we
             // return the row in reverse order of segment id
             return lhs->data_id() < rhs->data_id();
         }
+
+        int sequence_id_idx;
     };
     using MergeHeap = std::priority_queue<MergeIteratorContext*, std::vector<MergeIteratorContext*>,
                                           MergeContextComparator>;
@@ -253,7 +267,7 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
     }
     _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
 
-    _merge_heap.reset(new MergeHeap);
+    _merge_heap = std::make_unique<MergeHeap>(MergeContextComparator(_sequence_id_idx));
     for (auto iter : _origin_iters) {
         std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter, _mem_tracker));
         RETURN_IF_ERROR(ctx->init(opts));
@@ -276,10 +290,6 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         // copy current row to block
         copy_row(&dst_row, ctx->current_row(), block->pool());
 
-        // TODO(hkp): refactor conditions and filter rows here with delete conditions
-        if (ctx->is_partial_delete()) {
-            block->set_delete_state(DEL_PARTIAL_SATISFIED);
-        }
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
             _merge_heap->push(ctx);
@@ -354,11 +364,11 @@ Status UnionIterator::next_batch(RowBlockV2* block) {
     return Status::EndOfFile("End of UnionIterator");
 }
 
-RowwiseIterator* new_merge_iterator(std::list<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_merge_iterator(std::list<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent, int sequence_id_idx) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new MergeIterator(std::move(inputs), parent);
+    return new MergeIterator(std::move(inputs), parent, sequence_id_idx);
 }
 
 RowwiseIterator* new_union_iterator(std::list<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {

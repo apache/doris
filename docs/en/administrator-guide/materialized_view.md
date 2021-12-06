@@ -71,11 +71,7 @@ Therefore, users need to combine their own query statements and data dimension i
 
 The second point is that in the actual analysis query, not all dimensional analysis will be covered. Therefore, it is enough to create a materialized view for the commonly used combination of dimensions, so as to achieve a space and time balance.
 
-The materialized view can be created by the following command. Creating a materialized view is an asynchronous operation, which means that after the user successfully submits the creation task, Doris will calculate the existing data in the background until the creation is successful.
-
-```
-CREATE MATERIALIZED VIEW
-```
+Creating a materialized view is an asynchronous operation, which means that after the user successfully submits the creation task, Doris will calculate the existing data in the background until the creation is successful.
 
 The specific syntax can be viewed through the following command:
 
@@ -150,11 +146,7 @@ You can see that the current `mv_test` table has three materialized views: mv\_1
 
 ### Delete materialized view
 
-If the user no longer needs the materialized view, you can delete the materialized view with the following command:
-
-```
-DROP MATERIALIZED VIEW
-```
+If the user no longer needs the materialized view, you can delete the materialized view by 'DROP' commen.
 
 The specific syntax can be viewed through the following command:
 

@@ -23,14 +23,17 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,20 +48,17 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
-import com.google.gson.Gson;
-
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
 
     // lock for export job
     // lock is private and must use after db lock
-    private ReentrantReadWriteLock lock;
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private Map<Long, ExportJob> idToJob; // exportJobId to exportJob
+    private Map<Long, ExportJob> idToJob = Maps.newHashMap(); // exportJobId to exportJob
+    private Map<String, Long> labelToJobId = Maps.newHashMap();
 
     public ExportMgr() {
-        idToJob = Maps.newHashMap();
-        lock = new ReentrantReadWriteLock(true);
     }
 
     public void readLock() {
@@ -77,8 +77,8 @@ public class ExportMgr {
         lock.writeLock().unlock();
     }
 
-    public Map<Long, ExportJob> getIdToJob() {
-        return idToJob;
+    public List<ExportJob> getJobs() {
+        return Lists.newArrayList(idToJob.values());
     }
 
     public void addExportJob(ExportStmt stmt) throws Exception {
@@ -86,6 +86,9 @@ public class ExportMgr {
         ExportJob job = createJob(jobId, stmt);
         writeLock();
         try {
+            if (labelToJobId.containsKey(job.getLabel())) {
+                throw new LabelAlreadyUsedException(job.getLabel());
+            }
             unprotectAddJob(job);
             Catalog.getCurrentCatalog().getEditLog().logExportCreate(job);
         } finally {
@@ -96,6 +99,7 @@ public class ExportMgr {
 
     public void unprotectAddJob(ExportJob job) {
         idToJob.put(job.getId(), job);
+        labelToJobId.putIfAbsent(job.getLabel(), job.getId());
     }
 
     private ExportJob createJob(long jobId, ExportStmt stmt) throws Exception {
@@ -122,7 +126,7 @@ public class ExportMgr {
 
     // NOTE: jobid and states may both specified, or only one of them, or neither
     public List<List<String>> getExportJobInfosByIdOrState(
-            long dbId, long jobId, Set<ExportJob.JobState> states,
+            long dbId, long jobId, String label, Set<ExportJob.JobState> states,
             ArrayList<OrderByPair> orderByPairs, long limit) {
 
         long resultNum = limit == -1L ? Integer.MAX_VALUE : limit;
@@ -133,22 +137,25 @@ public class ExportMgr {
             for (ExportJob job : idToJob.values()) {
                 long id = job.getId();
                 ExportJob.JobState state = job.getState();
+                String jobLabel = job.getLabel();
 
                 if (job.getDbId() != dbId) {
                     continue;
                 }
 
-                if (jobId != 0) {
-                    if (id != jobId) {
-                        continue;
-                    }
+                if (jobId != 0 && id != jobId) {
+                    continue;
+                }
+
+                if (!Strings.isNullOrEmpty(label) && !jobLabel.equals(label)) {
+                    continue;
                 }
 
                 // check auth
                 TableName tableName = job.getTableName();
                 if (tableName == null || tableName.getTbl().equals("DUMMY")) {
                     // forward compatibility, no table name is saved before
-                    Database db = Catalog.getCurrentCatalog().getDb(dbId);
+                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
                     if (db == null) {
                         continue;
                     }
@@ -173,6 +180,7 @@ public class ExportMgr {
                 List<Comparable> jobInfo = new ArrayList<Comparable>();
 
                 jobInfo.add(id);
+                jobInfo.add(jobLabel);
                 jobInfo.add(state.name());
                 jobInfo.add(job.getProgress() + "%");
 
@@ -255,13 +263,12 @@ public class ExportMgr {
                         && (job.getState() == ExportJob.JobState.CANCELLED
                             || job.getState() == ExportJob.JobState.FINISHED)) {
                     iter.remove();
+                    labelToJobId.remove(job.getLabel(), job.getId());
                 }
             }
-
         } finally {
             writeUnlock();
         }
-
     }
 
     public void replayCreateExportJob(ExportJob job) {

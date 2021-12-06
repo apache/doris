@@ -59,7 +59,9 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
     private static Logger logger = LogManager.getLogger(CanalSyncDataConsumer.class);
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
-    private static final long COMMIT_MEM_SIZE = 64 * 1024 * 1024; // 64mb;
+    private static final long MIN_COMMIT_EVENT_SIZE = Config.min_sync_commit_size;
+    private static final long MIN_COMMIT_MEM_SIZE = Config.min_bytes_sync_commit;
+    private static final long MAX_COMMIT_MEM_SIZE = Config.max_bytes_sync_commit;
 
     private CanalSyncJob syncJob;
     private CanalConnector connector;
@@ -102,7 +104,6 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
 
     @Override
     public void beginForTxn() {
-        handle.set(false);
         handle.reset(idToChannels.size());
         for (CanalSyncChannel channel : idToChannels.values()) {
             channel.initTxn(Config.max_stream_load_timeout_second);
@@ -161,15 +162,16 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
     }
 
     public Status waitForTxn() {
+        for (CanalSyncChannel channel : idToChannels.values()) {
+            channel.submitEOF();
+        }
+
         Status st = Status.CANCELLED;
-        handle.set(true);
         try {
             handle.join();
             st = handle.getStatus();
         } catch (InterruptedException e) {
             logger.warn("InterruptedException: ", e);
-        } finally {
-            handle.set(false);
         }
         return st;
     }
@@ -190,7 +192,7 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                 long totalMemSize = 0L;
                 long startTime = System.currentTimeMillis();
                 beginForTxn();
-                while (true) {
+                while (running) {
                     Events<CanalEntry.Entry, EntryPosition> dataEvents = null;
                     try {
                         dataEvents = dataBlockingQueue.poll(CanalConfigs.pollWaitingTimeoutMs, TimeUnit.MILLISECONDS);
@@ -198,7 +200,8 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                         // do nothing
                     }
                     if (dataEvents == null) {
-                        if (totalSize > 0 || totalMemSize > 0) {
+                        // If not, continue to wait for the next batch of data
+                        if (totalSize >= MIN_COMMIT_EVENT_SIZE || totalMemSize >= MIN_COMMIT_MEM_SIZE) {
                             break;
                         }
                         try {
@@ -218,7 +221,8 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                         executeOneBatch(dataEvents);
                         totalSize += size;
                         totalMemSize += dataEvents.getMemSize();
-                        if (totalMemSize >= COMMIT_MEM_SIZE) {
+                        // size of bytes received so far is larger than max commit memory size.
+                        if (totalMemSize >= MAX_COMMIT_MEM_SIZE) {
                             break;
                         }
                     }
@@ -227,7 +231,13 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                         break;
                     }
                 }
+
+                // wait all channels done
                 Status st = waitForTxn();
+                if (!running) {
+                    abortForTxn("stopping client");
+                    continue;
+                }
                 if (st.ok()) {
                     commitForTxn();
                 } else {
@@ -260,7 +270,7 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
         }
 
         int startIndex = 0;
-        // if last ack position is null, it is the first time to consume batch (startOffset = 0)
+        // if last ack position is null, it is the first time to consume batch
         EntryPosition lastAckPosition = positionMeta.getAckPosition();
         if (lastAckPosition != null) {
             EntryPosition firstPosition = EntryPosition.createPosition(entries.get(0));
@@ -303,13 +313,17 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
         EntryPosition startPosition = dataEvents.getPositionRange().getStart();
         EntryPosition endPosition = dataEvents.getPositionRange().getEnd();
         for (CanalSyncChannel channel : idToChannels.values()) {
+            String key = CanalUtils.getFullName(channel.getSrcDataBase(), channel.getSrcTable());
+            // if last commit position is null, it is the first time to execute batch
             EntryPosition commitPosition = positionMeta.getCommitPosition(channel.getId());
-            String key = channel.getSrcDataBase() + "." + channel.getSrcTable();
-            if (commitPosition.compareTo(startPosition) < 0) {
+            if (commitPosition != null) {
+                if (commitPosition.compareTo(startPosition) < 0) {
+                    preferChannels.put(key, channel);
+                } else if (commitPosition.compareTo(endPosition) < 0) {
+                    secondaryChannels.put(key, channel);
+                }
+            } else {
                 preferChannels.put(key, channel);
-            }
-            else if (commitPosition.compareTo(endPosition) < 0) {
-                secondaryChannels.put(key, channel);
             }
         }
 
@@ -405,12 +419,15 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
     private void rollback() {
         holdGetLock();
         try {
-            connector.rollback();
             // Wait for the receiver to put the last message into the queue before clearing queue
             try {
                 Thread.sleep(1000L);
             } catch (InterruptedException e) {
                 // ignore
+            }
+
+            if (!ackBatches.isEmpty()) {
+                connector.rollback();
             }
         } finally {
             releaseGetLock();

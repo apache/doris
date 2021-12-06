@@ -153,7 +153,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel();
+            ctx->body_sink->cancel(ctx->status.get_error_msg());
         }
     }
 
@@ -229,7 +229,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel();
+            ctx->body_sink->cancel(st.get_error_msg());
         }
         auto str = ctx->to_json();
         // add new line at end
@@ -336,7 +336,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         auto st = ctx->body_sink->append(bb);
         if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg()
-                         << ctx->brief();
+                         << ", " << ctx->brief();
             ctx->status = st;
             return;
         }
@@ -350,9 +350,9 @@ void StreamLoadAction::free_handler_ctx(void* param) {
     if (ctx == nullptr) {
         return;
     }
-    // sender is going, make receiver know it
+    // sender is gone, make receiver know it
     if (ctx->body_sink != nullptr) {
-        ctx->body_sink->cancel();
+        ctx->body_sink->cancel("sender is gone");
     }
     if (ctx->unref()) {
         delete ctx;

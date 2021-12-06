@@ -21,10 +21,8 @@
 #include <thrift/TProcessor.h>
 #include <thrift/server/TServer.h>
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/thread.hpp>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 
 #include "common/status.h"
@@ -71,7 +69,7 @@ public:
     //  - num_worker_threads: the number of worker threads to use in any thread pool
     //  - server_type: the type of IO strategy this server should employ
     ThriftServer(const std::string& name,
-                 const boost::shared_ptr<apache::thrift::TProcessor>& processor, int port,
+                 const std::shared_ptr<apache::thrift::TProcessor>& processor, int port,
                  int num_worker_threads = DEFAULT_WORKER_THREADS,
                  ServerType server_type = THREADED);
 
@@ -120,13 +118,13 @@ private:
     const std::string _name;
 
     // Thread that runs the TNonblockingServer::serve loop
-    boost::scoped_ptr<boost::thread> _server_thread;
+    std::unique_ptr<std::thread> _server_thread;
 
     // Thrift housekeeping
-    boost::scoped_ptr<apache::thrift::server::TServer> _server;
-    boost::shared_ptr<apache::thrift::TProcessor> _processor;
+    std::unique_ptr<apache::thrift::server::TServer> _server;
+    std::shared_ptr<apache::thrift::TProcessor> _processor;
 
-    // If not NULL, called when session events happen. Not owned by us.
+    // If not nullptr, called when session events happen. Not owned by us.
     SessionHandlerIf* _session_handler;
 
     // Protects _session_keys
@@ -134,7 +132,7 @@ private:
 
     // Map of active session keys to shared_ptr containing that key; when a key is
     // removed it is automatically freed.
-    typedef std::unordered_map<SessionKey*, boost::shared_ptr<SessionKey>> SessionKeySet;
+    typedef std::unordered_map<SessionKey*, std::shared_ptr<SessionKey>> SessionKeySet;
     SessionKeySet _session_keys;
 
     // Helper class which monitors starting servers. Needs access to internal members, and

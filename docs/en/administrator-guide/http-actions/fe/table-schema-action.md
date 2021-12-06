@@ -62,11 +62,13 @@ None
 		"properties": [{
 			"type": "INT",
 			"name": "k1",
-			"comment": ""
+			"comment": "",
+			"aggregation_type":""
 		}, {
 			"type": "INT",
 			"name": "k2",
-			"comment": ""
+			"comment": "",
+			"aggregation_type":"MAX"
 		}],
 		"status": 200
 	},

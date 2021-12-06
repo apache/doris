@@ -29,7 +29,7 @@ under the License.
 ## Description
 ### Syntax
 
-'DATETIME DATEDIFF (DATETIME expr1,DATETIME expr2)'
+`DATETIME DATEDIFF (DATETIME expr1,DATETIME expr2)`
 
 
 Expr1 - expr2 is calculated and the result is accurate to the sky.

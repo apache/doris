@@ -100,7 +100,7 @@ TEST(MemTestTest, TrackerHierarchyTryConsume) {
     auto c2 = MemTracker::CreateTracker(50, "c2", p);
 
     // everything below limits
-    bool consumption = c1->TryConsume(60);
+    bool consumption = c1->TryConsume(60).ok();
     EXPECT_EQ(consumption, true);
     EXPECT_EQ(c1->consumption(), 60);
     EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
@@ -113,7 +113,7 @@ TEST(MemTestTest, TrackerHierarchyTryConsume) {
     EXPECT_FALSE(p->AnyLimitExceeded(MemLimit::HARD));
 
     // p goes over limit
-    consumption = c2->TryConsume(50);
+    consumption = c2->TryConsume(50).ok();
     EXPECT_EQ(consumption, false);
     EXPECT_EQ(c1->consumption(), 60);
     EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
@@ -137,7 +137,6 @@ TEST(MemTestTest, TrackerHierarchyTryConsume) {
     EXPECT_EQ(p->consumption(), 50);
     EXPECT_FALSE(p->LimitExceeded(MemLimit::HARD));
 
-
     c1->Release(40);
     c2->Release(10);
 }
@@ -145,7 +144,13 @@ TEST(MemTestTest, TrackerHierarchyTryConsume) {
 } // end namespace doris
 
 int main(int argc, char** argv) {
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!doris::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
+    doris::MemInfo::init();
     return RUN_ALL_TESTS();
 }

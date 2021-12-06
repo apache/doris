@@ -17,8 +17,6 @@
 
 #include "exprs/operators.h"
 
-#include <boost/cstdint.hpp>
-
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"

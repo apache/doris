@@ -67,7 +67,7 @@ Variables that support both session-level and global-level setting include:
 * `time_zone`
 * `wait_timeout`
 * `sql_mode`
-* `is_report_success`
+* `enable_profile`
 * `query_timeout`
 * `exec_mem_limit`
 * `batch_size`
@@ -195,7 +195,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `forward_to_master`
 
-    The user sets whether to forward some commands to the Master FE node for execution. The default is false, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail information can only be obtained from the Master FE node.
+    The user sets whether to forward some commands to the Master FE node for execution. The default is `true`, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail information can only be obtained from the Master FE node.
     
     For example, the `SHOW BACKENDS;` command, if not forwarded to the Master FE node, can only see some basic information such as whether the node is alive, and forwarded to the Master FE to obtain more detailed information including the node startup time and the last heartbeat time.
     
@@ -229,7 +229,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
     
-* `is_report_success`
+* `enable_profile`
 
     Used to set whether you need to view the profile of the query. The default is false, which means no profile is required.
     
@@ -239,7 +239,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
     `fe_host:fe_http:port/query`
     
-    It will display the most recent 100 queries which `is_report_success` is set to true.
+    It will display the most recent 100 queries which `enable_profile` is set to true.
     
 * `language`
 
@@ -439,3 +439,7 @@ Translated with www.DeepL.com/Translator (free version)
      This parameter will be overridden by the `cpu_resource_limit` configuration in the user property.
 
      The default is -1, which means no limit.
+
+* `disable_join_reorder`
+
+    Used to turn off all automatic join reorder algorithms in the system. There are two values: true and false.It is closed by default, that is, the automatic join reorder algorithm of the system is adopted. After set to true, the system will close all automatic sorting algorithms, adopt the original SQL table order, and execute join

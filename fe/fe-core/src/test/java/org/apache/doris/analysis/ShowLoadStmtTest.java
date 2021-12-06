@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
@@ -28,6 +27,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Expectations;
 
 public class ShowLoadStmtTest {
     private Analyzer analyzer;
@@ -110,10 +111,15 @@ public class ShowLoadStmtTest {
 
         StringLiteral stringLiteralLike = new StringLiteral("ab%");
         LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
-                                                        slotRef, stringLiteralLike);
+                slotRef, stringLiteralLike);
 
         stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` LIKE \'ab%\' LIMIT 10", stmt.toString());
+
+        BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
+        stmt = new ShowLoadStmt(null, statePredicate, null, new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `state` = \'PENDING\' LIMIT 10", stmt.toString());
     }
 }

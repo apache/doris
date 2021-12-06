@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
@@ -97,7 +96,7 @@ public class LoadingTaskPlanner {
         this.sendBatchParallelism = sendBatchParallelism;
         this.userInfo = userInfo;
         if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(userInfo,
-                Catalog.getCurrentCatalog().getDb(dbId).getFullName(), PrivPredicate.SELECT)) {
+                Catalog.getCurrentCatalog().getDbNullable(dbId).getFullName(), PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
             this.analyzer.setUDFAllowed(false);
@@ -145,12 +144,7 @@ public class LoadingTaskPlanner {
 
         // 4. finalize
         for (PlanFragment fragment : fragments) {
-            try {
-                fragment.finalize(analyzer, false);
-            } catch (NotImplementedException e) {
-                LOG.info("Fragment finalize failed.{}", e.getMessage());
-                throw new UserException("Fragment finalize failed.");
-            }
+            fragment.finalize(null);
         }
         Collections.reverse(fragments);
     }

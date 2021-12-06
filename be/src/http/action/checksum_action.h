@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_HTTP_CHECKSUM_ACTION_H
 #define DORIS_BE_SRC_HTTP_CHECKSUM_ACTION_H
 
-#include <boost/scoped_ptr.hpp>
+#include <cstdint>
 
 #include "http/http_handler.h"
 

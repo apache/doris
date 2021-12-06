@@ -32,6 +32,7 @@ import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.exception.ShouldNeverHappenException;
 import org.apache.doris.flink.rest.models.Backend;
 import org.apache.doris.flink.rest.models.BackendRow;
+import org.apache.doris.flink.rest.models.BackendV2;
 import org.apache.doris.flink.rest.models.QueryPlan;
 import org.apache.doris.flink.rest.models.Schema;
 import org.apache.doris.flink.rest.models.Tablet;
@@ -83,7 +84,9 @@ public class RestService implements Serializable {
     private static final String API_PREFIX = "/api";
     private static final String SCHEMA = "_schema";
     private static final String QUERY_PLAN = "_query_plan";
+    @Deprecated
     private static final String BACKENDS = "/rest/v1/system?path=//backends";
+    private static final String BACKENDS_V2 = "/api/backends?is_aliva=true";
     private static final String FE_LOGIN = "/rest/v1/login";
 
     /**
@@ -250,25 +253,29 @@ public class RestService implements Serializable {
      */
     @VisibleForTesting
     public static String randomBackend(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException, IOException {
-        List<BackendRow> backends = getBackends(options, readOptions, logger);
+        List<BackendV2.BackendRowV2> backends = getBackendsV2(options, readOptions, logger);
         logger.trace("Parse beNodes '{}'.", backends);
         if (backends == null || backends.isEmpty()) {
             logger.error(ILLEGAL_ARGUMENT_MESSAGE, "beNodes", backends);
             throw new IllegalArgumentException("beNodes", String.valueOf(backends));
         }
         Collections.shuffle(backends);
-        BackendRow backend = backends.get(0);
-        return backend.getIP() + ":" + backend.getHttpPort();
+        BackendV2.BackendRowV2 backend = backends.get(0);
+        return backend.getIp() + ":" + backend.getHttpPort();
     }
 
     /**
-     * get  Doris BE nodes to request.
+     * get Doris BE nodes to request.
      *
      * @param options configuration of request
      * @param logger  slf4j logger
      * @return the chosen one Doris BE node
      * @throws IllegalArgumentException BE nodes is illegal
+     *
+     * This method is deprecated. Because it needs ADMIN_PRIV to get backends, which is not suitable for common users.
+     * Use getBackendsV2 instead
      */
+    @Deprecated
     @VisibleForTesting
     static List<BackendRow> getBackends(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException, IOException {
         String feNodes = options.getFenodes();
@@ -281,6 +288,7 @@ public class RestService implements Serializable {
         return backends;
     }
 
+    @Deprecated
     static List<BackendRow> parseBackend(String response, Logger logger) throws DorisException, IOException {
         ObjectMapper mapper = new ObjectMapper();
         Backend backend;
@@ -305,6 +313,54 @@ public class RestService implements Serializable {
             throw new ShouldNeverHappenException();
         }
         List<BackendRow> backendRows = backend.getRows().stream().filter(v -> v.getAlive()).collect(Collectors.toList());
+        logger.debug("Parsing schema result is '{}'.", backendRows);
+        return backendRows;
+    }
+
+    /**
+     * get Doris BE nodes to request.
+     *
+     * @param options configuration of request
+     * @param logger  slf4j logger
+     * @return the chosen one Doris BE node
+     * @throws IllegalArgumentException BE nodes is illegal
+     */
+    @VisibleForTesting
+    static List<BackendV2.BackendRowV2> getBackendsV2(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException, IOException {
+        String feNodes = options.getFenodes();
+        String feNode = randomEndpoint(feNodes, logger);
+        String beUrl = "http://" + feNode + BACKENDS_V2;
+        HttpGet httpGet = new HttpGet(beUrl);
+        String response = send(options, readOptions, httpGet, logger);
+        logger.info("Backend Info:{}", response);
+        List<BackendV2.BackendRowV2> backends = parseBackendV2(response, logger);
+        return backends;
+    }
+
+    static List<BackendV2.BackendRowV2> parseBackendV2(String response, Logger logger) throws DorisException, IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        BackendV2 backend;
+        try {
+            backend = mapper.readValue(response, BackendV2.class);
+        } catch (JsonParseException e) {
+            String errMsg = "Doris BE's response is not a json. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        } catch (JsonMappingException e) {
+            String errMsg = "Doris BE's response cannot map to schema. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        } catch (IOException e) {
+            String errMsg = "Parse Doris BE's response to json failed. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        }
+
+        if (backend == null) {
+            logger.error(SHOULD_NOT_HAPPEN_MESSAGE);
+            throw new ShouldNeverHappenException();
+        }
+        List<BackendV2.BackendRowV2> backendRows = backend.getBackends();
         logger.debug("Parsing schema result is '{}'.", backendRows);
         return backendRows;
     }

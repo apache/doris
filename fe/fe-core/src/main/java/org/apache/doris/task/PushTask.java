@@ -195,7 +195,7 @@ public class PushTask extends AgentTask {
     public void countDownLatch(long backendId, long tabletId) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
-                LOG.info("pushTask current latch count: {}. backend: {}, tablet:{}",
+                LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}",
                          latch.getCount(), backendId, tabletId);
             }
         }

@@ -309,6 +309,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         break;
                     case CHAR:
                     case VARCHAR:
+                    case STRING:
                         literal = StringLiteral.read(in);
                         break;
                     case BOOLEAN:

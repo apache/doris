@@ -90,4 +90,6 @@ cases:
       alt: 有道
 actionText: Quick Start →
 actionLink: /en/installing/compilation
+articleText: Latest News
+articleLink: /en/article/article-list
 ---

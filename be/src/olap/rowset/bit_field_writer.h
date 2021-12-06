@@ -31,7 +31,7 @@ public:
     explicit BitFieldWriter(OutStream* output);
     ~BitFieldWriter();
     OLAPStatus init();
-    // 写入一个bit, bit_value为true表示写入1, false表示写入0
+    // Write a bit, bit_value is true means writing 1, false means writing 0
     OLAPStatus write(bool bit_value);
     OLAPStatus flush();
     void get_position(PositionEntryWriter* index_entry) const;
