@@ -169,7 +169,7 @@ public:
 
     // The total size of all data represented in this row batch (tuples and referenced
     // string data).
-    size_t total_byte_size();
+    size_t total_byte_size() const;
 
     TupleRow* get_row(int row_idx) const {
         DCHECK(_tuple_ptrs != nullptr);
@@ -214,10 +214,10 @@ public:
         /// Returns true if the iterator is beyond the last row for read iterators.
         /// Useful for read iterators to determine the limit. Write iterators should use
         /// RowBatch::AtCapacity() instead.
-        bool IR_ALWAYS_INLINE at_end() { return _row >= _row_batch_end; }
+        bool IR_ALWAYS_INLINE at_end() const { return _row >= _row_batch_end; }
 
         /// Returns the row batch which this iterator is iterating through.
-        RowBatch* parent() { return _parent; }
+        RowBatch* parent() const { return _parent; }
 
     private:
         /// Number of tuples per row.
@@ -309,7 +309,7 @@ public:
     // we firstly update dest resource, and then reset current resource
     void transfer_resource_ownership(RowBatch* dest);
 
-    void copy_row(TupleRow* src, TupleRow* dest) {
+    void copy_row(const TupleRow* src, TupleRow* dest) const {
         memcpy(dest, src, _num_tuples_per_row * sizeof(Tuple*));
     }
 
@@ -384,9 +384,6 @@ public:
 
     void set_scanner_id(int id) { _scanner_id = id; }
     int scanner_id() const { return _scanner_id; }
-
-    // Computes the maximum size needed to store tuple data for this row batch.
-    int max_tuple_buffer_size() const;
 
     static const int MAX_MEM_POOL_SIZE = 32 * 1024 * 1024;
     std::string to_string();
