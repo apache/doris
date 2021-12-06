@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,7 +44,7 @@ public class LateralViewRef extends TableRef {
 
     // after analyzed
     private FunctionCallExpr fnExpr;
-    private List<SlotRef> originSlotRefList = Lists.newArrayList();
+    private ArrayList<Expr> originSlotRefList = Lists.newArrayList();
     private InlineView view;
     private SlotRef explodeSlotRef;
 
@@ -110,9 +111,12 @@ public class LateralViewRef extends TableRef {
         return result;
     }
 
-    public void materializeRequiredSlots() {
-        for (SlotRef originSlotRef : originSlotRefList) {
-            originSlotRef.getDesc().setIsMaterialized(true);
+    public void materializeRequiredSlots(ExprSubstitutionMap baseTblSmap, Analyzer analyzer) throws AnalysisException {
+        if (relatedTableRef instanceof InlineViewRef) {
+            originSlotRefList = Expr.trySubstituteList(originSlotRefList, baseTblSmap, analyzer, false);
+        }
+        for (Expr originSlotRef : originSlotRefList) {
+            ((SlotRef) originSlotRef).getDesc().setIsMaterialized(true);
         }
         explodeSlotRef.getDesc().setIsMaterialized(true);
     }
