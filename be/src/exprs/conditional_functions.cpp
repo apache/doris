@@ -25,10 +25,10 @@
 
 namespace doris {
 
-#define CTOR_DCTOR_FUN(expr_class)                                \
-    expr_class::expr_class(const TExprNode& node) : Expr(node){}; \
-                                                                  \
-    expr_class::~expr_class(){};
+#define CTOR_DCTOR_FUN(expr_class)                                 \
+    expr_class::expr_class(const TExprNode& node) : Expr(node) {}; \
+                                                                   \
+    expr_class::~expr_class() {};
 
 CTOR_DCTOR_FUN(IfNullExpr);
 CTOR_DCTOR_FUN(NullIfExpr);

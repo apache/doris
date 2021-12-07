@@ -37,7 +37,7 @@ class ThriftServer;
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
     explicit HeartbeatServer(TMasterInfo* master_info);
-    virtual ~HeartbeatServer(){};
+    virtual ~HeartbeatServer() {};
 
     virtual void init_cluster_id();
 

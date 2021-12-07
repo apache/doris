@@ -28,10 +28,13 @@ namespace doris {
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
                        const std::shared_ptr<MemTracker>& parent_tracker)
-        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker, true, false, MemTrackerLevel::TASK)),
-          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
-                  true, false)),
-          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
+        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker, true, false,
+                                                 MemTrackerLevel::TASK)),
+          _readers_tracker(MemTracker::CreateTracker(
+                  -1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()),
+                  _mem_tracker, true, false)),
+          _writer_tracker(MemTracker::CreateTracker(
+                  -1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
                   true, false)),
           _tablet(tablet),
           _input_rowsets_size(0),
@@ -142,7 +145,8 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
               << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
-              << ". elapsed time=" << watch.get_elapse_second() << "s. cumulative_compaction_policy="
+              << ". elapsed time=" << watch.get_elapse_second()
+              << "s. cumulative_compaction_policy="
               << _tablet->cumulative_compaction_policy()->name() << ".";
 
     return OLAP_SUCCESS;
@@ -297,4 +301,4 @@ int64_t Compaction::get_compaction_permits() {
     return permits;
 }
 
-}  // namespace doris
+} // namespace doris

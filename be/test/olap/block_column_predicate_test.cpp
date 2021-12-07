@@ -20,8 +20,8 @@
 #include <google/protobuf/stubs/common.h>
 #include <gtest/gtest.h>
 
-#include "olap/comparison_predicate.h"
 #include "olap/column_predicate.h"
+#include "olap/comparison_predicate.h"
 #include "olap/field.h"
 #include "olap/row_block2.h"
 #include "olap/wrapper_field.h"
@@ -41,12 +41,12 @@ public:
 
     ~BlockColumnPredicateTest() = default;
 
-    void SetTabletSchema(std::string name, const std::string &type,
-                         const std::string &aggregation, uint32_t length, bool is_allow_null,
-                         bool is_key, TabletSchema *tablet_schema) {
+    void SetTabletSchema(std::string name, const std::string& type, const std::string& aggregation,
+                         uint32_t length, bool is_allow_null, bool is_key,
+                         TabletSchema* tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         static int id = 0;
-        ColumnPB *column = tablet_schema_pb.add_column();
+        ColumnPB* column = tablet_schema_pb.add_column();
         column->set_unique_id(++id);
         column->set_name(name);
         column->set_type(type);
@@ -60,7 +60,7 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void init_row_block(const TabletSchema *tablet_schema, int size) {
+    void init_row_block(const TabletSchema* tablet_schema, int size) {
         Schema schema(*tablet_schema);
         _row_block.reset(new RowBlockV2(schema, size));
     }
@@ -89,13 +89,12 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        *reinterpret_cast<float *>(col_block_view.data()) = i;
+        *reinterpret_cast<float*>(col_block_view.data()) = i;
     }
     single_column_block_pred.evaluate(_row_block.get(), &select_size);
     ASSERT_EQ(select_size, 1);
-    ASSERT_FLOAT_EQ(*(float *) col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
+    ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
 }
-
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN) {
     TabletSchema tablet_schema;
@@ -123,11 +122,11 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        *reinterpret_cast<double *>(col_block_view.data()) = i;
+        *reinterpret_cast<double*>(col_block_view.data()) = i;
     }
     and_block_column_pred.evaluate(_row_block.get(), &select_size);
     ASSERT_EQ(select_size, 1);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.0);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN) {
@@ -146,7 +145,6 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN) {
     auto single_less_pred = new SingleColumnBlockPredicate(less_pred.get());
     auto single_great_pred = new SingleColumnBlockPredicate(great_pred.get());
 
-
     OrBlockColumnPredicate or_block_column_pred;
     or_block_column_pred.add_column_predicate(single_less_pred);
     or_block_column_pred.add_column_predicate(single_great_pred);
@@ -157,11 +155,11 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        *reinterpret_cast<double *>(col_block_view.data()) = i;
+        *reinterpret_cast<double*>(col_block_view.data()) = i;
     }
     or_block_column_pred.evaluate(_row_block.get(), &select_size);
     ASSERT_EQ(select_size, 10);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 0.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 0.0);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN) {
@@ -185,7 +183,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        *reinterpret_cast<double *>(col_block_view.data()) = i;
+        *reinterpret_cast<double*>(col_block_view.data()) = i;
     }
 
     // Test for and or single
@@ -199,10 +197,10 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN) {
 
     or_block_column_pred.evaluate(_row_block.get(), &select_size);
     ASSERT_EQ(select_size, 4);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 0.0);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 1.0);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 2.0);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[3]).cell_ptr(), 4.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 0.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 1.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 2.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[3]).cell_ptr(), 4.0);
 
     _row_block->clear();
     select_size = _row_block->selected_size();
@@ -217,10 +215,10 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN) {
 
     or_block_column_pred1.evaluate(_row_block.get(), &select_size);
     ASSERT_EQ(select_size, 4);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 0.0);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 1.0);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 2.0);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[3]).cell_ptr(), 4.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 0.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 1.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 2.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[3]).cell_ptr(), 4.0);
 }
 
 TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN) {
@@ -244,7 +242,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        *reinterpret_cast<double *>(col_block_view.data()) = i;
+        *reinterpret_cast<double*>(col_block_view.data()) = i;
     }
 
     // Test for and or single
@@ -258,7 +256,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN) {
 
     and_block_column_pred.evaluate(_row_block.get(), &select_size);
     ASSERT_EQ(select_size, 1);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.0);
 
     _row_block->clear();
     select_size = _row_block->selected_size();
@@ -273,10 +271,10 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN) {
 
     and_block_column_pred1.evaluate(_row_block.get(), &select_size);
     ASSERT_EQ(select_size, 1);
-    ASSERT_DOUBLE_EQ(*(double *) col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.0);
+    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.0);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     int ret = doris::OLAP_SUCCESS;

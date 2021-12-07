@@ -194,45 +194,54 @@ TEST_F(DateTimeValueTest, check_range) {
     ASSERT_TRUE(value.from_date_int64(19880201123456));
 
     value._year = 10000;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._year = 1988;
 
     value._month = 13;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._month = 2;
 
     value._day = 32;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._day = 1;
 
     value._hour = TIME_MAX_HOUR;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._type = TIME_TIME;
-    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                            value.minute(), value.second(), value.microsecond(),
+                                            value.type()));
     value._hour = TIME_MAX_HOUR + 1;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._type = TIME_DATETIME;
     value._hour = 12;
 
     value._minute = 60;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._minute = 34;
 
     value._second = 60;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._second = 56;
 
     value._microsecond = 1000000;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._month = 0;
 }
 
@@ -241,20 +250,24 @@ TEST_F(DateTimeValueTest, check_date) {
     ASSERT_TRUE(value.from_date_int64(19880201));
 
     value._month = 0;
-    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                            value.minute(), value.second(), value.microsecond(),
+                                            value.type()));
     value._month = 2;
 
     value._day = 0;
-    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                            value.minute(), value.second(), value.microsecond(),
+                                            value.type()));
     value._year = 1987;
     value._day = 29;
-    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._year = 2000;
-    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(),
-            value.hour(), value.minute(), value.second(), value.microsecond(), value.type()));
+    ASSERT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                            value.minute(), value.second(), value.microsecond(),
+                                            value.type()));
 }
 
 // Calculate format

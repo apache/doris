@@ -335,113 +335,113 @@ public:
         return v >> num_bits;
     }
 
-    static void ByteSwapScalar(void *dest, const void *source, int len) {
-        uint8_t *dst = reinterpret_cast<uint8_t *>(dest);
-        const uint8_t *src = reinterpret_cast<const uint8_t *>(source);
+    static void ByteSwapScalar(void* dest, const void* source, int len) {
+        uint8_t* dst = reinterpret_cast<uint8_t*>(dest);
+        const uint8_t* src = reinterpret_cast<const uint8_t*>(source);
         switch (len) {
-            case 1:
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src);
-                return;
-            case 2:
-                *reinterpret_cast<uint16_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src));
-                return;
-            case 3:
-                *reinterpret_cast<uint16_t *>(dst + 1) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src));
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src + 2);
-                return;
-            case 4:
-                *reinterpret_cast<uint32_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src));
-                return;
-            case 5:
-                *reinterpret_cast<uint32_t *>(dst + 1) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src));
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src + 4);
-                return;
-            case 6:
-                *reinterpret_cast<uint32_t *>(dst + 2) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src));
-                *reinterpret_cast<uint16_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src + 4));
-                return;
-            case 7:
-                *reinterpret_cast<uint32_t *>(dst + 3) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src));
-                *reinterpret_cast<uint16_t *>(dst + 1) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src + 4));
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src + 6);
-                return;
-            case 8:
-                *reinterpret_cast<uint64_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                return;
-            case 9:
-                *reinterpret_cast<uint64_t *>(dst + 1) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src + 8);
-                return;
-            case 10:
-                *reinterpret_cast<uint64_t *>(dst + 2) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint16_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src + 8));
-                return;
-            case 11:
-                *reinterpret_cast<uint64_t *>(dst + 3) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint16_t *>(dst + 1) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src + 8));
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src + 10);
-                return;
-            case 12:
-                *reinterpret_cast<uint64_t *>(dst + 4) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint32_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src + 8));
-                return;
-            case 13:
-                *reinterpret_cast<uint64_t *>(dst + 5) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint32_t *>(dst + 1) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src + 8));
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src + 12);
-                return;
-            case 14:
-                *reinterpret_cast<uint64_t *>(dst + 6) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint32_t *>(dst + 2) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src + 8));
-                *reinterpret_cast<uint16_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src + 12));
-                return;
-            case 15:
-                *reinterpret_cast<uint64_t *>(dst + 7) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint32_t *>(dst + 3) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint32_t *>(src + 8));
-                *reinterpret_cast<uint16_t *>(dst + 1) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint16_t *>(src + 12));
-                *reinterpret_cast<uint8_t *>(dst) = *reinterpret_cast<const uint8_t *>(src + 14);
-                return;
-            case 16:
-                *reinterpret_cast<uint64_t *>(dst + 8) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src));
-                *reinterpret_cast<uint64_t *>(dst) =
-                        BitUtil::byte_swap(*reinterpret_cast<const uint64_t *>(src + 8));
-                return;
-            default:
-                // Revert to slow loop-based swap.
-                ByteSwapScalarLoop(source, len, dest);
-                return;
+        case 1:
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src);
+            return;
+        case 2:
+            *reinterpret_cast<uint16_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src));
+            return;
+        case 3:
+            *reinterpret_cast<uint16_t*>(dst + 1) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src));
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src + 2);
+            return;
+        case 4:
+            *reinterpret_cast<uint32_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src));
+            return;
+        case 5:
+            *reinterpret_cast<uint32_t*>(dst + 1) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src));
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src + 4);
+            return;
+        case 6:
+            *reinterpret_cast<uint32_t*>(dst + 2) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src));
+            *reinterpret_cast<uint16_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src + 4));
+            return;
+        case 7:
+            *reinterpret_cast<uint32_t*>(dst + 3) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src));
+            *reinterpret_cast<uint16_t*>(dst + 1) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src + 4));
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src + 6);
+            return;
+        case 8:
+            *reinterpret_cast<uint64_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            return;
+        case 9:
+            *reinterpret_cast<uint64_t*>(dst + 1) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src + 8);
+            return;
+        case 10:
+            *reinterpret_cast<uint64_t*>(dst + 2) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint16_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src + 8));
+            return;
+        case 11:
+            *reinterpret_cast<uint64_t*>(dst + 3) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint16_t*>(dst + 1) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src + 8));
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src + 10);
+            return;
+        case 12:
+            *reinterpret_cast<uint64_t*>(dst + 4) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint32_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src + 8));
+            return;
+        case 13:
+            *reinterpret_cast<uint64_t*>(dst + 5) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint32_t*>(dst + 1) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src + 8));
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src + 12);
+            return;
+        case 14:
+            *reinterpret_cast<uint64_t*>(dst + 6) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint32_t*>(dst + 2) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src + 8));
+            *reinterpret_cast<uint16_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src + 12));
+            return;
+        case 15:
+            *reinterpret_cast<uint64_t*>(dst + 7) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint32_t*>(dst + 3) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint32_t*>(src + 8));
+            *reinterpret_cast<uint16_t*>(dst + 1) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint16_t*>(src + 12));
+            *reinterpret_cast<uint8_t*>(dst) = *reinterpret_cast<const uint8_t*>(src + 14);
+            return;
+        case 16:
+            *reinterpret_cast<uint64_t*>(dst + 8) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src));
+            *reinterpret_cast<uint64_t*>(dst) =
+                    BitUtil::byte_swap(*reinterpret_cast<const uint64_t*>(src + 8));
+            return;
+        default:
+            // Revert to slow loop-based swap.
+            ByteSwapScalarLoop(source, len, dest);
+            return;
         }
     }
 
-    static void ByteSwapScalarLoop(const void *src, int len, void *dst) {
+    static void ByteSwapScalarLoop(const void* src, int len, void* dst) {
         //TODO: improve the performance of following code further using BSWAP intrinsic
-        uint8_t *d = reinterpret_cast<uint8_t *>(dst);
-        const uint8_t *s = reinterpret_cast<const uint8_t *>(src);
+        uint8_t* d = reinterpret_cast<uint8_t*>(dst);
+        const uint8_t* s = reinterpret_cast<const uint8_t*>(src);
         for (int i = 0; i < len; ++i) d[i] = s[len - i - 1];
     }
 };

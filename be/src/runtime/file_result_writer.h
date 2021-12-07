@@ -79,14 +79,12 @@ class FileResultWriter final : public ResultWriter {
 public:
     FileResultWriter(const ResultFileOptions* file_option,
                      const std::vector<ExprContext*>& output_expr_ctxs,
-                     RuntimeProfile* parent_profile,
-                     BufferControlBlock* sinker);
+                     RuntimeProfile* parent_profile, BufferControlBlock* sinker);
     FileResultWriter(const ResultFileOptions* file_option,
                      const TStorageBackendType::type storage_type,
                      const TUniqueId fragment_instance_id,
                      const std::vector<ExprContext*>& output_expr_ctxs,
-                     RuntimeProfile* parent_profile,
-                     BufferControlBlock* sinker,
+                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
                      RowBatch* output_batch);
     virtual ~FileResultWriter();
 

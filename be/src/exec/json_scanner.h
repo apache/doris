@@ -57,8 +57,7 @@ public:
     JsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                 const std::vector<TBrokerRangeDesc>& ranges,
                 const std::vector<TNetworkAddress>& broker_addresses,
-                const std::vector<TExpr>& pre_filter_texprs,
-                ScannerCounter* counter);
+                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     ~JsonScanner();
 
     // Open this scanner, will initialize information needed
@@ -123,15 +122,15 @@ struct JsonPath;
 class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-               bool strip_outer_array, bool num_as_string,bool fuzzy_parse,
+               bool strip_outer_array, bool num_as_string, bool fuzzy_parse,
                FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~JsonReader();
 
     Status init(const std::string& jsonpath, const std::string& json_root); // must call before use
 
-    Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
-                bool* is_empty_row, bool* eof);
+    Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
+                         MemPool* tuple_pool, bool* is_empty_row, bool* eof);
 
 private:
     Status (JsonReader::*_handle_json_callback)(Tuple* tuple,

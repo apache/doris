@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <functional>
 #include <memory>
 #include <string>
-#include <parallel_hashmap/phmap.h>
 
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"

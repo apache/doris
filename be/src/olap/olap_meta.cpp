@@ -103,7 +103,7 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key,
 }
 
 bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
-                         std::string* value) {
+                             std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
@@ -113,7 +113,7 @@ bool OlapMeta::key_may_exist(const int column_family_index, const std::string& k
         is_exist = _db->KeyMayExist(ReadOptions(), handle, Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
-    
+
     return is_exist;
 }
 

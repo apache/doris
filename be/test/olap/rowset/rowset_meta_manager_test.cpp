@@ -17,8 +17,8 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -83,7 +83,7 @@ public:
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
-    TabletUid _tablet_uid{0, 0};
+    TabletUid _tablet_uid {0, 0};
 };
 
 TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {

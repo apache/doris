@@ -24,9 +24,9 @@
 
 #include "env/env.h"
 #include "gutil/strings/util.h"
+#include "test_util/test_util.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 

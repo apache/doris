@@ -230,7 +230,7 @@ doris_udf::StringVal GeoFunctions::st_circle(FunctionContext* ctx, const DoubleV
 }
 
 struct StContainsState {
-    StContainsState() : is_null(false), shapes{nullptr, nullptr} {}
+    StContainsState() : is_null(false), shapes {nullptr, nullptr} {}
     ~StContainsState() {
         delete shapes[0];
         delete shapes[1];

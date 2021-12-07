@@ -53,7 +53,8 @@ struct SegmentWriterOptions {
 class SegmentWriter {
 public:
     explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
-                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent = nullptr);
+                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts,
+                           std::shared_ptr<MemTracker> parent = nullptr);
     ~SegmentWriter();
 
     Status init(uint32_t write_mbytes_per_sec);
@@ -67,7 +68,8 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id, const TabletColumn& column);
+    static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
+                                 const TabletColumn& column);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);

@@ -95,7 +95,7 @@ public:
     void Insert(int key, int value, int charge) {
         std::string result;
         _cache->release(_cache->insert(EncodeKey(&result, key), EncodeValue(value), charge,
-                    &CacheTest::Deleter));
+                                       &CacheTest::Deleter));
     }
 
     void InsertDurable(int key, int value, int charge) {
@@ -298,15 +298,11 @@ TEST_F(CacheTest, Prune) {
     insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
     ASSERT_EQ(5, cache.get_usage());
 
-    auto pred = [](const void* value) -> bool {
-        return false;
-    };
+    auto pred = [](const void* value) -> bool { return false; };
     cache.prune_if(pred);
     ASSERT_EQ(5, cache.get_usage());
 
-    auto pred2 = [](const void* value) -> bool {
-        return true;
-    };
+    auto pred2 = [](const void* value) -> bool { return true; };
     cache.prune_if(pred2);
     ASSERT_EQ(0, cache.get_usage());
 

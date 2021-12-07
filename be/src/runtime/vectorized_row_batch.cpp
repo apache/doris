@@ -53,8 +53,9 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
                     row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING ||
-                column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT) {
+            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_STRING || column.type() == OLAP_FIELD_TYPE_HLL ||
+                column.type() == OLAP_FIELD_TYPE_OBJECT) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();
@@ -96,8 +97,9 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
 
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING||
-                column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT) {
+            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_STRING || column.type() == OLAP_FIELD_TYPE_HLL ||
+                column.type() == OLAP_FIELD_TYPE_OBJECT) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();

@@ -38,14 +38,14 @@ public:
     T* add(T* t) {
         // TODO: Consider using a lock-free structure.
         std::lock_guard<SpinLock> l(_lock);
-        _objects.emplace_back(Element{t, [](void* obj) { delete reinterpret_cast<T*>(obj); }});
+        _objects.emplace_back(Element {t, [](void* obj) { delete reinterpret_cast<T*>(obj); }});
         return t;
     }
 
     template <class T>
     T* add_array(T* t) {
         std::lock_guard<SpinLock> l(_lock);
-        _objects.emplace_back(Element{t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
+        _objects.emplace_back(Element {t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
         return t;
     }
 

@@ -62,8 +62,8 @@ public:
     void set_read_params(const std::vector<uint32_t>& return_columns,
                          const std::vector<uint32_t>& seek_columns,
                          const std::set<uint32_t>& load_bf_columns, const Conditions& conditions,
-                         std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates, bool is_using_cache,
-                         RuntimeState* runtime_state);
+                         std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates,
+                         bool is_using_cache, RuntimeState* runtime_state);
 
     OLAPStatus get_first_row_block(RowBlock** row_block);
 

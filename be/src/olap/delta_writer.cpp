@@ -103,8 +103,8 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    _mem_tracker = MemTracker::CreateTracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()),
-                                             _parent_mem_tracker);
+    _mem_tracker = MemTracker::CreateTracker(
+            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()), _parent_mem_tracker);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
@@ -148,7 +148,8 @@ OLAPStatus DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(&_flush_token, writer_context.rowset_type));
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
+            &_flush_token, writer_context.rowset_type));
 
     _is_init = true;
     return OLAP_SUCCESS;
@@ -219,7 +220,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return OLAP_SUCCESS;
     }
-    
+
     if (_is_cancelled) {
         return OLAP_ERR_ALREADY_CANCELLED;
     }
@@ -227,8 +228,8 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     if (mem_consumption() == _mem_table->memory_usage()) {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                << ", load id: " << print_id(_req.load_id);
+                    << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
+                    << ", load id: " << print_id(_req.load_id);
         RETURN_NOT_OK(_flush_memtable_async());
         _reset_mem_table();
     } else {
@@ -314,7 +315,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
         LOG(INFO) << "convert version for schema change";
         auto schema_change_handler = SchemaChangeHandler::instance();
         res = schema_change_handler->schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
-                                                   &_new_rowset);
+                                                            &_new_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
                          << "res: " << res << ", "
@@ -345,9 +346,8 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
-    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id() 
-                  << ", load id: " << print_id(_req.load_id)
-                  << ", stats: " << stat;
+    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id()
+                  << ", load id: " << print_id(_req.load_id) << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 

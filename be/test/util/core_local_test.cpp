@@ -23,9 +23,9 @@
 #include <thread>
 
 #include "common/logging.h"
+#include "test_util/test_util.h"
 #include "time.h"
 #include "util/stopwatch.hpp"
-#include "test_util/test_util.h"
 
 namespace doris {
 

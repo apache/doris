@@ -165,7 +165,8 @@ bool BetaRowset::check_file_exist() {
     for (int i = 0; i < num_segments(); ++i) {
         std::string data_file = segment_file_path(_rowset_path, rowset_id(), i);
         if (!FileUtils::check_exist(data_file)) {
-            LOG(WARNING) << "data file not existed: " << data_file << " for rowset_id: " << rowset_id();
+            LOG(WARNING) << "data file not existed: " << data_file
+                         << " for rowset_id: " << rowset_id();
             return false;
         }
     }

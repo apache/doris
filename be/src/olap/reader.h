@@ -106,7 +106,7 @@ public:
     // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     virtual OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
-                                         ObjectPool* agg_pool, bool* eof) = 0;
+                                                 ObjectPool* agg_pool, bool* eof) = 0;
 
     uint64_t merged_rows() const { return _merged_rows; }
 

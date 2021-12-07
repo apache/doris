@@ -49,7 +49,7 @@ void HyperLogLog::_convert_explicit_to_register() {
         _update_registers(_explicit_data[i]);
     }
 
-    delete [] _explicit_data;
+    delete[] _explicit_data;
     _explicit_data = nullptr;
     _explicit_data_num = 0;
 }

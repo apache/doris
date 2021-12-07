@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
 #define DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
 
+#include <fmt/format.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <fmt/format.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -41,9 +41,7 @@ public:
         return fmt::format_to(buffer, "{}", value) - buffer;
     }
 
-    static std::string to_string(__int128 value) {
-        return fmt::format("{}", value);
-    }
+    static std::string to_string(__int128 value) { return fmt::format("{}", value); }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);

@@ -514,10 +514,10 @@ void Tablet::delete_expired_stale_rowset() {
                 StorageEngine::instance()->add_unused_rowset(it->second);
                 _stale_rs_version_map.erase(it);
                 VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
-                          << timestampedVersion->version().first << ","
-                          << timestampedVersion->version().second
-                          << "] move to unused_rowset success " << std::fixed
-                          << expired_stale_sweep_endtime;
+                            << timestampedVersion->version().first << ","
+                            << timestampedVersion->version().second
+                            << "] move to unused_rowset success " << std::fixed
+                            << expired_stale_sweep_endtime;
             } else {
                 LOG(WARNING) << "delete stale rowset tablet=" << full_name() << " version["
                              << timestampedVersion->version().first << ","
@@ -535,7 +535,7 @@ void Tablet::delete_expired_stale_rowset() {
               << " current_size=" << _stale_rs_version_map.size() << " old_size=" << old_size
               << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
               << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
-              << expired_stale_sweep_endtime  << ", reconstructed=" << reconstructed;
+              << expired_stale_sweep_endtime << ", reconstructed=" << reconstructed;
 
 #ifndef BE_TEST
     save_meta();
@@ -545,8 +545,8 @@ void Tablet::delete_expired_stale_rowset() {
 bool Tablet::_reconstruct_version_tracker_if_necessary() {
     double orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
     if (orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
-        _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
-                _tablet_meta->all_stale_rs_metas());
+        _timestamped_version_tracker.construct_versioned_tracker(
+                _tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
         return true;
     }
     return false;
@@ -564,13 +564,13 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
             // so to avoid print too many logs.
             if (version_path != nullptr) {
                 LOG(WARNING) << "tablet:" << full_name()
-                    << ", version already has been merged. spec_version: " << spec_version;
+                             << ", version already has been merged. spec_version: " << spec_version;
             }
             status = OLAP_ERR_VERSION_ALREADY_MERGED;
         } else {
             if (version_path != nullptr) {
                 LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
-                    << ", missed version for version:" << spec_version;
+                             << ", missed version for version:" << spec_version;
                 _print_missed_versions(missed_versions);
             }
         }
@@ -594,7 +594,8 @@ bool Tablet::check_version_exist(const Version& version) const {
 }
 
 // The meta read lock should be held before calling
-void Tablet::acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const {
+void Tablet::acquire_version_and_rowsets(
+        std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const {
     for (const auto& it : _rs_version_map) {
         version_rowsets->emplace_back(it.first, it.second);
     }
@@ -742,8 +743,8 @@ const uint32_t Tablet::_calc_cumulative_compaction_score(
     }
 #endif
     uint32_t score = 0;
-    _cumulative_compaction_policy->calc_cumulative_compaction_score(tablet_state(),
-            _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
+    _cumulative_compaction_policy->calc_cumulative_compaction_score(
+            tablet_state(), _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
     return score;
 }
 
@@ -1372,7 +1373,8 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (!config::disable_compaction_trace_log && watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+            if (!config::disable_compaction_trace_log &&
+                watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
                 LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
             }
         });
@@ -1394,7 +1396,8 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (!config::disable_compaction_trace_log && watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+            if (!config::disable_compaction_trace_log &&
+                watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
                 LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
             }
         });

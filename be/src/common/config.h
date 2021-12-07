@@ -643,7 +643,7 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 CONF_mInt32(segment_cache_capacity, "1000000");
 
 // Set to true to disable the minidump feature.
-CONF_Bool(disable_minidump , "false");
+CONF_Bool(disable_minidump, "false");
 
 // The dir to save minidump file.
 // Make sure that the user who run Doris has permission to create and visit this dir,

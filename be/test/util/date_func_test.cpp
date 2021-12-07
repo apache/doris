@@ -16,7 +16,9 @@
 // under the License.
 
 #include "util/date_func.h"
+
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 namespace doris {
@@ -72,7 +74,6 @@ TEST_F(DateFuncTest, convert_double_to_string) {
 
     len = time_to_buffer_from_double(-13020399, buffer);
     ASSERT_EQ(std::string("-838:59:59"), std::string(buffer, len));
-
 }
 
 } // namespace doris
@@ -81,4 +82,3 @@ int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

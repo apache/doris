@@ -52,7 +52,9 @@ Status IntersectNode::open(RuntimeState* state) {
     bool eos = false;
 
     for (int i = 1; i < _children.size(); ++i) {
-        if (i > 1) { refresh_hash_table<true>(i); }
+        if (i > 1) {
+            refresh_hash_table<true>(i);
+        }
 
         _valid_element_in_hash_tbl = 0;
         // probe

@@ -89,14 +89,14 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
 
     if (_pool.size() == _max_pool_size) {
         VLOG_NOTICE << "data consumer pool is full: " << _pool.size() << "-" << _max_pool_size
-                << ", discard the returned consumer: " << consumer->id();
+                    << ", discard the returned consumer: " << consumer->id();
         return;
     }
 
     consumer->reset();
     _pool.push_back(consumer);
     VLOG_NOTICE << "return the data consumer: " << consumer->id()
-            << ", current pool size: " << _pool.size();
+                << ", current pool size: " << _pool.size();
     return;
 }
 

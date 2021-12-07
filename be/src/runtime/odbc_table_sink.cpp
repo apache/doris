@@ -20,15 +20,15 @@
 #include <sstream>
 
 #include "exprs/expr.h"
-#include "runtime/runtime_state.h"
 #include "runtime/mem_tracker.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 OdbcTableSink::OdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& t_exprs)
+                             const std::vector<TExpr>& t_exprs)
         : _pool(pool),
           _row_desc(row_desc),
           _t_output_expr(t_exprs),
@@ -100,4 +100,4 @@ Status OdbcTableSink::close(RuntimeState* state, Status exec_status) {
     return Status::OK();
 }
 
-}
+} // namespace doris

@@ -30,17 +30,13 @@ namespace debug {
 // on the current thread as long as it is alive. These may be safely
 // nested.
 class ScopedTSANIgnoreReadsAndWrites {
- public:
-  ScopedTSANIgnoreReadsAndWrites() {
-    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
-  }
-  ~ScopedTSANIgnoreReadsAndWrites() {
-    ANNOTATE_IGNORE_READS_AND_WRITES_END();
-  }
- private:
-  DISALLOW_COPY_AND_ASSIGN(ScopedTSANIgnoreReadsAndWrites);
+public:
+    ScopedTSANIgnoreReadsAndWrites() { ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN(); }
+    ~ScopedTSANIgnoreReadsAndWrites() { ANNOTATE_IGNORE_READS_AND_WRITES_END(); }
+
+private:
+    DISALLOW_COPY_AND_ASSIGN(ScopedTSANIgnoreReadsAndWrites);
 };
 
 } // namespace debug
 } // namespace doris
-

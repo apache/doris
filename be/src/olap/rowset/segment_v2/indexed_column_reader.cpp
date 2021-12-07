@@ -78,7 +78,8 @@ Status IndexedColumnReader::load_index_page(fs::ReadableBlock* rblock, const Pag
 }
 
 Status IndexedColumnReader::read_page(fs::ReadableBlock* rblock, const PagePointer& pp,
-                                      PageHandle* handle, Slice* body, PageFooterPB* footer, PageTypePB type) const {
+                                      PageHandle* handle, Slice* body, PageFooterPB* footer,
+                                      PageTypePB type) const {
     PageReadOptions opts;
     opts.rblock = rblock;
     opts.page_pointer = pp;

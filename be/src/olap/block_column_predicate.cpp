@@ -27,13 +27,15 @@ void SingleColumnBlockPredicate::evaluate(RowBlockV2* block, uint16_t* selected_
     _predicate->evaluate(&column_block, block->selection_vector(), selected_size);
 }
 
-void SingleColumnBlockPredicate::evaluate_and(RowBlockV2 *block, uint16_t selected_size, bool *flags) const {
+void SingleColumnBlockPredicate::evaluate_and(RowBlockV2* block, uint16_t selected_size,
+                                              bool* flags) const {
     auto column_id = _predicate->column_id();
     auto column_block = block->column_block(column_id);
     _predicate->evaluate_and(&column_block, block->selection_vector(), selected_size, flags);
 }
 
-void SingleColumnBlockPredicate::evaluate_or(RowBlockV2 *block, uint16_t selected_size, bool *flags) const {
+void SingleColumnBlockPredicate::evaluate_or(RowBlockV2* block, uint16_t selected_size,
+                                             bool* flags) const {
     auto column_id = _predicate->column_id();
     auto column_block = block->column_block(column_id);
     _predicate->evaluate_or(&column_block, block->selection_vector(), selected_size, flags);
@@ -60,13 +62,15 @@ void OrBlockColumnPredicate::evaluate(RowBlockV2* block, uint16_t* selected_size
     }
 }
 
-void OrBlockColumnPredicate::evaluate_or(RowBlockV2 *block, uint16_t selected_size, bool* flags) const {
+void OrBlockColumnPredicate::evaluate_or(RowBlockV2* block, uint16_t selected_size,
+                                         bool* flags) const {
     for (auto block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_or(block, selected_size, flags);
     }
 }
 
-void OrBlockColumnPredicate::evaluate_and(RowBlockV2 *block, uint16_t selected_size, bool* flags) const {
+void OrBlockColumnPredicate::evaluate_and(RowBlockV2* block, uint16_t selected_size,
+                                          bool* flags) const {
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_and(block, selected_size, flags);
     } else {
@@ -89,13 +93,15 @@ void AndBlockColumnPredicate::evaluate(RowBlockV2* block, uint16_t* selected_siz
     }
 }
 
-void AndBlockColumnPredicate::evaluate_and(RowBlockV2 *block, uint16_t selected_size, bool* flags) const {
+void AndBlockColumnPredicate::evaluate_and(RowBlockV2* block, uint16_t selected_size,
+                                           bool* flags) const {
     for (auto block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_and(block, selected_size, flags);
     }
 }
 
-void AndBlockColumnPredicate::evaluate_or(RowBlockV2 *block, uint16_t selected_size, bool* flags) const {
+void AndBlockColumnPredicate::evaluate_or(RowBlockV2* block, uint16_t selected_size,
+                                          bool* flags) const {
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_or(block, selected_size, flags);
     } else {

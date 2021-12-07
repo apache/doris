@@ -32,7 +32,7 @@ class PluginLoader {
 public:
     PluginLoader(const std::string& name, int type) : _name(name), _type(type), _close(false) {}
 
-    virtual ~PluginLoader(){};
+    virtual ~PluginLoader() {};
 
     virtual Status install() = 0;
 
@@ -67,7 +67,7 @@ public:
               _source(source),
               _so_name(so_name),
               _install_path(install_path),
-              _plugin_handler(nullptr){};
+              _plugin_handler(nullptr) {};
 
     virtual ~DynamicPluginLoader() {
         // just close plugin, but don't clean install path (maybe other plugin has used)

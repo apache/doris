@@ -240,7 +240,7 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
         }
     }
     VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
-                << " filtered-percent:" << 1.0 - (page_indexes->size()*1.0)/(page_size*1.0);
+            << " filtered-percent:" << 1.0 - (page_indexes->size() * 1.0) / (page_size * 1.0);
     return Status::OK();
 }
 

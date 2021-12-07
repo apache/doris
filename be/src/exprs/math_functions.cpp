@@ -27,8 +27,8 @@
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
 #include "runtime/decimalv2_value.h"
-#include "util/string_parser.hpp"
 #include "util/simd/vstring_function.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -352,7 +352,7 @@ StringVal MathFunctions::hex_string(FunctionContext* ctx, const StringVal& s) {
     }
 
     StringVal result = StringVal::create_temp_string_val(ctx, s.len * 2);
-    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char *>(result.ptr));
+    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char*>(result.ptr));
     return result;
 }
 

@@ -50,7 +50,9 @@ Status ExceptNode::open(RuntimeState* state) {
 
     for (int i = 1; i < _children.size(); ++i) {
         // rebuild hash table, for first time will rebuild with the no duplicated _hash_tbl,
-        if (i > 1) { refresh_hash_table<false>(i); }
+        if (i > 1) {
+            refresh_hash_table<false>(i);
+        }
 
         // probe
         _probe_batch.reset(

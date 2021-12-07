@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "gutil/strings/numbers.h"
+
+#include <gtest/gtest.h>
 
 #include <limits>
 
-#include <gtest/gtest.h>
-#include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
 namespace doris {
@@ -136,5 +137,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-
-

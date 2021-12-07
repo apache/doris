@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/broker_scanner.h"
-
 #include <gtest/gtest.h>
 
 #include <map>
@@ -24,6 +22,7 @@
 #include <vector>
 
 #include "common/object_pool.h"
+#include "exec/broker_scanner.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
@@ -36,7 +35,7 @@
 
 namespace doris {
 
-class MultiBytesSeparatorTest: public testing::Test {
+class MultiBytesSeparatorTest : public testing::Test {
 public:
     MultiBytesSeparatorTest() {}
 
@@ -44,7 +43,6 @@ protected:
     virtual void SetUp() {}
     virtual void TearDown() {}
 };
-
 
 TEST_F(MultiBytesSeparatorTest, normal) {
     TBrokerScanRangeParams params;
@@ -58,7 +56,8 @@ TEST_F(MultiBytesSeparatorTest, normal) {
     const std::vector<TBrokerRangeDesc> ranges;
     const std::vector<TNetworkAddress> broker_addresses;
     const std::vector<TExpr> pre_filter_texprs;
-    BrokerScanner scanner(nullptr, nullptr, params, ranges, broker_addresses, pre_filter_texprs, nullptr);
+    BrokerScanner scanner(nullptr, nullptr, params, ranges, broker_addresses, pre_filter_texprs,
+                          nullptr);
 
 #define private public
 
@@ -103,7 +102,6 @@ TEST_F(MultiBytesSeparatorTest, normal) {
         ASSERT_EQ(2, scanner._split_values[3].size);
     }
 }
-
 
 } // end namespace doris
 

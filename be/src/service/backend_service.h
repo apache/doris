@@ -148,7 +148,7 @@ public:
 
     virtual void get_stream_load_record(TStreamLoadRecordResult& result,
                                         const int64_t last_stream_record_time) override;
-  
+
     virtual void clean_trash() override;
 
 private:

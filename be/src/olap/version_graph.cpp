@@ -602,7 +602,8 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
 
         if (next_idx > -1) {
             if (version_path != nullptr) {
-                version_path->emplace_back(_version_graph[cur_idx].value, _version_graph[next_idx].value - 1);
+                version_path->emplace_back(_version_graph[cur_idx].value,
+                                           _version_graph[next_idx].value - 1);
             }
             cur_idx = next_idx;
         } else {
@@ -632,7 +633,7 @@ double VersionGraph::get_orphan_vertex_ratio() {
             ++orphan_vertex_num;
         }
     }
-    return orphan_vertex_num / (double) vertex_num;
+    return orphan_vertex_num / (double)vertex_num;
 }
 
 } // namespace doris

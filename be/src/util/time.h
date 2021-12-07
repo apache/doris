@@ -24,7 +24,7 @@
 #include <string>
 
 #define NANOS_PER_SEC 1000000000ll
-#define NANOS_PER_MILLIS  1000000ll
+#define NANOS_PER_MILLIS 1000000ll
 #define NANOS_PER_MICRO 1000ll
 #define MICROS_PER_SEC 1000000ll
 #define MICROS_PER_MILLI 1000ll

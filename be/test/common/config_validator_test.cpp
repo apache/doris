@@ -27,14 +27,10 @@ namespace doris {
 using namespace config;
 
 CONF_mInt16(cfg_validator_1, "15");
-CONF_Validator(cfg_validator_1, [](int16_t config) -> bool {
-    return 0 <= config && config <= 10;
-});
+CONF_Validator(cfg_validator_1, [](int16_t config) -> bool { return 0 <= config && config <= 10; });
 
 CONF_mInt16(cfg_validator_2, "5");
-CONF_Validator(cfg_validator_2, [](int16_t config) -> bool {
-    return 0 <= config && config <= 10;
-});
+CONF_Validator(cfg_validator_2, [](int16_t config) -> bool { return 0 <= config && config <= 10; });
 
 TEST(ConfigValidatorTest, Validator) {
     ASSERT_FALSE(config::init(nullptr, true));

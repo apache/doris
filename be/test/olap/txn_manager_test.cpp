@@ -17,8 +17,8 @@
 
 #include "olap/txn_manager.h"
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -170,7 +170,7 @@ private:
     TTransactionId transaction_id = 111;
     TTabletId tablet_id = 222;
     SchemaHash schema_hash = 333;
-    TabletUid _tablet_uid{0, 0};
+    TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
     std::unique_ptr<TabletSchema> _schema;
     RowsetSharedPtr _alpha_rowset;

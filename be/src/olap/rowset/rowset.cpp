@@ -53,9 +53,10 @@ OLAPStatus Rowset::load(bool use_cache) {
         }
     }
     // load is done
-    VLOG_CRITICAL << "rowset is loaded. " << rowset_id() << ", rowset version:" << rowset_meta()->version()
-              << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
-              << _rowset_meta->tablet_id();
+    VLOG_CRITICAL << "rowset is loaded. " << rowset_id()
+                  << ", rowset version:" << rowset_meta()->version()
+                  << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
+                  << _rowset_meta->tablet_id();
     return OLAP_SUCCESS;
 }
 

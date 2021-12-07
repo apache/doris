@@ -17,10 +17,9 @@
 
 #include "util/s3_storage_backend.h"
 
+#include <aws/core/Aws.h>
 #include <gtest/gtest.h>
 
-
-#include <aws/core/Aws.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>

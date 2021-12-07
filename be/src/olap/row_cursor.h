@@ -57,8 +57,7 @@ public:
     // 目前仅用在拆分key区间的时候
     OLAPStatus init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
 
-    OLAPStatus init_scan_key(const TabletSchema& schema,
-                             const std::vector<std::string>& keys,
+    OLAPStatus init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys,
                              const std::shared_ptr<Schema>& shared_schema);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
@@ -156,7 +155,8 @@ private:
     OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
     inline OLAPStatus _alloc_buf();
 
-    OLAPStatus _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
+    OLAPStatus _init_scan_key(const TabletSchema& schema,
+                              const std::vector<std::string>& scan_keys);
 
     std::unique_ptr<Schema> _schema;
 

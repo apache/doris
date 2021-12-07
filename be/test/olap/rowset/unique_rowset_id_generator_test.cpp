@@ -21,10 +21,10 @@
 
 #include <iostream>
 
+#include "test_util/test_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 class UniqueRowsetIdGeneratorTest : public testing::Test {};

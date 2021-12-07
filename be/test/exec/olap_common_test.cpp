@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <iostream>
 #include <vector>
-
-#include <gtest/gtest.h>
 #define protected public
 #define private public
 
@@ -30,8 +29,8 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
 #include "util/cpu_info.h"
-#include "util/runtime_profile.h"
 #include "util/logging.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -43,7 +42,7 @@ void construct_scan_range(TPaloScanRange* doris_scan_range) {
     doris_scan_range->__set_schema_hash("216424022");
     doris_scan_range->__set_version("0");
     doris_scan_range->__set_version_hash("0");
-//    doris_scan_range->engine_table_name.push_back("ShowQStats");
+    //    doris_scan_range->engine_table_name.push_back("ShowQStats");
     doris_scan_range->__set_db_name("olap");
     TKeyRange key_range;
     key_range.__set_column_type(to_thrift(TYPE_INT));
@@ -171,7 +170,6 @@ TEST_F(ColumnValueRangeTest, ContainsNullTest) {
     ASSERT_EQ(no_null_range._fixed_values, range1._fixed_values);
     ASSERT_EQ(no_null_range._contain_null, range1._contain_null);
 
-
     // test scoped value range intersection with null and no null range
     range1.set_whole_value_range();
     range1.add_range(FILTER_LESS_OR_EQUAL, 80);
@@ -236,7 +234,6 @@ TEST_F(ColumnValueRangeTest, RangeIntersectionTest) {
     ASSERT_EQ(intersection_range._low_op, FILTER_LARGER_OR_EQUAL);
     ASSERT_EQ(intersection_range._high_value, 100);
     ASSERT_EQ(intersection_range._high_op, FILTER_LESS);
-
 
     ASSERT_TRUE(range1.add_range(FILTER_LESS_OR_EQUAL, 80).ok());
     ASSERT_TRUE(range2.add_range(FILTER_LARGER, 40).ok());
@@ -535,7 +532,8 @@ TEST_F(OlapScanKeysTest, ExtendFixedAndRangeTest) {
 
     scan_keys.extend_scan_key(range2, 1024);
 
-    std::vector<std::unique_ptr<OlapScanRange>> key_range;;
+    std::vector<std::unique_ptr<OlapScanRange>> key_range;
+    ;
 
     scan_keys.get_key_range(&key_range);
 
@@ -578,7 +576,8 @@ TEST_F(OlapScanKeysTest, ExtendRangeTest) {
 
     ASSERT_TRUE(scan_keys.extend_scan_key(range2, 1024).ok());
 
-    std::vector<std::unique_ptr<OlapScanRange>> key_range;;
+    std::vector<std::unique_ptr<OlapScanRange>> key_range;
+    ;
 
     scan_keys.get_key_range(&key_range);
 
@@ -600,12 +599,13 @@ TEST_F(OlapScanKeysTest, ExtendRangeTest) {
 }
 
 TEST_F(OlapScanKeysTest, EachtypeTest) {
-    std::vector<std::unique_ptr<OlapScanRange>> key_range;;
+    std::vector<std::unique_ptr<OlapScanRange>> key_range;
+    ;
 
     {
         OlapScanKeys scan_keys;
         ColumnValueRange<int8_t> range("col", TYPE_TINYINT);
-        ASSERT_TRUE(scan_keys.extend_scan_key(range,1024).ok());
+        ASSERT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
         scan_keys.get_key_range(&key_range);
         // contain null, [-128, 127]
         ASSERT_EQ(key_range.size(), 257);
@@ -625,7 +625,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
     {
         OlapScanKeys scan_keys;
         ColumnValueRange<int16_t> range("col", TYPE_SMALLINT);
-        ASSERT_TRUE(scan_keys.extend_scan_key(range,1024).ok());
+        ASSERT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
         scan_keys.get_key_range(&key_range);
         ASSERT_EQ(key_range.size(), 1);
         ASSERT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "null");
@@ -633,7 +633,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 
         ASSERT_TRUE(range.add_range(FILTER_LARGER, 0).ok());
         scan_keys.clear();
-        ASSERT_TRUE(scan_keys.extend_scan_key(range,1024).ok());
+        ASSERT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
         scan_keys.get_key_range(&key_range);
 
         ASSERT_EQ(key_range.size(), 1);
@@ -642,7 +642,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 
         ASSERT_TRUE(range.add_range(FILTER_LESS, 32766).ok());
         scan_keys.clear();
-        ASSERT_TRUE(scan_keys.extend_scan_key(range,1024).ok());
+        ASSERT_TRUE(scan_keys.extend_scan_key(range, 1024).ok());
         scan_keys.get_key_range(&key_range);
 
         ASSERT_EQ(key_range.size(), 1);
@@ -720,7 +720,7 @@ TEST_F(OlapScanKeysTest, ToOlapFilterTest) {
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[1], "30");
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[2], "40");
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[3], "50");
-    
+
     filters.clear();
     range.to_in_condition(filters, false);
     ASSERT_EQ(std::next(filters.begin(), 0)->column_name, "col");
@@ -729,7 +729,6 @@ TEST_F(OlapScanKeysTest, ToOlapFilterTest) {
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[1], "30");
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[2], "40");
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[3], "50");
-
 
     ASSERT_TRUE(range.add_range(FILTER_LARGER, 20).ok());
     filters.clear();

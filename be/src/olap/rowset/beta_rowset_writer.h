@@ -91,7 +91,6 @@ private:
 
     bool _is_pending = false;
     bool _already_built = false;
-
 };
 
 } // namespace doris

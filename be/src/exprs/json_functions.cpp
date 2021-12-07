@@ -313,7 +313,8 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     JsonState* json_state;
     JsonState tmp_json_state;
 #ifndef BE_TEST
-    json_state = reinterpret_cast<JsonState*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    json_state = reinterpret_cast<JsonState*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (json_state == nullptr) {
         json_state = &tmp_json_state;
     }
@@ -353,7 +354,7 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
         //rapidjson::Document document;
         if (UNLIKELY(document->HasParseError())) {
             VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
-                    << GetParseError_En(document->GetParseError());
+                          << GetParseError_En(document->GetParseError());
             document->SetNull();
             return document;
         }

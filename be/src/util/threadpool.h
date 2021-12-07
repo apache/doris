@@ -222,7 +222,7 @@ public:
         MutexLock l(&_lock);
         return _active_threads;
     }
-    
+
     int get_queue_size() const {
         MutexLock l(&_lock);
         return _total_queued_tasks;
@@ -436,7 +436,8 @@ private:
     // Constructs a new token.
     //
     // The token may not outlive its thread pool ('pool').
-    ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode, int max_concurrency = INT_MAX);
+    ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode,
+                    int max_concurrency = INT_MAX);
 
     // Changes this token's state to 'new_state' taking actions as needed.
     void transition(State new_state);

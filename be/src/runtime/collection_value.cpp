@@ -91,7 +91,7 @@ Status CollectionValue::init_collection(ObjectPool* pool, uint32_t size, Primiti
     }
 
     val->_length = size;
-    val->_null_signs = pool->add_array(new bool[size]{0});
+    val->_null_signs = pool->add_array(new bool[size] {0});
     val->_data = pool->add_array(new uint8_t[size * sizeof_type(child_type)]);
 
     return Status::OK();

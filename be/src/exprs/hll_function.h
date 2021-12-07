@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_HLL_FUNCTION_H
 
 #include <string>
+
 #include "udf/udf.h"
 
 namespace doris {

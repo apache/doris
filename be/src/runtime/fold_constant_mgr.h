@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
-#include "exprs/expr_context.h"
-#include "exprs/expr.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "runtime/exec_env.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "runtime/exec_env.h"
+#include "runtime/tuple_row.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -35,7 +35,7 @@ class TQueryGlobals;
 class FoldConstantMgr {
 public:
     FoldConstantMgr(ExecEnv* exec_env);
-    // fold constant expr 
+    // fold constant expr
     Status fold_constant_expr(const TFoldConstantParams& params, PConstantExprResult* response);
     // init runtime_state and mem_tracker
     Status init(TQueryGlobals query_globals);
@@ -53,5 +53,4 @@ private:
     ObjectPool _pool;
     static TUniqueId _dummy_id;
 };
-}
-
+} // namespace doris

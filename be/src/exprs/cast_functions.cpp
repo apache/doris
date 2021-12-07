@@ -17,8 +17,9 @@
 
 #include "exprs/cast_functions.h"
 
-#include <cmath>
 #include <fmt/format.h>
+
+#include <cmath>
 
 #include "exprs/anyval_util.h"
 #include "gutil/strings/numbers.h"

@@ -31,8 +31,7 @@ namespace doris {
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
-                         const std::vector<TExpr>& pre_filter_texprs,
-                         ScannerCounter* counter)
+                         const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : _state(state),
           _params(params),
           _counter(counter),
@@ -41,9 +40,9 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
 #if BE_TEST
           _mem_tracker(new MemTracker()),
 #else
-          _mem_tracker(
-                  MemTracker::CreateTracker(-1, "BaseScanner:" + std::to_string(state->load_job_id()),
-                                            state->instance_mem_tracker())),
+          _mem_tracker(MemTracker::CreateTracker(
+                  -1, "BaseScanner:" + std::to_string(state->load_job_id()),
+                  state->instance_mem_tracker())),
 #endif
           _mem_pool(_mem_tracker.get()),
           _dest_tuple_desc(nullptr),
@@ -103,7 +102,8 @@ Status BaseScanner::init_expr_ctxes() {
 
     // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
     if (!_pre_filter_texprs.empty()) {
-        RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_ctxs));
+        RETURN_IF_ERROR(
+                Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_ctxs));
         RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
         RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
     }
@@ -153,7 +153,7 @@ Status BaseScanner::init_expr_ctxes() {
 
 bool BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     // filter src tuple by preceding filter first
-	if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
+    if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
         _counter->num_rows_unselected++;
         return false;
     }
@@ -246,6 +246,5 @@ void BaseScanner::close() {
         Expr::close(_pre_filter_ctxs, _state);
     }
 }
-
 
 } // namespace doris

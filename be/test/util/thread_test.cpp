@@ -96,7 +96,7 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
             SCOPED_RAW_TIMER(&thread_creation_ns);
             for (auto& t : threads) {
                 Status status = Thread::create("test", "TestCallOnExit", SleepFor,
-                                            MonoDelta::FromSeconds(0), &t);
+                                               MonoDelta::FromSeconds(0), &t);
                 ASSERT_TRUE(status.ok());
             }
         }

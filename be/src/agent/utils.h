@@ -29,7 +29,7 @@ namespace doris {
 class MasterServerClient {
 public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
-    virtual ~MasterServerClient(){};
+    virtual ~MasterServerClient() {};
 
     // Report finished task to the master server
     //
@@ -59,8 +59,8 @@ private:
 
 class AgentUtils {
 public:
-    AgentUtils(){};
-    virtual ~AgentUtils(){};
+    AgentUtils() {};
+    virtual ~AgentUtils() {};
 
     // Use rsync synchronize folder from remote agent to local folder
     //

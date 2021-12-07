@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/config.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
 #include <gtest/gtest.h>
@@ -23,6 +22,7 @@
 #include <memory>
 #include <string>
 
+#include "common/config.h"
 #include "env/env.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"

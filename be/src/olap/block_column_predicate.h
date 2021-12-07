@@ -48,7 +48,7 @@ public:
 
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
 public:
-    explicit SingleColumnBlockPredicate(const ColumnPredicate* pre):_predicate(pre) {};
+    explicit SingleColumnBlockPredicate(const ColumnPredicate* pre) : _predicate(pre) {};
 
     void evaluate(RowBlockV2* block, uint16_t* selected_size) const override;
     void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
@@ -57,6 +57,7 @@ public:
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         column_id_set.insert(_predicate->column_id());
     };
+
 private:
     const ColumnPredicate* _predicate;
 };
@@ -75,9 +76,7 @@ public:
         _block_column_predicate_vec.push_back(column_predicate);
     }
 
-    size_t num_of_column_predicate() const {
-        return _block_column_predicate_vec.size();
-    }
+    size_t num_of_column_predicate() const { return _block_column_predicate_vec.size(); }
 
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         for (auto child_block_predicate : _block_column_predicate_vec) {

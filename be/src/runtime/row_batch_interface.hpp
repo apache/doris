@@ -16,7 +16,7 @@
 // under the License.
 
 #ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_ROW_BATCH_INTERFACE_H
-#define  DORIS_BE_SRC_QUERY_BE_RUNTIME_ROW_BATCH_INTERFACE_H
+#define DORIS_BE_SRC_QUERY_BE_RUNTIME_ROW_BATCH_INTERFACE_H
 
 namespace doris {
 
@@ -25,6 +25,6 @@ public:
     virtual ~RowBatchInterface() {}
 };
 
-}
+} // namespace doris
 
 #endif

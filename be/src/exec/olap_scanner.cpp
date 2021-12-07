@@ -19,9 +19,9 @@
 
 #include <string>
 
-#include "gen_cpp/PaloInternalService_types.h"
 #include "common/utils.h"
 #include "exprs/expr_context.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
 #include "olap/uint24.h"
@@ -247,7 +247,8 @@ Status OlapScanner::_init_return_columns() {
             }
         }
         if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) == _return_columns.end()) {
+            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                                         sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);
         }
     }
