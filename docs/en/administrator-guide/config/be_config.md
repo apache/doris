@@ -1303,6 +1303,12 @@ Available memory, value range: [0-100]
 
 If the system is found to be in a high-stress scenario and a large number of threads are found in the tcmalloc lock competition phase through the BE thread stack, such as a large number of `SpinLock` related stacks, you can try increasing this parameter to improve system performance. [Reference](https://github.com/gperftools/gperftools/issues/1111)
 
+### `tc_init_hook`
+
+* Type: bool
+* Description: Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
+* Default: true
+
 ### `tc_use_memory_min`
 
 Default：10737418240
@@ -1444,7 +1450,7 @@ The size of the buffer before flashing
 ### `mem_tracker_consume_min_size_mbytes`
 
 * Type: int32
-* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Increasing this value will increase the frequency of consume/release.
+* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = (mem_tracker_consume_min_size_mbytes * the number of BE threads where the MemTracker is located).
 * Default: 4M
 
 ### `max_segment_num_per_rowset`

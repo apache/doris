@@ -1325,6 +1325,12 @@ tablet状态缓存的更新间隔，单位：秒
 
 如果发现系统在高压力场景下，通过 BE 线程堆栈发现大量线程处于 tcmalloc 的锁竞争阶段，如大量的 `SpinLock` 相关堆栈，则可以尝试增大该参数来提升系统性能。[参考](https://github.com/gperftools/gperftools/issues/1111)
 
+### `tc_init_hook`
+
+* 类型：bool
+* 描述：是否初始化TCmalloc new/delete Hook，目前在Hook中统计MemTracker。
+* 默认值：true
+
 ### `tc_use_memory_min`
 
 默认值：10737418240
@@ -1463,7 +1469,7 @@ webserver默认工作线程数
 ### `mem_tracker_consume_min_size_mbytes`
 
 * 类型: int32
-* 描述: TCMalloc Hook consume/release MemTracker时的最小长度，小于该值的consume size会持续累加，避免频繁调用MemTracker的consume/release，增大该值会增加consume/release的频率。
+* 描述: TCMalloc Hook consume/release MemTracker时的最小长度，小于该值的consume size会持续累加，避免频繁调用MemTracker的consume/release，减小该值会增加consume/release的频率，增大该值会导致MemTracker统计不准，理论上一个MemTracker的统计值与真实值相差 = (mem_tracker_consume_min_size_mbytes * 这个MemTracker所在的BE线程数)。
 * 默认值: 4M
 
 ### `max_segment_num_per_rowset`

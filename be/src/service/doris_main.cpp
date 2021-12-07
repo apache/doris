@@ -76,7 +76,6 @@ static void thrift_output(const char* x) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    init_hook();
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
@@ -132,6 +131,10 @@ int main(int argc, char** argv) {
     if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
         fprintf(stderr, "error read custom config file. \n");
         return -1;
+    }
+
+    if (doris::config::tc_init_hook) {
+        init_hook();
     }
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)

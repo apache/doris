@@ -60,6 +60,9 @@ CONF_mInt64(tc_free_memory_rate, "20");
 //            https://github.com/gperftools/gperftools/issues/1111
 CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 
+// Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
+CONF_mBool(tc_init_hook, "true");
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
@@ -604,7 +607,8 @@ CONF_Int16(mem_tracker_level, "0");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
-// Increasing this value will increase the frequency of consume/release.
+// Decreasing this value will increase the frequency of consume/release.
+// Increasing this value will cause MemTracker statistics to be inaccurate.
 CONF_mInt32(mem_tracker_consume_min_size_mbytes, "1048576");
 
 // The version information of the tablet will be stored in the memory

@@ -15,15 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "runtime/thread_mem_tracker.h"
 
-#include "runtime/thread_context.h"
-
-#include <fmt/format.h>
+#include "service/backend_options.h"
 
 namespace doris {
 
-void ThreadContext::update_query_mem_tracker(const std::string& query_id) {
+void ThreadMemTracker::attach_query(const std::string& query_id,
+                                    const TUniqueId& fragment_instance_id) {
 #ifdef BE_TEST
     if (ExecEnv::GetInstance()->query_mem_tracker_registry() == nullptr) {
         return;
@@ -31,10 +30,15 @@ void ThreadContext::update_query_mem_tracker(const std::string& query_id) {
 #endif
     update_query_mem_tracker(
             ExecEnv::GetInstance()->query_mem_tracker_registry()->get_query_mem_tracker(query_id));
+    _fragment_instance_id = fragment_instance_id;
 }
 
-void ThreadContext::update_query_mem_tracker(
-        std::weak_ptr<MemTracker> mem_tracker = std::weak_ptr<MemTracker>()) {
+void ThreadMemTracker::detach_query() {
+    update_query_mem_tracker(std::weak_ptr<MemTracker>());
+    _fragment_instance_id = TUniqueId();
+}
+
+void ThreadMemTracker::update_query_mem_tracker(std::weak_ptr<MemTracker> mem_tracker) {
     if (_untracked_mem != 0) {
         consume();
         _untracked_mem = 0;
@@ -42,15 +46,14 @@ void ThreadContext::update_query_mem_tracker(
     _query_mem_tracker = mem_tracker;
 }
 
-void ThreadContext::query_mem_limit_exceeded(int64_t mem_usage) {
-    if (_task_id != "" && _fragment_instance_id != TUniqueId() &&
-        ExecEnv::GetInstance()->initialized() &&
+void ThreadMemTracker::query_mem_limit_exceeded(int64_t mem_usage) {
+    if (_fragment_instance_id != TUniqueId() && ExecEnv::GetInstance()->initialized() &&
         ExecEnv::GetInstance()->fragment_mgr()->is_canceling(_fragment_instance_id).ok()) {
-        auto st = _query_mem_tracker.lock()->MemLimitExceeded(
-                nullptr, "Query Memory exceed limit in TCMalloc Hook New.", mem_usage);
+        std::string detail = "Query Memory exceed limit in TCMalloc Hook New.";
+        auto st = _query_mem_tracker.lock()->MemLimitExceeded(nullptr, detail, mem_usage);
 
-        std::string detail =
-                "Query Memory exceed limit in TCMalloc Hook New, Backend: {}, Fragment: {}, Used: "
+        detail +=
+                " Query Memory exceed limit in TCMalloc Hook New, Backend: {}, Fragment: {}, Used: "
                 "{}, Limit: {}. You can change the limit by session variable exec_mem_limit.";
         fmt::format(detail, BackendOptions::get_localhost(), print_id(_fragment_instance_id),
                     std::to_string(_query_mem_tracker.lock()->consumption()),
@@ -61,15 +64,12 @@ void ThreadContext::query_mem_limit_exceeded(int64_t mem_usage) {
     }
 }
 
-void ThreadContext::global_mem_limit_exceeded(int64_t mem_usage) {
+void ThreadMemTracker::global_mem_limit_exceeded(int64_t mem_usage) {
     std::string detail = "Global Memory exceed limit in TCMalloc Hook New.";
     auto st = _query_mem_tracker.lock()->MemLimitExceeded(nullptr, detail, mem_usage);
 }
 
-// Note that, If call the memory allocation operation in TCMalloc new/delete Hook,
-// such as calling LOG/iostream/sstream/stringstream/etc. related methods,
-// must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
-void ThreadContext::consume() {
+void ThreadMemTracker::consume() {
     // Query_mem_tracker and global_hook_tracker are counted separately,
     // in order to ensure that the process memory counted by global_hook_tracker is accurate enough.
     //
@@ -111,15 +111,16 @@ void ThreadContext::consume() {
     }
 }
 
-void ThreadContext::try_consume(int64_t size) {
+void ThreadMemTracker::try_consume(int64_t size) {
     if (_stop_mem_tracker == true) {
         return;
     }
     _untracked_mem += size;
-    // When some threads `0 <_untracked_mem <_untracked_mem_limit`
-    // and some threads `_untracked_mem <= -_untracked_mem_limit` trigger consumption(),
+    // When some threads `0 < _untracked_mem < _tracker_consume_min_size`
+    // and some threads `_untracked_mem <= -_tracker_consume_min_size` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
-    if (_untracked_mem >= _untracked_mem_limit || _untracked_mem <= -_untracked_mem_limit) {
+    if (_untracked_mem >= _tracker_consume_min_size ||
+        _untracked_mem <= -_tracker_consume_min_size) {
         consume();
         _untracked_mem = 0;
     }
