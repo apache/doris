@@ -140,9 +140,10 @@ OLAPStatus BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_
 }
 
 OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
+    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc dst_path_desc = segment_file_path(dir, rowset_id(), i);
-        Status status = Env::get_env(_rowset_path_desc.storage_medium)->path_exists(dst_path_desc.filepath);
+        Status status = env->path_exists(dst_path_desc.filepath);
         if (status.ok()) {
             LOG(WARNING) << "file already exist: " << dst_path_desc.filepath;
             return OLAP_ERR_FILE_ALREADY_EXIST;
@@ -199,9 +200,10 @@ bool BetaRowset::check_path(const std::string& path) {
 }
 
 bool BetaRowset::check_file_exist() {
+    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        if (!Env::get_env(_rowset_path_desc.storage_medium)->path_exists(path_desc.filepath).ok()) {
+        if (!env->path_exists(path_desc.filepath).ok()) {
             LOG(WARNING) << "data file not existed: " << path_desc.filepath
                     << " for rowset_id: " << rowset_id();
             return false;

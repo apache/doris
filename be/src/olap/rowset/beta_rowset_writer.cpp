@@ -53,13 +53,14 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
         Status st;
+        Env* env = Env::get_env(_context.path_desc.storage_medium);
         for (int i = 0; i < _num_segment; ++i) {
             auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
                                                       _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(Env::get_env(_context.path_desc.storage_medium)->delete_file(path_desc.filepath),
+            WARN_IF_ERROR(env->delete_file(path_desc.filepath),
                           strings::Substitute("Failed to delete file=$0", path_desc.filepath));
         }
     }
