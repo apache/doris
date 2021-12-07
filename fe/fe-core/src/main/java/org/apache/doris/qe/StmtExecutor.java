@@ -301,10 +301,10 @@ public class StmtExecutor implements ProfileWriter {
 
     // Execute one statement with queryId
     // The queryId will be set in ConnectContext
-    // This queryId will also be send to master FE for exec master only query.
+    // This queryId will also be sent to master FE for exec master only query.
     // query id in ConnectContext will be changed when retry exec a query or master FE return a different one.
     // Exception:
-    //  IOException: talk with client failed.
+    // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
         context.setStartTime();
 
@@ -442,8 +442,8 @@ public class StmtExecutor implements ProfileWriter {
             }
             if (!context.isTxnModel() && parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
-                // The transaction of a insert operation begin at analyze phase.
-                // So we should abort the transaction at this finally block if it encounter exception.
+                // The transaction of an insert operation begin at analyze phase.
+                // So we should abort the transaction at this finally block if it encounters exception.
                 if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
@@ -1466,7 +1466,7 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
-    // process enter cluster
+    // Process enter cluster
     private void handleEnterStmt() {
         final EnterStmt enterStmt = (EnterStmt) parsedStmt;
         try {

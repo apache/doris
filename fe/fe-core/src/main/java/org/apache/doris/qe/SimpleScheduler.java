@@ -49,7 +49,7 @@ public class SimpleScheduler {
     // backend id -> (try time, reason)
     // There will be multi threads to read and modify this map.
     // But only one thread (UpdateBlacklistThread) will modify the `Pair`.
-    // So using concurrenty map is enough
+    // So using concurrent map is enough
     private static Map<Long, Pair<Integer, String>> blacklistBackends = Maps.newConcurrentMap();
     private static UpdateBlacklistThread updateBlacklistThread;
 
