@@ -54,6 +54,6 @@ If you use `IDEA` to develop Java code, please install `Checkstyle-IDEA` plugin.
 
 Setting the `checkstyle.xml` file in `Tools->Checkstyle`.
 
-Click the plus sign under Configuration File, Select `Use a local Checkstyle file`, and select the `checkstyle.xml` file.
+Click the plus sign under Configuration File, Select `Use a local Checkstyle file`, and select the `fe/checkstyle.xml` file.
 
 If you use VS Code to develop Java code, please install `Checkstyle for Java` plugin, and config according to the [document](https://code.visualstudio.com/docs/java/java-linting) and the picture.
