@@ -42,7 +42,7 @@ lateral_view_ref:
 LATERAL VIEW table_function(...) view_alias as col_name
 ```
     
-Lateral view 子句必须跟随在表名之后。可以包含多个 Lateral view 子句。`view_alias` 是对应 Lateral View 的名称。`col_name` 是表函数 `table_function` 产出的列名。
+Lateral view 子句必须跟随在表名或子查询之后。可以包含多个 Lateral view 子句。`view_alias` 是对应 Lateral View 的名称。`col_name` 是表函数 `table_function` 产出的列名。
 
 目前支持的表函数：
 
@@ -81,6 +81,14 @@ select k1, e1, e2 from tbl3
 lateral view explode_json_array_int("[1,2,3]") tmp1 as e1
 lateral view explode_bitmap(bitmap_from_string("4,5,6")) tmp2 as e2;
 ```
+
+4.
+
+```
+select k1, e1 from (select k1, bitmap_union(members) as x from tbl1 where k1=10000 group by k1)tmp1
+lateral view explode_bitmap(x) tmp2 as e1;
+```
+
 ## keyword
 
     lateral view

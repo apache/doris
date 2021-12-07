@@ -42,7 +42,7 @@ lateral_view_ref:
 LATERAL VIEW table_function(...) view_alias as col_name
 ```
     
-The Lateral view clause must follow the table name. Can contain multiple Lateral view clauses. `view_alias` is the name of the corresponding Lateral View. `col_name` is the name of the column produced by the table function `table_function`.
+The Lateral view clause must follow the table name or subquery. Can contain multiple Lateral view clauses. `view_alias` is the name of the corresponding Lateral View. `col_name` is the name of the column produced by the table function `table_function`.
 
 Table functions currently supported:
 
@@ -80,6 +80,13 @@ where e2> 3;
 select k1, e1, e2 from tbl3
 lateral view explode_json_array_int("[1,2,3]") tmp1 as e1
 lateral view explode_bitmap(bitmap_from_string("4,5,6")) tmp2 as e2;
+```
+
+4.
+
+```
+select k1, e1 from (select k1, bitmap_union(members) as x from tbl1 where k1=10000 group by k1)tmp1
+lateral view explode_bitmap(x) tmp2 as e1;
 ```
 
 ## keyword
