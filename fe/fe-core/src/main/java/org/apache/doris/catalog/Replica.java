@@ -37,6 +37,8 @@ import java.util.Comparator;
 public class Replica implements Writable {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
+    public static final long MIN_VERSION_DELTA = 100;
+    public static final double MIN_VERSION_DELTA_RATIO = 0.3;
 
     public enum ReplicaState {
         NORMAL,
@@ -100,7 +102,7 @@ public class Replica implements Writable {
 
     private long pathHash = -1;
 
-    // bad means this Replica is unrecoverable and we will delete it
+    // bad means this Replica is unrecoverable, and we will delete it
     private boolean bad = false;
 
     /*
