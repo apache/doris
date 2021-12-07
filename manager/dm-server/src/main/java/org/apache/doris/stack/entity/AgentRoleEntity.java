@@ -40,7 +40,7 @@ public class AgentRoleEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
 
-    @Column(length = 150)
+    @Column
     private String host;
 
     @Column(name = "cluster_id")
@@ -53,7 +53,7 @@ public class AgentRoleEntity {
     @Column(name = "fe_node_type")
     private String feNodeType;
 
-    @Column(name = "install_dir")
+    @Column(name = "install_dir", length = 1024)
     private String installDir;
 
     @Column(name = "register")

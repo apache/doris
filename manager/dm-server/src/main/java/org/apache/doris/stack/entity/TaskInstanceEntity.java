@@ -79,7 +79,7 @@ public class TaskInstanceEntity {
     @Column(name = "executor_id")
     private String executorId;
 
-    @Column(name = "result", length = 1024)
+    @Column(name = "result", columnDefinition = "LONGTEXT")
     private String result;
 
     @Enumerated(EnumType.ORDINAL)
@@ -91,6 +91,8 @@ public class TaskInstanceEntity {
     private Flag skip;
 
     private String taskRole;
+
+    private String response;
 
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType, ExecutionStatus status) {
         this.processId = processId;

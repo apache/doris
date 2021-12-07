@@ -22,9 +22,19 @@ package org.apache.doris.manager.common.domain;
  **/
 public class HardwareInfo {
 
+    private String host;
+
     private String cpu;
 
     private String totalMemory;
+
+    public String getHost() {
+        return host;
+    }
+
+    public void setHost(String host) {
+        this.host = host;
+    }
 
     public String getCpu() {
         return cpu;
