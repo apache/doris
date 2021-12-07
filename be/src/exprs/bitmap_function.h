@@ -114,6 +114,31 @@ public:
                                          const BigIntVal& cardinality_limit);
     static StringVal sub_bitmap(FunctionContext* ctx, const StringVal& src, const BigIntVal& offset,
                                 const BigIntVal& cardinality_limit);
+
+    static void orthogonal_bitmap_union_count_init(FunctionContext* ctx, StringVal* slot);
+    static StringVal orthogonal_bitmap_count_serialize(FunctionContext* ctx, const StringVal& src);
+    static void orthogonal_bitmap_count_merge(FunctionContext* context, const StringVal& src,
+                                              StringVal* dst);
+    static BigIntVal orthogonal_bitmap_count_finalize(FunctionContext* context,
+                                                      const StringVal& src);
+
+    // orthogonal intersect and intersect count
+    template <typename T, typename ValType>
+    static void orthogonal_bitmap_intersect_count_init(FunctionContext* ctx, StringVal* dst);
+    template <typename T, typename ValType>
+    static void orthogonal_bitmap_intersect_init(FunctionContext* ctx, StringVal* dst);
+
+    template <typename T>
+    static StringVal orthogonal_bitmap_intersect_serialize(FunctionContext* ctx,
+                                                           const StringVal& src);
+    template <typename T>
+    static BigIntVal orthogonal_bitmap_intersect_finalize(FunctionContext* ctx,
+                                                          const StringVal& src);
+
+    // orthogonal_bitmap_intersect_count_serialize
+    template <typename T>
+    static StringVal orthogonal_bitmap_intersect_count_serialize(FunctionContext* ctx,
+                                                                 const StringVal& src);
 };
 } // namespace doris
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
