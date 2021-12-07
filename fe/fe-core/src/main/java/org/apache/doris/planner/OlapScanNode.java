@@ -180,6 +180,11 @@ public class OlapScanNode extends ScanNode {
         return selectedPartitionIds;
     }
 
+    // only used for UT
+    public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
+        this.selectedPartitionIds = selectedPartitionIds;
+    }
+
     /**
      * The function is used to directly select the index id of the base table as the selectedIndexId.
      * It makes sure that the olap scan node must scan the base data rather than scan the materialized view data.
