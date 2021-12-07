@@ -52,7 +52,7 @@ javax
 
 如果使用 `IDEA` 进行 Java 开发，请在设置中安装 `Checkstyle-IDEA` 插件。
 
-在 `Tools->Checkstyle` 的 `Configuration File` 里点击 `Use a local Checkstyle file`，选择项目的 `checkstyle.xml` 文件。
+在 `Tools->Checkstyle` 的 `Configuration File` 里点击 `Use a local Checkstyle file`，选择项目的 `fe/checkstyle.xml` 文件。
 
 如果使用 VS Code 进行 Java 开发，请安装 `Checkstyle for Java` 插件，按照[文档](https://code.visualstudio.com/docs/java/java-linting)里的说明和动图进行配置。
 
