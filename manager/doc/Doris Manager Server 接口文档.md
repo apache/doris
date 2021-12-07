@@ -505,6 +505,7 @@
 > |data.endTime |Date | 任务终止时间      |
 > |data.finish |int | 任务执行完成标志 |
 > |data.taskRole |String | 任务所属角色 FE BE BROKER，安装agent和组件集群为空 |
+> |data.response |String | 任务执行状态信息 |
 
 
 **接口示例**
@@ -531,7 +532,8 @@
             "executorId": "377bb55156774cb7a72804fbba207e94",
             "result": null,
             "finish": "YES",
-            "taskRole": "FE"
+            "taskRole": "FE",
+            "response": "install fe success"
         },
         {
             "id": 7,
@@ -545,7 +547,8 @@
             "executorId": "f052ba23ad9d4428900d328a7979d7a2",
             "result": null,
             "finish": "YES",
-            "taskRole": "BE"
+            "taskRole": "BE",
+            "response": "install be success"
         }
     ]
 }

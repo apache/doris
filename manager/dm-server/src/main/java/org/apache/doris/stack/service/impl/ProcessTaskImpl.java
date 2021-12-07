@@ -108,6 +108,16 @@ public class ProcessTaskImpl implements ProcessTask {
             if (task.getSkip().typeIsYes()) {
                 continue;
             }
+            //set response
+            if (task.getStatus().typeIsSuccess()) {
+                task.setResponse(task.getTaskType().getName() + " success");
+            } else if (task.getStatus().typeIsFailure()) {
+                if (StringUtils.isBlank(task.getResult())) {
+                    task.setResponse(task.getTaskType().getName() + " fail");
+                } else {
+                    task.setResponse(task.getResult());
+                }
+            }
             task.setTaskRole(task.getTaskType().parseTaskRole());
             resultTasks.add(task);
         }
