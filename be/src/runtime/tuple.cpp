@@ -115,8 +115,7 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
         memory_copy(coll_data + nulls_size, cv->data(), coll_byte_size);
 
         // assgin new null_sign and data location
-        cv->set_null_signs(convert_ptrs ? convert_to<bool*>(offset)
-                                        : convert_to<bool*>(coll_data));
+        cv->set_null_signs(convert_ptrs ? convert_to<bool*>(offset) : convert_to<bool*>(coll_data));
         cv->set_data(convert_ptrs ? convert_to<char*>(offset + nulls_size)
                                   : coll_data + nulls_size);
 

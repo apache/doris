@@ -675,8 +675,7 @@ void RowBatch::deep_copy_to(RowBatch* dst) {
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* src_row = get_row(i);
         TupleRow* dst_row = convert_to<TupleRow*>(dst->_tuple_ptrs + i * _num_tuples_per_row);
-        src_row->deep_copy(dst_row, _row_desc.tuple_descriptors(), &dst->_tuple_data_pool,
-                           false);
+        src_row->deep_copy(dst_row, _row_desc.tuple_descriptors(), &dst->_tuple_data_pool, false);
     }
     dst->commit_rows(_num_rows);
 }
