@@ -92,7 +92,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
         List<Pair<String, Integer>> helperNodes = catalog.getHelperNodes();
 
-        // Because the `shwo frontend` stmt maybe forwarded from other FE.
+        // Because the `show frontend` stmt maybe forwarded from other FE.
         // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
         String selfNode = Catalog.getCurrentCatalog().getSelfNode().first;
         if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
