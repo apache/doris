@@ -57,7 +57,7 @@ TEST_F(EnvPosixTest, random_access) {
     ASSERT_TRUE(st.ok());
     Slice abc("abc");
     Slice bcd("bcd");
-    Slice slices[2]{abc, bcd};
+    Slice slices[2] {abc, bcd};
     st = wfile->appendv(slices, 2);
     ASSERT_TRUE(st.ok());
     st = wfile->flush(WritableFile::FLUSH_ASYNC);
@@ -83,7 +83,7 @@ TEST_F(EnvPosixTest, random_access) {
         Slice slice2(mem + 9, 100);
         Slice slice3(mem + 9 + 100, 3);
 
-        Slice read_slices[3]{slice1, slice2, slice3};
+        Slice read_slices[3] {slice1, slice2, slice3};
         st = rfile->readv_at(0, read_slices, 3);
         ASSERT_TRUE(st.ok());
         ASSERT_STREQ("123456789", std::string(slice1.data, slice1.size).c_str());
@@ -120,7 +120,7 @@ TEST_F(EnvPosixTest, random_rw) {
     ASSERT_TRUE(st.ok());
     Slice abc("abc");
     Slice bcd("bcd");
-    Slice slices[2]{abc, bcd};
+    Slice slices[2] {abc, bcd};
     st = wfile->writev_at(0, slices, 2);
     ASSERT_TRUE(st.ok());
 
@@ -151,7 +151,7 @@ TEST_F(EnvPosixTest, random_rw) {
         Slice slice2(mem + 3, 3);
         Slice slice3(mem + 6, 3);
 
-        Slice read_slices[3]{slice1, slice2, slice3};
+        Slice read_slices[3] {slice1, slice2, slice3};
         st = rfile->readv_at(0, read_slices, 3);
         LOG(INFO) << st.to_string();
         ASSERT_TRUE(st.ok());

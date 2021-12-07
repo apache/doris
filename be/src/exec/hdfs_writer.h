@@ -26,7 +26,6 @@
 
 namespace doris {
 class HDFSWriter : public FileWriter {
-
 public:
     HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path);
     ~HDFSWriter();
@@ -54,4 +53,4 @@ private:
     bool _closed = false;
 };
 
-}
+} // namespace doris

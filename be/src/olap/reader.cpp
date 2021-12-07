@@ -57,8 +57,8 @@ void ReaderParams::check_validation() const {
 std::string ReaderParams::to_string() const {
     std::stringstream ss;
     ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
-       << " aggregation=" << aggregation << " version=" << version << " start_key_include=" << start_key_include
-       << " end_key_include=" << end_key_include;
+       << " aggregation=" << aggregation << " version=" << version
+       << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
     for (const auto& key : start_key) {
         ss << " keys=" << key;
@@ -131,7 +131,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-    
+
     return OLAP_SUCCESS;
 }
 
@@ -721,7 +721,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_VARCHAR:
-        case OLAP_FIELD_TYPE_STRING:{
+        case OLAP_FIELD_TYPE_STRING: {
             phmap::flat_hash_set<StringValue> values;
             for (auto& cond_val : condition.condition_values) {
                 StringValue value;
@@ -828,7 +828,8 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params, Conditions* 
         return;
     }
     FieldType type = _tablet->tablet_schema().column(max_equal_index).type();
-    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING)|| max_equal_index + 1 > _tablet->num_short_key_columns()) {
+    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING) ||
+        max_equal_index + 1 > _tablet->num_short_key_columns()) {
         load_bf_columns->erase(max_equal_index);
     }
 }

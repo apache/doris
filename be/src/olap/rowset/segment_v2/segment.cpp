@@ -46,10 +46,10 @@ Status Segment::open(std::string filename, uint32_t segment_id, const TabletSche
 }
 
 Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _fname(std::move(fname)), _segment_id(segment_id),
-          _tablet_schema(tablet_schema) {
+        : _fname(std::move(fname)), _segment_id(segment_id), _tablet_schema(tablet_schema) {
 #ifndef BE_TEST
-    _mem_tracker = MemTracker::CreateTracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);
+    _mem_tracker = MemTracker::CreateTracker(
+            -1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);
 #else
     _mem_tracker = MemTracker::CreateTracker(-1, "Segment", nullptr, false);
 #endif
@@ -196,7 +196,8 @@ Status Segment::_create_column_readers() {
     return Status::OK();
 }
 
-Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent, ColumnIterator** iter) {
+Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent,
+                                    ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
         const TabletColumn& tablet_column = _tablet_schema->column(cid);
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
@@ -208,7 +209,8 @@ Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> pa
                         tablet_column.has_default_value(), tablet_column.default_value(),
                         tablet_column.is_nullable(), type_info, tablet_column.length()));
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "DefaultColumnIterator", parent, false);
+        iter_opts.mem_tracker =
+                MemTracker::CreateTracker(-1, "DefaultColumnIterator", parent, false);
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();

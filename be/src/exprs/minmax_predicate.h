@@ -113,4 +113,4 @@ private:
     bool _empty = true;
 };
 
-}
+} // namespace doris

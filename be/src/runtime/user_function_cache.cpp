@@ -17,9 +17,9 @@
 
 #include "runtime/user_function_cache.h"
 
+#include <atomic>
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 #include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
-#include <atomic>
 #include <regex>
 #include <vector>
 
@@ -54,11 +54,11 @@ struct UserFunctionCacheEntry {
     std::string lib_file;
 
     // make it atomic variable instead of holding a lock
-    std::atomic<bool> is_loaded{false};
+    std::atomic<bool> is_loaded {false};
 
     // Set to true when this library is not needed.
     // e.g. deleting some unused library to re
-    std::atomic<bool> should_delete_library{false};
+    std::atomic<bool> should_delete_library {false};
 
     // lock to make sure only one can load this cache
     std::mutex load_lock;
@@ -76,7 +76,7 @@ struct UserFunctionCacheEntry {
     std::unordered_map<std::string, void*> fptr_map;
 
 private:
-    std::atomic<int> _refs{0};
+    std::atomic<int> _refs {0};
 };
 
 UserFunctionCacheEntry::~UserFunctionCacheEntry() {

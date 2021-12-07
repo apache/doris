@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-
 #include "runtime/minidump.h"
+
+#include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "env/env.h"
@@ -70,7 +70,6 @@ TEST_F(MinidumpTest, testNormal) {
     FileUtils::list_files(Env::Default(), config::minidump_dir, &files);
     EXPECT_EQ(5, files.size());
 }
-
 
 } // end namespace doris
 

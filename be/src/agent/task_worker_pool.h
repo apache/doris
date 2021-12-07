@@ -72,15 +72,11 @@ public:
         UPDATE_TABLET_META_INFO
     };
 
-    enum ReportType {
-        TASK,
-        DISK,
-        TABLET
-    };
+    enum ReportType { TASK, DISK, TABLET };
 
     enum class ThreadModel {
-        SINGLE_THREAD,      // Only 1 thread allowed in the pool
-        MULTI_THREADS       // 1 or more threads allowed in the pool
+        SINGLE_THREAD, // Only 1 thread allowed in the pool
+        MULTI_THREADS  // 1 or more threads allowed in the pool
     };
 
     inline const std::string TYPE_STRING(TaskWorkerType type) {

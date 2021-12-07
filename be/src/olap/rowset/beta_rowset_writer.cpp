@@ -156,7 +156,7 @@ OLAPStatus BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* 
         }
 
         if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
-                    writer->num_rows_written() >= _context.max_rows_per_segment)) {
+                          writer->num_rows_written() >= _context.max_rows_per_segment)) {
             RETURN_NOT_OK(_flush_segment_writer(&writer));
         }
         ++_num_rows_written;
@@ -206,7 +206,8 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
-OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+OLAPStatus BetaRowsetWriter::_create_segment_writer(
+        std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id,
                                               _num_segment++);
     // TODO(lingbin): should use a more general way to get BlockManager object
@@ -223,8 +224,8 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::
 
     DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
-    writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment,
-                                                _context.tablet_schema, writer_options, _context.parent_mem_tracker));
+    writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment, _context.tablet_schema,
+                                                writer_options, _context.parent_mem_tracker));
     {
         std::lock_guard<SpinLock> l(_lock);
         _wblocks.push_back(std::move(wblock));
@@ -239,7 +240,8 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+OLAPStatus BetaRowsetWriter::_flush_segment_writer(
+        std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     uint64_t segment_size;
     uint64_t index_size;
     Status s = (*writer)->finalize(&segment_size, &index_size);

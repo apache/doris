@@ -54,19 +54,19 @@ TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& 
 
 TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate)
         : _field(binary_predicate.col.name), _match_none(false) {
-        if (binary_predicate.col.type.type == PrimitiveType::TYPE_BOOLEAN) {
-            int val = atoi(binary_predicate.value.to_string().c_str());
-            if (val == 1) {
-                _term = std::string("true");
-            } else if (val == 0){
-                _term = std::string("false");
-            } else {
-                // keep semantic consistent with mysql
-                _match_none = true;
-            }
+    if (binary_predicate.col.type.type == PrimitiveType::TYPE_BOOLEAN) {
+        int val = atoi(binary_predicate.value.to_string().c_str());
+        if (val == 1) {
+            _term = std::string("true");
+        } else if (val == 0) {
+            _term = std::string("false");
         } else {
-            _term = binary_predicate.value.to_string();
+            // keep semantic consistent with mysql
+            _match_none = true;
         }
+    } else {
+        _term = binary_predicate.value.to_string();
+    }
 }
 
 void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -82,7 +82,6 @@ void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* 
         // this would only appear `bool` column's predicate (a = 2)
         query->AddMember("match_none", term_node, allocator);
     }
-
 }
 
 RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate)

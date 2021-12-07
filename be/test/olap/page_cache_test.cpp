@@ -85,7 +85,6 @@ TEST(StoragePageCacheTest, data_page_only) {
         auto found = cache.lookup(key, &handle, page_type);
         ASSERT_FALSE(found);
     }
-
 }
 
 // All cache space is allocated to index pages
@@ -146,7 +145,6 @@ TEST(StoragePageCacheTest, index_page_only) {
         auto found = cache.lookup(key, &handle, page_type);
         ASSERT_FALSE(found);
     }
-
 }
 
 // Cache space is allocated by index_page_cache_ratio
@@ -191,7 +189,7 @@ TEST(StoragePageCacheTest, mixed_pages) {
         cache.insert(index_key_mem, index, &index_handle, page_type_index, true);
 
         ASSERT_EQ(data_handle.data().data, buf_data);
-        ASSERT_EQ(index_handle.data().data, buf_index);        
+        ASSERT_EQ(index_handle.data().data, buf_index);
 
         auto found_data = cache.lookup(data_key_mem, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key_mem, &index_handle, page_type_index);
@@ -228,7 +226,7 @@ TEST(StoragePageCacheTest, mixed_pages) {
         Slice data(buf_data, 1024), index(buf_index, 1024);
         cache.insert(miss_key_data, data, &data_handle, page_type_data, false);
         cache.insert(miss_key_index, index, &index_handle, page_type_index, false);
-        
+
         auto found_data = cache.lookup(miss_key_data, &data_handle, page_type_index);
         auto found_index = cache.lookup(miss_key_index, &index_handle, page_type_data);
         ASSERT_FALSE(found_data);
@@ -243,7 +241,6 @@ TEST(StoragePageCacheTest, mixed_pages) {
         ASSERT_FALSE(found_data);
         ASSERT_FALSE(found_index);
     }
-
 }
 
 } // namespace doris

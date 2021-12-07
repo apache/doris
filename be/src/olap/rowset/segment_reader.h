@@ -167,7 +167,7 @@ private:
     // Load the index, read the index of the required column into memory
     OLAPStatus _load_index(bool is_using_cache);
 
-    // Read all the columns, the complete stream, (here just create the stream, because there is no mmap in the orc file, 
+    // Read all the columns, the complete stream, (here just create the stream, because there is no mmap in the orc file,
     // it means the actual data is read, but there is no actual read here, just circle the required range)
     OLAPStatus _read_all_data_streams(size_t* buffer_size);
 
@@ -310,7 +310,7 @@ private:
     uint8_t* _include_blocks;
     uint32_t _remain_block;
     bool _need_block_filter; // Used in combination with include blocks, if none of them are in, no longer read
-    bool _is_using_mmap;     // When this flag is true, use mmap to read the file
+    bool _is_using_mmap; // When this flag is true, use mmap to read the file
     bool _is_data_loaded;
     size_t _buffer_size;
 

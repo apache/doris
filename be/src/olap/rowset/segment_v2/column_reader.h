@@ -123,7 +123,8 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition, RowRanges* row_ranges);
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
+                                      RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges);
@@ -159,7 +160,8 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions, std::vector<uint32_t>* page_indexes);
+    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions,
+                               std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
@@ -312,10 +314,8 @@ private:
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* reader,
-                                     FileColumnIterator* length_reader,
-                                     ColumnIterator* item_iterator,
-                                     ColumnIterator* null_iterator);
+    explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* length_reader,
+                                     ColumnIterator* item_iterator, ColumnIterator* null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 
@@ -340,15 +340,19 @@ public:
 
         RETURN_IF_ERROR(_length_iterator->seek_to_page_start());
         if (_length_iterator->get_current_ordinal() == ord) {
-            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(_length_iterator->get_current_page()->first_array_item_ordinal));
+            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(
+                    _length_iterator->get_current_page()->first_array_item_ordinal));
         } else {
-            ordinal_t start_offset_in_this_page = _length_iterator->get_current_page()->first_array_item_ordinal;
+            ordinal_t start_offset_in_this_page =
+                    _length_iterator->get_current_page()->first_array_item_ordinal;
             ColumnBlock ordinal_block(_length_batch.get(), nullptr);
             ordinal_t size_to_read = ord - start_offset_in_this_page;
             bool has_null = false;
             ordinal_t item_ordinal = start_offset_in_this_page;
             while (size_to_read > 0) {
-                size_t this_read = _length_batch->capacity() < size_to_read ? _length_batch->capacity() : size_to_read;
+                size_t this_read = _length_batch->capacity() < size_to_read
+                                           ? _length_batch->capacity()
+                                           : size_to_read;
                 ColumnBlockView ordinal_view(&ordinal_block);
                 RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
                 auto* ordinals = reinterpret_cast<ordinal_t*>(_length_batch->data());

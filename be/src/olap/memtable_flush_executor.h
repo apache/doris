@@ -98,9 +98,8 @@ public:
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    OLAPStatus create_flush_token(
-            std::unique_ptr<FlushToken>* flush_token,
-            RowsetTypePB rowset_type);
+    OLAPStatus create_flush_token(std::unique_ptr<FlushToken>* flush_token,
+                                  RowsetTypePB rowset_type);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;

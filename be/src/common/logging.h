@@ -67,7 +67,6 @@
 #define VLOG_NOTICE VLOG(3)
 #define VLOG_CRITICAL VLOG(1)
 
-
 #define VLOG_CONNECTION_IS_ON VLOG_IS_ON(1)
 #define VLOG_RPC_IS_ON VLOG_IS_ON(8)
 #define VLOG_QUERY_IS_ON VLOG_IS_ON(1)
@@ -77,7 +76,6 @@
 #define VLOG_DEBUG_IS_ON VLOG_IS_ON(7)
 #define VLOG_NOTICE_IS_ON VLOG_IS_ON(3)
 #define VLOG_CRITICAL_IS_ON VLOG_IS_ON(1)
-
 
 /// Define a wrapper around DCHECK for strongly typed enums that print a useful error
 /// message on failure.

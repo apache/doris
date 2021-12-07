@@ -17,8 +17,8 @@
 
 #include "olap/task/engine_checksum_task.h"
 
-#include "olap/tuple_reader.h"
 #include "olap/row.h"
+#include "olap/tuple_reader.h"
 
 namespace doris {
 

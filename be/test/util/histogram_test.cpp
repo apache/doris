@@ -17,8 +17,9 @@
 
 #include "util/histogram.h"
 
-#include <cmath>
 #include <gtest/gtest.h>
+
+#include <cmath>
 
 namespace doris {
 
@@ -29,12 +30,11 @@ public:
 };
 
 namespace {
-    const HistogramBucketMapper bucket_mapper;
-    const double delta = 0.1;
-}
+const HistogramBucketMapper bucket_mapper;
+const double delta = 0.1;
+} // namespace
 
-void populate_histogram(HistogramStat& hist, uint64_t low,
-                        uint64_t high, uint64_t loop = 1) {
+void populate_histogram(HistogramStat& hist, uint64_t low, uint64_t high, uint64_t loop = 1) {
     for (; loop > 0; loop--) {
         for (uint64_t i = low; i <= high; i++) {
             hist.add(i);

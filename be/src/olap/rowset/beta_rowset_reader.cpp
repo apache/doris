@@ -94,7 +94,8 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            _rowset, &_segment_cache_handle, read_context->reader_type == ReaderType::READER_QUERY));
+            _rowset, &_segment_cache_handle,
+            read_context->reader_type == ReaderType::READER_QUERY));
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
@@ -116,7 +117,8 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-        final_iterator = new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
+        final_iterator =
+                new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
     } else {
         final_iterator = new_union_iterator(iterators, _parent_tracker);
     }

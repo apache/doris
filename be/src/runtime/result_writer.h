@@ -28,14 +28,14 @@ class RuntimeState;
 class TypeDescriptor;
 
 namespace vectorized {
-    class Block;
+class Block;
 }
 
 // abstract class of the result writer
 class ResultWriter {
 public:
     ResultWriter() {};
-    ~ResultWriter(){};
+    ~ResultWriter() {};
 
     virtual Status init(RuntimeState* state) = 0;
     // convert and write one row batch

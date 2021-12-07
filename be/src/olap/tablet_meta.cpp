@@ -87,12 +87,12 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
     schema->set_compress_kind(COMPRESS_LZ4);
 
-    switch(tablet_schema.sort_type) {
-        case TSortType::type::ZORDER:
-            schema->set_sort_type(SortType::ZORDER);
-            break;
-        default:
-            schema->set_sort_type(SortType::LEXICAL);
+    switch (tablet_schema.sort_type) {
+    case TSortType::type::ZORDER:
+        schema->set_sort_type(SortType::ZORDER);
+        break;
+    default:
+        schema->set_sort_type(SortType::LEXICAL);
     }
     schema->set_sort_col_num(tablet_schema.sort_col_num);
     tablet_meta_pb.set_in_restore_mode(false);

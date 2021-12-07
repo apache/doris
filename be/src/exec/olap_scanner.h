@@ -33,9 +33,9 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
-#include "olap/tuple_reader.h"
 #include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
+#include "olap/tuple_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "runtime/vectorized_row_batch.h"
@@ -92,9 +92,7 @@ public:
 
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
 
-    const std::vector<SlotDescriptor*>& get_query_slots() const {
-        return _query_slots;
-    }
+    const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
 
 protected:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,

@@ -27,7 +27,10 @@
 namespace doris {
 SetOperationNode::SetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
                                    const DescriptorTbl& descs, int tuple_id)
-        : ExecNode(pool, tnode, descs), _tuple_id(tuple_id), _tuple_desc(nullptr), _valid_element_in_hash_tbl(0) {}
+        : ExecNode(pool, tnode, descs),
+          _tuple_id(tuple_id),
+          _tuple_desc(nullptr),
+          _valid_element_in_hash_tbl(0) {}
 
 Status SetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));

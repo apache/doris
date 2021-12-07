@@ -45,12 +45,13 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer) {
     if (tablet_schema->sort_type() == SortType::ZORDER) {
-        _row_comparator = std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
+        _row_comparator =
+                std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
     } else {
         _row_comparator = std::make_shared<RowCursorComparator>(_schema);
     }
-    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
-
+    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(),
+                           _keys_type == KeysType::DUP_KEYS);
 }
 
 MemTable::~MemTable() {
@@ -158,10 +159,8 @@ OLAPStatus MemTable::close() {
     return flush();
 }
 
-MemTable::Iterator::Iterator(MemTable* memtable):
-    _mem_table(memtable),
-    _it(memtable->_skip_list) {
-}
+MemTable::Iterator::Iterator(MemTable* memtable)
+        : _mem_table(memtable), _it(memtable->_skip_list) {}
 
 void MemTable::Iterator::seek_to_first() {
     _it.SeekToFirst();
@@ -176,7 +175,7 @@ void MemTable::Iterator::next() {
 }
 
 ContiguousRow MemTable::Iterator::get_current_row() {
-    char* row = (char*) _it.key();
+    char* row = (char*)_it.key();
     ContiguousRow dst_row(_mem_table->_schema, row);
     agg_finalize_row(&dst_row, _mem_table->_table_mem_pool.get());
     return dst_row;

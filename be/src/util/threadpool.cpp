@@ -80,7 +80,8 @@ Status ThreadPoolBuilder::build(std::unique_ptr<ThreadPool>* pool) const {
     return Status::OK();
 }
 
-ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode, int max_concurrency)
+ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode,
+                                 int max_concurrency)
         : _mode(mode),
           _pool(pool),
           _state(State::IDLE),
@@ -89,7 +90,6 @@ ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mod
           _max_concurrency(max_concurrency),
           _num_submitted_tasks(0),
           _num_unsubmitted_tasks(0) {
-
     if (max_concurrency == 1 && mode != ThreadPool::ExecutionMode::SERIAL) {
         _mode = ThreadPool::ExecutionMode::SERIAL;
     }
@@ -249,8 +249,9 @@ const char* ThreadPoolToken::state_to_string(State s) {
 }
 
 bool ThreadPoolToken::need_dispatch() {
-    return _state == ThreadPoolToken::State::IDLE 
-        || (_mode == ThreadPool::ExecutionMode::CONCURRENT && _num_submitted_tasks < _max_concurrency);
+    return _state == ThreadPoolToken::State::IDLE ||
+           (_mode == ThreadPool::ExecutionMode::CONCURRENT &&
+            _num_submitted_tasks < _max_concurrency);
 }
 
 ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
@@ -432,12 +433,12 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     token->_entries.emplace_back(std::move(task));
     // When we need to execute the task in the token, we submit the token object to the queue.
     // There are currently two places where tokens will be submitted to the queue:
-    // 1. When submitting a new task, if the token is still in the IDLE state, 
+    // 1. When submitting a new task, if the token is still in the IDLE state,
     //    or the concurrency of the token has not reached the online level, it will be added to the queue.
     // 2. When the dispatch thread finishes executing a task:
     //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
     //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
-    //       then submitted to the queue. 
+    //       then submitted to the queue.
     if (token->need_dispatch()) {
         _queue.emplace_back(token);
         ++token->_num_submitted_tasks;
@@ -545,9 +546,9 @@ void ThreadPool::dispatch_thread() {
                 // protecting the state, signal, and release again before we get the mutex. So,
                 // we'll recheck the empty queue case regardless.
                 if (_queue.empty() && _num_threads + _num_threads_pending_start > _min_threads) {
-                        VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
+                    VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
                                 << _idle_timeout.ToMilliseconds() << "ms of idle time.";
-                        break;
+                    break;
                 }
             }
             continue;
@@ -598,8 +599,9 @@ void ThreadPool::dispatch_thread() {
                 ++token->_num_submitted_tasks;
                 --token->_num_unsubmitted_tasks;
             }
-        } else if (token->mode() == ExecutionMode::CONCURRENT && token->_num_submitted_tasks < token->_max_concurrency
-                && token->_num_unsubmitted_tasks > 0) {
+        } else if (token->mode() == ExecutionMode::CONCURRENT &&
+                   token->_num_submitted_tasks < token->_max_concurrency &&
+                   token->_num_unsubmitted_tasks > 0) {
             _queue.emplace_back(token);
             ++token->_num_submitted_tasks;
             --token->_num_unsubmitted_tasks;

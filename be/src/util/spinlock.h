@@ -37,9 +37,7 @@ public:
         }
     }
 
-    void unlock() {
-        __sync_bool_compare_and_swap(&_locked, true, false);
-    }
+    void unlock() { __sync_bool_compare_and_swap(&_locked, true, false); }
 
     // Tries to acquire the lock
     inline bool try_lock() { return __sync_bool_compare_and_swap(&_locked, false, true); }

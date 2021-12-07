@@ -39,7 +39,6 @@ namespace doris {
 
 class OlapSnapshotConverter {
 public:
-
     OLAPStatus convert_to_pdelta(const RowsetMetaPB& rowset_meta_pb, PDelta* delta);
 
     OLAPStatus convert_to_rowset_meta(const PDelta& delta, const RowsetId& rowset_id,

@@ -29,10 +29,7 @@ ProgressUpdater::ProgressUpdater(const std::string& label, int64_t total, int pe
           _last_output_percentage(0) {}
 
 ProgressUpdater::ProgressUpdater()
-        : _total(0),
-          _update_period(0),
-          _num_complete(0),
-          _last_output_percentage(0) {}
+        : _total(0), _update_period(0), _num_complete(0), _last_output_percentage(0) {}
 
 void ProgressUpdater::update(int64_t delta) {
     DCHECK_GE(delta, 0);
@@ -50,8 +47,7 @@ void ProgressUpdater::update(int64_t delta) {
 
     if (num_complete >= _total) {
         // Always print the final 100% complete
-        VLOG_DEBUG << _label << " 100\% Complete (" << num_complete << " out of "
-                             << _total << ")";
+        VLOG_DEBUG << _label << " 100\% Complete (" << num_complete << " out of " << _total << ")";
         return;
     }
 
@@ -62,7 +58,7 @@ void ProgressUpdater::update(int64_t delta) {
         // Only update shared variable if this guy was the latest.
         __sync_val_compare_and_swap(&_last_output_percentage, old_percentage, new_percentage);
         VLOG_DEBUG << _label << ": " << new_percentage << "\% Complete (" << num_complete
-                             << " out of " << _total << ")";
+                   << " out of " << _total << ")";
     }
 }
 } // namespace doris

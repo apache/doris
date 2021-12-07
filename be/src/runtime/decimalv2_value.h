@@ -61,8 +61,8 @@ public:
 
     static constexpr int32_t PRECISION = 27;
     static constexpr int32_t SCALE = 9;
-    static constexpr int32_t SCALE_TRIM_ARRAY[SCALE + 1] =
-            { 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1 };
+    static constexpr int32_t SCALE_TRIM_ARRAY[SCALE + 1] = {
+            1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1};
     static constexpr uint32_t ONE_BILLION = 1000000000;
     static constexpr int64_t MAX_INT_VALUE = 999999999999999999;
     static constexpr int32_t MAX_FRAC_VALUE = 999999999;

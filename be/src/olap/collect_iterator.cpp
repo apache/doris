@@ -91,16 +91,18 @@ void CollectIterator::build_heap(const std::vector<RowsetReaderSharedPtr>& rs_re
                     new Level1Iterator(cumu_children, cumu_children.size() > 1, _reverse,
                                        _reader->_sequence_col_idx, sort_type, sort_col_num);
             cumu_iter->init();
-            _inner_iter.reset(new Level1Iterator(std::list<LevelIterator*>{*base_reader_child, cumu_iter}, _merge,
-                    _reverse, _reader->_sequence_col_idx, sort_type, sort_col_num));
+            _inner_iter.reset(new Level1Iterator(
+                    std::list<LevelIterator*> {*base_reader_child, cumu_iter}, _merge, _reverse,
+                    _reader->_sequence_col_idx, sort_type, sort_col_num));
         } else {
             // _children.size() == 1
-            _inner_iter.reset(new Level1Iterator(_children, _merge,
-                    _reverse, _reader->_sequence_col_idx, sort_type, sort_col_num));
+            _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse,
+                                                 _reader->_sequence_col_idx, sort_type,
+                                                 sort_col_num));
         }
     } else {
-        _inner_iter.reset(new Level1Iterator(_children, _merge,
-                _reverse, _reader->_sequence_col_idx, sort_type, sort_col_num));
+        _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse,
+                                             _reader->_sequence_col_idx, sort_type, sort_col_num));
     }
     _inner_iter->init();
     // Clear _children earlier to release any related references
@@ -122,7 +124,9 @@ bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a
     if (_sequence_id_idx != -1) {
         auto seq_first_cell = first->cell(_sequence_id_idx);
         auto seq_second_cell = second->cell(_sequence_id_idx);
-        auto res = first->schema()->column(_sequence_id_idx)->compare_cell(seq_first_cell, seq_second_cell);
+        auto res = first->schema()
+                           ->column(_sequence_id_idx)
+                           ->compare_cell(seq_first_cell, seq_second_cell);
         if (res != 0) return res < 0;
     }
     // if row cursors equal, compare data version.
@@ -135,8 +139,7 @@ bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a
     return a->version() > b->version();
 }
 
-CollectIterator::BaseComparator::BaseComparator(
-        std::shared_ptr<LevelIteratorComparator>& cmp) {
+CollectIterator::BaseComparator::BaseComparator(std::shared_ptr<LevelIteratorComparator>& cmp) {
     _cmp = cmp;
 }
 
@@ -145,7 +148,7 @@ bool CollectIterator::BaseComparator::operator()(const LevelIterator* a, const L
 }
 
 bool CollectIterator::LevelZorderIteratorComparator::operator()(const LevelIterator* a,
-                                                                    const LevelIterator* b) {
+                                                                const LevelIterator* b) {
     // First compare row cursor.
     const RowCursor* first = a->current_row();
     const RowCursor* second = b->current_row();
@@ -264,11 +267,13 @@ OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* de
 }
 
 CollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<CollectIterator::LevelIterator*>& children,
-        bool merge, bool reverse, int sequence_id_idx,
-        SortType sort_type, int sort_col_num)
-        : _children(children), _merge(merge), _reverse(reverse),
-        _sort_type(sort_type), _sort_col_num(sort_col_num) {}
+        const std::list<CollectIterator::LevelIterator*>& children, bool merge, bool reverse,
+        int sequence_id_idx, SortType sort_type, int sort_col_num)
+        : _children(children),
+          _merge(merge),
+          _reverse(reverse),
+          _sort_type(sort_type),
+          _sort_col_num(sort_col_num) {}
 
 CollectIterator::LevelIterator::~LevelIterator() = default;
 
@@ -340,7 +345,8 @@ OLAPStatus CollectIterator::Level1Iterator::init() {
     if (_merge && _children.size() > 1) {
         std::shared_ptr<LevelIteratorComparator> cmp;
         if (_sort_type == SortType::ZORDER) {
-            cmp = std::make_shared<LevelZorderIteratorComparator>(_reverse, _sequence_id_idx,  _sort_col_num);
+            cmp = std::make_shared<LevelZorderIteratorComparator>(_reverse, _sequence_id_idx,
+                                                                  _sort_col_num);
         } else {
             cmp = std::make_shared<LevelIteratorComparator>(_reverse, _sequence_id_idx);
         }

@@ -115,14 +115,14 @@ private:
     void _output_compressed();
     OLAPStatus _make_sure_output_buffer();
 
-    uint32_t _buffer_size;                           // Compressed block size
-    Compressor _compressor;                          // Compression function, if NULL means no compression
+    uint32_t _buffer_size;  // Compressed block size
+    Compressor _compressor; // Compression function, if NULL means no compression
     std::vector<StorageByteBuffer*> _output_buffers; // Buffer all output
     bool _is_suppressed;                             // Whether the stream is terminated
     StorageByteBuffer* _current;                     // Cache uncompressed data
     StorageByteBuffer* _compressed;                  // Bytes to be output to output_buffers
     StorageByteBuffer* _overflow;                    // Bytes that can't fit in _output
-    uint64_t _spilled_bytes;                         // The number of bytes that have been output to output
+    uint64_t _spilled_bytes; // The number of bytes that have been output to output
 
     DISALLOW_COPY_AND_ASSIGN(OutStream);
 };

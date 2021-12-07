@@ -245,7 +245,7 @@ OLAPStatus ColumnData::_find_position_by_full_key(const RowCursor& key, bool fin
             it_result = std::upper_bound(it_start, it_end, key, comparator);
         }
         VLOG_NOTICE << "get result iterator. offset=" << *it_result
-                << ", start_pos=" << start_position.to_string();
+                    << ", start_pos=" << start_position.to_string();
     } catch (std::exception& e) {
         LOG(WARNING) << "exception happens when doing seek. exception=" << e.what();
         return OLAP_ERR_STL_ERROR;

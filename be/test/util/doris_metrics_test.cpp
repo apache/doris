@@ -124,7 +124,8 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     {
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
-        auto metric = server_entity->get_metric("report_all_tablets_requests_skip", "engine_requests_total");
+        auto metric = server_entity->get_metric("report_all_tablets_requests_skip",
+                                                "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("1", metric->to_string().c_str());
     }

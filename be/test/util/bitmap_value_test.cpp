@@ -308,7 +308,7 @@ TEST(BitmapValueTest, bitmap_to_string) {
 }
 
 TEST(BitmapValueTest, sub_limit) {
-    BitmapValue bitmap({1,2,3,10,11,5,6,7,8,9});
+    BitmapValue bitmap({1, 2, 3, 10, 11, 5, 6, 7, 8, 9});
     BitmapValue ret_bitmap1;
     ASSERT_EQ(5, bitmap.sub_limit(0, 5, &ret_bitmap1));
     ASSERT_STREQ("1,2,3,5,6", ret_bitmap1.to_string().c_str());

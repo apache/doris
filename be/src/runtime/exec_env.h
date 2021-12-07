@@ -182,7 +182,7 @@ private:
     // Scanner threads for common queries will use this thread pool,
     // and the priority of each scan task is set according to the size of the query.
 
-    // _limited_scan_thread_pool is also the thread pool used for scanner. 
+    // _limited_scan_thread_pool is also the thread pool used for scanner.
     // The difference is that it is no longer a priority queue, but according to the concurrency
     // set by the user to control the number of threads that can be used by a query.
 

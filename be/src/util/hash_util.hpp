@@ -345,7 +345,7 @@ public:
 #endif
     }
     // hash_combine is the same with boost hash_combine,
-    // except replace boost::hash with std::hash 
+    // except replace boost::hash with std::hash
     template <class T>
     static inline void hash_combine(std::size_t& seed, const T& v) {
         std::hash<T> hasher;

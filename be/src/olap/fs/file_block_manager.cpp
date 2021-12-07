@@ -168,8 +168,9 @@ Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
     _state = DIRTY;
 
     // Calculate the amount of data written
-    size_t bytes_written = accumulate(data, data + data_cnt, static_cast<size_t>(0),
-                                      [](size_t sum, const Slice& curr) { return sum + curr.size; });
+    size_t bytes_written =
+            accumulate(data, data + data_cnt, static_cast<size_t>(0),
+                       [](size_t sum, const Slice& curr) { return sum + curr.size; });
     _bytes_appended += bytes_written;
     return Status::OK();
 }
@@ -369,7 +370,7 @@ FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts)
         : _env(DCHECK_NOTNULL(env)),
           _opts(std::move(opts)),
           _mem_tracker(MemTracker::CreateTracker(-1, "FileBlockManager", _opts.parent_mem_tracker,
-                    false, false, MemTrackerLevel::OVERVIEW)) {
+                                                 false, false, MemTrackerLevel::OVERVIEW)) {
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }

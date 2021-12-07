@@ -18,8 +18,8 @@
 #include "olap/options.h"
 
 #include <gtest/gtest.h>
-#include <filesystem>
 
+#include <filesystem>
 #include <string>
 
 namespace doris {

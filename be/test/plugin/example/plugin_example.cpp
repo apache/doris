@@ -35,7 +35,7 @@ int close(void*) {
 extern "C" {
 #endif
 
-declare_plugin(PluginExample){nullptr, &init, &close, 3, nullptr, nullptr} declare_plugin_end
+declare_plugin(PluginExample) {nullptr, &init, &close, 3, nullptr, nullptr} declare_plugin_end
 
 #ifdef __cplusplus
 }

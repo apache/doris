@@ -167,10 +167,10 @@ enum FieldAggregationMethod {
 enum OLAPCompressionType {
     // Compression algorithm used for network transmission, low compression rate, low cpu overhead
     OLAP_COMP_TRANSPORT = 1,
-    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead 
-    OLAP_COMP_STORAGE = 2,  
-    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low 
-    OLAP_COMP_LZ4 = 3,       
+    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead
+    OLAP_COMP_STORAGE = 2,
+    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low
+    OLAP_COMP_LZ4 = 3,
 };
 
 enum PushType {

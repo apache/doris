@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SRC_OLAP_HLL_H
 #define DORIS_BE_SRC_OLAP_HLL_H
 
-#include <map>
 #include <math.h>
 #include <stdio.h>
+
+#include <map>
 #include <set>
 #include <string>
 
@@ -65,7 +66,7 @@ const static int HLL_EMPTY_SIZE = 1;
 // (1 + 4 + 3 * 4096) = 12293.
 //
 // HLL_DATA_FULL: most space-consuming, store all registers
-// 
+//
 // A HLL value will change in the sequence empty -> explicit -> sparse -> full, and not
 // allow reverse.
 //
@@ -80,9 +81,8 @@ enum HllDataType {
 
 class HyperLogLog {
 public:
-
     HyperLogLog() = default;
-    explicit HyperLogLog(uint64_t hash_value): _type(HLL_DATA_EXPLICIT) {
+    explicit HyperLogLog(uint64_t hash_value) : _type(HLL_DATA_EXPLICIT) {
         _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
         _explicit_data[0] = hash_value;
         _explicit_data_num = 1;
@@ -90,15 +90,13 @@ public:
 
     explicit HyperLogLog(const Slice& src);
 
-    ~HyperLogLog() {
-        clear();
-    }
+    ~HyperLogLog() { clear(); }
 
     void clear() {
         _type = HLL_DATA_EMPTY;
-        delete [] _registers;
+        delete[] _registers;
         _registers = nullptr;
-        delete [] _explicit_data;
+        delete[] _explicit_data;
         _explicit_data = nullptr;
         _explicit_data_num = 0;
     }
@@ -145,7 +143,7 @@ public:
 
     // Check if input slice is a valid serialized binary of HyperLogLog.
     // This function only check the encoded type in slice, whose complex
-    // function is O(1). 
+    // function is O(1).
     static bool is_valid(const Slice& slice);
 
     // only for debug
@@ -155,16 +153,15 @@ public:
             return {};
         case HLL_DATA_EXPLICIT:
         case HLL_DATA_SPARSE:
-        case HLL_DATA_FULL:
-            {
-                std::string str {"hash set size: "};
-                str.append(std::to_string((size_t)_explicit_data_num));
-                str.append("\ncardinality:\t");
-                str.append(std::to_string(estimate_cardinality()));
-                str.append("\ntype:\t");
-                str.append(std::to_string(_type));
-                return str;
-            }
+        case HLL_DATA_FULL: {
+            std::string str {"hash set size: "};
+            str.append(std::to_string((size_t)_explicit_data_num));
+            str.append("\ncardinality:\t");
+            str.append(std::to_string(estimate_cardinality()));
+            str.append("\ntype:\t");
+            str.append(std::to_string(_type));
+            return str;
+        }
         default:
             return {};
         }
@@ -221,7 +218,7 @@ private:
 
         size_t n = (_explicit_data_num - i) * sizeof(*_explicit_data);
         if (n) {
-            memmove(_explicit_data+i+1, _explicit_data+i, n);
+            memmove(_explicit_data + i + 1, _explicit_data + i, n);
         }
 
         //insert data
@@ -234,12 +231,13 @@ private:
 // todo(kks): remove this when dpp_sink class was removed
 class HllSetResolver {
 public:
-    HllSetResolver() : _buf_ref(nullptr),
-                       _buf_len(0),
-                       _set_type(HLL_DATA_EMPTY),
-                       _full_value_position(nullptr),
-                       _explicit_value(nullptr),
-                       _explicit_num(0) {}
+    HllSetResolver()
+            : _buf_ref(nullptr),
+              _buf_len(0),
+              _set_type(HLL_DATA_EMPTY),
+              _full_value_position(nullptr),
+              _explicit_value(nullptr),
+              _explicit_num(0) {}
 
     ~HllSetResolver() {}
 
@@ -250,7 +248,7 @@ public:
     typedef uint8_t SparseValueType;
 
     // only save pointer
-    void init(char* buf, int len){
+    void init(char* buf, int len) {
         this->_buf_ref = buf;
         this->_buf_len = len;
     }
@@ -277,10 +275,11 @@ public:
 
     // parse set , call after copy() or init()
     void parse();
-private :
-    char* _buf_ref;    // set
-    int _buf_len;      // set len
-    HllDataType _set_type;        //set type
+
+private:
+    char* _buf_ref;        // set
+    int _buf_len;          // set len
+    HllDataType _set_type; //set type
     char* _full_value_position;
     uint64_t* _explicit_value;
     ExplicitLengthValueType _explicit_num;
@@ -297,6 +296,6 @@ public:
                          const int set_len, int& len);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_HLL_H

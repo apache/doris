@@ -22,10 +22,10 @@
 #include <mutex>
 
 #include "exec/file_reader.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/message_body_sink.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 

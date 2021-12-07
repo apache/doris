@@ -363,7 +363,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
             if (new_column_data->rowset_pruning_filter()) {
                 _stats->rows_stats_filtered += new_column_data->num_rows();
                 VLOG_NOTICE << "filter segment group in query in condition. version="
-                        << new_column_data->version();
+                            << new_column_data->version();
                 continue;
             }
         }
@@ -371,15 +371,16 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         int ret = new_column_data->delete_pruning_filter();
         if (ret == DEL_SATISFIED) {
             _stats->rows_del_filtered += new_column_data->num_rows();
-            VLOG_NOTICE << "filter segment group in delete predicate:" << new_column_data->version();
+            VLOG_NOTICE << "filter segment group in delete predicate:"
+                        << new_column_data->version();
             continue;
         } else if (ret == DEL_PARTIAL_SATISFIED) {
             VLOG_NOTICE << "filter segment group partially in delete predicate:"
-                    << new_column_data->version();
+                        << new_column_data->version();
             new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
         } else {
             VLOG_NOTICE << "not filter segment group in delete predicate:"
-                    << new_column_data->version();
+                        << new_column_data->version();
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
         auto merge_ctx = new AlphaMergeContext();

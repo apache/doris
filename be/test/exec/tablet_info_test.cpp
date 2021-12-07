@@ -454,14 +454,14 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
     node_2.num_children = 0;
     node_2.__isset.int_literal = true;
     node_2.int_literal.value = 2;
-    // beijing 
+    // beijing
     TExprNode node_b;
     node_b.node_type = TExprNodeType::STRING_LITERAL;
     node_b.type = t_desc_tbl.slotDescriptors[2].slotType;
     node_b.num_children = 0;
     node_b.__isset.string_literal = true;
     node_b.string_literal.value = "beijing";
-    // shanghai 
+    // shanghai
     TExprNode node_s;
     node_s.node_type = TExprNodeType::STRING_LITERAL;
     node_s.type = t_desc_tbl.slotDescriptors[2].slotType;

@@ -26,9 +26,9 @@
 #include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
+#include "exprs/decimalv2_operators.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "exprs/decimalv2_operators.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
@@ -76,7 +76,7 @@ private:
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 7
 int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *columnNames[] = {"category","author","title","price", "largeint", "decimal"};
+    const char* columnNames[] = {"category", "author", "title", "price", "largeint", "decimal"};
     for (int i = 0; i < COLUMN_NUMBERS; i++) {
         TSlotDescriptor slot_desc;
 
@@ -225,7 +225,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 8;
-    {// lagreint
+    { // lagreint
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -251,7 +251,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 16;
-    {// decimal
+    { // decimal
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -568,7 +568,8 @@ TEST_F(JsonScannerTest, normal_simple_arrayjson) {
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(2, batch.num_rows());
     // Do not use num_as_string, so largeint is too big is null and decimal value loss precision
-    auto tuple_str = batch.get_row(1)->get_tuple(0)->to_string(*scan_node.row_desc().tuple_descriptors()[0]);
+    auto tuple_str =
+            batch.get_row(1)->get_tuple(0)->to_string(*scan_node.row_desc().tuple_descriptors()[0]);
     ASSERT_TRUE(tuple_str.find("1180591620717411303424") == tuple_str.npos);
     ASSERT_TRUE(tuple_str.find("9999999999999.999999") == tuple_str.npos);
     ASSERT_FALSE(eof);
@@ -613,7 +614,8 @@ TEST_F(JsonScannerTest, normal_simple_arrayjson) {
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(2, batch.num_rows());
     // Use num as string, load largeint, decimal successfully
-    tuple_str = batch.get_row(1)->get_tuple(0)->to_string(*scan_node2.row_desc().tuple_descriptors()[0]);
+    tuple_str = batch.get_row(1)->get_tuple(0)->to_string(
+            *scan_node2.row_desc().tuple_descriptors()[0]);
     ASSERT_FALSE(tuple_str.find("1180591620717411303424") == tuple_str.npos);
     ASSERT_FALSE(tuple_str.find("9999999999999.999999") == tuple_str.npos);
 

@@ -215,9 +215,7 @@ public:
               _size_of_element(0),
               _cur_index(0) {}
 
-    ~BitShufflePageDecoder() {
-        ChunkAllocator::instance()->free(_chunk);
-    }
+    ~BitShufflePageDecoder() { ChunkAllocator::instance()->free(_chunk); }
 
     Status init() override {
         CHECK(!_parsed);
@@ -364,7 +362,8 @@ private:
     Status _decode() {
         if (_num_elements > 0) {
             int64_t bytes;
-            if (!ChunkAllocator::instance()->allocate_align(_num_element_after_padding * _size_of_element, &_chunk)) {
+            if (!ChunkAllocator::instance()->allocate_align(
+                        _num_element_after_padding * _size_of_element, &_chunk)) {
                 return Status::RuntimeError("Decoded Memory Alloc failed");
             }
             char* in = const_cast<char*>(&_data[BITSHUFFLE_PAGE_HEADER_SIZE]);

@@ -149,8 +149,9 @@ public:
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
 
-    template <typename T, size_t N> static StringVal do_money_format(FunctionContext* context, const T int_value,
-            const int32_t frac_value = 0) {
+    template <typename T, size_t N>
+    static StringVal do_money_format(FunctionContext* context, const T int_value,
+                                     const int32_t frac_value = 0) {
         char local[N];
         char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
         int32_t string_val_len = local + sizeof(local) - p + 3;
@@ -191,7 +192,7 @@ public:
                              const StringVal& oldStr, const StringVal& newStr);
 
     static doris_udf::IntVal bit_length(doris_udf::FunctionContext* context,
-                                    const doris_udf::StringVal& str);
+                                        const doris_udf::StringVal& str);
 };
 } // namespace doris
 

@@ -123,7 +123,7 @@ TEST_F(JsonFunctionTest, json_quote) {
     doris_udf::StringVal res4 = JsonFunctions::json_quote(context, StringVal("\""));
     ASSERT_EQ(std::string("\"\\\"\""), std::string((char*)res4.ptr, res4.len));
 
-    doris_udf::StringVal json_str= {""};
+    doris_udf::StringVal json_str = {""};
     doris_udf::StringVal res5 = JsonFunctions::json_quote(context, json_str);
     ASSERT_EQ(std::string("\"\""), std::string((char*)res5.ptr, res5.len));
     delete context;
@@ -140,11 +140,11 @@ TEST_F(JsonFunctionTest, json_array) {
     doris_udf::StringVal res2 = JsonFunctions::json_array(context, 4, json_str2);
     ASSERT_EQ(std::string("[1,\"abc\",null]"), std::string((char*)res2.ptr, res2.len));
 
-    doris_udf::StringVal json_str3[1]= {""};
+    doris_udf::StringVal json_str3[1] = {""};
     doris_udf::StringVal res3 = JsonFunctions::json_array(context, 1, json_str3);
     ASSERT_EQ(std::string("[]"), std::string((char*)res3.ptr, res3.len));
 
-    doris_udf::StringVal json_str4[2]= {"null","0"};
+    doris_udf::StringVal json_str4[2] = {"null", "0"};
     doris_udf::StringVal res4 = JsonFunctions::json_array(context, 2, json_str4);
     ASSERT_EQ(std::string("[null]"), std::string((char*)res4.ptr, res4.len));
     delete context;
@@ -161,13 +161,13 @@ TEST_F(JsonFunctionTest, json_object) {
     ASSERT_EQ(std::string("{\"name\":\"Jack\",\"score\":\"[87,98,90]\"}"),
               std::string((char*)res2.ptr, res2.len));
 
-    doris_udf::StringVal json_str3[3] = {"key", "null","50"};
+    doris_udf::StringVal json_str3[3] = {"key", "null", "50"};
     doris_udf::StringVal res3 = JsonFunctions::json_object(context, 3, json_str3);
-    ASSERT_EQ(std::string("{\"key\":null}"), std::string((char*)res3.ptr, res3.len));  
+    ASSERT_EQ(std::string("{\"key\":null}"), std::string((char*)res3.ptr, res3.len));
 
-    doris_udf::StringVal json_str4[1]= {""};
+    doris_udf::StringVal json_str4[1] = {""};
     doris_udf::StringVal res4 = JsonFunctions::json_object(context, 1, json_str4);
-    ASSERT_EQ(std::string("{}"), std::string((char*)res4.ptr, res4.len));        
+    ASSERT_EQ(std::string("{}"), std::string((char*)res4.ptr, res4.len));
     delete context;
 }
 

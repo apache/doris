@@ -46,13 +46,15 @@ private:
                                      int64_t committed_version, bool is_incremental_clone);
 
     OLAPStatus _finish_incremental_clone(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
-                                       int64_t committed_version);
+                                         int64_t committed_version);
 
     OLAPStatus _finish_full_clone(Tablet* tablet, TabletMeta* cloned_tablet_meta);
 
-    AgentStatus _make_and_download_snapshots(DataDir& data_dir, const string& local_data_path, TBackend* src_host,
-                            string* src_file_path, vector<string>* error_msgs,
-                            const vector<Version>* missing_versions, bool* allow_incremental_clone);
+    AgentStatus _make_and_download_snapshots(DataDir& data_dir, const string& local_data_path,
+                                             TBackend* src_host, string* src_file_path,
+                                             vector<string>* error_msgs,
+                                             const vector<Version>* missing_versions,
+                                             bool* allow_incremental_clone);
 
     void _set_tablet_info(AgentStatus status, bool is_new_tablet);
 

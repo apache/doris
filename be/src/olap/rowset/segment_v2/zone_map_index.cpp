@@ -57,12 +57,12 @@ void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
     }
 }
 
-void ZoneMapIndexWriter::moidfy_index_before_flush(struct doris::segment_v2::ZoneMap & zone_map) {
+void ZoneMapIndexWriter::moidfy_index_before_flush(struct doris::segment_v2::ZoneMap& zone_map) {
     _field->modify_zone_map_index(zone_map.max_value);
 }
 
 void ZoneMapIndexWriter::reset_page_zone_map() {
-    _page_zone_map.pass_all  = true;
+    _page_zone_map.pass_all = true;
 }
 
 void ZoneMapIndexWriter::reset_segment_zone_map() {

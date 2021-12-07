@@ -154,7 +154,7 @@ private:
     //StorageByteBuffer* _dictionary_data_buffer;   // Save dict data
     std::vector<std::string> _dictionary;
     // Used to read the actual data (represented by an integer)
-    RunLengthIntegerReader* _data_reader; 
+    RunLengthIntegerReader* _data_reader;
 };
 
 // ColumnReader is used to read a column and is the base class of other XXXColumnReader

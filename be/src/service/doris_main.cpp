@@ -74,7 +74,6 @@ static void thrift_output(const char* x) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
@@ -257,7 +256,8 @@ int main(int argc, char** argv) {
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status.get_error_msg();
+        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: "
+                   << status.get_error_msg();
         doris::shutdown_logging();
         exit(1);
     }
@@ -309,4 +309,3 @@ static void help(const char* progname) {
     printf("  -v, --version      output version information, then exit\n");
     printf("  -?, --help         show this help, then exit\n");
 }
-

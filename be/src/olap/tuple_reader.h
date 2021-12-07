@@ -31,9 +31,9 @@
 #include <vector>
 
 #include "exprs/bloomfilter_predicate.h"
+#include "olap/collect_iterator.h"
 #include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
-#include "olap/collect_iterator.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/reader.h"
@@ -84,7 +84,8 @@ private:
     OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                     bool* eof);
 
-    OLAPStatus _init_collect_iter(const ReaderParams& read_params, std::vector<RowsetReaderSharedPtr>* valid_rs_readers );
+    OLAPStatus _init_collect_iter(const ReaderParams& read_params,
+                                  std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
 
 private:
     const RowCursor* _next_key = nullptr;
@@ -92,7 +93,7 @@ private:
     std::unique_ptr<CollectIterator> _collect_iter;
 
     OLAPStatus (TupleReader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
-                                         ObjectPool* agg_pool, bool* eof) = nullptr;
+                                              ObjectPool* agg_pool, bool* eof) = nullptr;
 };
 
 } // namespace doris

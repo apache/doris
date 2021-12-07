@@ -30,7 +30,7 @@
 #include "runtime/tuple.h"
 
 #if defined(__x86_64__)
-    #include "exec/hdfs_file_reader.h"
+#include "exec/hdfs_file_reader.h"
 #endif
 
 // orc include file didn't expose orc::TimezoneError
@@ -120,8 +120,7 @@ ORCScanner::ORCScanner(RuntimeState* state, RuntimeProfile* profile,
                        const TBrokerScanRangeParams& params,
                        const std::vector<TBrokerRangeDesc>& ranges,
                        const std::vector<TNetworkAddress>& broker_addresses,
-                       const std::vector<TExpr>& pre_filter_texprs,
-                       ScannerCounter* counter)
+                       const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
@@ -400,20 +399,21 @@ Status ORCScanner::open_next_reader() {
             if (range.__isset.file_size) {
                 file_size = range.file_size;
             }
-            file_reader.reset(new BufferedReader(_profile, new BrokerReader(_state->exec_env(), _broker_addresses,
-                                               _params.properties, range.path, range.start_offset,
-                                               file_size)));
+            file_reader.reset(new BufferedReader(
+                    _profile,
+                    new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
+                                     range.path, range.start_offset, file_size)));
             break;
         }
         case TFileType::FILE_S3: {
-            file_reader.reset(new BufferedReader(_profile,
-                    new S3Reader(_params.properties, range.path, range.start_offset)));
+            file_reader.reset(new BufferedReader(
+                    _profile, new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }
         case TFileType::FILE_HDFS: {
 #if defined(__x86_64__)
-            file_reader.reset(new HdfsFileReader(
-                    range.hdfs_params, range.path, range.start_offset));
+            file_reader.reset(
+                    new HdfsFileReader(range.hdfs_params, range.path, range.start_offset));
             break;
 #else
             return Status::InternalError("HdfsFileReader do not support on non x86 platform");
