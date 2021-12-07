@@ -1545,6 +1545,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_tablet_scheduler = false;
 
+    /*
+     * Used to set minimal number of replication per table.
+     * If set to a number bigger than 1, it can avoid creating single replication table.
+     */
     @ConfField(mutable = true, masterOnly = true)
     public static short min_table_replication_num = 1;
 }

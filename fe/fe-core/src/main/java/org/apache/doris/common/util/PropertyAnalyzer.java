@@ -534,6 +534,11 @@ public class PropertyAnalyzer {
         if (replicaAlloc.isEmpty()) {
             throw new AnalysisException("Not specified replica allocation property");
         }
+
+        if (replicaAlloc.getTotalReplicaNum() < Config.min_table_replication_num) {
+            throw new AnalysisException(
+                    String.format("replication_num is smaller than min_table_replication_num(%s)", Config.min_table_replication_num));
+        }
         return replicaAlloc;
     }
 
