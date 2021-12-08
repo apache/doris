@@ -17,11 +17,11 @@
 #
 
 ---
-name: BE Code Fomatter
+name: BE Code Formatter
 on: pull_request
 jobs:
   clang-format:
-    name: "Clang Fomatter"
+    name: "Clang Formatter"
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
