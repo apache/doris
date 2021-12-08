@@ -231,6 +231,14 @@ public class DecimalLiteral extends LiteralExpr {
         return fracPart.intValue();
     }
 
+    public void roundCeiling() {
+        value = value.setScale(0, 2);
+    }
+
+    public void roundFloor() {
+        value = value.setScale(0, 3);
+    }
+
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isDecimalV2()) {

@@ -313,16 +313,6 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
-            // Avoid casting the key slot of Bigint type to Decimal, it will not hit the bucket
-            // Modifying here is not elegant, maybe it is a temporary trick solution.
-            if ((getChild(0) instanceof DecimalLiteral
-                    && getChild(0).getStringValue().split("\\.")[1].equals("0")
-                    && getChild(1) instanceof SlotRef && t2 == PrimitiveType.BIGINT)
-                    || (getChild(1) instanceof DecimalLiteral
-                    && getChild(1).getStringValue().split("\\.")[1].equals("0")
-                    && getChild(0) instanceof SlotRef && t1 == PrimitiveType.BIGINT)) {
-                return Type.BIGINT;
-            }
             return Type.DECIMALV2;
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
