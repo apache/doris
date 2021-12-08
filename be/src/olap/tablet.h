@@ -252,6 +252,15 @@ public:
     void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
     bool get_clone_occurred() { return _is_clone_occurred; }
 
+    void set_cumulative_compaction_policy(
+            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+        _cumulative_compaction_policy = cumulative_compaction_policy;
+    }
+
+    std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy() {
+        return _cumulative_compaction_policy;
+    }
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
