@@ -40,9 +40,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-// 查询请求的调度器
-// 当前的策略比较简单，有请求过来，就为其单独申请一个线程进行服务。
-// TODO(zhaochun): 应当后面考虑本地文件的连接是否可以超过最大连接数
+// The scheduler of query requests
+// Now the strategy is simple, we allocate a thread for it when a request comes.
+// TODO(zhaochun): We should consider if the number of local file connection can >= maximum connections later.
 public class ConnectScheduler {
     private static final Logger LOG = LogManager.getLogger(ConnectScheduler.class);
     private int maxConnections;
@@ -88,7 +88,7 @@ public class ConnectScheduler {
 
         context.setConnectionId(nextConnectionId.getAndAdd(1));
         // no necessary for nio.
-        if(context instanceof NConnectContext){
+        if (context instanceof NConnectContext) {
             return true;
         }
         executor.submit(new LoopHandler(context));
@@ -144,10 +144,10 @@ public class ConnectScheduler {
             // Check auth
             if (!ctx.getQualifiedUser().equals(user) &&
                     !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                           PrivPredicate.GRANT)) {
+                            PrivPredicate.GRANT)) {
                 continue;
             }
-            
+
             infos.add(ctx.toThreadInfo());
         }
         return infos;

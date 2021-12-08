@@ -408,7 +408,7 @@ public class OutFileClause {
         if (storageType == StorageBackend.StorageType.S3) {
             S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
         } else if (storageType == StorageBackend.StorageType.HDFS) {
-            HDFSStorage.checkHDFS(brokerProps);
+            HDFSStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);

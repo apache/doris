@@ -249,6 +249,23 @@ View configuration
 show data （Detail：HELP SHOW DATA）
 ```
 
+### default_db_replica_quota_size
+
+Default: 1073741824
+
+IsMutable：true
+
+MasterOnly：true
+
+Used to set the default database replica quota. To set the quota size of a single database, you can use: 
+
+```
+Set the database replica quota
+ALTER DATABASE db_name SET REPLICA QUOTA quota;
+View configuration
+show data （Detail：HELP SHOW DATA）
+```
+
 ### enable_batch_delete_by_default
 
 Default：false
@@ -770,7 +787,7 @@ The tryLock timeout configuration of catalog lock.  Normally it does not need to
 
 ### max_query_retry_time
 
-Default：2
+Default：1
 
 IsMutable：true
 
@@ -1537,7 +1554,7 @@ MasterOnly：true
 Maximal memory layout length of a row. default is 100 KB. In BE, the maximal size of a RowBlock is 100MB(Configure as max_unpacked_row_block_size in be.conf). And each RowBlock contains 1024 rows. So the maximal size of a row is approximately 100 KB.
      eg.
      schema: k1(int), v1(decimal), v2(varchar(2000))
-     then the memory layout length of a row is: 8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
+     then the memory layout length of a row is: 4(int) + 16(decimal) + 2000(varchar) = 2020 (Bytes)
      See memory layout length of all types, run 'help create table' in mysql-client.
      If you want to increase this number to support more columns in a row, you also need to increase the
      max_unpacked_row_block_size in be.conf. But the performance impact is unknown.

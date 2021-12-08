@@ -300,41 +300,6 @@ Planning example for concurrent export:
 
     **But because the query statement has a top-level sorting node, even if the query is enabled for concurrently exported session variables, it cannot be exported concurrently.**
 
-8. Example 8
-
-    Use hdfs to export and export the simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as csv.
-
-    ```
-    select * from tbl
-    into outfile "hdfs://path/to/result_"
-    format as csv
-    properties
-    (
-        "hdfs.fs.defaultfs" = "hdfs://namenode:port",
-    );
-    ```
-
-9. Example 9
-
-    Export simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as CSV. Use HDFS protocal directly and set kerberos authentication information.
-    
-    ```
-    SELECT * FROM tbl
-    INTO OUTFILE "hdfs://path/to/result_"
-    FORMAT AS CSV
-    PROPERTIES
-    (
-        "hdfs.fs.defaultFS" = "hdfs://namenode_ip:namenode_port",
-        "hdfs.hadoop.security.authentication" = "kerberos",
-        "hdfs.kerberos_principal" = "doris@YOUR.COM",
-        "hdfs.kerberos_keytab" = "/home/doris/my.keytab",
-        "max_file_size" = "100MB"
-    );
-    ```
-    
-    If the result is less than 100MB, file will be: `result_0.csv`.
-    
-    If larger than 100MB, may be: `result_0.csv, result_1.csv, ...`.
 ## Return result
 
 The command is a synchronization command. The command returns, which means the operation is over.

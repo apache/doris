@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-public class ModifyBackendTagTest {
+public class ModifyBackendTest {
 
     private static String runningDir = "fe/mocked/ModifyBackendTagTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext connectContext;
@@ -64,7 +64,7 @@ public class ModifyBackendTagTest {
     }
 
     @Test
-    public void testModifyBackend() throws Exception {
+    public void testModifyBackendTag() throws Exception {
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
         List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         Assert.assertEquals(1, backends.size());
@@ -182,6 +182,26 @@ public class ModifyBackendTagTest {
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), alterStmt3));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
+    }
+
+    @Test
+    public void testModifyBackendAvailableProperty() throws Exception {
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
+        // modify backend available property
+        String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
+        AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
+        DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
+        Backend backend = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER).get(0);
+        Assert.assertFalse(backend.isQueryAvailable());
+        Assert.assertFalse(backend.isLoadAvailable());
+
+        stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'false', 'disable_load' = 'false')";
+        stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
+        DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
+        Assert.assertTrue(backend.isQueryAvailable());
+        Assert.assertTrue(backend.isLoadAvailable());
     }
 }
 

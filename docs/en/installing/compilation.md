@@ -42,7 +42,7 @@ This document focuses on how to code Doris through source code.
     ```
     $ docker images
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-1.3.1           49f68cecbc1a        4 days ago          3.76GB
+    apache/incubator-doris   build-env-1.4.2    49f68cecbc1a        4 days ago          3.76GB
     ```
 
 Note: For different versions of Doris, you need to download the corresponding mirror version.
@@ -53,7 +53,8 @@ Note: For different versions of Doris, you need to download the corresponding mi
 | apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x |
-| apache/incubator-doris:build-env-1.4.1 | [24d3861](https://github.com/apache/incubator-doris/commit/24d38614a0f21ed606462816a262c2e1d8273ace) or later | 1.15.0 or later |
+| apache/incubator-doris:build-env-1.4.1 | [24d3861](https://github.com/apache/incubator-doris/commit/24d38614a0f21ed606462816a262c2e1d8273ace) or later | 0.15.x(releasing) |
+| apache/incubator-doris:build-env-1.4.2 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.x(releasing) |
 
 **note**:
 
@@ -81,14 +82,14 @@ Note: For different versions of Doris, you need to download the corresponding mi
 
 2. Running Mirror
 
-    `$ docker run -it apache/incubator-doris:build-env-1.3.1`
+    `$ docker run -it apache/incubator-doris:build-env-1.4.2`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
      At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3.1
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.4.2
     ```
 
 3. Download source code

@@ -243,6 +243,23 @@ ALTER DATABASE db_name SET DATA QUOTA quota;
 show data （其他用法：HELP SHOW DATA）
 ```
 
+### default_db_replica_quota_size
+
+默认值：1073741824
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+用于设置默认数据库Replica数量配额大小，设置单个数据库配额大小可以使用：
+
+```
+设置数据库Replica数量配额
+ALTER DATABASE db_name SET REPLICA QUOTA quota;
+查看配置
+show data （其他用法：HELP SHOW DATA）
+```
+
 ### enable_batch_delete_by_default
 
 默认值：false
@@ -758,7 +775,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 ### max_query_retry_time
 
-默认值：2
+默认值：1
 
 是否可以动态配置：true
 
@@ -1549,7 +1566,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 例如。
       schema：k1(int), v1(decimal), v2(varchar(2000))
-      那么一行的内存布局长度为：8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
+      那么一行的内存布局长度为：4(int) + 16(decimal) + 2000(varchar) = 2020 (Bytes)
 
 查看所有类型的内存布局长度，在 mysql-client 中运行 `help create table`。
 

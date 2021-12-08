@@ -46,7 +46,7 @@ struct ScannerCounter {
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
-                const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
+                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
 
     virtual Status init_expr_ctxes();
@@ -57,7 +57,7 @@ public:
     virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) = 0;
 
     // Close this scanner
-    virtual void close() = 0;
+    virtual void close();
     bool fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 
     void fill_slots_of_columns_from_path(int start,
@@ -89,7 +89,10 @@ protected:
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
     // to filter src tuple directly
-	const std::vector<ExprContext*>& _pre_filter_ctxs;
+    // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,
+    // and will be converted to `_pre_filter_ctxs` when scanner is open.
+    const std::vector<TExpr> _pre_filter_texprs;
+    std::vector<ExprContext*> _pre_filter_ctxs;
 
     bool _strict_mode;
 

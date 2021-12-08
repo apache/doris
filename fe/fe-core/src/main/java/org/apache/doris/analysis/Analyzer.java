@@ -660,7 +660,7 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        if (true == col.isAllowNull()) {
+        if (col.isAllowNull() || globalState.outerJoinedTupleIds.containsKey(d.getId())) {
             result.setIsNullable(true);
         } else {
             result.setIsNullable(false);
@@ -1198,6 +1198,32 @@ public class Analyzer {
         for (ExprId conjunctId : conjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
+            result.add(e);
+        }
+        return result;
+    }
+
+    /**
+     * Get all predicates belonging to one or more tuples that have not yet been assigned
+     * Since these predicates will be assigned by upper-level plan nodes in the future,
+     * the columns associated with these predicates will also be required by upper-level nodes.
+     * So these columns should be projected in the table function node.
+     */
+    public List<Expr> getRemainConjuncts(List<TupleId> tupleIds) {
+        Set<ExprId> remainConjunctIds = Sets.newHashSet();
+        for (TupleId tupleId : tupleIds) {
+            if (tuplePredicates.get(tupleId) !=null) {
+                remainConjunctIds.addAll(tuplePredicates.get(tupleId));
+            }
+        }
+        remainConjunctIds.removeAll(globalState.assignedConjuncts);
+        List<Expr> result = Lists.newArrayList();
+        for (ExprId conjunctId : remainConjunctIds) {
+            Expr e = globalState.conjuncts.get(conjunctId);
+            Preconditions.checkState(e != null);
+            if (e.isAuxExpr()) {
+                continue;
+            }
             result.add(e);
         }
         return result;

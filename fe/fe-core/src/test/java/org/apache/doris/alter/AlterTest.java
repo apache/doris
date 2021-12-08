@@ -727,6 +727,29 @@ public class AlterTest {
         alterTable(changeOrderStmt, false);
     }
 
+    @Test
+    public void testAlterUniqueTablePartitionColumn() throws Exception {
+        createTable("CREATE TABLE test.unique_partition\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    k2 int,\n" +
+                "    v1 int\n" +
+                ")\n" +
+                "UNIQUE KEY(k1, k2)\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "    PARTITION p1 values less than('2020-02-01'),\n" +
+                "    PARTITION p2 values less than('2020-03-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
+                "PROPERTIES('replication_num' = '1');");
+
+        // partition key can not be changed.
+        // this test is also for validating a bug fix about invisible columns(delete flag column)
+        String changeOrderStmt = "ALTER TABLE test.unique_partition modify column k1 int key null";
+        alterTable(changeOrderStmt, true);
+    }
+
     private boolean checkAllTabletsExists(List<Long> tabletIds) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
         for (long tabletId : tabletIds) {

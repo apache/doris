@@ -170,6 +170,7 @@ public class FunctionCallExpr extends Expr {
         }
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
+        this.isTableFnCall = other.isTableFnCall;
     }
 
     public String parseJsonDataType(boolean useKeyCheck) throws AnalysisException {

@@ -51,7 +51,7 @@ public class TableFunctionPlanTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar) "
+        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar, k3 varchar) "
                 + "DUPLICATE KEY(k1) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
@@ -66,7 +66,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -81,7 +81,7 @@ public class TableFunctionPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`k1`"));
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -100,7 +100,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("group by: `k1`, `e1`"));
         // table function node
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -117,7 +117,7 @@ public class TableFunctionPlanTest {
                 + "where e1='1'; ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("PREDICATES: `e1` = '1'"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
@@ -133,7 +133,7 @@ public class TableFunctionPlanTest {
                 + "where k1=1; ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -151,7 +151,7 @@ public class TableFunctionPlanTest {
                 + " lateral view explode_split(k2, \",\") tmp2 as e2;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',') explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',') explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1 2"));
         // lateral view 2 tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp2, byteSize=32, materialized=true}"));
@@ -192,5 +192,222 @@ public class TableFunctionPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertTrue(
                 explainString.contains("No matching function with signature: explode_split(varchar(-1), varchar(-1))."));
+    }
+
+    // test projection
+    /* Case1 the source column is not be projected
+      select k1, e1 from table lateral view explode_split(k2, ",") t1 as e1
+      project column: k1, e1
+      prune column: k2
+     */
+    @Test
+    public void nonProjectSourceColumn() throws Exception {
+        String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    /*
+    Case2 the lateral view column is projected when it is in the agg function.
+    select k1, sum(cast(e1 as int)) from table lateral view explode_split(k2, ",") t1 as e1 group by k1;
+    project column: k1, e1
+    prune column: k2
+     */
+    @Test
+    public void projectLateralViewColumn() throws Exception {
+        String sql = "desc verbose select k1, sum(cast(e1 as int)) from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " group by k1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    /*
+    Case3 the source column is not be projected when it is in the where clause
+    select k1, e1 from table lateral view explode_split(k2, ",") t1 as e1 where k2=1;
+    project column: k1, e1
+    prune column: k2
+     */
+    @Test
+    public void nonProjectSourceColumnWhenInWhereClause() throws Exception {
+        String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " where k2=1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    /*
+    Case4 the source column is projected when predicate could not be pushed down
+    select a.k1, t1.e1 from table a lateral view explode_split(k2, ",") t1 as e1
+        right join table b on a.k1=b.k1 where k2=1;
+    project column: k1, k2, e1
+     */
+    @Test
+    public void projectSourceColumnWhenPredicateCannotPushedDown() throws Exception {
+        String sql = "desc verbose select a.k1, tmp1.e1 from db1.tbl1 a lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " right join db1.tbl1 b on a.k1=b.k1 where a.k2=1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`a`.`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 0 1 2"));
+    }
+
+    /*
+    Case5 There is only one source column in select items
+    select a.k1 from table a lateral view explode_split(k2, ",") t1 as e1
+        left join table b on a.k1=b.k1 where k2=1
+    project column: k1
+    prune column: k2, e1
+     */
+    @Test
+    public void nonProjectLateralColumnAndSourceColumn() throws Exception {
+        String sql = "desc verbose select a.k1 from db1.tbl1 a lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " left join db1.tbl1 b on a.k1=b.k1 where a.k2=1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`a`.`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 2"));
+    }
+
+    // scalar function in explode_split
+    /*
+    Case1 invalid column in scalar function
+    select a.k1 from table a lateral view explode_split(t2.k2, ",") t1 as e1
+    invalid column: t2.k2
+    Case2
+    select a.k1 from table a lateral view explode_split(k100, ",") t1 as e1
+    invalid column: t1.k100
+    Case3
+    select a.k1 from db1.table a lateral view explode_split(db2.table.k2, ",") t1 as e1
+    invalid column: db2.table.k2
+     */
+    @Test
+    public void invalidColumnInExplodeSplit() throws Exception {
+        String sql = "explain select a.k1 from db1.tbl1 a lateral view explode_split(tbl2.k1, \",\") tmp1 as e1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("The column k1 in lateral view must come from the origin table"));
+        sql = "explain select a.k1 from db1.tbl1 a lateral view explode_split(k100, \",\") tmp1 as e1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("Unknown column 'k100'"));
+        sql = "explain select a.k1 from db1.tbl1 a lateral view explode_split(db2.tbl1.k2, \",\") tmp1 as e1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("The column k2 in lateral view must come from the origin table"));
+    }
+
+    /*
+    Case1 invalid agg function
+    select a.k1 from db1.tbl1 a lateral view explode_split(sum(a.k1), ",") tmp1 as e1
+    Case2 subquery
+    select a.k1 from db1.tbl1 a lateral view explode_split(a in )
+     */
+    @Test
+    public void invalidFunctionInLateralView() throws Exception {
+        String sql = "explain select a.k1 from db1.tbl1 a lateral view explode_split(sum(k1), \",\") tmp1 as e1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("Agg function are not allowed in lateral view."));
+        sql = "explain select a.k1 from db1.tbl1 a lateral view explode_split(k1=(select k1 from db1.tbl1), \",\") tmp1 as e1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("Subquery is not allowed in lateral view"));
+    }
+
+    /*
+    Case1 valid scalar function
+    select a.k1 from db1.tbl1 a lateral view explode_split(concat('a', ',', 'b'), ",") tmp1 as e1
+     */
+    @Test
+    public void scalarFunctionInLateralView() throws Exception {
+        String sql = "desc verbose select a.k1 from db1.tbl1 a lateral view explode_split(concat(k2, ',' , k3), \",\") tmp1 as e1 ";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(concat(`a`.`k2`, ',', `a`.`k3`), ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 3"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=0, col=k2, type=VARCHAR(*)}"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=k3, type=VARCHAR(*)}"));
+    }
+
+    // lateral view of subquery
+    /*
+    Case1 reduce tuple of subquery
+    select e1 from (select k1 as c1 from tbl1) tmp1 lateral view explode_split(c1, ",") tmp2 as e1
+     */
+    @Test
+    public void lateralViewColumnOfReduceTuple() throws Exception {
+        String sql = "desc verbose select e1 from (select k2 as c1 from db1.tbl1) a lateral view explode_split(c1, \",\") tmp1 as e1 ";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 2"));
+        Assert.assertTrue(explainString.contains("output slot id: 2"));
+        Assert.assertTrue(explainString.contains("tuple ids: 0 2"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, type=VARCHAR(*)}"));
+    }
+
+    /*
+    Case2 agg column of inlineview
+    select e1 from (select k1 as c1 from tbl1 group by k1) tmp1 lateral view explode_split(c1, ",") tmp2 as e1
+     */
+    @Test
+    public void aggInlineView() throws Exception {
+        String sql = "desc verbose select e1 from (select k2 as c1 from db1.tbl1 group by c1) a lateral view explode_split(c1, \",\") tmp1 as e1 ";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split( `k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
+        Assert.assertTrue(explainString.contains("output slot id: 3"));
+        Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=3, col=e1, type=VARCHAR(*)}"));
+    }
+
+    /*
+    Case3 materialize inline view column
+    select c1, e1 from (select k1 as c1, min(k2) as c2 from tbl1 group by k1) tmp1 lateral view explode_split(c2, ",") tmp2 as e1
+     */
+    @Test
+    public void aggColumnInlineViewInTB() throws Exception {
+        String sql = "desc verbose select c1, e1 from (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
+                + "lateral view explode_split(c2, \",\") tmp1 as e1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(<slot 3> min(`k2`), ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
+        Assert.assertTrue(explainString.contains("output slot id: 2 6"));
+        Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
+        String formatString = explainString.replaceAll(" ", "");
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=0,col=k1,type=INT}\n"
+                        + "parent=0\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=1,col=k2,type=VARCHAR(*)}\n"
+                        + "parent=0\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=2,col=null,type=INT}\n"
+                        + "parent=1\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=3,col=null,type=VARCHAR(*)}\n"
+                        + "parent=1\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=6,col=e1,type=VARCHAR(*)}\n"
+                        + "parent=3\n"
+                        + "materialized=true"
+        ));
     }
 }

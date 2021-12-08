@@ -697,7 +697,7 @@ public class SelectStmt extends QueryStmt {
         for (TableRef tableRef : fromClause_.getTableRefs()) {
             if (tableRef.lateralViewRefs != null) {
                 for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
-                    lateralViewRef.materializeRequiredSlots();
+                    lateralViewRef.materializeRequiredSlots(baseTblSmap, analyzer);
                 }
             }
         }

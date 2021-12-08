@@ -47,9 +47,9 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params,
                              const std::vector<TBrokerRangeDesc>& ranges,
                              const std::vector<TNetworkAddress>& broker_addresses,
-                             const std::vector<ExprContext*>& pre_filter_ctxs,
+                             const std::vector<TExpr>& pre_filter_texprs,
                              ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
@@ -302,6 +302,7 @@ Status BrokerScanner::open_line_reader() {
 }
 
 void BrokerScanner::close() {
+    BaseScanner::close();
     if (_cur_decompressor != nullptr) {
         delete _cur_decompressor;
         _cur_decompressor = nullptr;

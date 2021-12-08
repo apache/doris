@@ -1043,7 +1043,7 @@ public class Config extends ConfigBase {
      * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
-    public static int max_query_retry_time = 2;
+    public static int max_query_retry_time = 1;
 
     /**
      * The tryLock timeout configuration of catalog lock.
@@ -1393,6 +1393,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long default_db_data_quota_bytes = 1024L * 1024 * 1024 * 1024 * 1024L; // 1PB
+
+    /**
+     * Used to set default db replica quota num.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
 
     /*
      * Maximum percentage of data that can be filtered (due to reasons such as data is irregularly)

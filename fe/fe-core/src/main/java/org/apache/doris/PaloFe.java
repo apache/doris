@@ -126,9 +126,9 @@ public class PaloFe {
             Catalog.getCurrentCatalog().waitForReady();
 
             // init and start:
-            // 1. QeService for MySQL Server
+            // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
-            // 3. HttpServer for HTTP Server
+            // 3. QeService for MySQL Server
             QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
 

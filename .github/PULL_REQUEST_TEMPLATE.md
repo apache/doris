@@ -1,6 +1,8 @@
 ## Proposed changes
 
-Describe the big picture of your changes here to communicate to the maintainers why we should accept this pull request. If it fixes a bug or resolves a feature request, be sure to link to that issue.
+Close related #issue (replace it with issue number if it exists).
+
+Describe the overview of changes, and introduce why we need it.
 
 ## Types of changes
 

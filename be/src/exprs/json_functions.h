@@ -69,6 +69,11 @@ struct JsonPath {
     }
 };
 
+struct JsonState {
+    std::vector<JsonPath> json_paths;
+    rapidjson::Document document;
+};
+
 class JsonFunctions {
 public:
     static void init();

@@ -25,7 +25,7 @@
 
 // the code refer: https://clickhouse.tech/codebrowser/html_report//ClickHouse/src/Functions/LowerUpperImpl.h.html
 // Doris only handle one character at a time, this function use SIMD to more characters at a time
-namespace doris {
+namespace doris::simd {
 
 template <char not_case_lower_bound, char not_case_upper_bound>
 class LowerUpperImpl {

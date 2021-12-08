@@ -527,7 +527,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
     以下命令，可以查看通过 `ADMIN REPAIR TABLE` 命令设置的优先修复的表或分区。
     
-    `SHOW PROC '/cluster_balance/priority_repair'；`
+    `SHOW PROC '/cluster_balance/priority_repair';`
     
     其中 `RemainingTimeMs` 表示，这些优先修复的内容，将在这个时间后，被自动移出优先修复队列。以防止优先修复一直失败导致资源被占用。
     
@@ -535,7 +535,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
 我们收集了 TabletChecker 和 TabletScheduler 在运行过程中的一些统计信息，可以通过以下命令查看：
 
-`SHOW PROC '/cluster_balance/sched_stat'；`
+`SHOW PROC '/cluster_balance/sched_stat';`
 
 ```
 +---------------------------------------------------+-------------+
