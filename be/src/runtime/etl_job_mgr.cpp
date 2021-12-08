@@ -248,7 +248,7 @@ Status EtlJobMgr::get_job_state(const TUniqueId& id, TMiniLoadEtlStatusResult* r
     // failed information
     if (_failed_jobs.exists(id)) {
         EtlJobCtx ctx;
-        _success_jobs.get(id, &ctx);
+        _failed_jobs.get(id, &ctx);
         result->status.__set_status_code(TStatusCode::OK);
         result->__set_etl_state(TEtlState::CANCELLED);
 
