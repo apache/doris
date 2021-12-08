@@ -4,3 +4,6 @@
 [submodule ".github/actions/get-workflow-origin"]
 	path = .github/actions/get-workflow-origin
 	url = https://github.com/potiuk/get-workflow-origin.git
+[submodule ".github/actions/clang-format-lint-action"]
+	path = .github/actions/clang-format-lint-action
+	url = https://github.com/DoozyX/clang-format-lint-action.git

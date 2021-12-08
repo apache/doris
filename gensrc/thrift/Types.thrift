@@ -425,6 +425,11 @@ enum TMergeType {
   DELETE
 }
 
+enum TSortType {
+    LEXICAL,
+    ZORDER, 
+}
+
 // represent a user identity
 struct TUserIdentity {
     1: optional string username

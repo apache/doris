@@ -128,7 +128,10 @@ Status SegmentIterator::_init() {
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
-    RETURN_IF_ERROR(_get_row_ranges_by_keys());
+    // z-order can not use prefix index
+    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+        RETURN_IF_ERROR(_get_row_ranges_by_keys());
+    }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     _init_lazy_materialization();
     _range_iter.reset(new BitmapRangeIterator(_row_bitmap));

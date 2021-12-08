@@ -2017,13 +2017,13 @@ public class ShowExecutor {
 
     private void handleAdminShowDataSkew() throws AnalysisException {
         AdminShowDataSkewStmt showStmt = (AdminShowDataSkewStmt) stmt;
-        List<List<String>> results;
         try {
-            results = MetadataViewer.getDataSkew(showStmt);
+            List<List<String>> results = MetadataViewer.getDataSkew(showStmt);
+            resultSet = new ShowResultSet(showStmt.getMetaData(), results);
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+
     }
 
     private void handleShowTableStats() throws AnalysisException {

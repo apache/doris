@@ -212,6 +212,7 @@ module.exports = [
       "variables",
       "update",
       "multi-tenant",
+      "orthogonal-bitmap-manual",
     ],
     sidebarDepth: 1,
   },
@@ -243,13 +244,6 @@ module.exports = [
         children: [
           "contribute-udf",
           "user-defined-function",
-          {
-            title: "Users contribute UDF",
-            directoryPath: "contrib/",
-            children:[
-                "udaf-orthogonal-bitmap-manual",
-            ],
-          },          
         ],
       },
     ],
@@ -431,6 +425,9 @@ module.exports = [
               "bitmap_xor",
               "to_bitmap",
               "bitmap_max",
+              "orthogonal_bitmap_intersect",
+              "orthogonal_bitmap_intersect_count",
+              "orthogonal_bitmap_union_count",
             ],
           },
           {

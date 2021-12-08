@@ -335,4 +335,79 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=0, col=k2, type=VARCHAR(*)}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=k3, type=VARCHAR(*)}"));
     }
+
+    // lateral view of subquery
+    /*
+    Case1 reduce tuple of subquery
+    select e1 from (select k1 as c1 from tbl1) tmp1 lateral view explode_split(c1, ",") tmp2 as e1
+     */
+    @Test
+    public void lateralViewColumnOfReduceTuple() throws Exception {
+        String sql = "desc verbose select e1 from (select k2 as c1 from db1.tbl1) a lateral view explode_split(c1, \",\") tmp1 as e1 ";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 2"));
+        Assert.assertTrue(explainString.contains("output slot id: 2"));
+        Assert.assertTrue(explainString.contains("tuple ids: 0 2"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, type=VARCHAR(*)}"));
+    }
+
+    /*
+    Case2 agg column of inlineview
+    select e1 from (select k1 as c1 from tbl1 group by k1) tmp1 lateral view explode_split(c1, ",") tmp2 as e1
+     */
+    @Test
+    public void aggInlineView() throws Exception {
+        String sql = "desc verbose select e1 from (select k2 as c1 from db1.tbl1 group by c1) a lateral view explode_split(c1, \",\") tmp1 as e1 ";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split( `k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
+        Assert.assertTrue(explainString.contains("output slot id: 3"));
+        Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=3, col=e1, type=VARCHAR(*)}"));
+    }
+
+    /*
+    Case3 materialize inline view column
+    select c1, e1 from (select k1 as c1, min(k2) as c2 from tbl1 group by k1) tmp1 lateral view explode_split(c2, ",") tmp2 as e1
+     */
+    @Test
+    public void aggColumnInlineViewInTB() throws Exception {
+        String sql = "desc verbose select c1, e1 from (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
+                + "lateral view explode_split(c2, \",\") tmp1 as e1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(<slot 3> min(`k2`), ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
+        Assert.assertTrue(explainString.contains("output slot id: 2 6"));
+        Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
+        String formatString = explainString.replaceAll(" ", "");
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=0,col=k1,type=INT}\n"
+                        + "parent=0\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=1,col=k2,type=VARCHAR(*)}\n"
+                        + "parent=0\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=2,col=null,type=INT}\n"
+                        + "parent=1\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=3,col=null,type=VARCHAR(*)}\n"
+                        + "parent=1\n"
+                        + "materialized=true"
+        ));
+        Assert.assertTrue(formatString.contains(
+                          "SlotDescriptor{id=6,col=e1,type=VARCHAR(*)}\n"
+                        + "parent=3\n"
+                        + "materialized=true"
+        ));
+    }
 }

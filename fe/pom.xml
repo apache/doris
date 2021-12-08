@@ -53,6 +53,7 @@ under the License.
         <skip.plugin>false</skip.plugin>
         <hive.version>2.3.7</hive.version>
         <hadoop.version>2.8.0</hadoop.version>
+        <jmockit.version>1.49</jmockit.version>
     </properties>
 
     <profiles>
@@ -266,7 +267,7 @@ under the License.
             <dependency>
                 <groupId>org.jmockit</groupId>
                 <artifactId>jmockit</artifactId>
-                <version>1.49</version>
+                <version>${jmockit.version}</version>
                 <scope>test</scope>
             </dependency>
 

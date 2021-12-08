@@ -156,6 +156,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.stmtId).append("\t");
         auditBuffer.append(event.isQuery ? 1 : 0).append("\t");
         auditBuffer.append(event.feIp).append("\t");
+        auditBuffer.append(event.cpuTimeMs).append("\t");
+        auditBuffer.append(event.sqlHash).append("\t");
+        auditBuffer.append(event.peakMemoryBytes).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
         int maxLen = Math.min(conf.max_stmt_length, event.stmt.getBytes().length);
