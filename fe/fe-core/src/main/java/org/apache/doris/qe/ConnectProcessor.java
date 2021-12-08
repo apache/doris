@@ -113,16 +113,16 @@ public class ConnectProcessor {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
-        
+
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-            .setState(ctx.getState().toString()).setQueryTime(elapseMs)
-            .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
-            .setScanRows(statistics == null ? 0 : statistics.getScanRows())
-            .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
-            .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
-            .setReturnRows(ctx.getReturnRows())
-            .setStmtId(ctx.getStmtId())
-            .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
+                .setState(ctx.getState().toString()).setQueryTime(elapseMs)
+                .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
+                .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+                .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
+                .setReturnRows(ctx.getReturnRows())
+                .setStmtId(ctx.getStmtId())
+                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -143,14 +143,14 @@ public class ConnectProcessor {
         } else {
             ctx.getAuditEventBuilder().setIsQuery(false);
         }
-        
+
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
-        
+
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
         } else {
-            if (parsedStmt instanceof InsertStmt && ((InsertStmt)parsedStmt).isValuesOrConstantSelect()) {
+            if (parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
                 // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
                 int length = Math.min(1024, origStmt.length());
                 ctx.getAuditEventBuilder().setStmt(origStmt.substring(0, length));
@@ -158,7 +158,7 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-        
+
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
@@ -192,11 +192,11 @@ public class ConnectProcessor {
         }
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
-            .setTimestamp(System.currentTimeMillis())
-            .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
-            .setUser(ctx.getQualifiedUser())
-            .setDb(ctx.getDatabase())
-            .setSqlHash(ctx.getSqlHash());
+                .setTimestamp(System.currentTimeMillis())
+                .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
+                .setUser(ctx.getQualifiedUser())
+                .setDb(ctx.getDatabase())
+                .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
         StatementBase parsedStmt = null;
@@ -483,8 +483,7 @@ public class ConnectProcessor {
             // return error directly.
             TMasterOpResult result = new TMasterOpResult();
             ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Missing current user identity. You need to upgrade this Frontend " +
-                    "to the " +
-                    "same version as Master Frontend.");
+                    "to the same version as Master Frontend.");
             result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
             result.setPacket(getResultPacket());
             return result;
