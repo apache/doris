@@ -67,6 +67,16 @@ private:
 
         virtual OLAPStatus next(const RowCursor** row, bool* delete_flag) = 0;
         virtual ~LevelIterator() = 0;
+
+        bool need_skip() const {
+            return _skip_row;
+        }
+
+        void set_need_skip(bool skip) const {
+            _skip_row = skip;
+        }
+
+        mutable bool _skip_row = false;
     };
 
     // Compare row cursors between multiple merge elements,
@@ -145,7 +155,7 @@ private:
     public:
 
         Level1Iterator(const std::list<LevelIterator*>& children, bool merge, bool reverse,
-                       int sequence_id_idx, SortType sort_type, int sort_col_num);
+                       int sequence_id_idx, uint64_t* merge_count, SortType sort_type, int sort_col_num);
 
         OLAPStatus init() override;
 
@@ -184,6 +194,8 @@ private:
         // used when `_merge == false`
         int _child_idx = 0;
         int _sequence_id_idx = -1;
+
+	uint64_t* _merged_rows = nullptr;
         SortType _sort_type;
         int _sort_col_num;
     };
