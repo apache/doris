@@ -99,8 +99,14 @@ public class Database extends MetaObject implements Writable {
         NORMAL, LINK, MOVE
     }
 
+    public enum DbType {
+        BUILTIN, // default database type
+        ICEBERG // Only for automatic creation of iceberg tables, associated with remote iceberg db
+    }
+
     private String attachDbName;
     private DbState dbState;
+    private DbType dbType;
 
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
@@ -109,6 +115,10 @@ public class Database extends MetaObject implements Writable {
     }
 
     public Database(long id, String name) {
+        this(id, name, DbType.BUILTIN);
+    }
+
+    public Database(long id, String name, DbType dbType) {
         this.id = id;
         this.fullQualifiedName = name;
         if (this.fullQualifiedName == null) {
@@ -124,6 +134,7 @@ public class Database extends MetaObject implements Writable {
         this.attachDbName = "";
         this.clusterName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
+        this.dbType = dbType;
     }
 
     public void readLock() {
@@ -565,7 +576,22 @@ public class Database extends MetaObject implements Writable {
     }
 
     public static Database read(DataInput in) throws IOException {
-        Database db = new Database();
+        Database db = null;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_106) {
+            db = new Database();
+        } else {
+            DbType type = DbType.valueOf(Text.readString(in));
+            switch (type) {
+                case BUILTIN:
+                    db = new Database();
+                    break;
+                case ICEBERG:
+                    db = new IcebergDatabase();
+                    break;
+                default:
+                    throw new IOException("Unknown database type: " + type.name());
+            }
+        }
         db.readFields(in);
         return db;
     }
@@ -581,6 +607,8 @@ public class Database extends MetaObject implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        // ATTN: must write type first
+        Text.writeString(out, dbType.name());
         super.write(out);
 
         out.writeLong(id);
@@ -721,6 +749,14 @@ public class Database extends MetaObject implements Writable {
             return;
         }
         this.dbState = dbState;
+    }
+
+    public DbType getDbType() {
+        return dbType;
+    }
+
+    public void setDbType(DbType dbType) {
+        this.dbType = dbType;
     }
 
     public void setAttachDb(String name) {

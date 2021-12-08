@@ -38,7 +38,9 @@ import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import mockit.Mocked;
 
@@ -245,5 +247,22 @@ public class CreateTableStmtTest {
         expectedEx.expectMessage(String.format("Aggregate type %s is not compatible with primitive type %s",
                 hll.toString(), hll.getTypeDef().getType().toSql()));
         stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testCreateIcebergTable() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("database", "doris");
+        properties.put("table", "test");
+        properties.put("hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
+                "\n" +
+                ") ENGINE = iceberg\n" +
+                "PROPERTIES (\"database\"  =  \"doris\",\n" +
+                "\"hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
+                "\"table\"  =  \"test\")", stmt.toString());
     }
 }

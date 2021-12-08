@@ -151,6 +151,10 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.external.elasticsearch.EsRepository;
+import org.apache.doris.external.iceberg.IcebergCatalog;
+import org.apache.doris.external.iceberg.IcebergCatalogMgr;
+import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
+import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -257,6 +261,7 @@ import com.google.common.collect.Sets;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -327,6 +332,7 @@ public class Catalog {
     private Load load;
     private LoadManager loadManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
+    private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr;
     private RoutineLoadManager routineLoadManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
@@ -595,6 +601,7 @@ public class Catalog {
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager", Config.fetch_stream_load_record_interval_second * 1000);
+        this.icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
@@ -1370,6 +1377,7 @@ public class Catalog {
         // start daemon thread to update global partition in memory information periodically
         partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
+        icebergTableCreationRecordMgr.start();
     }
 
     // start threads that should running on all FE
@@ -1699,8 +1707,7 @@ public class Catalog {
         int dbCount = dis.readInt();
         long newChecksum = checksum ^ dbCount;
         for (long i = 0; i < dbCount; ++i) {
-            Database db = new Database();
-            db.readFields(dis);
+            Database db = Database.read(dis);
             newChecksum ^= db.getId();
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
@@ -2632,6 +2639,9 @@ public class Catalog {
         final String clusterName = stmt.getClusterName();
         String fullDbName = stmt.getFullDbName();
         long id = 0L;
+        String engineName = stmt.getEngineName();
+        List<TableIdentifier> icebergTables = Lists.newArrayList();
+        Database db = null;
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -2648,7 +2658,13 @@ public class Catalog {
                 }
             } else {
                 id = getNextId();
-                Database db = new Database(id, fullDbName);
+                if (engineName.equals("builtin")) {
+                    db = new Database(id, fullDbName);
+                } else if (engineName.equals("iceberg")) {
+                    db = createIcebergDb(stmt, id, icebergTables);
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_DATABASE_ENGINE, engineName);
+                }
                 db.setClusterName(clusterName);
                 unprotectCreateDb(db);
                 editLog.logCreateDb(db);
@@ -2657,6 +2673,32 @@ public class Catalog {
             unlock();
         }
         LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
+
+        // create tables in iceberg database
+        if (CollectionUtils.isNotEmpty(icebergTables)) {
+            Map<String, String> properties = stmt.getProperties();
+            for (TableIdentifier identifier : icebergTables) {
+                properties.put(IcebergCatalogMgr.TABLE, identifier.name());
+                icebergTableCreationRecordMgr.registerTable(db, identifier,properties);
+            }
+        }
+    }
+
+    // Create Iceberg database in Doris
+    public IcebergDatabase createIcebergDb(CreateDbStmt stmt, long id, List<TableIdentifier> icebergTables) throws DdlException {
+        Map<String, String> properties = stmt.getProperties();
+        // validate iceberg properties
+        IcebergCatalogMgr.validateProperties(properties, false);
+
+        String icebergDb = properties.get(IcebergCatalogMgr.DATABASE);
+        IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(properties);
+        // check database exists
+        if (!icebergCatalog.databaseExists(icebergDb)) {
+            throw new DdlException("Database [" + icebergDb + "] dose not exist in Iceberg.");
+        }
+        // list iceberg tables in database
+        icebergTables.addAll(icebergCatalog.listTables(icebergDb));
+        return new IcebergDatabase(id, stmt.getFullDbName(), properties);
     }
 
     // For replay edit log, need't lock metadata
@@ -2771,6 +2813,10 @@ public class Catalog {
     }
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay) {
+        // drop Iceberg database table creation records
+        if (db.getDbType() == Database.DbType.ICEBERG) {
+            icebergTableCreationRecordMgr.deRegisterDb(db);
+        }
         for (Table table : db.getTables()) {
             table.writeLock();
             try {
@@ -3061,6 +3107,9 @@ public class Catalog {
             return;
         } else if (engineName.equalsIgnoreCase("hive")) {
             createHiveTable(db, stmt);
+            return;
+        } else if (engineName.equalsIgnoreCase("iceberg")) {
+            createIcebergTable(db, stmt);
             return;
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
@@ -4064,17 +4113,73 @@ public class Catalog {
         long tableId = getNextId();
         HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
         hiveTable.setComment(stmt.getComment());
-        // check hive table if exists in hive database
+        // check hive table whether exists in hive database
         HiveMetaStoreClient hiveMetaStoreClient =
                 HiveMetaStoreClientHelper.getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
         if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
-            throw new DdlException("Table is not exists in hive: " + hiveTable.getHiveDbTable());
+            throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
         }
         // check hive table if exists in doris database
         if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
+    }
+
+    /**
+     * create iceberg table in Doris
+     *
+     * 1. check table existence in Iceberg
+     * 2. get table schema from Iceberg
+     * 3. convert Iceberg table schema to Doris table schema
+     * 4. create associate table in Doris
+     *
+     * @param db
+     * @param stmt
+     * @throws DdlException
+     */
+    private void createIcebergTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+        Map<String, String> properties = stmt.getProperties();
+        long tableId = getNextId();
+
+        // validate iceberg table properties
+        IcebergCatalogMgr.validateProperties(properties, true);
+
+        String icebergDb = properties.get(IcebergCatalogMgr.DATABASE);
+        String icebergTbl = properties.get(IcebergCatalogMgr.TABLE);
+
+        IcebergTable table = getTableFromIceberg(tableName, properties,
+                TableIdentifier.of(icebergDb, icebergTbl), true);
+
+        // check iceberg table if exists in doris database
+        if (!db.createTableWithLock(table, false, stmt.isSetIfNotExists()).first) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+    }
+
+    public IcebergTable getTableFromIceberg(String tableName, Map<String, String> properties,
+                                      TableIdentifier identifier,
+                                      boolean isTable) throws DdlException {
+        long tableId = getNextId();
+        IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(properties);
+
+        if (isTable && !icebergCatalog.tableExists(identifier)) {
+            throw new DdlException(String.format("Table [%s] dose not exist in Iceberg.", identifier.toString()));
+        }
+
+        // get iceberg table schema
+        org.apache.iceberg.Table icebergTable = icebergCatalog.loadTable(identifier);
+
+        // covert iceberg table schema to Doris's
+        List<Column> columns = IcebergUtils.createSchemaFromIcebergSchema(icebergTable.schema());
+
+        // create new iceberg table in doris
+        IcebergTable table = new IcebergTable(tableId, tableName, columns, properties, icebergTable);
+
+        return table;
+
     }
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
@@ -4365,6 +4470,17 @@ public class Catalog {
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
             sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
             sb.append("\n)");
+        } else if (table.getType() == TableType.ICEBERG) {
+            IcebergTable icebergTable = (IcebergTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
+            }
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
+            sb.append("\"table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
+            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(), " = ", true, true, false).toString());
+            sb.append("\n)");
         }
 
         createTableStmt.add(sb.toString());
@@ -4620,6 +4736,9 @@ public class Catalog {
             // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,
             // which make things easier.
             ((OlapTable) table).dropAllTempPartitions();
+        } else if (table.getType() == TableType.ICEBERG) {
+            // drop Iceberg database table creation record
+            icebergTableCreationRecordMgr.deRegisterTable(db, (IcebergTable) table);
         }
 
         db.dropTable(table.getName());
@@ -5049,6 +5168,10 @@ public class Catalog {
 
     public StreamLoadRecordMgr getStreamLoadRecordMgr() {
         return streamLoadRecordMgr;
+    }
+
+    public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
+        return icebergTableCreationRecordMgr;
     }
 
     public MasterTaskExecutor getPendingLoadTaskScheduler() {

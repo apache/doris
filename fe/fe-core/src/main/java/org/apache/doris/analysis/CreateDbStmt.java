@@ -24,19 +24,37 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 // 用于描述CREATE DATABASE的内部结构
 public class CreateDbStmt extends DdlStmt {
     private boolean ifNotExists;
     private String dbName;
+    private String engineName;
+    private Map<String, String> properties;
 
-    public CreateDbStmt(boolean ifNotExists, String dbName) {
+    private static Set<String> engineNames;
+
+    static {
+        engineNames = Sets.newHashSet();
+        engineNames.add("builtin");
+        engineNames.add("iceberg");
+    }
+
+    public CreateDbStmt(boolean ifNotExists, String dbName, String engine, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.dbName = dbName;
+        this.engineName = engine;
+        this.properties = properties == null ? new HashMap<>() : properties;
     }
 
     public String getFullDbName() {
@@ -47,8 +65,16 @@ public class CreateDbStmt extends DdlStmt {
         return ifNotExists;
     }
 
+    public String getEngineName() {
+        return engineName;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
@@ -58,6 +84,17 @@ public class CreateDbStmt extends DdlStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+        }
+
+        // analyze engine name
+        if (Strings.isNullOrEmpty(engineName)) {
+            engineName = "builtin";
+        }
+
+        engineName = engineName.toLowerCase();
+
+        if (!engineNames.contains(engineName)) {
+            throw new AnalysisException("Unknown engine name: " + engineName);
         }
     }
 
@@ -70,6 +107,12 @@ public class CreateDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
+        if (!engineName.equals("builtin")) {
+            stringBuilder.append("\nENGINE = ").append(engineName);
+            stringBuilder.append("\nPROPERTIES (\n");
+            stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
+            stringBuilder.append("\n)");
+        }
         return stringBuilder.toString();
     }
 }

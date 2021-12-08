@@ -239,7 +239,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT,
-    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
+    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_UPDATE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
@@ -557,6 +557,7 @@ precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
+precedence left KW_ENGINE;
 
 // unused
 // nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name, AlterClause alter_cluster_clause;
@@ -1193,13 +1194,13 @@ opt_intermediate_type ::=
 // Create Statement
 create_stmt ::=
     /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db
+    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_engine:engine opt_properties:properties
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db);
+        RESULT = new CreateDbStmt(ifNotExists, db, engine, properties);
     :}
     | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db);
+        RESULT = new CreateDbStmt(ifNotExists, db, null, null);
     :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
@@ -1255,6 +1256,11 @@ create_stmt ::=
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
+    :}
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
+          properties:properties opt_comment:tableComment
+    {:
+       RESULT = new CreateTableStmt(ifNotExists, isExternal, name, engineName, properties, tableComment);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             opt_col_list:columns
@@ -2847,6 +2853,11 @@ show_param ::=
     | KW_COLUMN KW_STATS table_name:tbl
     {:
         RESULT = new ShowColumnStatsStmt(tbl);
+    :}
+    /* show table creation statement */
+    | KW_TABLE KW_CREATION opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowTableCreationStmt(db, parser.wild);
     :}
     ;
 
@@ -5418,6 +5429,8 @@ keyword ::=
     | KW_CONNECTION_ID:id
     {: RESULT = id; :}
     | KW_CONVERT:id
+    {: RESULT = id; :}
+    | KW_CREATION:id
     {: RESULT = id; :}
     | KW_DATA:id
     {: RESULT = id; :}

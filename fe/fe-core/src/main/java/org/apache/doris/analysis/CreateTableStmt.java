@@ -88,6 +88,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("broker");
         engineNames.add("elasticsearch");
         engineNames.add("hive");
+        engineNames.add("iceberg");
     }
 
     // for backup. set to -1 for normal use
@@ -165,6 +166,21 @@ public class CreateTableStmt extends DdlStmt {
 
         this.tableSignature = -1;
         this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
+    }
+
+    public CreateTableStmt(boolean ifNotExists,
+                           boolean isExternal,
+                           TableName tableName,
+                           String engineName,
+                           Map<String, String> properties,
+                           String comment) {
+        this.ifNotExists = ifNotExists;
+        this.isExternal = isExternal;
+        this.tableName = tableName;
+        this.engineName = engineName;
+        this.properties = properties;
+        this.columnDefs = Lists.newArrayList();
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
@@ -339,7 +355,7 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         // analyze column def
-        if (columnDefs == null || columnDefs.isEmpty()) {
+        if (!engineName.equals("iceberg") && (columnDefs == null || columnDefs.isEmpty())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
         // add a hidden column as delete flag for unique table
@@ -473,7 +489,7 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
-                || engineName.equals("elasticsearch") || engineName.equals("hive")) {
+                || engineName.equals("elasticsearch") || engineName.equals("hive") || engineName.equals("iceberg")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
