@@ -5537,6 +5537,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_STORAGE:id
     {: RESULT = id; :}
+    | KW_STREAM:id
+    {: RESULT = id; :}
     | KW_STRING:id
     {: RESULT = id; :}
     | KW_TABLES:id
