@@ -33,7 +33,7 @@ import java.nio.channels.SocketChannel;
 public class MysqlChannel {
     // max length which one MySQL physical can hold, if one logical packet is bigger than this,
     // one packet will split to many packets
-    protected static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff;
+    public static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff;
     // MySQL packet header length
     protected static final int PACKET_HEADER_LEN = 4;
     // logger for this class
@@ -60,7 +60,7 @@ public class MysqlChannel {
         this.remoteHostPortString = "";
         this.remoteIp = "";
     }
-    
+
     public MysqlChannel(SocketChannel channel) {
         this.sequenceId = 0;
         this.channel = channel;

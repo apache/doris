@@ -266,6 +266,9 @@ private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     OLAPStatus _contains_version(const Version& version);
+
+    // Returns:
+    // version: the max continuous version from beginning
     void _max_continuous_version_from_beginning_unlocked(Version* version,
                                                          VersionHash* v_hash) const;
     RowsetSharedPtr _rowset_with_largest_size();
