@@ -138,7 +138,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
         for (size_t j = 0; j < tuple_descs.size(); ++j) {
-            auto desc = tuple_descs[i];
+            auto desc = tuple_descs[j];
             if (desc->string_slots().empty() && desc->collection_slots().empty()) {
                 continue;
             }
