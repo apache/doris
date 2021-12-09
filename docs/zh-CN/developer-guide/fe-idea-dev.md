@@ -67,7 +67,7 @@ JDK1.8+, IntelliJ IDEA
     cd fe && mvn clean install -DskipTests
     ```
 
-或者通过图形界面运行运行 maven 命令生成
+或者通过图形界面运行 maven 命令生成
 
 ![](/images/gen_code.png)
 
