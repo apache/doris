@@ -56,6 +56,7 @@ public class DorisSourceFunction extends RichParallelSourceFunction<List<?>> imp
         try {
             logger.info("Request doris query plan");
             this.dorisPartitions = RestService.findPartitions(options, readOptions, logger);
+            logger.info("Doris partitions size {}", dorisPartitions.size());
         } catch (DorisException e) {
             throw new RuntimeException("Failed fetch doris partitions");
         }
