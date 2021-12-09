@@ -26,6 +26,7 @@ import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.shaded.guava18.com.google.common.collect.Lists;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,16 +47,17 @@ public class DorisSourceFunction extends RichParallelSourceFunction<List<?>> imp
     private final DorisReadOptions readOptions;
     private transient volatile boolean isRunning;
     private List<PartitionDefinition> dorisPartitions;
-    private List<PartitionDefinition> taskDorisPartitions;
+    private List<PartitionDefinition> taskDorisPartitions = Lists.newArrayList();
 
     public DorisSourceFunction(DorisStreamOptions streamOptions, DorisDeserializationSchema<List<?>> deserializer) {
         this.deserializer = deserializer;
         this.options = streamOptions.getOptions();
         this.readOptions = streamOptions.getReadOptions();
         try {
+            logger.info("Request doris query plan");
             this.dorisPartitions = RestService.findPartitions(options, readOptions, logger);
         } catch (DorisException e) {
-            throw new RuntimeException("can not fetch partitions");
+            throw new RuntimeException("Failed fetch doris partitions");
         }
     }
 
@@ -72,17 +74,13 @@ public class DorisSourceFunction extends RichParallelSourceFunction<List<?>> imp
     private void assignTaskPartitions() {
         int taskIndex = getRuntimeContext().getIndexOfThisSubtask();
         int totalTasks = getRuntimeContext().getNumberOfParallelSubtasks();
-        logger.info("doris partitions {},total task {}", dorisPartitions.size(), totalTasks);
 
-        int subSize = dorisPartitions.size() / totalTasks;
-        int remainder = dorisPartitions.size() % totalTasks;
-        int start = taskIndex * subSize + remainder;
-        //Cannot evenly assign partitions to tasks
-        if (taskIndex < remainder) {
-            subSize = subSize + 1;
-            start = taskIndex * subSize;
+        for (int i = 0; i < dorisPartitions.size(); i++) {
+            if (i % totalTasks == taskIndex) {
+                taskDorisPartitions.add(dorisPartitions.get(i));
+            }
         }
-        taskDorisPartitions = dorisPartitions.subList(start, Math.min(start + subSize, dorisPartitions.size()));
+        logger.info("subtask {} process {} partitions ", taskIndex, taskDorisPartitions.size());
     }
 
     @Override
