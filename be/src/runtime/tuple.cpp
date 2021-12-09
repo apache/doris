@@ -270,7 +270,7 @@ void Tuple::materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
     // Evaluate the output_slot_exprs and place the results in the tuples.
     int mat_expr_index = 0;
     auto& slots = desc.slots();
-    for (int i = 0; i < desc.slots().size(); ++i) {
+    for (int i = 0; i < slots.size(); ++i) {
         SlotDescriptor* slot_desc = slots[i];
         if (!slot_desc->is_materialized()) {
             continue;
