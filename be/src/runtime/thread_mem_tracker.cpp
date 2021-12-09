@@ -30,11 +30,13 @@ void ThreadMemTracker::attach_query(const std::string& query_id,
 #endif
     update_query_mem_tracker(
             ExecEnv::GetInstance()->query_mem_tracker_registry()->get_query_mem_tracker(query_id));
+    _query_id = query_id;
     _fragment_instance_id = fragment_instance_id;
 }
 
 void ThreadMemTracker::detach_query() {
     update_query_mem_tracker(std::weak_ptr<MemTracker>());
+    _query_id = "";
     _fragment_instance_id = TUniqueId();
 }
 
@@ -53,9 +55,11 @@ void ThreadMemTracker::query_mem_limit_exceeded(int64_t mem_usage) {
         auto st = _query_mem_tracker.lock()->MemLimitExceeded(nullptr, detail, mem_usage);
 
         detail +=
-                " Query Memory exceed limit in TCMalloc Hook New, Backend: {}, Fragment: {}, Used: "
-                "{}, Limit: {}. You can change the limit by session variable exec_mem_limit.";
-        fmt::format(detail, BackendOptions::get_localhost(), print_id(_fragment_instance_id),
+                " Query Memory exceed limit in TCMalloc Hook New, Backend: {}, Query: {}, "
+                "Fragment: {}, Used: {}, Limit: {}. You can change the limit by session variable "
+                "exec_mem_limit.";
+        fmt::format(detail, BackendOptions::get_localhost(), _query_id,
+                    print_id(_fragment_instance_id),
                     std::to_string(_query_mem_tracker.lock()->consumption()),
                     std::to_string(_query_mem_tracker.lock()->limit()));
         ExecEnv::GetInstance()->fragment_mgr()->cancel(
@@ -65,8 +69,11 @@ void ThreadMemTracker::query_mem_limit_exceeded(int64_t mem_usage) {
 }
 
 void ThreadMemTracker::global_mem_limit_exceeded(int64_t mem_usage) {
-    std::string detail = "Global Memory exceed limit in TCMalloc Hook New.";
-    auto st = _query_mem_tracker.lock()->MemLimitExceeded(nullptr, detail, mem_usage);
+    if (time(nullptr) - global_exceeded_interval > 60) {
+        std::string detail = "Global Memory exceed limit in TCMalloc Hook New.";
+        auto st = _global_hook_tracker->MemLimitExceeded(nullptr, detail, mem_usage);
+        global_exceeded_interval = time(nullptr);
+    }
 }
 
 void ThreadMemTracker::consume() {
@@ -77,37 +84,29 @@ void ThreadMemTracker::consume() {
     // is the default tracker, it may be the same block of memory. Consume is called in query_mem_tracker,
     // and release is called in global_hook_tracker, which is repeatedly released after ~query_mem_tracker.
     if (!_query_mem_tracker.expired()) {
-        if (_query_mem_consuming == false) {
-            _query_mem_consuming = true;
-            if (!_query_mem_tracker.lock()->TryConsume(_missed_query_tracker_mem +
-                                                       _untracked_mem)) {
-                query_mem_limit_exceeded(_missed_query_tracker_mem + _untracked_mem);
-                _missed_query_tracker_mem += _untracked_mem;
-            } else {
-                _missed_query_tracker_mem = 0;
+        if (_stop_query_mem_tracker == false) {
+            _stop_query_mem_tracker = true;
+            if (!_query_mem_tracker.lock()->TryConsume(_untracked_mem)) {
+                query_mem_limit_exceeded(_untracked_mem);
             }
-            _query_mem_consuming = false;
-        } else {
-            _missed_query_tracker_mem += _untracked_mem;
+            _stop_query_mem_tracker = false;
         }
     }
 
     // The first time GetGlobalHookTracker is called after the main thread starts, == nullptr
     if (_global_hook_tracker != nullptr) {
-        if (_global_mem_consuming == false) {
-            _global_mem_consuming = true;
-            if (!_global_hook_tracker->TryConsume(_missed_global_tracker_mem + _untracked_mem)) {
-                global_mem_limit_exceeded(_missed_global_tracker_mem + _untracked_mem);
-                _missed_global_tracker_mem += _untracked_mem;
-            } else {
-                _missed_global_tracker_mem = 0;
+        if (_stop_global_mem_tracker == false) {
+            _stop_global_mem_tracker = true;
+            if (!_global_hook_tracker->TryConsume(_untracked_mem)) {
+                // Currently, _global_hook_tracker is only used for real-time observation to verify
+                // the accuracy of MemTracker statistics. Therefore, when the _global_hook_tracker
+                // TryConsume fails, the process is not expected to terminate. To ensure the accuracy
+                // of real-time statistics, continue to complete the Consume.
+                _global_hook_tracker->Consume(_untracked_mem);
+                global_mem_limit_exceeded(_untracked_mem);
             }
-            _global_mem_consuming = false;
-        } else {
-            _missed_global_tracker_mem += _untracked_mem;
+            _stop_global_mem_tracker = false;
         }
-    } else {
-        _missed_global_tracker_mem += _untracked_mem;
     }
 }
 
@@ -116,11 +115,11 @@ void ThreadMemTracker::try_consume(int64_t size) {
         return;
     }
     _untracked_mem += size;
-    // When some threads `0 < _untracked_mem < _tracker_consume_min_size`
-    // and some threads `_untracked_mem <= -_tracker_consume_min_size` trigger consumption(),
+    // When some threads `0 < _untracked_mem < _tracker_consume_cache_size`
+    // and some threads `_untracked_mem <= -_tracker_consume_cache_size` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
-    if (_untracked_mem >= _tracker_consume_min_size ||
-        _untracked_mem <= -_tracker_consume_min_size) {
+    if (_untracked_mem >= _tracker_consume_cache_size ||
+        _untracked_mem <= -_tracker_consume_cache_size) {
         consume();
         _untracked_mem = 0;
     }

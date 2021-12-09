@@ -53,8 +53,8 @@ public:
                 const TUniqueId& fragment_instance_id = TUniqueId()) {
         _type = type;
         _task_id = task_id;
-        _fragment_instance_id = fragment_instance_id;
         if (type == TaskType::QUERY) {
+            _fragment_instance_id = fragment_instance_id;
             _thread_mem_tracker->attach_query(task_id, fragment_instance_id);
         }
     }

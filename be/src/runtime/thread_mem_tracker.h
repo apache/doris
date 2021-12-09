@@ -38,6 +38,11 @@ public:
 
     void update_query_mem_tracker(std::weak_ptr<MemTracker> mem_tracker);
 
+    void try_consume(int64_t size);
+
+    void stop_mem_tracker() { _stop_mem_tracker = true; }
+
+private:
     void query_mem_limit_exceeded(int64_t mem_usage);
 
     void global_mem_limit_exceeded(int64_t mem_usage);
@@ -47,34 +52,31 @@ public:
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     void consume();
 
-    void try_consume(int64_t size);
-
-    void stop_mem_tracker() { _stop_mem_tracker = true; }
-
 private:
+    std::string _query_id;
     TUniqueId _fragment_instance_id;
 
     std::weak_ptr<MemTracker> _query_mem_tracker;
     std::shared_ptr<MemTracker> _global_hook_tracker = nullptr;
 
-    // Consume size smaller than _tracker_consume_min_size will continue to accumulate
+    // Consume size smaller than _tracker_consume_cache_size will continue to accumulate
     // to avoid frequent calls to consume/release of MemTracker.
     int64_t _untracked_mem = 0;
-    int64_t _tracker_consume_min_size = config::mem_tracker_consume_min_size_mbytes;
+    int64_t _tracker_consume_cache_size = config::mem_tracker_consume_min_size_bytes;
 
-    // Memory size of tracker failure after mem limit exceeded,
-    // expect to be successfully consumed later.
-    int64_t _missed_query_tracker_mem = 0;
-    int64_t _missed_global_tracker_mem = 0;
-
-    // When memory is being consumed, avoid entering infinite recursion.
-    bool _query_mem_consuming = false;
-    bool _global_mem_consuming = false;
+    // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
+    // Note: After the tracker is stopped, the memory alloc in the consume method should be released in time,
+    // otherwise the MemTracker statistics will be inaccurate.
+    bool _stop_query_mem_tracker = false;
+    bool _stop_global_mem_tracker = false;
 
     // In some cases, we want to turn off memory statistics.
     // For example, when ~GlobalHookTracker, TCMalloc delete hook
     // release GlobalHookTracker will crash.
     bool _stop_mem_tracker = false;
+
+    // Control the interval of printing Log.
+    int64_t global_exceeded_interval = 0;
 };
 
 } // namespace doris

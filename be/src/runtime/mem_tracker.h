@@ -158,7 +158,7 @@ public:
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
                 DCHECK_GE(tracker->consumption_->current_value(),
                           std::min(MIN_NEGATIVE_CONSUMPTION_VALUE,
-                                   -config::mem_tracker_consume_min_size_mbytes * 10));
+                                   -config::mem_tracker_consume_min_size_bytes * 10));
             }
         }
     }
@@ -268,11 +268,11 @@ public:
             /// consistent.)
             if (LIKELY(tracker->consumption_metric_ == nullptr)) {
                 // A query corresponds to multiple threads, and each thread may have
-                // config::mem_tracker_consume_min_size_mbytes. The length is not cosumeed. Here,
+                // config::mem_tracker_consume_min_size_bytes. The length is not cosumeed. Here,
                 // 10 is just a guess.
                 DCHECK_GE(tracker->consumption_->current_value(),
                           std::min(MIN_NEGATIVE_CONSUMPTION_VALUE,
-                                   -config::mem_tracker_consume_min_size_mbytes * 10))
+                                   -config::mem_tracker_consume_min_size_bytes * 10))
                         << std::endl
                         << tracker->LogUsage(UNLIMITED_DEPTH);
             }

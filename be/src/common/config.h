@@ -609,7 +609,7 @@ CONF_Int16(mem_tracker_level, "0");
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
-CONF_mInt32(mem_tracker_consume_min_size_mbytes, "1048576");
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.

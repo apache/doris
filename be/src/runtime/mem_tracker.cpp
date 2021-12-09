@@ -83,7 +83,7 @@ void MemTracker::CreateRootTracker() {
 }
 
 // An independent tracker, no parent and child,
-// used in tcmalloc new/delete hook to count the real memory of the process
+// used in tcmalloc new/delete hook to count the real memory of the process.
 static std::shared_ptr<MemTracker> global_hook_mem_tracker;
 static GoogleOnceType global_hook_mem_tracker_once = GOOGLE_ONCE_INIT;
 

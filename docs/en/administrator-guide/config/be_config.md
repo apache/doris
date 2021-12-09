@@ -1447,11 +1447,11 @@ The size of the buffer before flashing
   ```
 * Default: 0
 
-### `mem_tracker_consume_min_size_mbytes`
+### `mem_tracker_consume_min_size_bytes`
 
 * Type: int32
-* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = (mem_tracker_consume_min_size_mbytes * the number of BE threads where the MemTracker is located).
-* Default: 4M
+* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = (mem_tracker_consume_min_size_bytes * the number of BE threads where the MemTracker is located).
+* Default: 1048576
 
 ### `max_segment_num_per_rowset`
 
