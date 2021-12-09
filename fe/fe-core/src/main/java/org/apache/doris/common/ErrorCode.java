@@ -1684,6 +1684,8 @@ public enum ErrorCode {
     ERR_EMPTY_PARTITION_IN_TABLE(5083, new byte[]{'4', '2', '0', '0', '0'},
             "data cannot be inserted into table with empty partition. " +
                     "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),
+    ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE(5084, new byte[]{'4', '2', '0', '0', '0'},
+            "sql/sqlHash and partitionNum/tabletNum/cardinality cannot be set in one rule."),
     ;
 
     // This is error code
