@@ -81,7 +81,9 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -340,6 +342,16 @@ public class StmtExecutor implements ProfileWriter {
 
             if (parsedStmt instanceof QueryStmt) {
                 context.getState().setIsQuery(true);
+                if (!((QueryStmt) parsedStmt).isExplain()) {
+                    List<ScanNode> scanNodeList = planner.getScanNodes();
+                    for (ScanNode scanNode : scanNodeList) {
+                        if (scanNode instanceof OlapScanNode) {
+                            OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitaions(olapScanNode.getSelectedPartitionNum().longValue(),
+                                        olapScanNode.getSelectedTabletsNum(), olapScanNode.getCardinality(), analyzer.getQualifiedUser());
+                        }
+                    }
+                }
                 MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i ++) {
