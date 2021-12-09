@@ -633,8 +633,7 @@ module.exports = [
         "java-format-code",
         "cpp-format-code",
         "How-to-Share-blogs",
-	"commit-format-specification",
-		"minidump"
+        "minidump"
     ],
   },
   {
@@ -654,6 +653,7 @@ module.exports = [
       "feedback",
       "how-to-contribute",
       "committer-guide",
+      "commit-format-specification",
       "pull-request",
       "release-process",
       "verify-apache-release",
