@@ -57,6 +57,7 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
@@ -93,7 +94,6 @@ import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -583,9 +583,9 @@ public class Catalog {
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
         this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_pending_load_task_pool_size,
-                Config.async_pending_load_task_pool_size, !isCheckpointCatalog);
+                0, !isCheckpointCatalog);
         this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_loading_load_task_pool_size,
-                Config.async_loading_load_task_pool_size / 5, !isCheckpointCatalog);
+                Integer.MAX_VALUE, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager", Config.fetch_stream_load_record_interval_second * 1000);
@@ -3075,8 +3075,8 @@ public class Catalog {
             List<String> createTableStmt = Lists.newArrayList();
             table.readLock();
             try {
-                if (table.getType() == TableType.OLAP){
-                    if (!CollectionUtils.isEmpty(stmt.getRollupNames())){
+                if (table.getType() == TableType.OLAP) {
+                    if (!CollectionUtils.isEmpty(stmt.getRollupNames())) {
                         OlapTable olapTable = (OlapTable) table;
                         for (String rollupIndexName : stmt.getRollupNames()) {
                             if (!olapTable.hasMaterializedIndex(rollupIndexName)) {
@@ -3103,7 +3103,7 @@ public class Catalog {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
         }
     }
-    
+
     public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
         try {
             List<String> columnNames = stmt.getColumnNames();
@@ -3514,7 +3514,7 @@ public class Catalog {
                                                  boolean isInMemory,
                                                  TStorageFormat storageFormat,
                                                  TTabletType tabletType,
-                                                 DataSortInfo dataSortInfo)throws DdlException {
+                                                 DataSortInfo dataSortInfo) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -4074,7 +4074,7 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
-         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
     }
 
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
@@ -4159,7 +4159,7 @@ public class Catalog {
             sb.append("\n").append(distributionInfo.toSql());
 
             // rollup index
-            if (ddlStmt instanceof CreateTableLikeStmt){
+            if (ddlStmt instanceof CreateTableLikeStmt) {
 
                 CreateTableLikeStmt stmt = (CreateTableLikeStmt) ddlStmt;
 
@@ -4175,7 +4175,7 @@ public class Catalog {
                     addIndexIdList = olapTable.getIndexIdListExceptBaseIndex();
                 }
 
-                if (!addIndexIdList.isEmpty()){
+                if (!addIndexIdList.isEmpty()) {
                     sb.append("\n").append("rollup (");
                 }
 
@@ -4192,7 +4192,7 @@ public class Catalog {
                             sb.append(", ");
                         }
                     }
-                    if (index != size){
+                    if (index != size) {
                         sb.append("),");
                     } else {
                         sb.append(")");
@@ -4536,7 +4536,7 @@ public class Catalog {
                     }
                 }
                 Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum(),
-						totalReplicaNum + " vs. " + replicaAlloc.getTotalReplicaNum());
+                        totalReplicaNum + " vs. " + replicaAlloc.getTotalReplicaNum());
             }
 
             if (groupId != null && chooseBackendsArbitrary) {
@@ -4841,7 +4841,7 @@ public class Catalog {
 
     public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
         return getDbOrException(dbName, s -> new MetaNotFoundException("unknown databases, dbName=" + s,
-                        ErrorCode.ERR_BAD_DB_ERROR));
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
@@ -5382,7 +5382,7 @@ public class Catalog {
 
     // the invoker should keep table's write lock
     public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
-            GroupId assignedGroupId)
+                                    GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
@@ -5765,44 +5765,44 @@ public class Catalog {
             if (olapTable.isColocateTable()) {
                 throw new DdlException("Cannot change default bucket number of colocate table.");
             }
-    
+
             if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
-    
+
             DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
             if (defaultDistributionInfo.getType() != DistributionInfoType.HASH) {
                 throw new DdlException("Cannot change default bucket number of distribution type " + defaultDistributionInfo.getType());
             }
-    
+
             DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
-    
+
             DistributionInfo distributionInfo = null;
-    
+
             List<Column> baseSchema = olapTable.getBaseSchema();
-    
+
             if (distributionDesc != null) {
                 distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
-                    // for now. we only support modify distribution's bucket num
+                // for now. we only support modify distribution's bucket num
                 if (distributionInfo.getType() != DistributionInfoType.HASH) {
                     throw new DdlException("Cannot change distribution type to " + distributionInfo.getType());
                 }
-    
+
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
                 List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
                 if (!newDistriCols.equals(defaultDistriCols)) {
                     throw new DdlException("Cannot assign hash distribution with different distribution cols. "
-                                + "default is: " + defaultDistriCols);
+                            + "default is: " + defaultDistriCols);
                 }
-    
+
                 int bucketNum = hashDistributionInfo.getBucketNum();
                 if (bucketNum <= 0) {
                     throw new DdlException("Cannot assign hash distribution buckets less than 1");
                 }
-    
+
                 defaultDistributionInfo.setBucketNum(bucketNum);
-    
+
                 ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(), bucketNum);
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
@@ -5950,7 +5950,7 @@ public class Catalog {
     }
 
     public Function getTableFunction(Function desc, Function.CompareMode mode) {
-        return  functionSet.getFunction(desc, mode, true);
+        return functionSet.getFunction(desc, mode, true);
     }
 
     public boolean isNullResultWithOneNullParamFunction(String funcName) {
@@ -6699,13 +6699,13 @@ public class Catalog {
     /*
      * Truncate specified table or partitions.
      * The main idea is:
-     * 
+     *
      * 1. using the same schema to create new table(partitions)
      * 2. use the new created table(partitions) to replace the old ones.
-     * 
+     *
      * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
      * otherwise, it will only truncate those specified partitions.
-     * 
+     *
      */
     public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
         TableRef tblRef = truncateTableStmt.getTblRef();
@@ -7227,7 +7227,7 @@ public class Catalog {
 
     public void cleanTrash(AdminCleanTrashStmt stmt) {
         List<Backend> backends = stmt.getBackends();
-        for (Backend backend : backends){
+        for (Backend backend : backends) {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;

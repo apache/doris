@@ -58,6 +58,7 @@ public class BrokerLoadPendingTask extends LoadTask {
     @Override
     void executeTask() throws UserException {
         LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
+        ((BrokerLoadJob) callback).beginTxn();
         getAllFileStatus();
     }
 
@@ -122,8 +123,8 @@ public class BrokerLoadPendingTask extends LoadTask {
                     LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
                             filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
                             callback.getCallbackId(),
-                        brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER ?
-                            BrokerUtil.getAddress(brokerDesc): brokerDesc.getStorageType());
+                            brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER ?
+                                    BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
                     groupNum++;
                 }
             }
