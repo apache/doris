@@ -76,6 +76,9 @@ private:
             _skip_row = skip;
         }
 
+        // Only use in unique reader. Heap will set _skip_row = true.
+        // when build heap find the row in LevelIterator have same key but lower version or sequence
+        // the row of LevelIteratro should be skiped to prevent useless compare and function call
         mutable bool _skip_row = false;
     };
 
@@ -195,7 +198,7 @@ private:
         int _child_idx = 0;
         int _sequence_id_idx = -1;
 
-	uint64_t* _merged_rows = nullptr;
+        uint64_t* _merged_rows = nullptr;
         SortType _sort_type;
         int _sort_col_num;
     };
