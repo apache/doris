@@ -1110,6 +1110,20 @@ public class Config extends ConfigBase {
     public static double balance_load_score_threshold = 0.1; // 10%
 
     /**
+     * same as balance_load_score_threshold, just for hdd medium.
+     * the value 0 means that this configuration does not work
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double balance_load_score_threshold_hdd = 0;
+
+    /**
+     * same as balance_load_score_threshold, just for ssd medium.
+     * the value 0 means that this configuration does not work
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double balance_load_score_threshold_ssd = 0;
+
+    /**
      * if set to true, TabletScheduler will not do balance.
      */
     @ConfField(mutable = true, masterOnly = true)

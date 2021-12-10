@@ -167,7 +167,7 @@ public class ClusterLoadStatistic {
                 continue;
             }
 
-            if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore > Config.balance_load_score_threshold) {
+            if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore > getLoadScoreThreshold(medium)) {
                 if (beStat.getLoadScore(medium) > avgLoadScore) {
                     beStat.setClazz(medium, Classification.HIGH);
                     highCounter++;
@@ -183,6 +183,16 @@ public class ClusterLoadStatistic {
 
         LOG.info("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
                 medium, avgLoadScore, lowCounter, midCounter, highCounter);
+    }
+
+    public static double getLoadScoreThreshold(TStorageMedium medium) {
+        if (medium == TStorageMedium.HDD && Config.balance_load_score_threshold_hdd > 0) {
+            return Config.balance_load_score_threshold_hdd;
+        } else if (medium == TStorageMedium.SSD && Config.balance_load_score_threshold_ssd > 0) {
+            return Config.balance_load_score_threshold_ssd;
+        } else {
+            return Config.balance_load_score_threshold;
+        }
     }
 
     private static void sortBeStats(List<BackendLoadStatistic> beStats, TStorageMedium medium) {
