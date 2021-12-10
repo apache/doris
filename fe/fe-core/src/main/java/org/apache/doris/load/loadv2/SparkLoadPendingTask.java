@@ -110,8 +110,8 @@ public class SparkLoadPendingTask extends LoadTask {
     @Override
     void executeTask() throws UserException {
         LOG.info("begin to execute spark pending task. load job id: {}", loadJobId);
-        submitEtlJob();
         ((SparkLoadJob) callback).beginTxn();
+        submitEtlJob();
     }
 
     private void submitEtlJob() throws LoadException {

@@ -580,10 +580,16 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat, Config.tablet_rebalancer_type);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
+        // The pendingLoadTaskScheduler's queue size should not less than Config.desired_max_waiting_jobs.
+        // So that we can guarantee that all submitted load jobs can be scheduled without being starved.
         this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_pending_load_task_pool_size,
                 Config.desired_max_waiting_jobs, !isCheckpointCatalog);
+        // The loadingLoadTaskScheduler's queue size is unlimited, so that it can receive all loading tasks
+        // created after pending tasks finish. And don't worry about the high concurrency, because the
+        // concurrency is limited by Config.desired_max_waiting_jobs and Config.async_loading_load_task_pool_size.
         this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_loading_load_task_pool_size,
                 Integer.MAX_VALUE, !isCheckpointCatalog);
+
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager", Config.fetch_stream_load_record_interval_second * 1000);
