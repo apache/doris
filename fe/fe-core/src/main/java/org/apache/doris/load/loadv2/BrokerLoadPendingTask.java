@@ -58,8 +58,9 @@ public class BrokerLoadPendingTask extends LoadTask {
     @Override
     void executeTask() throws UserException {
         LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
-        ((BrokerLoadJob) callback).beginTxn();
         getAllFileStatus();
+        ((BrokerLoadJob) callback).beginTxn();
+        ((BrokerLoadJob) callback).updateState(JobState.LOADING);
     }
 
     private void getAllFileStatus() throws UserException {

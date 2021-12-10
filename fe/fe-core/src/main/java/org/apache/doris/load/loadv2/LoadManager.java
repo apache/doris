@@ -115,7 +115,7 @@ public class LoadManager implements Writable {
                 if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
                     throw new DdlException("LoadManager only support the broker and spark load.");
                 }
-                if (unprotectedGetUnfinishedJobNum() > Config.desired_max_waiting_jobs) {
+                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
                     throw new DdlException("There are more than " + Config.desired_max_waiting_jobs + " unfinished load jobs, "
                             + "please retry later. You can use `SHOW LOAD` to view submitted jobs");
                 }
@@ -465,11 +465,6 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
-    }
-
-    // only for those jobs which transaction is not started
-    public void processTimeoutJobs() {
-        idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
     }
 
     // only for those jobs which have etl state, like SparkLoadJob

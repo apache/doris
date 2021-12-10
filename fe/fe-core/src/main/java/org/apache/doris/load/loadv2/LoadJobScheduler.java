@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.LogBuilder;
@@ -60,12 +59,7 @@ public class LoadJobScheduler extends MasterDaemon {
 
     private void process() throws InterruptedException {
         while (true) {
-            if (!needScheduleJobs.isEmpty()) {
-                if (needScheduleJobs.peek() instanceof BrokerLoadJob && Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().isTaskQueueFull()) {
-                    LOG.warn("Failed to take one broker load job from queue because of task queue in loading_load_task_scheduler is full");
-                    return;
-                }
-            } else {
+            if (needScheduleJobs.isEmpty()) {
                 return;
             }
 

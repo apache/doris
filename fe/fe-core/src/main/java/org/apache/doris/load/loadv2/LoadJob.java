@@ -439,10 +439,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
 
         unprotectedExecuteJob();
-        // update spark load job state from PENDING to ETL when pending task is finished
-        if (jobType != EtlJobType.SPARK) {
-            unprotectedUpdateState(JobState.LOADING);
-        }
     }
 
     public void processTimeout() {
