@@ -33,7 +33,7 @@ Support SQL block rule by user level, by regex way to deny specify SQL
 SQL block rule CRUD
 - create SQL block rule
     - sql：Regex pattern，Special characters need to be translated
-    - sqlHash: Sql hash value, Used to match exactly, We print it in fe.audit.log
+    - sqlHash: Sql hash value, Used to match exactly, We print it in fe.audit.log，This parameter is the only choice between sql and sql
     - global: Whether global(all users)is in effect, false by default
     - enable：Whether to enable block rule，true by default
 ```sql

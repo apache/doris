@@ -33,6 +33,7 @@ under the License.
 对SQL规则增删改查
 - 创建SQL阻止规则
     - sql：匹配规则(基于正则匹配,特殊字符需要转译)，可选
+    - sqlHash: sql hash值，用于完全匹配，我们会在`fe.audit.log`打印这个值，可选，这个参数和sql只能二选一
     - global：是否全局(所有用户)生效，默认为false  
     - enable：是否开启阻止规则，默认为true
 ```sql
