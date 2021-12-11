@@ -18,17 +18,12 @@
 package org.apache.doris.manager.agent.common;
 
 public class AgentConstants {
-    public static final int COMMAND_LOG_PAGE_SIZE = 1000;
     public static final int COMMAND_EXECUTE_SUCCESS_CODE = 0;
     public static final int COMMAND_EXECUTE_UNHEALTH_CODE = -10;
     public static final int COMMAND_EXECUTE_TIMEOUT_CODE = -11;
-    public static final int COMMAND_EXECUTE_TIMEOUT_MILSECOND = 600000;
-
-    public static final int FE_HTTP_PORT_DEFAULT = 8030;
-    public static final int BE_HTTP_PORT_DEFAULT = 8040;
+    public static final int COMMAND_EXECUTE_TIMEOUT_MILSECOND = 180000;
 
     public static final int COMMAND_HISTORY_SAVE_MAX_COUNT = 100;
-    public static final int TASK_LOG_ROW_MAX_COUNT = 1000;
 
     public static final String BASH_BIN = "/bin/sh ";
 
@@ -36,11 +31,14 @@ public class AgentConstants {
     public static final String BE_CONFIG_KEY_STORAGE_DIR = "storage_root_path";
     public static final String FE_CONFIG_KEY_HTTP_PORT = "http_port";
     public static final String BE_CONFIG_KEY_HTTP_PORT = "webserver_port";
+    public static final String BROKER_CONFIG_KEY_IPC_PORT = "broker_ipc_port";
 
     public static final String FE_DEFAULT_META_DIR_RELATIVE_PATH = "/doris-meta";
     public static final String BE_DEFAULT_STORAGE_DIR_RELATIVE_PATH = "/storage";
     public static final String FE_CONFIG_FILE_RELATIVE_PATH = "/conf/fe.conf";
     public static final String BE_CONFIG_FILE_RELATIVE_PATH = "/conf/be.conf";
+    public static final String BROKER_CONFIG_FILE_RELATIVE_PATH = "/conf/apache_hdfs_broker.conf";
+
     public static final String LOG_FILE_RELATIVE_PATH = "/log/";
     public static final String TASK_LOG_FILE_RELATIVE_PATH = "/log/task.log";
 

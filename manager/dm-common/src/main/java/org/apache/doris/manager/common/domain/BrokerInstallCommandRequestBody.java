@@ -15,33 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.manager.common.domain;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.apache.doris.stack.model.request.AgentInstallReq;
-import org.springframework.beans.BeanUtils;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class AgentInstall {
-
-    private String host;
-
-    private String user;
-
-    private int sshPort;
-
-    private String sshKey;
-
+public class BrokerInstallCommandRequestBody {
     private String installDir;
 
-    private int clusterId;
+    private String packageUrl;
 
-    public AgentInstall(String host, AgentInstallReq installReq) {
-        this.host = host;
-        BeanUtils.copyProperties(installReq, this);
+    public String getPackageUrl() {
+        return packageUrl;
+    }
+
+    public void setPackageUrl(String packageUrl) {
+        this.packageUrl = packageUrl;
+    }
+
+    public String getInstallDir() {
+        return installDir;
+    }
+
+    public void setInstallDir(String installDir) {
+        this.installDir = installDir;
     }
 }

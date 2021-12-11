@@ -32,58 +32,45 @@ import java.util.stream.Collectors;
 public abstract class BaseCommand {
 
     protected String[] resultCommand;
-    protected Long timeout = 10000L;
+    protected String errorResponse;
 
     protected abstract void buildCommand();
 
-    public Integer run() {
+    public String getErrorResponse() {
+        return this.errorResponse;
+    }
+
+    public boolean run() {
         buildCommand();
         log.info("run command: {}", StringUtils.join(resultCommand, " "));
         ProcessBuilder pb = new ProcessBuilder(resultCommand);
-        int exitCode = 1;
+        Process process = null;
+        BufferedReader bufferedReader = null;
         try {
-            Process process = pb.start();
-            if (waitForProcessTermination(process, timeout)) {
-                exitCode = process.exitValue();
+            process = pb.start();
+            bufferedReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+            errorResponse = bufferedReader.lines().parallel().collect(Collectors.joining(System.lineSeparator()));
+            final int exitCode = process.waitFor();
+            if (exitCode == 0) {
+                return true;
             } else {
+                log.error("shell command error, exit with {}, response:{}", exitCode, errorResponse);
+                return false;
+            }
+        } catch (IOException | InterruptedException e) {
+            log.error("command execute fail", e);
+            return false;
+        } finally {
+            if (process != null) {
                 process.destroy();
             }
-            if (exitCode != 0) {
-                BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
-                String errorStream = bufferedReader.lines().parallel().collect(Collectors.joining(System.lineSeparator()));
-                log.info("shell command error response:{}", errorStream);
-            }
-        } catch (IOException ie) {
-            log.error("command execute fail", ie);
-        }
-        return exitCode;
-    }
-
-    /**
-     * Waits until the process has terminated or waiting time elapses.
-     *
-     * @param timeout time to wait in miliseconds
-     * @return true if process has exited, false otherwise
-     */
-    protected boolean waitForProcessTermination(Process process, long timeout) {
-        long startTime = System.currentTimeMillis();
-        do {
             try {
-                process.exitValue();
-                return true;
-            } catch (IllegalThreadStateException ignored) {
-                log.error("process exception");
-                ignored.printStackTrace();
-            }
-            // Check if process has terminated once per second
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+                if (bufferedReader != null) {
+                    bufferedReader.close();
+                }
+            } catch (IOException e) {
+                log.error("close buffered reader fail");
             }
         }
-        while (System.currentTimeMillis() - startTime < timeout);
-
-        return false;
     }
 }

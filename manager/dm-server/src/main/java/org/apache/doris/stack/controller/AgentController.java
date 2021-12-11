@@ -28,6 +28,7 @@ import org.apache.doris.stack.model.request.DorisInstallReq;
 import org.apache.doris.stack.model.request.DorisStartReq;
 import org.apache.doris.stack.service.AgentProcess;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -91,9 +92,9 @@ public class AgentController {
     }
 
     /**
-     * register role service (be/fe)
+     * register role service (be/fe/broker)
      */
-    @ApiOperation(value = "register role service (be/fe)")
+    @ApiOperation(value = "register role service (be/fe/broker)")
     @RequestMapping(value = "/register", method = RequestMethod.POST)
     public RResult register(@RequestBody AgentRoleRegister agentReg) {
         boolean register = agentProcess.register(agentReg);
@@ -119,4 +120,14 @@ public class AgentController {
     public RResult log(@RequestParam String host, @RequestParam String type) {
         return RResult.success(agentProcess.log(host, type));
     }
+
+    /**
+     * query hardware info
+     */
+    @ApiOperation(value = "query hardware info")
+    @RequestMapping(value = "/hardware/{clusterId}", method = RequestMethod.GET)
+    public RResult hardwareInfo(@PathVariable int clusterId) {
+        return RResult.success(agentProcess.hardwareInfo(clusterId));
+    }
+
 }

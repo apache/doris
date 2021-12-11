@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class AgentTaskStatusRunner implements ApplicationRunner {
 
-    private static final long REFRESH_TIME = 60 * 1000L;
+    private static final long REFRESH_TIME = 10 * 1000L;
     private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired

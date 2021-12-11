@@ -15,39 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.common.domain;
+package org.apache.doris.stack.model.task;
 
-public enum CommandType {
-    INSTALL_FE,
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.doris.stack.model.request.AgentInstallReq;
+import org.springframework.beans.BeanUtils;
 
-    INSTALL_BE,
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class AgentInstall extends TaskDesc {
 
-    START_FE,
+    private String host;
 
-    STOP_FE,
+    private String user;
 
-    START_BE,
+    private int sshPort;
 
-    STOP_BE,
+    private String sshKey;
 
-    WRITE_FE_CONF,
+    private String installDir;
 
-    WRITE_BE_CONF,
+    private int clusterId;
 
-    INSTALL_BROKER,
-
-    START_BROKER,
-
-    STOP_BROKER,
-
-    WRITE_BROKER_CONF;
-
-    public static CommandType findByName(String name) {
-        for (CommandType type : CommandType.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
-        }
-        return null;
+    public AgentInstall(String host, AgentInstallReq installReq) {
+        this.host = host;
+        BeanUtils.copyProperties(installReq, this);
     }
 }

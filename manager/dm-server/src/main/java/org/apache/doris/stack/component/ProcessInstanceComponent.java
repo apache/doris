@@ -19,6 +19,7 @@ package org.apache.doris.stack.component;
 
 import com.google.common.base.Preconditions;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.dao.ProcessInstanceRepository;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
@@ -26,6 +27,7 @@ import org.apache.doris.stack.exceptions.ServerException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Date;
 import java.util.Optional;
 
 @Component
@@ -39,8 +41,20 @@ public class ProcessInstanceComponent {
      * save process and return id
      */
     public int saveProcess(ProcessInstanceEntity processInstance) {
-        checkHasUnfinishProcess(processInstance.getUserId(), -1);
+        checkHasUnfinishProcess(processInstance.getUserId(), processInstance.getId());
         return processInstanceRepository.save(processInstance).getId();
+    }
+
+    /**
+     * check process is finished
+     */
+    public void checkProcessFinish(int processId) {
+        Optional<ProcessInstanceEntity> optional = processInstanceRepository.findById(processId);
+        Preconditions.checkArgument(optional.isPresent(), "install process is not exist");
+        ProcessInstanceEntity processEntity = optional.get();
+        if (Flag.YES.equals(processEntity.getFinish())) {
+            throw new ServerException("install process " + processId + " is already finish");
+        }
     }
 
     public void checkHasUnfinishProcess(int userId, int processId) {
@@ -74,9 +88,11 @@ public class ProcessInstanceComponent {
     }
 
     /**
-     * update process status
+     * finish process
      */
-    public void updateProcess(ProcessInstanceEntity processInstance) {
+    public void finishProcess(ProcessInstanceEntity processInstance) {
+        processInstance.setFinish(Flag.YES);
+        processInstance.setUpdateTime(new Date());
         processInstanceRepository.save(processInstance);
     }
 }

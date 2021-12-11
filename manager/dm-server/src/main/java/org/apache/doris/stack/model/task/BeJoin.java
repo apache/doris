@@ -15,39 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.common.domain;
+package org.apache.doris.stack.model.task;
 
-public enum CommandType {
-    INSTALL_FE,
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-    INSTALL_BE,
+/**
+ * be join cluster req
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BeJoin extends TaskDesc {
 
-    START_FE,
+    private String feHost;
 
-    STOP_FE,
+    private int feQueryPort;
 
-    START_BE,
+    private String beHost;
 
-    STOP_BE,
-
-    WRITE_FE_CONF,
-
-    WRITE_BE_CONF,
-
-    INSTALL_BROKER,
-
-    START_BROKER,
-
-    STOP_BROKER,
-
-    WRITE_BROKER_CONF;
-
-    public static CommandType findByName(String name) {
-        for (CommandType type : CommandType.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
-        }
-        return null;
-    }
+    private int agentPort;
 }

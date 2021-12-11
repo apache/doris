@@ -15,25 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.manager.agent.command;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import org.apache.doris.manager.agent.exception.AgentException;
+import org.apache.doris.manager.agent.service.Service;
+import org.apache.doris.manager.agent.service.ServiceContext;
+import org.apache.doris.manager.common.domain.ServiceRole;
 
-/**
- * be join cluster req
- **/
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class BeJoin {
+import java.util.Objects;
 
-    private String feHost;
-
-    private int feQueryPort;
-
-    private String beHost;
-
-    private int agentPort;
+public abstract class BrokerCommand extends ExpandCommand {
+    @Override
+    void beforeSetup() {
+        Service service = ServiceContext.getServiceMap().get(ServiceRole.BROKER);
+        if (Objects.isNull(service)) {
+            throw new AgentException("service broker not installed or register");
+        }
+    }
 }

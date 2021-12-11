@@ -55,7 +55,7 @@ public class AgentEntity {
     @Column(name = "cluster_id")
     private int clusterId;
 
-    @Column(name = "install_dir")
+    @Column(name = "install_dir", length = 1024)
     private String installDir;
 
     @Enumerated(EnumType.STRING)

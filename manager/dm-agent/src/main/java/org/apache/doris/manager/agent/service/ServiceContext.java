@@ -45,7 +45,7 @@ public class ServiceContext {
         boolean b = registerToServer(AgentContext.getAgentServer(), AgentContext.getAgentIp(), service.getServiceRole(), service.getInstallDir());
         if (!b) {
             throw new AgentException("register to server failed,server:" + AgentContext.getAgentServer()
-                    + "agentIp:" + AgentContext.getAgentIp()
+                    + ",agentIp:" + AgentContext.getAgentIp()
                     + ",service:" + service.toString());
         }
         registeService(service);
@@ -69,6 +69,9 @@ public class ServiceContext {
             } else if (ServiceRole.findByName(service.getRole()) == ServiceRole.BE) {
                 BeService beService = new BeService(service.getInstallDir());
                 registeService(beService);
+            } else if (ServiceRole.findByName(service.getRole()) == ServiceRole.BROKER) {
+                BrokerService brokerService = new BrokerService(service.getInstallDir());
+                registeService(brokerService);
             }
         }
 

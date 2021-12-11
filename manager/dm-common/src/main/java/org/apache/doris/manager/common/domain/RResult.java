@@ -21,12 +21,12 @@ import java.util.HashMap;
 import java.util.Objects;
 
 public class RResult extends HashMap<String, Object> {
-    private static final long serialVersionUID = 1L;
-    private static final int CODE_SUCCESS = 0;
-    private static final int CODE_FAILED = 500;
     public static final String CODE_TAG = "code";
     public static final String MSG_TAG = "msg";
     public static final String DATA_TAG = "data";
+    private static final long serialVersionUID = 1L;
+    private static final int CODE_SUCCESS = 0;
+    private static final int CODE_FAILED = 500;
 
     public RResult() {
     }

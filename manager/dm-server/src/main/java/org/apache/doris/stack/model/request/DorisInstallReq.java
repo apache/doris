@@ -20,7 +20,7 @@ package org.apache.doris.stack.model.request;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.doris.stack.model.InstallInfo;
+import org.apache.doris.stack.model.task.DorisInstall;
 
 import java.util.List;
 
@@ -31,5 +31,5 @@ public class DorisInstallReq {
 
     private int processId;
 
-    private List<InstallInfo> installInfos;
+    private List<DorisInstall> installInfos;
 }
