@@ -29,10 +29,6 @@ ExplodeBitmapTableFunction::~ExplodeBitmapTableFunction() {
         delete _cur_iter;
         _cur_iter = nullptr;
     }
-    if (_cur_iter_end != nullptr) {
-        delete _cur_iter_end;
-        _cur_iter_end = nullptr;
-    }
     if (_cur_bitmap_owned && _cur_bitmap != nullptr) {
         delete _cur_bitmap;
         _cur_bitmap = nullptr;
@@ -51,6 +47,8 @@ Status ExplodeBitmapTableFunction::process(TupleRow* tuple_row) {
     CHECK(1 == _expr_context->root()->get_num_children()) << _expr_context->root()->get_num_children();
     _eos = false;
     _is_current_empty = false;
+    _cur_size = 0;
+    _cur_offset = 0;
 
     StringVal bitmap_str = _expr_context->root()->get_child(0)->get_string_val(_expr_context, tuple_row);
     if (bitmap_str.is_null) {
@@ -63,7 +61,8 @@ Status ExplodeBitmapTableFunction::process(TupleRow* tuple_row) {
             _cur_bitmap = new BitmapValue((char*) bitmap_str.ptr);
             _cur_bitmap_owned = true;
         }
-        if (_cur_bitmap->cardinality() == 0) {
+        _cur_size = _cur_bitmap->cardinality();
+        if (_cur_size == 0) {
             _is_current_empty = true;
         } else {
             _reset_iterator();
@@ -80,13 +79,6 @@ void ExplodeBitmapTableFunction::_reset_iterator() {
         _cur_iter = nullptr;
     }
     _cur_iter = new BitmapValueIterator(*_cur_bitmap);
-
-    if (_cur_iter_end != nullptr) {
-        delete _cur_iter_end;
-        _cur_iter_end = nullptr;
-    }
-    _cur_iter_end = new BitmapValueIterator(*_cur_bitmap, true);
-
     _cur_value = **_cur_iter;
 }
 
@@ -117,7 +109,8 @@ Status ExplodeBitmapTableFunction::forward(bool* eos) {
         _eos = true;
     } else {
         ++(*_cur_iter);
-        if (*_cur_iter == *_cur_iter_end) {
+        ++_cur_offset;
+        if (_cur_offset == _cur_size) {
             *eos = true;
             _eos = true;
         } else {

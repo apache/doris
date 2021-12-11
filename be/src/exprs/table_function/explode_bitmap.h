@@ -48,7 +48,6 @@ private:
     bool _cur_bitmap_owned = false;
     // iterator of _cur_bitmap
     BitmapValueIterator* _cur_iter = nullptr;
-    BitmapValueIterator* _cur_iter_end = nullptr;
     // current value read from bitmap, it will be referenced by
     // table function scan node.
     uint64_t _cur_value = 0;

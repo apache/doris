@@ -125,10 +125,6 @@ private:
     ParsedData _parsed_data;
 
     ExplodeJsonArrayType _type;
-    // the size of _data
-    int64_t _cur_size = 0;
-    // current consumed offset of _data
-    int64_t _cur_offset = 0;
 };
 
 } // namespace doris

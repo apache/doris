@@ -56,6 +56,10 @@ protected:
     // true means the function result set from current row is empty(eg, source value is null or empty).
     // so that when calling reset(), we can do nothing and keep eos as true.
     bool _is_current_empty = false;
+    // the position of current cursor
+    int64_t _cur_offset = 0;
+    // the size of current result
+    int64_t _cur_size = 0;
 };
 
 } // namespace doris

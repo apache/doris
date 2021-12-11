@@ -45,10 +45,6 @@ private:
     // the `_backup` saved the real string entity.
     std::vector<StringValue> _data;
     std::vector<std::string> _backup;
-    // the size of _data
-    int64_t _cur_size = 0;
-    // current consumed offset of _data
-    int64_t _cur_offset = 0;
 
     // indicate whether the delimiter is constant.
     // if true, the constant delimiter will be saved in `_const_delimter`
