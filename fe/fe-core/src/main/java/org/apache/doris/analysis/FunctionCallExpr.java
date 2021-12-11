@@ -86,7 +86,7 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
-    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "Currently only support `explode_split`, `explode_bitmap()` " +
+    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "Currently only support `explode_split`, `explode_bitmap` " +
             "and `explode_json_array_xx` table functions";
 
     public void setIsAnalyticFnCall(boolean v) {

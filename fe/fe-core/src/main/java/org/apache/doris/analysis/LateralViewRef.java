@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;

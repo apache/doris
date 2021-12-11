@@ -313,10 +313,6 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
         if (row_batch->at_capacity()) {
             break;
         } 
-
-        if (_child_batch_exhausted) {
-            continue;
-        }
     }
     if (reached_limit()) {
         int num_rows_over = _num_rows_returned - _limit;
