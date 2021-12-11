@@ -176,6 +176,9 @@ bool TableFunctionNode::_roll_table_functions(int last_eos_idx) {
     return true;
 }
 
+// There are 2 while loops in this method.
+// The outer loop is to get the next batch from child node.
+// And the inner loop is to expand the row by table functions, and output row by row.
 Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
