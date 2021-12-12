@@ -521,6 +521,14 @@ build_rocksdb() {
     cp -r include/rocksdb ../../installed/include/
 }
 
+# cyrus_sasl
+build_cyrus_sasl() {
+   check_if_source_exist $CYRUS_SASL_SOURCE
+   cd $TP_SOURCE_DIR/$CYRUS_SASL_SOURCE
+   ./configure --prefix=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR --enable-static
+   make -j $PARALLEL && make install
+}
+
 # librdkafka
 build_librdkafka() {
     check_if_source_exist $LIBRDKAFKA_SOURCE
@@ -933,6 +941,7 @@ build_thrift
 build_leveldb
 build_brpc
 build_rocksdb
+build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
 build_arrow
