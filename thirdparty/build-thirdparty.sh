@@ -525,7 +525,7 @@ build_rocksdb() {
 build_cyrus_sasl() {
    check_if_source_exist $CYRUS_SASL_SOURCE
    cd $TP_SOURCE_DIR/$CYRUS_SASL_SOURCE
-   ./configure --prefix=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR --enable-static
+   ./configure --prefix=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR --enable-static --enable-shared=no --with-openssl=$TP_INSTALL_DIR
    make -j $PARALLEL && make install
 }
 
@@ -747,6 +747,9 @@ build_orc() {
     -DLZ4_HOME=$TP_INSTALL_DIR \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DZLIB_HOME=$TP_INSTALL_DIR \
+    -DZSTD_HOME=$TP_INSTALL_DIR \
+    -DZSTD_INCLUDE_DIR=$TP_INSTALL_DIR/include \
+    -DZSTD_LIBRARIES=$TP_INSTALL_DIR/lib/libzstd.a \
     -DBUILD_LIBHDFSPP=OFF \
     -DBUILD_CPP_TESTS=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR
