@@ -115,10 +115,6 @@ TEST_F(FileUtilsTest, TestRemove) {
     ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
     save_string_file("./file_test/abc/123/s2", "123");
 
-    ASSERT_FALSE(FileUtils::remove("./file_test").ok());
-    ASSERT_FALSE(FileUtils::remove("./file_test/abc/").ok());
-    ASSERT_FALSE(FileUtils::remove("./file_test/abc/123").ok());
-
     ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/123/s2"));
     ASSERT_TRUE(FileUtils::remove("./file_test/abc/123/s2").ok());
     ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/123/s2"));
