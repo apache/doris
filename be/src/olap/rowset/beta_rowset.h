@@ -69,7 +69,7 @@ public:
     OLAPStatus load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
 protected:
-    BetaRowset(const TabletSchema* schema, FilePathDesc rowset_path_desc,
+    BetaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups

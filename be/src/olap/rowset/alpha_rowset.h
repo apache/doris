@@ -70,7 +70,7 @@ public:
 protected:
     friend class RowsetFactory;
 
-    AlphaRowset(const TabletSchema* schema, FilePathDesc rowset_path_desc,
+    AlphaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                 RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups

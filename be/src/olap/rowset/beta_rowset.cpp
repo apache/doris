@@ -37,9 +37,9 @@ FilePathDesc BetaRowset::segment_file_path(const FilePathDesc& segment_dir_desc,
     return path_desc_s.path_desc();
 }
 
-BetaRowset::BetaRowset(const TabletSchema* schema, FilePathDesc rowset_path_desc,
+BetaRowset::BetaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                        RowsetMetaSharedPtr rowset_meta)
-        : Rowset(schema, std::move(rowset_path_desc), std::move(rowset_meta)) {}
+        : Rowset(schema, rowset_path_desc, std::move(rowset_meta)) {}
 
 BetaRowset::~BetaRowset() {}
 

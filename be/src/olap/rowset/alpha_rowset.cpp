@@ -26,9 +26,9 @@
 
 namespace doris {
 
-AlphaRowset::AlphaRowset(const TabletSchema* schema, FilePathDesc rowset_path_desc,
+AlphaRowset::AlphaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                          RowsetMetaSharedPtr rowset_meta)
-        : Rowset(schema, std::move(rowset_path_desc), std::move(_rowset_meta)) {}
+        : Rowset(schema, rowset_path_desc, std::move(rowset_meta)) {}
 
 OLAPStatus AlphaRowset::do_load(bool use_cache) {
     for (auto& segment_group : _segment_groups) {
