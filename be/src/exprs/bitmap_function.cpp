@@ -297,7 +297,8 @@ void BitmapFunctions::nullable_bitmap_init(FunctionContext* ctx, StringVal* dst)
 }
 
 //for bitmap_intersect merge
-void BitmapFunctions::bitmaps_intersect_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+void BitmapFunctions::bitmaps_intersect_merge(FunctionContext* ctx, const StringVal& src,
+                                              StringVal* dst) {
     if (src.is_null) {
         return;
     }
@@ -317,7 +318,8 @@ void BitmapFunctions::bitmaps_intersect_merge(FunctionContext* ctx, const String
     }
 }
 
-void BitmapFunctions::bitmaps_union_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+void BitmapFunctions::bitmaps_union_merge(FunctionContext* ctx, const StringVal& src,
+                                          StringVal* dst) {
     if (src.is_null) {
         return;
     }
@@ -329,12 +331,20 @@ void BitmapFunctions::bitmaps_union_merge(FunctionContext* ctx, const StringVal&
     }
 }
 
-void BitmapFunctions::bitmaps_union_update(FunctionContext* ctx, int num_args, const StringVal* bitmap_strs,
-                                   StringVal* dst) {
-    if (bitmap_strs->is_null) {
+void BitmapFunctions::bitmaps_union_update(FunctionContext* ctx, const StringVal& first_bitmap,
+                                           int num_args, const StringVal* bitmap_strs,
+                                           StringVal* dst) {
+    if (bitmap_strs->is_null && first_bitmap.is_null) {
         return;
     }
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+
+    if (first_bitmap.len == 0) {
+        (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(first_bitmap.ptr);
+    } else {
+        (*dst_bitmap) |= BitmapValue((char*)first_bitmap.ptr);
+    }
+
     for (int i = 0; i < num_args; ++i) {
         if (bitmap_strs[i].is_null) {
             continue;
@@ -347,19 +357,27 @@ void BitmapFunctions::bitmaps_union_update(FunctionContext* ctx, int num_args, c
     }
 }
 
-void BitmapFunctions::bitmaps_intersect_update(FunctionContext* ctx, int num_args,
-                                       const StringVal* bitmap_strs, StringVal* dst) {
-    if (bitmap_strs->is_null) {
+void BitmapFunctions::bitmaps_intersect_update(FunctionContext* ctx, const StringVal& first_bitmap,
+                                               int num_args, const StringVal* bitmap_strs,
+                                               StringVal* dst) {
+    if (bitmap_strs->is_null && first_bitmap.is_null) {
         return;
     }
 
     if (dst->is_null) {
         dst->is_null = false;
         dst->len = sizeof(BitmapValue);
-        dst->ptr = (uint8_t*)new BitmapValue((char*)bitmap_strs[0].ptr);
+        dst->ptr = first_bitmap.is_null ? (uint8_t*)new BitmapValue((char*)bitmap_strs[0].ptr)
+                                        : (uint8_t*)new BitmapValue((char*)first_bitmap.ptr);
     }
 
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    if (first_bitmap.len == 0) {
+        (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(first_bitmap.ptr);
+    } else {
+        (*dst_bitmap) &= BitmapValue((char*)first_bitmap.ptr);
+    }
+
     for (int i = 0; i < num_args; ++i) {
         if (bitmap_strs[i].is_null) {
             continue;
@@ -369,6 +387,39 @@ void BitmapFunctions::bitmaps_intersect_update(FunctionContext* ctx, int num_arg
         } else {
             (*dst_bitmap) &= BitmapValue((char*)bitmap_strs[i].ptr);
         }
+    }
+}
+
+void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        (*dst_bitmap) |= BitmapValue((char*)src.ptr);
+    }
+}
+
+void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    // if dst is null, the src input is the first value
+    if (dst->is_null) {
+        dst->is_null = false;
+        dst->len = sizeof(BitmapValue);
+        dst->ptr = (uint8_t*)new BitmapValue((char*)src.ptr);
+        return;
+    }
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        (*dst_bitmap) &= BitmapValue((char*)src.ptr);
     }
 }
 

@@ -39,12 +39,19 @@ class BitmapFunctions {
 public:
     static void init();
     static void bitmap_init(FunctionContext* ctx, StringVal* slot);
+    //in order to compatible version, now only support 2 or more columns parameters
+    //TODO: could remove only one parameters in feature
     static void bitmaps_union_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
-    static void bitmaps_union_update(FunctionContext* ctx, int num_args,
+    static void bitmaps_union_update(FunctionContext* ctx, const StringVal& first_bitmap, int num_args,
                                      const StringVal* bitmap_strs, StringVal* dst);
     static void bitmaps_intersect_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
-    static void bitmaps_intersect_update(FunctionContext* ctx, int num_args,
+    static void bitmaps_intersect_update(FunctionContext* ctx, const StringVal& first_bitmap, int num_args,
                                          const StringVal* bitmap_strs, StringVal* dst);
+    //TODO: this is bitmap_union bitmap_intersect only have one column parameters
+    //in feature could remove 
+    static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
     template <typename T>
     static void bitmap_update_int(FunctionContext* ctx, const T& src, StringVal* dst);
     // the input src's ptr need to point a BitmapValue, this function will release the
