@@ -80,7 +80,7 @@ protected:
     };
 
     typedef std::priority_queue<HeapType, std::vector<HeapType>, MergeComparison> Heap;
-    
+
     void display_heap(const Heap& heap) const {
         Heap h = heap;
         std::stringstream s;

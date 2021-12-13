@@ -76,7 +76,7 @@ public:
     // Convert scan_ranges into node-specific scan restrictions.  This should be
     // called after prepare()
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
-    
+
     bool is_scan_node() const override { return true; }
 
     RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
