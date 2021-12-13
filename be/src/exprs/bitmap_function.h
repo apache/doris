@@ -39,8 +39,12 @@ class BitmapFunctions {
 public:
     static void init();
     static void bitmap_init(FunctionContext* ctx, StringVal* slot);
-    static StringVal bitmap_empty(FunctionContext* ctx);
-
+    static void bitmaps_union_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    static void bitmaps_union_update(FunctionContext* ctx, int num_args,
+                                     const StringVal* bitmap_strs, StringVal* dst);
+    static void bitmaps_intersect_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    static void bitmaps_intersect_update(FunctionContext* ctx, int num_args,
+                                         const StringVal* bitmap_strs, StringVal* dst);
     template <typename T>
     static void bitmap_update_int(FunctionContext* ctx, const T& src, StringVal* dst);
     // the input src's ptr need to point a BitmapValue, this function will release the
@@ -49,11 +53,12 @@ public:
     // Get the bitmap cardinality, the difference from bitmap_finalize method is
     // bitmap_get_value method doesn't free memory, this function is used in analytic get_value function
     static BigIntVal bitmap_get_value(FunctionContext* ctx, const StringVal& src);
+    static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
 
-    static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     // the dst value could be null
     static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
-    static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
+    static StringVal bitmap_empty(FunctionContext* ctx);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
                                           const StringVal& dst);
@@ -66,7 +71,6 @@ public:
     static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs,
                                      const StringVal& rhs);
 
-    static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst);

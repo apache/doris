@@ -33,7 +33,7 @@ Aggregation function, used to calculate the bitmap intersection after grouping. 
 
 `BITMAP BITMAP_INTERSECT(BITMAP value)`
 
-Enter a set of bitmap values, find the intersection of the set of bitmap values, and return.
+Enter one or more sets of bitmap values, find the intersection of the set of bitmap values, and return.
 
 ## example
 

@@ -291,25 +291,13 @@ BigIntVal BitmapFunctions::bitmap_get_value(FunctionContext* ctx, const StringVa
     return result;
 }
 
-void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
-    // zero size means the src input is a agg object
-    if (src.len == 0) {
-        (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src.ptr);
-    } else {
-        (*dst_bitmap) |= BitmapValue((char*)src.ptr);
-    }
-}
-
 // the dst value could be null
 void BitmapFunctions::nullable_bitmap_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = true;
 }
 
-void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+//for bitmap_intersect merge
+void BitmapFunctions::bitmaps_intersect_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
     if (src.is_null) {
         return;
     }
@@ -326,6 +314,61 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
         (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(src.ptr);
     } else {
         (*dst_bitmap) &= BitmapValue((char*)src.ptr);
+    }
+}
+
+void BitmapFunctions::bitmaps_union_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    if (src.len == 0) {
+        (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        (*dst_bitmap) |= BitmapValue((char*)src.ptr);
+    }
+}
+
+void BitmapFunctions::bitmaps_union_update(FunctionContext* ctx, int num_args, const StringVal* bitmap_strs,
+                                   StringVal* dst) {
+    if (bitmap_strs->is_null) {
+        return;
+    }
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    for (int i = 0; i < num_args; ++i) {
+        if (bitmap_strs[i].is_null) {
+            continue;
+        }
+        if (bitmap_strs[i].len == 0) {
+            (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            (*dst_bitmap) |= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
+    }
+}
+
+void BitmapFunctions::bitmaps_intersect_update(FunctionContext* ctx, int num_args,
+                                       const StringVal* bitmap_strs, StringVal* dst) {
+    if (bitmap_strs->is_null) {
+        return;
+    }
+
+    if (dst->is_null) {
+        dst->is_null = false;
+        dst->len = sizeof(BitmapValue);
+        dst->ptr = (uint8_t*)new BitmapValue((char*)bitmap_strs[0].ptr);
+    }
+
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    for (int i = 0; i < num_args; ++i) {
+        if (bitmap_strs[i].is_null) {
+            continue;
+        }
+        if (bitmap_strs[i].len == 0) {
+            (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            (*dst_bitmap) &= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
     }
 }
 

@@ -752,6 +752,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public static final String TO_BITMAP = "to_bitmap";
     public static final String BITMAP_UNION = "bitmap_union";
     public static final String BITMAP_UNION_COUNT = "bitmap_union_count";
+    public static final String BITMAP_INTERSECT_COUNT = "bitmap_intersect_count";
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
     public static final String BITMAP_COUNT = "bitmap_count";
     public static final String INTERSECT_COUNT = "intersect_count";
@@ -1834,12 +1835,11 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
         }
         // bitmap
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(Type.BITMAP),
-                Type.BITMAP,
-                Type.VARCHAR,
+                Type.BITMAP, Type.VARCHAR, true,
                 "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions20bitmaps_union_updateEPN9doris_udf15FunctionContextEiPKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions19bitmaps_union_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE", "", "",
                 "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 true, false, true));
 
@@ -1853,13 +1853,11 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "",
                 true, false, true, true));
 
-
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION_COUNT, Lists.newArrayList(Type.BITMAP),
-                Type.BIGINT,
-                Type.VARCHAR,
+                Type.BIGINT, Type.VARCHAR, true,
                 "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions20bitmaps_union_updateEPN9doris_udf15FunctionContextEiPKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions19bitmaps_union_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 "_ZN5doris15BitmapFunctions16bitmap_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 null,
@@ -1891,11 +1889,11 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 true, true, true));
         // TODO(ml): supply function symbol
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_INTERSECT, Lists.newArrayList(Type.BITMAP),
-                Type.BITMAP, Type.VARCHAR,
+                Type.BITMAP, Type.VARCHAR, true,
                 "_ZN5doris15BitmapFunctions20nullable_bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                "_ZN5doris15BitmapFunctions16bitmap_intersectEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                "_ZN5doris15BitmapFunctions16bitmap_intersectEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions24bitmaps_intersect_updateEPN9doris_udf15FunctionContextEiPKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions23bitmaps_intersect_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE", "", "",
                 "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 true, false, true));
 
@@ -1908,6 +1906,18 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "",
                 true, false, true, true));
       
+        //BITMAP_INTERSECT_COUNT        
+        addBuiltin(AggregateFunction.createBuiltin(BITMAP_INTERSECT_COUNT, Lists.newArrayList(Type.BITMAP),
+                Type.BIGINT, Type.VARCHAR, true,
+                "_ZN5doris15BitmapFunctions20nullable_bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions24bitmaps_intersect_updateEPN9doris_udf15FunctionContextEiPKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions23bitmaps_intersect_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null,
+                "_ZN5doris15BitmapFunctions15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, true, true));
+
               //Percentile
         addBuiltin(AggregateFunction.createBuiltin("percentile",
                 Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,

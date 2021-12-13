@@ -34,7 +34,7 @@ Aggregate function, used to calculate the grouped bitmap union. Common usage sce
 
 `BITMAP BITMAP_UNION(BITMAP value)`
 
-Enter a set of bitmap values, find the union of this set of bitmap values, and return.
+Enter one or more sets of bitmap values, find the union of this set of bitmap values, and return.
 
 ## example
 
