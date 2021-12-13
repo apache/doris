@@ -81,10 +81,10 @@ OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
 }
 
 OLAPStatus SegmentLoader::prune() {
-    bool (*pred)(const void* value) = [](const void* value) -> bool {
-        int64_t curtime = UnixMillis();
+    const int64_t curtime = UnixMillis();
+    auto pred = [curtime](const void* value) -> bool {
         SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*) value;
-        return curtime - cache_value->last_visit_time > config::tablet_rowset_stale_sweep_time_sec * 1000;
+        return (cache_value->last_visit_time + config::tablet_rowset_stale_sweep_time_sec * 1000) < curtime;
     };
 
     MonotonicStopWatch watch;

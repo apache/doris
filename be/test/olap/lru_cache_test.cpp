@@ -305,12 +305,19 @@ TEST_F(CacheTest, Prune) {
     ASSERT_EQ(5, cache.get_usage());
 
     auto pred2 = [](const void* value) -> bool {
-        return true;
+        return DecodeValue((void*) value) > 400;
     };
     cache.prune_if(pred2);
-    ASSERT_EQ(0, cache.get_usage());
+    ASSERT_EQ(2, cache.get_usage());
 
     cache.prune();
+    ASSERT_EQ(0, cache.get_usage());
+
+    for (int i = 1; i <= 5; ++i) {
+        insert_LRUCache(cache, CacheKey{std::to_string(i)}, i, CachePriority::NORMAL);
+        ASSERT_EQ(i, cache.get_usage());
+    }
+    cache.prune_if([](const void*) { return true; });
     ASSERT_EQ(0, cache.get_usage());
 }
 
