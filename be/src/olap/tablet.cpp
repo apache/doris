@@ -836,6 +836,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
                   // simple because 2 versions are certainly not overlapping
                   return left.first.first < right.first.first;
               });
+
     Version max_continuous_version = {-1, 0};
     VersionHash max_continuous_version_hash = 0;
     for (int i = 0; i < existing_versions.size(); ++i) {
@@ -1108,9 +1109,17 @@ void Tablet::get_compaction_status(std::string* json_result) {
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
+    rapidjson::Document missing_versions_arr;
     versions_arr.SetArray();
+    missing_versions_arr.SetArray();
+    int64_t last_version = -1;
     for (int i = 0; i < rowsets.size(); ++i) {
         const Version& ver = rowsets[i]->version();
+        if (ver.first != last_version + 1) {
+            rapidjson::Value miss_value;
+            miss_value.SetString(strings::Substitute("[$0-$1]", last_version + 1, ver.first).c_str(), missing_versions_arr.GetAllocator());
+            missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
+        }
         rapidjson::Value value;
         std::string disk_size =
                 PrettyPrinter::print(rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
@@ -1121,8 +1130,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
                 rowsets[i]->rowset_id().to_string(), disk_size);
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
+        last_version = ver.second;
     }
     root.AddMember("rowsets", versions_arr, root.GetAllocator());
+    root.AddMember("missing_rowsets", missing_versions_arr, root.GetAllocator());
 
     // print all stale rowsets' version as an array
     rapidjson::Document stale_versions_arr;

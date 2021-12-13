@@ -38,7 +38,7 @@ fe/fe-core/src/main/resources/static/
 nohup.out
 
 
-#ignore eclipse project file & idea project file
+# ignore eclipse project file & idea project file
 .cproject
 .project
 .settings/
@@ -65,7 +65,10 @@ docs/package-lock.json
 fe/fe-common/.classpath
 rpc_data/
 
+## ignore sample target
+samples/doris-demo/*/target
 
-#ignore vscode project file
+# ignore vscode project file
 .vscode
-samples/doris-demo/stream-load-demo/target
+
+
