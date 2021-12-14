@@ -282,7 +282,7 @@ outputFormat.close();
 | Key                              | Default Value     | Comment                                                      |
 | -------------------------------- | ----------------- | ------------------------------------------------------------ |
 | fenodes                    | --                | Doris FE http 地址             |
-| table.identifier       sink.properties.*    | --                | Doris 表名，如：db1.tbl1                                 |
+| table.identifier    | --                | Doris 表名，如：db1.tbl1                                 |
 | username                            | --            | 访问Doris的用户名                                            |
 | password                        | --            | 访问Doris的密码                                              |
 | doris.request.retries            | 3                 | 向Doris发送请求的重试次数                                    |
