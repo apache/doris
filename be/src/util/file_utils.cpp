@@ -57,19 +57,19 @@ Status FileUtils::remove_all(const std::string& path, TStorageMedium::type stora
     return env->delete_dir(path);
 }
 
-Status FileUtils::remove(const std::string& path, doris::Env* env) {
+Status FileUtils::remove(const std::string& path) {
+    if (!Env::Default()->path_exists(path).ok()) {
+        LOG(WARNING) << "path does exist: " << path;
+        return Status::OK();
+    }
     bool is_dir;
-    RETURN_IF_ERROR(env->is_directory(path, &is_dir));
+    RETURN_IF_ERROR(Env::Default()->is_directory(path, &is_dir));
 
     if (is_dir) {
-        return env->delete_dir(path);
+        return Env::Default()->delete_dir(path);
     } else {
-        return env->delete_file(path);
+        return Env::Default()->delete_file(path);
     }
-}
-
-Status FileUtils::remove(const std::string& path) {
-    return remove(path, Env::Default());
 }
 
 Status FileUtils::remove_paths(const std::vector<std::string>& paths) {

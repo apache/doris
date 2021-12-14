@@ -57,9 +57,6 @@ public:
 
     static Status remove_all(const std::string& dir_path);
 
-    // Delete dir or file, failed when there are files or dirs under the path
-    static Status remove(const std::string& path, Env* env);
-
     static Status remove(const std::string& path);
 
     static Status remove_paths(const std::vector<std::string>& paths);
