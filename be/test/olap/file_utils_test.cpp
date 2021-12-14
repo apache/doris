@@ -145,9 +145,9 @@ TEST_F(FileUtilsTest, TestRemove) {
     ps.push_back("./file_test/s1");
     ps.push_back("./file_test/abc/def");
 
-    ASSERT_FALSE(FileUtils::remove_paths(ps).ok());
+    ASSERT_TRUE(FileUtils::remove_paths(ps).ok());
     ASSERT_FALSE(FileUtils::check_exist("./file_test/s1"));
-    ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/def/"));
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/def/"));
 
     ps.clear();
     ps.push_back("./file_test/abc/def/zxc");
