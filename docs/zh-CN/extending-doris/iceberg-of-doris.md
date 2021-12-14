@@ -144,5 +144,5 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 完成在 Doris 中建立 Iceberg 外表后，除了无法使用 Doris 中的数据模型(rollup、预聚合、物化视图等)外，与普通的 Doris OLAP 表并无区别
 
 ```sql
-select * from t_icebe where k1 > 1000 and k3 ='term' or k4 like '%doris';
+select * from t_iceberg where k1 > 1000 and k3 ='term' or k4 like '%doris';
 ```

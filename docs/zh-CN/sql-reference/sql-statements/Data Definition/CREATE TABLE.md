@@ -844,6 +844,19 @@ under the License.
      );
 ```
 
+17. 创建一个 Iceberg 外表
+
+```
+    CREATE TABLE example_db.t_iceberg 
+    ENGINE=ICEBERG
+    PROPERTIES (
+    "database" = "iceberg_db",
+    "table" = "iceberg_table",
+    "hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
+    "catalog.type"  =  "HIVE_CATALOG"
+    );
+```
+
 ## keyword
 
     CREATE,TABLE

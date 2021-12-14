@@ -144,5 +144,5 @@ The supported Iceberg column types correspond to Doris in the following table.
 Once you have finished building the Iceberg external table in Doris, it is no different from a normal Doris OLAP table except that you cannot use the data models in Doris (rollup, preaggregation, materialized views, etc.)
 
 ```sql
-select * from t_icebe where k1 > 1000 and k3 = 'term' or k4 like '%doris';
+select * from t_iceberg where k1 > 1000 and k3 = 'term' or k4 like '%doris';
 ```
