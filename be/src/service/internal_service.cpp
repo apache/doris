@@ -30,7 +30,7 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/runtime_state.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/md5.h"
 #include "util/proto_util.h"
 #include "util/string_util.h"
@@ -476,21 +476,21 @@ void PInternalServiceImpl<T>::reset_rpc_channel(google::protobuf::RpcController*
     brpc::ClosureGuard closure_guard(done);
     response->mutable_status()->set_status_code(0);
     if (request->all()) {
-        int size = ExecEnv::GetInstance()->brpc_stub_cache()->size();
+        int size = ExecEnv::GetInstance()->brpc_internal_client_cache()->size();
         if (size > 0) {
             std::vector<std::string> endpoints;
-            ExecEnv::GetInstance()->brpc_stub_cache()->get_all(&endpoints);
-            ExecEnv::GetInstance()->brpc_stub_cache()->clear();
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_all(&endpoints);
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->clear();
             *response->mutable_channels() = {endpoints.begin(), endpoints.end()};
         }
     } else {
         for (const std::string& endpoint : request->endpoints()) {
-            if (!ExecEnv::GetInstance()->brpc_stub_cache()->exist(endpoint)) {
+            if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->exist(endpoint)) {
                 response->mutable_status()->add_error_msgs(endpoint + ": not found.");
                 continue;
             }
 
-            if (ExecEnv::GetInstance()->brpc_stub_cache()->erase(endpoint)) {
+            if (ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(endpoint)) {
                 response->add_channels(endpoint);
             } else {
                 response->mutable_status()->add_error_msgs(endpoint + ": reset failed.");

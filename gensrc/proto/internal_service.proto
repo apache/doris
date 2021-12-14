@@ -22,7 +22,6 @@ option java_package = "org.apache.doris.proto";
 
 import "data.proto";
 import "descriptors.proto";
-import "status.proto";
 import "types.proto";
 
 option cc_generic_services = true;
@@ -429,15 +428,6 @@ message PResetRPCChannelResponse {
     required PStatus status = 1;
     repeated string channels = 2;
 };
-
-message PHandShakeRequest {
-    optional string hello = 1;
-}
-
-message PHandShakeResponse {
-    optional PStatus status = 1;
-    optional string hello = 2;
-}
 
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);

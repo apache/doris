@@ -153,6 +153,7 @@ public:
 private:
     friend class Expr;
     friend class ScalarFnCall;
+    friend class RPCFnCall;
     friend class InPredicate;
     friend class RuntimePredicateWrapper;
     friend class BloomFilterPredicate;

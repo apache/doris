@@ -2018,7 +2018,7 @@ public class Coordinator {
                     public InternalService.PExecPlanFragmentResult get() {
                         InternalService.PExecPlanFragmentResult result = InternalService.PExecPlanFragmentResult
                                 .newBuilder()
-                                .setStatus(org.apache.doris.proto.Status.PStatus.newBuilder()
+                                .setStatus(org.apache.doris.proto.Types.PStatus.newBuilder()
                                         .addErrorMsgs(e.getMessage())
                                         .setStatusCode(TStatusCode.THRIFT_RPC_ERROR.getValue())
                                         .build())

@@ -100,7 +100,7 @@ set(UTIL_FILES
   timezone_utils.cpp
   easy_json.cc
   mustache/mustache.cc
-  brpc_stub_cache.cpp
+  brpc_client_cache.cpp
   zlib.cpp
   pprof_utils.cpp
   s3_uri.cpp

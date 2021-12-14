@@ -10,7 +10,7 @@
 #include "common/compiler_util.h"
 #include "common/logging.h"
 #include "gen_cpp/Status_types.h" // for TStatus
-#include "gen_cpp/status.pb.h"    // for PStatus
+#include "gen_cpp/types.pb.h"     // for PStatus
 #include "util/slice.h"           // for Slice
 
 namespace doris {

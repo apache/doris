@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.proto.Status;
 import org.apache.doris.proto.Types;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -97,22 +96,22 @@ public class CanalSyncDataTest {
     SystemInfoService systemInfoService;
 
     InternalService.PExecPlanFragmentResult beginOkResult = InternalService.PExecPlanFragmentResult.newBuilder()
-            .setStatus(Status.PStatus.newBuilder().setStatusCode(0).build()).build(); // begin txn OK
+            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // begin txn OK
 
     InternalService.PExecPlanFragmentResult beginFailResult = InternalService.PExecPlanFragmentResult.newBuilder()
-            .setStatus(Status.PStatus.newBuilder().setStatusCode(1).build()).build(); // begin txn CANCELLED
+            .setStatus(Types.PStatus.newBuilder().setStatusCode(1).build()).build(); // begin txn CANCELLED
 
     InternalService.PCommitResult commitOkResult = InternalService.PCommitResult.newBuilder()
-            .setStatus(Status.PStatus.newBuilder().setStatusCode(0).build()).build(); // commit txn OK
+            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // commit txn OK
 
     InternalService.PCommitResult commitFailResult = InternalService.PCommitResult.newBuilder()
-            .setStatus(Status.PStatus.newBuilder().setStatusCode(1).build()).build(); // commit txn CANCELLED
+            .setStatus(Types.PStatus.newBuilder().setStatusCode(1).build()).build(); // commit txn CANCELLED
 
     InternalService.PRollbackResult abortOKResult = InternalService.PRollbackResult.newBuilder()
-            .setStatus(Status.PStatus.newBuilder().setStatusCode(0).build()).build(); // abort txn OK
+            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // abort txn OK
 
     InternalService.PSendDataResult sendDataOKResult = InternalService.PSendDataResult.newBuilder()
-            .setStatus(Status.PStatus.newBuilder().setStatusCode(0).build()).build(); // send data OK
+            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // send data OK
 
     @Before
     public void setUp() throws Exception {
