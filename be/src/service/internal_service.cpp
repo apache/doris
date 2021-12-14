@@ -23,7 +23,7 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
-#include "runtime/fold_constant_mgr.h"
+#include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -418,8 +418,7 @@ Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_reque
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    FoldConstantMgr mgr(_exec_env);
-    return mgr.fold_constant_expr(t_request, response);
+    return FoldConstantExecutor().fold_constant_expr(t_request, response);
 }
 
 template <typename T>

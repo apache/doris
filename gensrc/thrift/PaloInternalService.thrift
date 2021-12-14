@@ -351,6 +351,7 @@ struct TExprMap {
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
+  3: optional bool vec_exec
 }
 
 // TransmitData
