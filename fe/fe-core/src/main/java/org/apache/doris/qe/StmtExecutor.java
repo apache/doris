@@ -351,6 +351,15 @@ public class StmtExecutor implements ProfileWriter {
             if (parsedStmt instanceof QueryStmt) {
                 context.getState().setIsQuery(true);
                 if (!((QueryStmt) parsedStmt).isExplain()) {
+                    // sql/sqlHash block
+                    try {
+                        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+                    } catch (AnalysisException e) {
+                        LOG.warn(e.getMessage());
+                        context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                        return;
+                    }
+                    // limitations: partitionNum, tabletNum, cardinality
                     List<ScanNode> scanNodeList = planner.getScanNodes();
                     for (ScanNode scanNode : scanNodeList) {
                         if (scanNode instanceof OlapScanNode) {
