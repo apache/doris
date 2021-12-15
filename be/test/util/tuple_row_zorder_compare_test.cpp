@@ -34,23 +34,21 @@
 namespace doris {
     class TupleRowZOrderCompareTest : public testing::Test {
     public:
-        TupleRowZOrderComparator _comparator;
         ObjectPool _agg_buffer_pool;
+        std::unique_ptr<MemTracker> _mem_tracker;
         std::unique_ptr<MemPool> _buffer_mem_pool;
-        MemTracker* _mem_tracker;
-        Schema* _schema;
-        std::vector<SlotDescriptor*>* _slot_descs;
 
-    public:
         TupleRowZOrderCompareTest() {
-            _mem_tracker = new MemTracker(-1);
-            _buffer_mem_pool.reset(new MemPool(_mem_tracker));
+            _mem_tracker.reset(new MemTracker(-1));
+            _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
         }
+
+        ~TupleRowZOrderCompareTest() = default;
 
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareInt8Test(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -75,35 +73,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_TINYINT, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_TINYINT, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num);
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int8_t), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int8_t));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int8_t), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int8_t));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -111,7 +104,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareInt16Test(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -127,7 +120,7 @@ namespace doris {
                 }
                 slot_desc.slotType = type;
                 slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(int16_t) + 1*i;
+                slot_desc.byteOffset = (i-1)*sizeof(int16_t) + 1 * i;
 
                 slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int16_t) + 1*(i-1);
                 slot_desc.nullIndicatorBit = 1;
@@ -136,35 +129,31 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int16_t), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int16_t));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int16_t), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int16_t));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -172,7 +161,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareIntTest(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -189,7 +178,6 @@ namespace doris {
                 slot_desc.slotType = type;
                 slot_desc.columnPos = i;
                 slot_desc.byteOffset = (i-1)*sizeof(int32_t) + 1*i;
-
                 slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int32_t) + 1*(i-1);
                 slot_desc.nullIndicatorBit = 1;
                 std::ostringstream ss;
@@ -197,35 +185,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int32_t), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int32_t));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int32_t), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int32_t));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -233,7 +216,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareInt64Test(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -250,7 +233,6 @@ namespace doris {
                 slot_desc.slotType = type;
                 slot_desc.columnPos = i;
                 slot_desc.byteOffset = (i-1)*sizeof(int64_t) + 1*i;
-
                 slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int64_t) + 1*(i-1);
                 slot_desc.nullIndicatorBit = 1;
                 std::ostringstream ss;
@@ -258,35 +240,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BIGINT, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BIGINT, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int64_t), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int64_t));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int64_t), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int64_t));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -294,7 +271,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareInt128Test(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -311,7 +288,6 @@ namespace doris {
                 slot_desc.slotType = type;
                 slot_desc.columnPos = i;
                 slot_desc.byteOffset = (i-1)*sizeof(int128_t) + 1*i;
-
                 slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int128_t) + 1*(i-1);
                 slot_desc.nullIndicatorBit = 1;
                 std::ostringstream ss;
@@ -319,36 +295,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LARGEINT, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LARGEINT, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-            MemTable::RowCursorComparator row_comparator(&schema);
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int128_t), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int128_t), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -356,7 +326,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareFloatTest(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -373,7 +343,6 @@ namespace doris {
                 slot_desc.slotType = type;
                 slot_desc.columnPos = i;
                 slot_desc.byteOffset = (i-1)*sizeof(float) + 1*i;
-
                 slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(float) + 1*(i-1);
                 slot_desc.nullIndicatorBit = 1;
                 std::ostringstream ss;
@@ -381,35 +350,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_FLOAT, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_FLOAT, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(float), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(float));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(float), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(float));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -417,7 +381,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareDoubleTest(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -434,7 +398,6 @@ namespace doris {
                 slot_desc.slotType = type;
                 slot_desc.columnPos = i;
                 slot_desc.byteOffset = (i-1)*sizeof(double) + 1*i;
-
                 slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(double) + 1*(i-1);
                 slot_desc.nullIndicatorBit = 1;
                 std::ostringstream ss;
@@ -442,35 +405,31 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DOUBLE, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DOUBLE, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(double), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(double));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(double), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(double));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -478,7 +437,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareBoolTest(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -502,35 +461,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BOOL, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BOOL, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(bool), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(bool));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(bool), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(bool));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -538,7 +492,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareCharTest(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -563,35 +517,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(StringValue), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(StringValue));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) +  col_num*sizeof(StringValue), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(StringValue));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -599,7 +548,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareDateTest(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -623,35 +572,30 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(DateTimeValue), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1, lval2);
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(DateTimeValue));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) +  col_num*sizeof(DateTimeValue), _buffer_mem_pool.get());
             FillMem(rhs_tuple, 1, rval1, rval2);
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(DateTimeValue));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
@@ -659,7 +603,7 @@ namespace doris {
         template <typename T, bool IS_FIRST_SLOT_NULL = false>
         int CompareDecimalTest(T lval1, T lval2, T rval1, T rval2) {
             int col_num = 2;
-            std::vector<SlotDescriptor*> slot_descs;
+            std::vector<SlotDescriptor> slot_descs;
             for (int i = 1; i <= col_num; i++) {
                 TSlotDescriptor slot_desc;
                 slot_desc.id = i;
@@ -687,47 +631,43 @@ namespace doris {
                 slot_desc.colName = ss.str();
                 slot_desc.slotIdx = i;
                 slot_desc.isMaterialized = true;
-                SlotDescriptor* slot = new SlotDescriptor(slot_desc);
-                slot_descs.push_back(slot);
+                slot_descs.emplace_back(slot_desc);
             }
-            _slot_descs = &slot_descs;
 
             std::vector<TabletColumn> col_schemas;
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL, true);
             col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL, true);
-            Schema schema(col_schemas, col_num);
-            _schema = &schema;
 
+            Schema schema = Schema(col_schemas, col_num); 
             TupleRowZOrderComparator comparator(&schema, 2);
-            _comparator = comparator;
-
             Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int128_t), _buffer_mem_pool.get());
             if (IS_FIRST_SLOT_NULL) {
                 lhs_tuple->set_null(NullIndicatorOffset(0, 1));
             }
             FillMem(lhs_tuple, 1, lval1.value(), lval2.value());
             uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow lhs_row(_schema, lhs_tuple_buf);
-            tuple_to_row(lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
             Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) +  col_num*sizeof(int128_t), _buffer_mem_pool.get());
 
             FillMem(rhs_tuple, 1, rval1.value(), rval2.value());
             uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow rhs_row(_schema, rhs_tuple_buf);
-            tuple_to_row(rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = _comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
                                              reinterpret_cast<const char*>(rhs_row.row_ptr()));
             return result;
         }
 
-        void tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
-            for (size_t i = 0; i < _slot_descs->size(); ++i) {
+        void tuple_to_row(const Schema& schema, const vector<SlotDescriptor>& slot_descs, const Tuple* tuple,
+                          ContiguousRow* row, MemPool* mem_pool) {
+            for (size_t i = 0; i < slot_descs.size(); ++i) {
                 auto cell = row->cell(i);
-                const SlotDescriptor* slot = (*_slot_descs)[i];
-                bool is_null = tuple->is_null(slot->null_indicator_offset());
-                const void* value = tuple->get_slot(slot->tuple_offset());
-                _schema->column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
+                const SlotDescriptor& slot = slot_descs[i];
+                bool is_null = tuple->is_null(slot.null_indicator_offset());
+                const void* value = tuple->get_slot(slot.tuple_offset());
+                schema.column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
                                             &_agg_buffer_pool);
             }
         }
