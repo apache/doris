@@ -367,29 +367,19 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     }
 }
 
-void LRUCache::_prune_one(LRUHandle* old) {
-    DCHECK(old->in_cache);
-    DCHECK(old->refs == 1); // LRU list contains elements which may be evicted
-    _lru_remove(old);
-    _table.remove(old);
-    old->in_cache = false;
-    _unref(old);
-    _usage -= old->total_size;
-}
-
 int64_t LRUCache::prune() {
     LRUHandle* to_remove_head = nullptr;
     {
         MutexLock l(&_mutex);
         while (_lru_normal.next != &_lru_normal) {
             LRUHandle* old = _lru_normal.next;
-            _prune_one(old);
+            _evict_one_entry(old);
             old->next = to_remove_head;
             to_remove_head = old;
         }
         while (_lru_durable.next != &_lru_durable) {
             LRUHandle* old = _lru_durable.next;
-            _prune_one(old);
+            _evict_one_entry(old);
             old->next = to_remove_head;
             to_remove_head = old;
         }
@@ -404,34 +394,30 @@ int64_t LRUCache::prune() {
     return pruned_count;
 }
 
-int64_t LRUCache::prune_if(bool (*pred)(const void* value)) {
+int64_t LRUCache::prune_if(CacheValuePredicate pred) {
     LRUHandle* to_remove_head = nullptr;
     {
         MutexLock l(&_mutex);
         LRUHandle* p = _lru_normal.next;
         while (p != &_lru_normal) {
-            LRUHandle* old = _lru_normal.next;
-            if (pred(old->value)) {
-                _prune_one(old);
-                old->next = to_remove_head;
-                to_remove_head = old;
-                p = _lru_normal.next;
-            } else {
-                p = p->next;
+            LRUHandle* next = p->next;
+            if (pred(p->value)) {
+                _evict_one_entry(p);
+                p->next = to_remove_head;
+                to_remove_head = p;
             }
+            p = next;
         }
 
         p = _lru_durable.next;
         while (p != &_lru_durable) {
-            LRUHandle* old = _lru_durable.next;
-            if (pred(old->value)) {
-                _prune_one(old);
-                old->next = to_remove_head;
-                to_remove_head = old;
-                p = _lru_durable.next;
-            } else {
-                p = p->next;
+            LRUHandle* next = p->next;
+            if (pred(p->value)) {
+                _evict_one_entry(p);
+                p->next = to_remove_head;
+                to_remove_head = p;
             }
+            p = next;
         }
     }
     int64_t pruned_count = 0;
@@ -527,7 +513,7 @@ int64_t ShardedLRUCache::prune() {
     return num_prune;
 }
 
-int64_t ShardedLRUCache::prune_if(bool (*pred)(const void* value)) {
+int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
     int64_t num_prune = 0;
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s]->prune_if(pred);

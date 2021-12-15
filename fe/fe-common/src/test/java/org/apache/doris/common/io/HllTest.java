@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2.dpp;
-
-import org.apache.doris.load.loadv2.dpp.Hll;
+package org.apache.doris.common.io;
 
 import org.junit.Assert;
 import org.junit.Test;

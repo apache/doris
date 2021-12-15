@@ -35,17 +35,17 @@ This document focuses on how to code Doris through source code.
 
 1. Download Docker Mirror
 
-    `$ docker pull apache/incubator-doris:build-env-1.3.1`
+    `$ docker pull apache/incubator-doris:build-env-for-0.15.0`
 
     Check mirror download completed:
 
     ```
     $ docker images
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-1.4.2    49f68cecbc1a        4 days ago          3.76GB
+    apache/incubator-doris   build-env-for-0.15.0    49f68cecbc1a        4 days ago          3.76GB
     ```
 
-Note: For different versions of Doris, you need to download the corresponding mirror version.
+Note: For different versions of Doris, you need to download the corresponding mirror version. From Apache Doris 0.15 version, the docker image will keep same version number with Doris, You can use  ` apache/incubator-doris:build-env-for-0.15.0 `   compile Apache Doris 0.15.0.
 
 | image version | commit id | release version |
 |---|---|---|
@@ -53,14 +53,13 @@ Note: For different versions of Doris, you need to download the corresponding mi
 | apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x |
-| apache/incubator-doris:build-env-1.4.1 | [24d3861](https://github.com/apache/incubator-doris/commit/24d38614a0f21ed606462816a262c2e1d8273ace) or later | 0.15.x(releasing) |
-| apache/incubator-doris:build-env-1.4.2 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.x(releasing) |
+| apache/incubator-doris:build-env-for-0.15.0 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.0          |
 
 **note**:
 
 > 1. Dev docker image [ChangeLog](https://github.com/apache/incubator-doris/blob/master/thirdparty/CHANGELOG.md)
 
-> 2. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.1.
+> 2. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the 0.14.x code will use apache/incubator-doris:build-env-1.3.1.
 
 > 3. In the docker image of build-env-1.3.1, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
 >
@@ -82,14 +81,14 @@ Note: For different versions of Doris, you need to download the corresponding mi
 
 2. Running Mirror
 
-    `$ docker run -it apache/incubator-doris:build-env-1.4.2`
+    `$ docker run -it apache/incubator-doris:build-env-for-0.15.0`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
      At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.4.2
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-for-0.15.0
     ```
 
 3. Download source code
@@ -110,11 +109,11 @@ Note: For different versions of Doris, you need to download the corresponding mi
 
     > ** Note: **
      >
-     > If you are using `build-env-1.4.1` This environment, use the following command when compiling:
+     > If you are using `build-env-1.4.2` or  `build-env-for-0.15.0` This environment, use the following command when compiling:
      >
      > `sh build.sh --clean --be --fe --ui`
      >
-     > This is because the version 1.4.1 image has upgraded thrift (0.9 -> 0.13), you need to use the --clean command to force the use of the new version of thrift to generate code files, otherwise incompatible code will appear.
+     > This is because the version 1.4.2 image has upgraded thrift (0.9 -> 0.13), you need to use the --clean command to force the use of the new version of thrift to generate code files, otherwise incompatible code will appear.
     
     After compilation, the output file is in the `output/` directory.
 

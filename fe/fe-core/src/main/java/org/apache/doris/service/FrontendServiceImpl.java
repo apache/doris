@@ -73,8 +73,8 @@ import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TIsMethodSupportedRequest;
-import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
+import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadCheckRequest;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
@@ -90,6 +90,7 @@ import org.apache.doris.thrift.TMiniLoadBeginResult;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
@@ -101,7 +102,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
-import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
@@ -154,7 +154,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                                                            CaseSensibility.DATABASE.getCaseSensibility());
+                        CaseSensibility.DATABASE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
@@ -163,7 +163,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Catalog catalog = Catalog.getCurrentCatalog();
         List<String> dbNames = catalog.getDbNames();
         LOG.debug("get db names: {}", dbNames);
-        
+
         UserIdentity currentUser = null;
         if (params.isSetCurrentUserIdent()) {
             currentUser = UserIdentity.fromThrift(params.current_user_ident);
@@ -196,7 +196,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                                                            CaseSensibility.TABLE.getCaseSensibility());
+                        CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
@@ -215,7 +215,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                                                                        tableName, PrivPredicate.SHOW)) {
+                        tableName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -238,7 +238,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                                                            CaseSensibility.TABLE.getCaseSensibility());
+                        CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
@@ -288,7 +288,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setComment(table.getComment());
                     status.setCreateTime(table.getCreateTime());
                     status.setLastCheckTime(table.getLastCheckTime());
-                    status.setUpdateTime(table.getUpdateTime()/1000);
+                    status.setUpdateTime(table.getUpdateTime() / 1000);
                     status.setCheckTime(table.getLastCheckTime());
                     status.setCollation("utf-8");
                     status.setRows(table.getRowCount());
@@ -404,7 +404,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         desc.setIsAllowNull(column.isAllowNull());
                         final TColumnDef colDef = new TColumnDef(desc);
                         final String comment = column.getComment();
-                        if(comment != null) {
+                        if (comment != null) {
                             colDef.setComment(comment);
                         }
                         columns.add(colDef);
@@ -428,7 +428,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
-                                                   null);
+                null);
         for (List<String> row : rows) {
             map.put(row.get(0), row.get(1));
         }
@@ -517,7 +517,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .setState(TStatusCode.OK.name())
                 .setQueryTime(0)
                 .setStmt(stmt).build();
-        
+
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
     }
 
@@ -599,7 +599,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
         LOG.debug("receive mini load begin request. label: {}, user: {}, ip: {}",
-                 request.getLabel(), request.getUser(), request.getUserIp());
+                request.getLabel(), request.getUser(), request.getUserIp());
 
         TMiniLoadBeginResult result = new TMiniLoadBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -611,7 +611,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             // step1: check password and privs
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                                  request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
             // step2: check label and record metadata in load manager
             if (request.isSetSubLabel()) {
                 // TODO(ml): multi mini load
@@ -636,7 +636,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFeResult isMethodSupported(TIsMethodSupportedRequest request) throws TException {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        switch (request.getFunctionName()){
+        switch (request.getFunctionName()) {
             case "STREAMING_MINI_LOAD":
                 break;
             default:
@@ -660,6 +660,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // add this log so that we can track this stmt
         LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
         ConnectContext context = new ConnectContext(null);
+        // Set current connected FE to the client address, so that we can know where this request come from.
+        context.setCurrentConnectedFEIp(clientAddr.getHostname());
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
         ConnectContext.remove();
@@ -700,7 +702,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
         LOG.debug("receive load check request. label: {}, user: {}, ip: {}",
-                 request.getLabel(), request.getUser(), request.getUserIp());
+                request.getLabel(), request.getUser(), request.getUserIp());
 
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
@@ -711,7 +713,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                                  request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
         } catch (UserException e) {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
@@ -865,9 +867,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                        db, Lists.newArrayList(table), request.getTxnId(),
-                        TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                        timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+                db, Lists.newArrayList(table), request.getTxnId(),
+                TabletCommitInfo.fromThrift(request.getCommitInfos()),
+                timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
         if (ret) {
             // if commit and publish is success, load can be regarded as success
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
@@ -924,8 +926,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long dbId = db.getId();
         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
-                                                                  request.isSetReason() ? request.getReason() : "system cancel",
-                                                                  TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+                request.isSetReason() ? request.getReason() : "system cancel",
+                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
     }
 
     @Override

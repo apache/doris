@@ -37,24 +37,37 @@ JDK1.8+, IntelliJ IDEA
 3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
 
         安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
+
+        Windows: 
+           1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+           2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
         
-        MacOS: `brew install thrift@0.13.0`
-        Windows: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+        MacOS: 
+           1. 下载：`brew install thrift@0.13.0`
+           2. 建立软链接： 
+              `mkdir -p ./thirdparty/installed/bin`
+              `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+        
+        注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
+           1. `brew tap-new $USER/local-tap`
+           2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+           3. `brew install thrift@0.13.0`
+        参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
 
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：
 
     ```
     cd fe
-    mvn  generate-sources
+    mvn generate-sources
     ```
 
-    如果出现错误，请先执行：
+    如果出现错误，则执行：
 
     ```
-    cd fe && mvn install -DskipTests
+    cd fe && mvn clean install -DskipTests
     ```
 
-或者通过图形界面运行运行maven 命令生成
+或者通过图形界面运行 maven 命令生成
 
 ![](/images/gen_code.png)
 
@@ -64,7 +77,7 @@ JDK1.8+, IntelliJ IDEA
 
 1. 用idea导入fe工程
 
-2. 在fe目录下创建下面红框标出的目录
+2. 在fe目录下创建下面红框标出的目录（在新版本中该目录可能存在，如存在则跳过，否则创建）
 
 ![](/images/DEBUG4.png)
 
