@@ -18,7 +18,7 @@
 
 ---
 name: BE Code Formatter
-on: pull_request
+on: workflow_dispatch
 jobs:
   clang-format:
     name: "Clang Formatter"
