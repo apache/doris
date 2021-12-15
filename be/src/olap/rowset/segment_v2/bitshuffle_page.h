@@ -37,6 +37,8 @@
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "vec/runtime/vdatetime_value.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -359,17 +361,28 @@ public:
  
         int begin = _cur_index;
         int end = _cur_index + max_fetch;
- 
+
+        auto* dst_col_ptr = dst.get();
+        if (dst->is_nullable()) {
+            auto nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+            dst_col_ptr = nullable_column->get_nested_column_ptr().get();
+
+            // fill null bitmap here, not null;
+            for (int j = begin; j < end; j++) {
+                nullable_column->get_null_map_data().push_back(0);
+            }
+        }
+
         // todo(wb) Try to eliminate type judgment in pagedecoder
-        if (dst->is_column_decimal()) { // decimal non-predicate column
+        if (dst_col_ptr->is_column_decimal()) { // decimal non-predicate column
             for (; begin < end; begin++) {
                 const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
                 int64_t int_value = *(int64_t*)(cur_ptr);
                 int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
                 DecimalV2Value data(int_value, frac_value);
-                dst->insert_data(reinterpret_cast<char*>(&data), 0);
+                dst_col_ptr->insert_data(reinterpret_cast<char*>(&data), 0);
             }
-        } else if (dst->is_date_type()) {
+        } else if (dst_col_ptr->is_date_type()) {
             for (; begin < end; begin++) {
                 const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
                 uint64_t value = 0;
@@ -378,14 +391,21 @@ public:
                 value |= *(unsigned char*)(cur_ptr + 1);
                 value <<= 8;
                 value |= *(unsigned char*)(cur_ptr);
-                DateTimeValue date;
+                vectorized::VecDateTimeValue date;
                 date.from_olap_date(value);
-                dst->insert_data(reinterpret_cast<char*>(&date), 0);
+                dst_col_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+            }
+        } else if (dst_col_ptr->is_datetime_type()) {
+            for (; begin < end; begin++) {
+                const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
+                uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
+                vectorized::VecDateTimeValue date(value);
+                dst_col_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
             }
         } else {
-            // todo(wb) need performance test here, may be batch memory copy?
+            // todo(wb) batch insert here
             for (; begin < end; begin++) {
-                dst->insert_data((const char*)&_chunk.data[begin * SIZE_OF_TYPE], 0);
+                dst_col_ptr->insert_data((const char*)&_chunk.data[begin * SIZE_OF_TYPE], 0);
             }
         }
 
