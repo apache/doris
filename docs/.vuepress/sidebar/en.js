@@ -625,11 +625,12 @@ module.exports = [
         "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
-        "be-vscode-dev",        
+        "be-vscode-dev",
         "java-format-code",
         "cpp-format-code",
         "How-to-Share-blogs",
-        "minidump"
+        "minidump",
+        "bitmap-hll-file-format",
     ],
   },
   {
