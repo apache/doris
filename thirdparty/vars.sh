@@ -186,6 +186,12 @@ ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
 
+#cyrus-sasl
+CYRUS_SASL_DOWNLOAD="https://github.com/cyrusimap/cyrus-sasl/releases/download/cyrus-sasl-2.1.27/cyrus-sasl-2.1.27.tar.gz"
+CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
+CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
+CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
+
 # librdkafka-1.8.0
 LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.8.0.tar.gz"
 LIBRDKAFKA_NAME=librdkafka-1.8.0.tar.gz
@@ -406,6 +412,7 @@ ODBC
 LEVELDB
 BRPC
 ROCKSDB
+CYRUS_SASL
 LIBRDKAFKA
 FLATBUFFERS
 ARROW
