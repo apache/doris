@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.common.io;
 
 import java.io.DataInput;
 import java.io.DataOutput;
