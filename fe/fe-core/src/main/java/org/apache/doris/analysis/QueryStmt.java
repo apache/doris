@@ -713,6 +713,9 @@ public abstract class QueryStmt extends StatementBase {
         fromInsert = false;
     }
 
+    // DORIS-7361, Reset selectList to keep clean
+    public abstract void resetSelectList();
+
     public void setFromInsert(boolean value) {
         this.fromInsert = value;
     }
