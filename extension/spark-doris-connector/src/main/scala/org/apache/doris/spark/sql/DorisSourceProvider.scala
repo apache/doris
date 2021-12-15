@@ -59,8 +59,8 @@ private[sql] class DorisSourceProvider extends DataSourceRegister
     // init stream loader
     val dorisStreamLoader = new DorisStreamLoad(sparkSettings)
 
-    val maxRowCount = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_BATCH_SIZE, ConfigurationOptions.DORIS_BATCH_SIZE_DEFAULT)
-    val maxRetryTimes = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES, ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT)
+    val maxRowCount = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_SINK_BATCH_SIZE, ConfigurationOptions.SINK_BATCH_SIZE_DEFAULT)
+    val maxRetryTimes = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_SINK_MAX_RETRIES, ConfigurationOptions.SINK_MAX_RETRIES_DEFAULT)
 
     data.rdd.foreachPartition(partition => {
       val rowsBuffer: util.List[util.List[Object]] = new util.ArrayList[util.List[Object]](maxRowCount)
@@ -98,8 +98,6 @@ private[sql] class DorisSourceProvider extends DataSourceRegister
               case e: Exception =>
                 try {
                   Thread.sleep(1000 * i)
-                  dorisStreamLoader.load(rowsBuffer)
-                  rowsBuffer.clear()
                 } catch {
                   case ex: InterruptedException =>
                     Thread.currentThread.interrupt()

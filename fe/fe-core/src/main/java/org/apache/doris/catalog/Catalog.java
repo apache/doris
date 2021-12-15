@@ -93,6 +93,7 @@ import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -258,6 +259,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -2861,7 +2863,7 @@ public class Catalog {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
             if (!Catalog.getCurrentRecycleBin().recoverTable(db, tableName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {
             db.writeUnlock();
@@ -3253,7 +3255,16 @@ public class Catalog {
         // create partition outside db lock
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
-
+        // check replica quota if this operation done
+        long indexNum = indexIdToMeta.size();
+        long bucketNum = distributionInfo.getBucketNum();
+        long replicaNum = singlePartitionDesc.getReplicaAlloc().getTotalReplicaNum();
+        long totalReplicaNum = indexNum * bucketNum * replicaNum;
+        if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+            throw new DdlException("Database " + db.getFullName() + " table " + tableName
+                    + " add partition increasing " + totalReplicaNum
+                    + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
+        }
         Set<Long> tabletIdSet = new HashSet<Long>();
         try {
             long partitionId = getNextId();
@@ -3270,7 +3281,8 @@ public class Catalog {
                     tabletIdSet, olapTable.getCopiedIndexes(),
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
-                    singlePartitionDesc.getTabletType()
+                    singlePartitionDesc.getTabletType(),
+                    olapTable.getDataSortInfo()
             );
 
             // check again
@@ -3501,7 +3513,8 @@ public class Catalog {
                                                  List<Index> indexes,
                                                  boolean isInMemory,
                                                  TStorageFormat storageFormat,
-                                                 TTabletType tabletType) throws DdlException {
+                                                 TTabletType tabletType,
+                                                 DataSortInfo dataSortInfo)throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3568,7 +3581,8 @@ public class Catalog {
                             countDownLatch,
                             indexes,
                             isInMemory,
-                            tabletType);
+                            tabletType,
+                            dataSortInfo);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3676,6 +3690,20 @@ public class Catalog {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = stmt.getProperties();
+
+        // get storage format
+        TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
+        try {
+            storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setStorageFormat(storageFormat);
+
+        // check data sort properties
+        DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
+                keysDesc.keysColumnSize(), storageFormat);
+        olapTable.setDataSortInfo(dataSortInfo);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
@@ -3817,15 +3845,6 @@ public class Catalog {
         }
         Preconditions.checkNotNull(versionInfo);
 
-        // get storage format
-        TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
-        try {
-            storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setStorageFormat(storageFormat);
-
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<>();
@@ -3836,6 +3855,17 @@ public class Catalog {
                 // use table name as partition name
                 String partitionName = tableName;
                 long partitionId = partitionNameToId.get(partitionName);
+
+                // check replica quota if this operation done
+                long indexNum = olapTable.getIndexIdToMeta().size();
+                long bucketNum = distributionInfo.getBucketNum();
+                long replicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+                long totalReplicaNum = indexNum * bucketNum * replicaNum;
+                if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+                    throw new DdlException("Database " + db.getFullName() + " create unpartitioned table "
+                            + tableName + " increasing " + totalReplicaNum
+                            + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
+                }
                 // create partition
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                         olapTable.getId(), olapTable.getBaseIndexId(),
@@ -3846,7 +3876,7 @@ public class Catalog {
                         partitionInfo.getReplicaAllocation(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat, tabletType);
+                        isInMemory, storageFormat, tabletType, olapTable.getDataSortInfo());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3871,6 +3901,20 @@ public class Catalog {
                     throw new DdlException(e.getMessage());
                 }
 
+                // check replica quota if this operation done
+                long totalReplicaNum = 0;
+                for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
+                    long indexNum = olapTable.getIndexIdToMeta().size();
+                    long bucketNum = distributionInfo.getBucketNum();
+                    long replicaNum = partitionInfo.getReplicaAllocation(entry.getValue()).getTotalReplicaNum();
+                    totalReplicaNum += indexNum * bucketNum * replicaNum;
+                }
+                if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+                    throw new DdlException("Database " + db.getFullName() + " create table "
+                            + tableName + " increasing " + totalReplicaNum
+                            + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
+                }
+
                 // this is a 2-level partitioned tables
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
                     DataProperty dataProperty = partitionInfo.getDataProperty(entry.getValue());
@@ -3882,7 +3926,7 @@ public class Catalog {
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
-                            partitionInfo.getTabletType(entry.getValue()));
+                            partitionInfo.getTabletType(entry.getValue()), olapTable.getDataSortInfo());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -4015,6 +4059,13 @@ public class Catalog {
         long tableId = getNextId();
         HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
         hiveTable.setComment(stmt.getComment());
+        // check hive table if exists in hive database
+        HiveMetaStoreClient hiveMetaStoreClient =
+                HiveMetaStoreClientHelper.getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
+        if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
+            throw new DdlException("Table is not exists in hive: " + hiveTable.getHiveDbTable());
+        }
+        // check hive table if exists in doris database
         if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
@@ -4192,6 +4243,11 @@ public class Catalog {
                 sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
             }
 
+            // only display z-order sort info
+            if (olapTable.isZOrderSort()) {
+                sb.append(olapTable.getDataSortInfo().toSql());
+            }
+
             // in memory
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
             sb.append(olapTable.isInMemory()).append("\"");
@@ -4305,7 +4361,6 @@ public class Catalog {
             sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
             sb.append("\n)");
         }
-        sb.append(";");
 
         createTableStmt.add(sb.toString());
 
@@ -4510,7 +4565,7 @@ public class Catalog {
                     LOG.info("drop table[{}] which does not exist", tableName);
                     return;
                 } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
             }
             // Check if a view
@@ -4785,27 +4840,33 @@ public class Catalog {
     }
 
     public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return getDbOrException(dbName, s -> new MetaNotFoundException("unknown databases, dbName=" + s));
+        return getDbOrException(dbName, s -> new MetaNotFoundException("unknown databases, dbName=" + s,
+                        ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return getDbOrException(dbId, s -> new MetaNotFoundException("unknown databases, dbId=" + s));
+        return getDbOrException(dbId, s -> new MetaNotFoundException("unknown databases, dbId=" + s,
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrDdlException(String dbName) throws DdlException {
-        return getDbOrException(dbName, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbName, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrDdlException(long dbId) throws DdlException {
-        return getDbOrException(dbId, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbId, s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return getDbOrException(dbName, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbName, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return getDbOrException(dbId, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s)));
+        return getDbOrException(dbId, s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s),
+                ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     public EditLog getEditLog() {
@@ -5808,7 +5869,7 @@ public class Catalog {
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
         if (!auth.checkDbPriv(ctx, qualifiedDb, PrivPredicate.SHOW)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_DB_ACCESS_DENIED, ctx.getQualifiedUser(), qualifiedDb);
+            ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
         this.getDbOrDdlException(qualifiedDb);
@@ -6713,7 +6774,8 @@ public class Catalog {
                         copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(),
                         copiedTbl.getStorageFormat(),
-                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId));
+                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
+                        copiedTbl.getDataSortInfo());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

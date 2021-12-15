@@ -79,9 +79,16 @@ OLAPStatus TupleReader::init(const ReaderParams& read_params) {
     auto status = _init_collect_iter(read_params, &rs_readers);
     if (status != OLAP_SUCCESS) { return status; }
 
+    // optimize for single rowset reading without do aggregation when reading all columns, 
+    // and otherwise should use _agg_key_next_row for AGG_KEYS
     if (_optimize_for_single_rowset(rs_readers)) {
-        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &TupleReader::_direct_agg_key_next_row
-                                                          : &TupleReader::_direct_next_row;
+        if(_tablet->keys_type() == AGG_KEYS && _return_columns.size() == _tablet->tablet_schema().num_columns()) {
+            _next_row_func = &TupleReader::_direct_agg_key_next_row;
+        } else if (_tablet->keys_type() == AGG_KEYS) {
+            _next_row_func = &TupleReader::_agg_key_next_row;
+        } else {
+            _next_row_func = &TupleReader::_direct_next_row;
+        }
         return OLAP_SUCCESS;
     }
 
@@ -207,11 +214,6 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
             }
             ++merged_count;
             cur_delete_flag = _next_delete_flag;
-            // if has sequence column, the higher version need to merge the lower versions
-            if (_has_sequence_col) {
-                agg_update_row_with_sequence(_value_cids, row_cursor, *_next_key,
-                                             _sequence_col_idx);
-            }
         }
 
         // if reader needs to filter delete row and current delete_flag is ture,

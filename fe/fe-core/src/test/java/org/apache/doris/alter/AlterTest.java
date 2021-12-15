@@ -22,9 +22,12 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -178,8 +181,8 @@ public class AlterTest {
     }
 
     private static void alterTable(String sql, boolean expectedException) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         try {
+            AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
             Catalog.getCurrentCatalog().alterTable(alterTableStmt);
             if (expectedException) {
                 Assert.fail();
@@ -724,6 +727,29 @@ public class AlterTest {
         alterTable(changeOrderStmt, false);
     }
 
+    @Test
+    public void testAlterUniqueTablePartitionColumn() throws Exception {
+        createTable("CREATE TABLE test.unique_partition\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    k2 int,\n" +
+                "    v1 int\n" +
+                ")\n" +
+                "UNIQUE KEY(k1, k2)\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "    PARTITION p1 values less than('2020-02-01'),\n" +
+                "    PARTITION p2 values less than('2020-03-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
+                "PROPERTIES('replication_num' = '1');");
+
+        // partition key can not be changed.
+        // this test is also for validating a bug fix about invisible columns(delete flag column)
+        String changeOrderStmt = "ALTER TABLE test.unique_partition modify column k1 int key null";
+        alterTable(changeOrderStmt, true);
+    }
+
     private boolean checkAllTabletsExists(List<Long> tabletIds) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
         for (long tabletId : tabletIds) {
@@ -822,5 +848,46 @@ public class AlterTest {
         Assert.assertNotNull(odbc_table);
         odbc_table = db.getTableNullable("odbc_table");
         Assert.assertNull(odbc_table);
+    }
+
+    @Test
+    public void testModifyTableEngine() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.mysql_table (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=MYSQL\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"172.16.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"cmy\",\n" +
+                "\"password\" = \"abc\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\"" +
+                ");";
+        createTable(createOlapTblStmt);
+
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        MysqlTable mysqlTable = db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
+
+        String alterEngineStmt = "alter table test.mysql_table modify engine to odbc";
+        alterTable(alterEngineStmt, true);
+
+        alterEngineStmt = "alter table test.mysql_table modify engine to odbc properties(\"driver\" = \"MySQL\")";
+        alterTable(alterEngineStmt, false);
+
+        OdbcTable odbcTable = (OdbcTable) db.getTableNullable(mysqlTable.getId());
+        Assert.assertEquals("mysql_table", odbcTable.getName());
+        List<Column> schema = odbcTable.getBaseSchema();
+        Assert.assertEquals(5, schema.size());
+        Assert.assertEquals("172.16.0.1", odbcTable.getHost());
+        Assert.assertEquals("3306", odbcTable.getPort());
+        Assert.assertEquals("cmy", odbcTable.getUserName());
+        Assert.assertEquals("abc", odbcTable.getPasswd());
+        Assert.assertEquals("db1", odbcTable.getOdbcDatabaseName());
+        Assert.assertEquals("tbl1", odbcTable.getOdbcTableName());
+        Assert.assertEquals("MySQL", odbcTable.getOdbcDriver());
     }
 }

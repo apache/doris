@@ -23,7 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -120,7 +119,7 @@ public class Database extends MetaObject implements Writable {
         this.nameToTable = Maps.newConcurrentMap();
         this.lowerCaseToTableName = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
-        this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
+        this.replicaQuotaSize = Config.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
@@ -522,7 +521,8 @@ public class Database extends MetaObject implements Writable {
     }
 
     public Table getTableOrAnalysisException(String tableName) throws AnalysisException {
-        return getTableOrException(tableName, t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+        return getTableOrException(tableName, t -> new AnalysisException(ErrorCode.ERR_UNKNOWN_TABLE.formatErrorMsg(t
+                , fullQualifiedName)));
     }
 
     public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
@@ -666,7 +666,7 @@ public class Database extends MetaObject implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
             replicaQuotaSize = in.readLong();
         } else {
-            replicaQuotaSize = FeConstants.default_db_replica_quota_size;
+            replicaQuotaSize = Config.default_db_replica_quota_size;
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {

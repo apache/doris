@@ -321,7 +321,7 @@ static void SetAnyVal(const SlotDescriptor& desc, Tuple* tuple, AnyVal* dst) {
 // Utility to put val into an AnyVal struct
 inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& type,
                                            AnyVal* dst) {
-    if (slot == NULL) {
+    if (slot == nullptr) {
         dst->is_null = true;
         return;
     }

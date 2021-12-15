@@ -47,17 +47,17 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(NULL),
+          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(NULL),
-          _singleton_output_tuple(NULL),
+          _output_tuple_desc(nullptr),
+          _singleton_output_tuple(nullptr),
           //_tuple_pool(new MemPool()),
           //
-          _process_row_batch_fn(NULL),
+          _process_row_batch_fn(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _build_timer(NULL),
-          _get_results_timer(NULL),
-          _hash_table_buckets_counter(NULL) {}
+          _build_timer(nullptr),
+          _get_results_timer(nullptr),
+          _hash_table_buckets_counter(nullptr) {}
 
 AggregationNode::~AggregationNode() {}
 
@@ -68,7 +68,7 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
             Expr::create_expr_trees(_pool, tnode.agg_node.grouping_exprs, &_probe_expr_ctxs));
 
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {
-        AggFnEvaluator* evaluator = NULL;
+        AggFnEvaluator* evaluator = nullptr;
         AggFnEvaluator::create(_pool, tnode.agg_node.aggregate_functions[i], &evaluator);
         _aggregate_evaluators.push_back(evaluator);
     }
@@ -177,9 +177,9 @@ Status AggregationNode::open(RuntimeState* state) {
 
         int64_t agg_rows_before = _hash_tbl->size();
 
-        if (_process_row_batch_fn != NULL) {
+        if (_process_row_batch_fn != nullptr) {
             _process_row_batch_fn(this, &batch);
-        } else if (_singleton_output_tuple != NULL) {
+        } else if (_singleton_output_tuple != nullptr) {
             SCOPED_TIMER(_build_timer);
             process_row_batch_no_grouping(&batch, _tuple_pool.get());
         } else {
@@ -210,7 +210,7 @@ Status AggregationNode::open(RuntimeState* state) {
         }
     }
 
-    if (_singleton_output_tuple != NULL) {
+    if (_singleton_output_tuple != nullptr) {
         _hash_tbl->insert(reinterpret_cast<TupleRow*>(&_singleton_output_tuple));
         ++num_agg_rows;
     }
@@ -225,9 +225,10 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
     // 1. `!need_finalize` means this aggregation node not the level two aggregation node
     // 2. `_singleton_output_tuple != nullptr` means is not group by
     // 3. `child(0)->rows_returned() == 0` mean not data from child
-    // in level two aggregation node should return NULL result
+    // in level two aggregation node should return nullptr result
     //    level one aggregation node set `eos = true` return directly
-    if (UNLIKELY(!_needs_finalize && _singleton_output_tuple != nullptr && child(0)->rows_returned() == 0)) {
+    if (UNLIKELY(!_needs_finalize && _singleton_output_tuple != nullptr &&
+                 child(0)->rows_returned() == 0)) {
         *eos = true;
         return Status::OK();
     }
@@ -275,7 +276,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 
     *eos = _output_iterator.at_end() || reached_limit();
     if (*eos) {
-        if (_hash_tbl.get() != NULL && _hash_table_buckets_counter != NULL) {
+        if (_hash_tbl.get() != nullptr && _hash_table_buckets_counter != nullptr) {
             COUNTER_SET(_hash_table_buckets_counter, _hash_tbl->num_buckets());
         }
     }
@@ -292,8 +293,8 @@ Status AggregationNode::close(RuntimeState* state) {
     // them in order to free any memory allocated by UDAs. Finalize() requires a dst tuple
     // but we don't actually need the result, so allocate a single dummy tuple to avoid
     // accumulating memory.
-    Tuple* dummy_dst = NULL;
-    if (_needs_finalize && _output_tuple_desc != NULL) {
+    Tuple* dummy_dst = nullptr;
+    if (_needs_finalize && _output_tuple_desc != nullptr) {
         dummy_dst = Tuple::create(_output_tuple_desc->byte_size(), _tuple_pool.get());
     }
     while (!_output_iterator.at_end()) {
@@ -313,10 +314,10 @@ Status AggregationNode::close(RuntimeState* state) {
         }
     }
 
-    if (_tuple_pool.get() != NULL) {
+    if (_tuple_pool.get() != nullptr) {
         _tuple_pool->free_all();
     }
-    if (_hash_tbl.get() != NULL) {
+    if (_hash_tbl.get() != nullptr) {
         _hash_tbl->close();
     }
 
@@ -362,17 +363,17 @@ Tuple* AggregationNode::construct_intermediate_tuple() {
         // This optimization no longer applies with AnyVal
         if (!(*slot_desc)->type().is_string_type() && !(*slot_desc)->type().is_date_type()) {
             ExprValue default_value;
-            void* default_value_ptr = NULL;
+            void* default_value_ptr = nullptr;
 
             switch (evaluator->agg_op()) {
             case TAggregationOp::MIN:
                 default_value_ptr = default_value.set_to_max((*slot_desc)->type());
-                RawValue::write(default_value_ptr, agg_tuple, *slot_desc, NULL);
+                RawValue::write(default_value_ptr, agg_tuple, *slot_desc, nullptr);
                 break;
 
             case TAggregationOp::MAX:
                 default_value_ptr = default_value.set_to_min((*slot_desc)->type());
-                RawValue::write(default_value_ptr, agg_tuple, *slot_desc, NULL);
+                RawValue::write(default_value_ptr, agg_tuple, *slot_desc, nullptr);
                 break;
 
             default:
@@ -385,7 +386,7 @@ Tuple* AggregationNode::construct_intermediate_tuple() {
 }
 
 void AggregationNode::update_tuple(Tuple* tuple, TupleRow* row) {
-    DCHECK(tuple != NULL);
+    DCHECK(tuple != nullptr);
 
     AggFnEvaluator::add(_aggregate_evaluators, _agg_fn_ctxs, row, tuple);
 #if 0
@@ -404,14 +405,15 @@ void AggregationNode::update_tuple(Tuple* tuple, TupleRow* row) {
 }
 
 Tuple* AggregationNode::finalize_tuple(Tuple* tuple, MemPool* pool) {
-    DCHECK(tuple != NULL);
+    DCHECK(tuple != nullptr);
 
     Tuple* dst = tuple;
     if (_needs_finalize && _intermediate_tuple_id != _output_tuple_id) {
         dst = Tuple::create(_output_tuple_desc->byte_size(), pool);
     }
     if (_needs_finalize) {
-        AggFnEvaluator::finalize(_aggregate_evaluators, _agg_fn_ctxs, tuple, dst,
+        AggFnEvaluator::finalize(
+                _aggregate_evaluators, _agg_fn_ctxs, tuple, dst,
                 _singleton_output_tuple != nullptr && child(0)->rows_returned() == 0);
     } else {
         AggFnEvaluator::serialize(_aggregate_evaluators, _agg_fn_ctxs, tuple);
@@ -424,9 +426,9 @@ Tuple* AggregationNode::finalize_tuple(Tuple* tuple, MemPool* pool) {
             SlotDescriptor* src_slot_desc = _intermediate_tuple_desc->slots()[i];
             SlotDescriptor* dst_slot_desc = _output_tuple_desc->slots()[i];
             bool src_slot_null = tuple->is_null(src_slot_desc->null_indicator_offset());
-            void* src_slot = NULL;
+            void* src_slot = nullptr;
             if (!src_slot_null) src_slot = tuple->get_slot(src_slot_desc->tuple_offset());
-            RawValue::write(src_slot, dst, dst_slot_desc, NULL);
+            RawValue::write(src_slot, dst, dst_slot_desc, nullptr);
         }
     }
     return dst;

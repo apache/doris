@@ -61,9 +61,10 @@ namespace doris {
 
 OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                          size_t* written_len, OLAPCompressionType compression_type) {
-    if (NULL == src_buf || NULL == dest_buf || NULL == written_len) {
-        OLAP_LOG_WARNING("input param with NULL pointer. [src_buf=%p dest_buf=%p written_len=%p]",
-                         src_buf, dest_buf, written_len);
+    if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
+        OLAP_LOG_WARNING(
+                "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
+                src_buf, dest_buf, written_len);
 
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -135,9 +136,10 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
 
 OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                            size_t* written_len, OLAPCompressionType compression_type) {
-    if (NULL == src_buf || NULL == dest_buf || NULL == written_len) {
-        OLAP_LOG_WARNING("input param with NULL pointer. [src_buf=%p dest_buf=%p written_len=%p]",
-                         src_buf, dest_buf, written_len);
+    if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
+        OLAP_LOG_WARNING(
+                "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
+                src_buf, dest_buf, written_len);
 
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -148,7 +150,7 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
     case OLAP_COMP_TRANSPORT: {
         int lzo_res = lzo1x_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
-                                            NULL);
+                                            nullptr);
         if (LZO_E_OK != lzo_res) {
             OLAP_LOG_WARNING(
                     "decompress failed."
@@ -167,7 +169,7 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
     case OLAP_COMP_STORAGE: {
         int lzo_res = lzo1c_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
-                                            NULL);
+                                            nullptr);
         if (LZO_E_OK != lzo_res) {
             OLAP_LOG_WARNING(
                     "decompress failed."
@@ -564,7 +566,7 @@ uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len) {
 }
 
 OLAPStatus gen_timestamp_string(string* out_string) {
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     tm local_tm;
 
     if (localtime_r(&now, &local_tm) == nullptr) {
@@ -752,7 +754,7 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers
-    uint32_t rand_seed = static_cast<uint32_t>(time(NULL));
+    uint32_t rand_seed = static_cast<uint32_t>(time(nullptr));
     for (size_t i = 0; i < TEST_FILE_BUF_SIZE; ++i) {
         int32_t tmp_value = rand_r(&rand_seed);
         write_test_buff[i] = static_cast<char>(tmp_value);
@@ -878,7 +880,7 @@ int Errno::no() {
 
 template <>
 bool valid_signed_number<int128_t>(const std::string& value_str) {
-    char* endptr = NULL;
+    char* endptr = nullptr;
     const char* value_string = value_str.c_str();
     int64_t value = strtol(value_string, &endptr, 10);
     if (*endptr != 0) {
@@ -957,32 +959,32 @@ bool valid_datetime(const string& value_str) {
             return false;
         }
 
-        int month = strtol(what[2].str().c_str(), NULL, 10);
+        int month = strtol(what[2].str().c_str(), nullptr, 10);
         if (month < 1 || month > 12) {
             OLAP_LOG_WARNING("invalid month. [month=%d]", month);
             return false;
         }
 
-        int day = strtol(what[3].str().c_str(), NULL, 10);
+        int day = strtol(what[3].str().c_str(), nullptr, 10);
         if (day < 1 || day > 31) {
             OLAP_LOG_WARNING("invalid day. [day=%d]", day);
             return false;
         }
 
         if (what[4].length()) {
-            int hour = strtol(what[5].str().c_str(), NULL, 10);
+            int hour = strtol(what[5].str().c_str(), nullptr, 10);
             if (hour < 0 || hour > 23) {
                 OLAP_LOG_WARNING("invalid hour. [hour=%d]", hour);
                 return false;
             }
 
-            int minute = strtol(what[6].str().c_str(), NULL, 10);
+            int minute = strtol(what[6].str().c_str(), nullptr, 10);
             if (minute < 0 || minute > 59) {
                 OLAP_LOG_WARNING("invalid minute. [minute=%d]", minute);
                 return false;
             }
 
-            int second = strtol(what[7].str().c_str(), NULL, 10);
+            int second = strtol(what[7].str().c_str(), nullptr, 10);
             if (second < 0 || second > 59) {
                 OLAP_LOG_WARNING("invalid second. [second=%d]", second);
                 return false;

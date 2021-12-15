@@ -529,6 +529,9 @@ CONF_String(default_rowset_type, "BETA");
 CONF_Int64(brpc_max_body_size, "209715200");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
 CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
+// Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
+// through brpc, this will be faster and avoid the error of Request length overflow.
+CONF_mBool(transfer_data_by_brpc_attachment, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -638,6 +641,21 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 // Althought it is called "segment cache", but it caches segments in rowset granularity.
 // So the value of this config should corresponding to the number of rowsets on this BE.
 CONF_mInt32(segment_cache_capacity, "1000000");
+
+// Set to true to disable the minidump feature.
+CONF_Bool(disable_minidump , "false");
+
+// The dir to save minidump file.
+// Make sure that the user who run Doris has permission to create and visit this dir,
+// So Doris will fail to start.
+CONF_String(minidump_dir, "${DORIS_HOME}/minidump");
+
+// The max minidump file size in MB.
+CONF_Int32(max_minidump_file_size_mb, "200");
+
+// The max number of minidump file.
+// Doris will only keep latest 10 minidump files by default.
+CONF_Int32(max_minidump_file_number, "10");
 
 } // namespace config
 

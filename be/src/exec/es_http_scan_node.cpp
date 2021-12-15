@@ -121,8 +121,8 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     // if conjunct is constant, compute direct and set eos = true
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
-            void* value = _conjunct_ctxs[conj_idx]->get_value(NULL);
-            if (value == NULL || *reinterpret_cast<bool*>(value) == false) {
+            void* value = _conjunct_ctxs[conj_idx]->get_value(nullptr);
+            if (value == nullptr || *reinterpret_cast<bool*>(value) == false) {
                 _eos = true;
             }
         }

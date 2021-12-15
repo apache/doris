@@ -61,6 +61,13 @@ endif()
 
 # Just for clang-tidy:  -Wno-expansion-to-defined -Wno-deprecated-declaration
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -g -ggdb -std=c++11 -Wall -Werror -Wno-unused-variable -Wno-expansion-to-defined -Wno-deprecated-declarations -O3")
+
+if (CMAKE_GENERATOR STREQUAL "Ninja" AND NOT DISABLE_COLORED_BUILD)
+    # Turn on colored output. https://github.com/ninja-build/ninja/wiki/FAQ
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
+endif ()
+
 message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 
 # Include udf
@@ -72,6 +79,5 @@ set_target_properties(udf PROPERTIES IMPORTED_LOCATION $ENV{DORIS_HOME}/output/u
 
 # Add the subdirector of new UDF in here
 add_subdirectory(${SRC_DIR}/udf_samples)
-add_subdirectory(${SRC_DIR}/udaf_orthogonal_bitmap)
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR})

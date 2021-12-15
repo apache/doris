@@ -75,7 +75,7 @@ public:
 };
 
 std::string CgroupsMgrTest::_s_cgroup_path = "./doris_cgroup_testxxxx123";
-CgroupsMgr CgroupsMgrTest::_s_cgroups_mgr(NULL, CgroupsMgrTest::_s_cgroup_path);
+CgroupsMgr CgroupsMgrTest::_s_cgroups_mgr(nullptr, CgroupsMgrTest::_s_cgroup_path);
 
 TEST_F(CgroupsMgrTest, TestIsDirectory) {
     // test folder exist

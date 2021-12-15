@@ -186,6 +186,12 @@ ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
 
+#cyrus-sasl
+CYRUS_SASL_DOWNLOAD="https://github.com/cyrusimap/cyrus-sasl/releases/download/cyrus-sasl-2.1.27/cyrus-sasl-2.1.27.tar.gz"
+CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
+CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
+CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
+
 # librdkafka-1.8.0
 LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.8.0.tar.gz"
 LIBRDKAFKA_NAME=librdkafka-1.8.0.tar.gz
@@ -375,6 +381,14 @@ BENCHMARK_NAME=benchmark-1.5.6.tar.gz
 BENCHMARK_SOURCE=benchmark-1.5.6
 BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
 
+# breakpad
+# breakpad has no release version, the source is from commit@38ee0be,
+# and also add lss files. See README.md in it.
+BREAKPAD_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/breakpad-src-38ee0be-with-lss.tar.gz"
+BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
+BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
+BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -398,6 +412,7 @@ ODBC
 LEVELDB
 BRPC
 ROCKSDB
+CYRUS_SASL
 LIBRDKAFKA
 FLATBUFFERS
 ARROW
@@ -429,6 +444,6 @@ GSASL
 HDFS3
 LIBDIVIDE
 PDQSORT
-BENCHMARK"
-
+BENCHMARK
+BREAKPAD"
 

@@ -66,7 +66,7 @@ OLAPStatus PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, cons
     res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
 
     if (res == OLAP_SUCCESS) {
-        if (tablet_info_vec != NULL) {
+        if (tablet_info_vec != nullptr) {
             _get_tablet_infos(tablet_vars, tablet_info_vec);
         }
         LOG(INFO) << "process realtime push successfully. "
@@ -192,7 +192,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
 void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
                                     std::vector<TTabletInfo>* tablet_info_vec) {
     for (const TabletVars& tablet_var : tablet_vars) {
-        if (tablet_var.tablet.get() == NULL) {
+        if (tablet_var.tablet.get() == nullptr) {
             continue;
         }
 
@@ -346,7 +346,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
     OLAPStatus res = OLAP_SUCCESS;
     RowCursor row;
     BinaryFile raw_file;
-    IBinaryReader* reader = NULL;
+    IBinaryReader* reader = nullptr;
     uint32_t num_rows = 0;
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -521,7 +521,7 @@ OLAPStatus BinaryFile::init(const char* path) {
 }
 
 IBinaryReader* IBinaryReader::create(bool need_decompress) {
-    IBinaryReader* reader = NULL;
+    IBinaryReader* reader = nullptr;
     if (need_decompress) {
 #ifdef DORIS_WITH_LZO
         reader = new (std::nothrow) LzoBinaryReader();
@@ -532,7 +532,7 @@ IBinaryReader* IBinaryReader::create(bool need_decompress) {
     return reader;
 }
 
-BinaryReader::BinaryReader() : IBinaryReader(), _row_buf(NULL), _row_buf_size(0) {}
+BinaryReader::BinaryReader() : IBinaryReader(), _row_buf(nullptr), _row_buf_size(0) {}
 
 OLAPStatus BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -574,7 +574,7 @@ OLAPStatus BinaryReader::finalize() {
 OLAPStatus BinaryReader::next(RowCursor* row) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    if (!_ready || NULL == row) {
+    if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -668,9 +668,9 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
 
 LzoBinaryReader::LzoBinaryReader()
         : IBinaryReader(),
-          _row_buf(NULL),
-          _row_compressed_buf(NULL),
-          _row_info_buf(NULL),
+          _row_buf(nullptr),
+          _row_compressed_buf(nullptr),
+          _row_info_buf(nullptr),
           _max_row_num(0),
           _max_row_buf_size(0),
           _max_compressed_buf_size(0),
@@ -719,7 +719,7 @@ OLAPStatus LzoBinaryReader::finalize() {
 OLAPStatus LzoBinaryReader::next(RowCursor* row) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    if (!_ready || NULL == row) {
+    if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -885,7 +885,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     TQueryGlobals query_globals;
     _runtime_state.reset(
             new RuntimeState(params, query_options, query_globals, ExecEnv::GetInstance()));
-    DescriptorTbl* desc_tbl = NULL;
+    DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Failed to create descriptor table, msg: " << status.get_error_msg();
@@ -910,7 +910,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     case TFileFormatType::FORMAT_PARQUET:
         scanner = new ParquetScanner(_runtime_state.get(), _runtime_profile, t_scan_range.params,
                                      t_scan_range.ranges, t_scan_range.broker_addresses,
-                                     _pre_filter_ctxs, _counter.get());
+                                     _pre_filter_texprs, _counter.get());
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;

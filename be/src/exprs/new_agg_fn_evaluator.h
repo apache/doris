@@ -18,8 +18,6 @@
 #ifndef IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 #define IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_array.hpp>
 #include <string>
 
 #include "codegen/doris_ir.h"
@@ -180,7 +178,8 @@ public:
                        Tuple* dst);
     static void Serialize(const std::vector<NewAggFnEvaluator*>& evals, Tuple* dst);
     static void GetValue(const std::vector<NewAggFnEvaluator*>& evals, Tuple* src, Tuple* dst);
-    static void Finalize(const std::vector<NewAggFnEvaluator*>& evals, Tuple* src, Tuple* dst, bool add_null = false);
+    static void Finalize(const std::vector<NewAggFnEvaluator*>& evals, Tuple* src, Tuple* dst,
+                         bool add_null = false);
 
     /// Free local allocations made in UDA functions and input arguments' evals.
     //void FreeLocalAllocations();
@@ -216,7 +215,7 @@ private:
     /// This contains runtime state such as constant input arguments to the aggregate
     /// functions and a FreePool from which the intermediate values are allocated.
     /// Owned by this evaluator.
-    boost::scoped_ptr<FunctionContext> agg_fn_ctx_;
+    std::unique_ptr<FunctionContext> agg_fn_ctx_;
 
     /// Evaluators for input expressions for this aggregate function.
     /// Empty if there is no input expression (e.g. count(*)).
@@ -256,12 +255,13 @@ private:
 
     /// Sets up the arguments to call 'fn'. This converts from the agg-expr signature,
     /// taking TupleRow to the UDA signature taking AnyVals. Writes the serialize/finalize
-    /// result to the given destination slot/tuple. 'fn' can be NULL to indicate the src
+    /// result to the given destination slot/tuple. 'fn' can be nullptr to indicate the src
     /// value should simply be written into the destination. Note that StringVal result is
     /// from local allocation (which will be freed in the next QueryMaintenance()) so it
     /// needs to be copied out if it needs to survive beyond QueryMaintenance() (e.g. if
     /// 'dst' lives in a row batch).
-    void SerializeOrFinalize(Tuple* src, const SlotDescriptor& dst_slot_desc, Tuple* dst, void* fn, bool add_null = false);
+    void SerializeOrFinalize(Tuple* src, const SlotDescriptor& dst_slot_desc, Tuple* dst, void* fn,
+                             bool add_null = false);
 
     // Sets 'dst' to the value from 'slot'.
     void set_any_val(const void* slot, const TypeDescriptor& type, doris_udf::AnyVal* dst);
@@ -282,7 +282,8 @@ inline void NewAggFnEvaluator::Serialize(Tuple* tuple) {
 }
 
 inline void NewAggFnEvaluator::Finalize(Tuple* agg_val, Tuple* output_val, bool add_null) {
-    SerializeOrFinalize(agg_val, agg_fn_.output_slot_desc(), output_val, agg_fn_.finalize_fn(), add_null);
+    SerializeOrFinalize(agg_val, agg_fn_.output_slot_desc(), output_val, agg_fn_.finalize_fn(),
+                        add_null);
 }
 
 inline void NewAggFnEvaluator::GetValue(Tuple* src, Tuple* dst) {

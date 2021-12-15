@@ -31,6 +31,7 @@
 #include "util/brpc_stub_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
+#include "util/proto_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -62,7 +63,7 @@ NodeChannel::~NodeChannel() {
 // returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
     _tuple_desc = _parent->_output_tuple_desc;
-    auto node =  _parent->_nodes_info->find_node(_node_id);
+    auto node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
         std::stringstream ss;
         ss << "unknown node id, id=" << _node_id;
@@ -409,6 +410,9 @@ void NodeChannel::try_send_batch() {
         DCHECK(_pending_batches_num == 0);
     }
 
+    request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
+                                          ReusableClosure<PTabletWriterAddBatchResult>>(
+            &request, _add_batch_closure);
     _add_batch_closure->set_in_flight();
     _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
                                    _add_batch_closure);
@@ -462,6 +466,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             }
             channel->add_tablet(tablet);
             channels.push_back(channel);
+            _tablets_by_channel[node_id].insert(tablet.tablet_id);
         }
         _channels_by_tablet.emplace(tablet.tablet_id, std::move(channels));
     }
@@ -495,7 +500,12 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
 }
 
 bool IndexChannel::has_intolerable_failure() {
-    return _failed_channels.size() >= ((_parent->_num_replicas + 1) / 2);
+    for (const auto& it : _failed_channels) {
+        if (it.second.size() >= ((_parent->_num_replicas + 1) / 2)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -701,13 +711,15 @@ Status OlapTableSink::open(RuntimeState* state) {
 
 Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     SCOPED_TIMER(_profile->total_time_counter());
-    _number_input_rows += input_batch->num_rows();
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
-    state->update_num_rows_load_total(input_batch->num_rows());
-    state->update_num_bytes_load_total(input_batch->total_byte_size());
-    DorisMetrics::instance()->load_rows->increment(input_batch->num_rows());
-    DorisMetrics::instance()->load_bytes->increment(input_batch->total_byte_size());
+    int64_t num_rows = input_batch->num_rows();
+    int64_t num_bytes = input_batch->total_byte_size();
+    _number_input_rows += num_rows;
+    state->update_num_rows_load_total(num_rows);
+    state->update_num_bytes_load_total(num_bytes);
+    DorisMetrics::instance()->load_rows->increment(num_rows);
+    DorisMetrics::instance()->load_bytes->increment(num_bytes);
     RowBatch* batch = input_batch;
     if (!_output_expr_ctxs.empty()) {
         SCOPED_RAW_TIMER(&_convert_batch_ns);

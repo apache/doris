@@ -17,9 +17,9 @@
 
 #include "util/runtime_profile.h"
 
-#include <boost/thread/thread.hpp>
 #include <iomanip>
 #include <iostream>
+#include <thread>
 
 #include "common/config.h"
 #include "common/object_pool.h"
@@ -54,11 +54,10 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 
-RuntimeProfile::~RuntimeProfile() {
-}
+RuntimeProfile::~RuntimeProfile() {}
 
 void RuntimeProfile::merge(RuntimeProfile* other) {
-    DCHECK(other != NULL);
+    DCHECK(other != nullptr);
 
     // Merge this level
     {
@@ -106,7 +105,7 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
         for (int i = 0; i < other->_children.size(); ++i) {
             RuntimeProfile* other_child = other->_children[i].first;
             ChildMap::iterator j = _child_map.find(other_child->_name);
-            RuntimeProfile* child = NULL;
+            RuntimeProfile* child = nullptr;
 
             if (j != _child_map.end()) {
                 child = j->second;
@@ -195,7 +194,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
         for (int i = 0; i < node.num_children; ++i) {
             const TRuntimeProfileNode& tchild = nodes[*idx];
             ChildMap::iterator j = _child_map.find(tchild.name);
-            RuntimeProfile* child = NULL;
+            RuntimeProfile* child = nullptr;
 
             if (j != _child_map.end()) {
                 child = j->second;
@@ -270,7 +269,7 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     DCHECK(_child_map.find(name) == _child_map.end());
     RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
     if (_children.empty()) {
-        add_child_unlock(child, indent, NULL);
+        add_child_unlock(child, indent, nullptr);
     } else {
         ChildVector::iterator pos = prepend ? _children.begin() : _children.end();
         add_child_unlock(child, indent, (*pos).first);
@@ -335,7 +334,7 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
     InfoStrings::const_iterator it = _info_strings.find(key);
 
     if (it == _info_strings.end()) {
-        return NULL;
+        return nullptr;
     }
 
     return &it->second;
@@ -412,7 +411,7 @@ RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
     if (_counter_map.find(name) != _counter_map.end()) {
-        return NULL;
+        return nullptr;
     }
 
     DerivedCounter* counter = _pool->add(new DerivedCounter(type, counter_fn));
@@ -444,13 +443,13 @@ RuntimeProfile::Counter* RuntimeProfile::get_counter(const std::string& name) {
         return _counter_map[name];
     }
 
-    return NULL;
+    return nullptr;
 }
 
 void RuntimeProfile::get_counters(const std::string& name, std::vector<Counter*>* counters) {
     Counter* c = get_counter(name);
 
-    if (c != NULL) {
+    if (c != nullptr) {
         counters->push_back(c);
     }
 
@@ -632,7 +631,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_rate_counter(const std::string& nam
 
     default:
         DCHECK(false) << "Unsupported src counter type: " << src_counter->type();
-        return NULL;
+        return nullptr;
     }
 
     Counter* dst_counter = add_counter(name, dst_type);
@@ -667,7 +666,6 @@ RuntimeProfile::EventSequence* RuntimeProfile::add_event_sequence(const std::str
     _event_sequence_map[name] = timer;
     return timer;
 }
-
 
 void RuntimeProfile::print_child_counters(const std::string& prefix,
                                           const std::string& counter_name,

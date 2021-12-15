@@ -45,10 +45,10 @@ static void update_min(SlotRef* ref, TupleRow* agg_row, TupleRow* row) {
     void* slot = ref->get_slot(agg_row);
     bool agg_row_null = ref->is_null_bit_set(agg_row);
     void* value = SlotRef::get_value(ref, row);
-    if (!agg_row_null && value != NULL) {
+    if (!agg_row_null && value != nullptr) {
         T* t_slot = static_cast<T*>(slot);
         *t_slot = std::min(*t_slot, *static_cast<T*>(value));
-    } else if (!agg_row_null && value == NULL) {
+    } else if (!agg_row_null && value == nullptr) {
         Tuple* agg_tuple = ref->get_tuple(agg_row);
         agg_tuple->set_null(ref->null_indicator_offset());
     }
@@ -59,10 +59,10 @@ static void update_max(SlotRef* ref, TupleRow* agg_row, TupleRow* row) {
     void* slot = ref->get_slot(agg_row);
     bool agg_row_null = ref->is_null_bit_set(agg_row);
     void* value = SlotRef::get_value(ref, row);
-    if (!agg_row_null && value != NULL) {
+    if (!agg_row_null && value != nullptr) {
         T* t_slot = static_cast<T*>(slot);
         *t_slot = std::max(*t_slot, *static_cast<T*>(value));
-    } else if (agg_row_null && value != NULL) {
+    } else if (agg_row_null && value != nullptr) {
         T* t_slot = static_cast<T*>(slot);
         *t_slot = *static_cast<T*>(value);
         Tuple* agg_tuple = ref->get_tuple(agg_row);
@@ -75,10 +75,10 @@ static void update_sum(SlotRef* ref, TupleRow* agg_row, TupleRow* row) {
     void* slot = ref->get_slot(agg_row);
     bool agg_row_null = ref->is_null_bit_set(agg_row);
     void* value = SlotRef::get_value(ref, row);
-    if (!agg_row_null && value != NULL) {
+    if (!agg_row_null && value != nullptr) {
         T* t_slot = static_cast<T*>(slot);
         *t_slot += *static_cast<T*>(value);
-    } else if (agg_row_null && value != NULL) {
+    } else if (agg_row_null && value != nullptr) {
         T* t_slot = static_cast<T*>(slot);
         *t_slot = *static_cast<T*>(value);
         Tuple* agg_tuple = ref->get_tuple(agg_row);
@@ -91,13 +91,13 @@ void update_sum<int128_t>(SlotRef* ref, TupleRow* agg_row, TupleRow* row) {
     void* slot = ref->get_slot(agg_row);
     bool agg_row_null = ref->is_null_bit_set(agg_row);
     void* value = SlotRef::get_value(ref, row);
-    if (!agg_row_null && value != NULL) {
+    if (!agg_row_null && value != nullptr) {
         int128_t l_val, r_val;
         memcpy(&l_val, slot, sizeof(int128_t));
         memcpy(&r_val, value, sizeof(int128_t));
         l_val += r_val;
         memcpy(slot, &l_val, sizeof(int128_t));
-    } else if (agg_row_null && value != NULL) {
+    } else if (agg_row_null && value != nullptr) {
         memcpy(slot, value, sizeof(int128_t));
         Tuple* agg_tuple = ref->get_tuple(agg_row);
         agg_tuple->set_not_null(ref->null_indicator_offset());

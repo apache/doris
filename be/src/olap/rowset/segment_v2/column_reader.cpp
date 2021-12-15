@@ -239,6 +239,8 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
             }
         }
     }
+    VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
+                << " filtered-percent:" << 1.0 - (page_indexes->size()*1.0)/(page_size*1.0);
     return Status::OK();
 }
 
@@ -479,7 +481,7 @@ Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
 
 Status FileColumnIterator::seek_to_page_start() {
     if (_page == nullptr) {
-        return Status::NotSupported("Can not seek to page first when page is NULL");
+        return Status::NotSupported("Can not seek to page first when page is nullptr");
     }
     return seek_to_ordinal(_page->first_ordinal);
 }

@@ -151,7 +151,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execPlanFragmentParams;
 
-                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, anyBoolean, anyBoolean, anyString,
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, (SystemInfoService.BeAvailablePredicate) any, anyBoolean, anyString,
                         (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = backendIds;

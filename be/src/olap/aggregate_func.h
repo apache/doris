@@ -425,7 +425,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_typ
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 
@@ -440,7 +440,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIEL
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 

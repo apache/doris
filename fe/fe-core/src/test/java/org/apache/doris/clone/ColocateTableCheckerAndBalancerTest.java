@@ -345,7 +345,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(2L);
                 result = myBackend2;
                 minTimes = 0;
-                myBackend2.isAvailable();
+                myBackend2.isScheduleAvailable();
                 result = true;
                 minTimes = 0;
                 myBackend2.getTag();
@@ -356,7 +356,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(3L);
                 result = myBackend3;
                 minTimes = 0;
-                myBackend3.isAvailable();
+                myBackend3.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend3.isAlive();
@@ -373,7 +373,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(4L);
                 result = myBackend4;
                 minTimes = 0;
-                myBackend4.isAvailable();
+                myBackend4.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend4.isAlive();
@@ -390,7 +390,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(5L);
                 result = myBackend5;
                 minTimes = 0;
-                myBackend5.isAvailable();
+                myBackend5.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend5.isAlive();
@@ -438,7 +438,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(2L);
                 result = myBackend2;
                 minTimes = 0;
-                myBackend2.isAvailable();
+                myBackend2.isScheduleAvailable();
                 result = true;
                 minTimes = 0;
                 myBackend2.getTag();
@@ -449,7 +449,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(3L);
                 result = myBackend3;
                 minTimes = 0;
-                myBackend3.isAvailable();
+                myBackend3.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend3.isAlive();
@@ -466,7 +466,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(4L);
                 result = myBackend4;
                 minTimes = 0;
-                myBackend4.isAvailable();
+                myBackend4.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend4.isAlive();
@@ -483,7 +483,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(5L);
                 result = myBackend5;
                 minTimes = 0;
-                myBackend5.isAvailable();
+                myBackend5.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend5.isAlive();
@@ -500,7 +500,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(5L);
                 result = myBackend6;
                 minTimes = 0;
-                myBackend6.isAvailable();
+                myBackend6.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend6.isAlive();
@@ -517,7 +517,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 infoService.getBackend(5L);
                 result = myBackend7;
                 minTimes = 0;
-                myBackend7.isAvailable();
+                myBackend7.isScheduleAvailable();
                 result = false;
                 minTimes = 0;
                 myBackend7.isAlive();

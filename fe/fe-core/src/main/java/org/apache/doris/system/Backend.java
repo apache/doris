@@ -200,6 +200,18 @@ public class Backend implements Writable {
         this.backendStatus.lastStreamLoadTime = lastStreamLoadTime;
     }
 
+    public boolean isQueryDisabled() { return backendStatus.isQueryDisabled; }
+
+    public void setQueryDisabled(boolean isQueryDisabled) {
+        this.backendStatus.isQueryDisabled = isQueryDisabled;
+    }
+
+    public boolean isLoadDisabled() {return backendStatus.isLoadDisabled; }
+
+    public void setLoadDisabled(boolean isLoadDisabled) {
+        this.backendStatus.isLoadDisabled = isLoadDisabled;
+    }
+
     // for test only
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
         if (this.bePort != bePort) {
@@ -285,8 +297,16 @@ public class Backend implements Writable {
         return this.isDecommissioned.get();
     }
 
-    public boolean isAvailable() {
-        return this.isAlive.get() && !this.isDecommissioned.get();
+    public boolean isQueryAvailable() {
+        return isAlive() && !isQueryDisabled();
+    }
+
+    public boolean isScheduleAvailable() {
+        return isAlive() && !isDecommissioned();
+    }
+
+    public boolean isLoadAvailable() {
+        return isAlive() && !isLoadDisabled();
     }
 
     public void setDisks(ImmutableMap<String, DiskInfo> disks) {
@@ -702,10 +722,14 @@ public class Backend implements Writable {
      */
     public class BackendStatus {
         // this will be output as json, so not using FeConstants.null_string;
-        public String lastSuccessReportTabletsTime = "N/A";
+        public volatile String lastSuccessReportTabletsTime = "N/A";
         @SerializedName("lastStreamLoadTime")
         // the last time when the stream load status was reported by backend
-        public long lastStreamLoadTime = -1;
+        public volatile long lastStreamLoadTime = -1;
+        @SerializedName("isQueryDisabled")
+        public volatile boolean isQueryDisabled = false;
+        @SerializedName("isLoadDisabled")
+        public volatile boolean isLoadDisabled = false;
     }
 
     public void setTag(Tag tag) {

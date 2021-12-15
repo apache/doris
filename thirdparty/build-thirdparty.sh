@@ -393,7 +393,7 @@ build_zstd() {
     check_if_source_exist $ZSTD_SOURCE
     cd $TP_SOURCE_DIR/$ZSTD_SOURCE/build/cmake
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -ZSTD_BUILD_STATIC=ON \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_STATIC=ON \
     -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF  -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
     ${BUILD_SYSTEM} -j $PARALLEL install
 }
@@ -447,7 +447,7 @@ build_boost() {
     check_if_source_exist $BOOST_SOURCE
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
-    ./bootstrap.sh --prefix=$TP_INSTALL_DIR     
+    ./bootstrap.sh --prefix=$TP_INSTALL_DIR
     ./b2 link=static runtime-link=static -j $PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
@@ -502,9 +502,10 @@ build_brpc() {
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_LIBRARY_PATH=$TP_INSTALL_DIR/lib64 \
     -DBRPC_WITH_GLOG=ON -DWITH_GLOG=ON -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a -DGLOG_LIB=$TP_INSTALL_DIR/lib \
     -DGFLAGS_INCLUDE_DIR=$TP_INSTALL_DIR/include -DGLOG_LIB=$TP_INSTALL_DIR/lib/libglog.a -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
-    -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc .. 
+    -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -520,6 +521,14 @@ build_rocksdb() {
     cp -r include/rocksdb ../../installed/include/
 }
 
+# cyrus_sasl
+build_cyrus_sasl() {
+   check_if_source_exist $CYRUS_SASL_SOURCE
+   cd $TP_SOURCE_DIR/$CYRUS_SASL_SOURCE
+   ./configure --prefix=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR --enable-static --enable-shared=no --with-openssl=$TP_INSTALL_DIR
+   make -j $PARALLEL && make install
+}
+
 # librdkafka
 build_librdkafka() {
     check_if_source_exist $LIBRDKAFKA_SOURCE
@@ -529,7 +538,7 @@ build_librdkafka() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-static --disable-sasl --disable-c11threads
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static --enable-sasl --disable-c11threads
     make -j $PARALLEL && make install
 }
 
@@ -542,10 +551,10 @@ build_libunixodbc() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --with-included-ltdl --enable-static=yes --enable-shared=no 
+    ./configure --prefix=$TP_INSTALL_DIR --with-included-ltdl --enable-static=yes --enable-shared=no
     make -j $PARALLEL && make install
 }
-  
+
 # flatbuffers
 build_flatbuffers() {
   check_if_source_exist $FLATBUFFERS_SOURCE
@@ -602,11 +611,11 @@ build_arrow() {
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 
-    #copy dep libs	
-    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a $TP_INSTALL_DIR/lib64/libjemalloc.a	
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a $TP_INSTALL_DIR/lib64/libbrotlienc.a	
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a $TP_INSTALL_DIR/lib64/libbrotlidec.a	
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a	
+    #copy dep libs
+    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a $TP_INSTALL_DIR/lib64/libjemalloc.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a $TP_INSTALL_DIR/lib64/libbrotlienc.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a $TP_INSTALL_DIR/lib64/libbrotlidec.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a
 }
 
 # s2
@@ -625,7 +634,7 @@ build_s2() {
     -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
     -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib64" \
     -DOPENSSL_ROOT_DIR="$TP_INSTALL_DIR/include" \
-    -DWITH_GLOG=ON .. 
+    -DWITH_GLOG=ON ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -669,7 +678,7 @@ build_bitshuffle() {
             $DORIS_BIN_UTILS/objcopy --redefine-syms=renames.txt $tmp_obj $dst_obj
         else
             mv $tmp_obj $dst_obj
-        fi  
+        fi
         to_link="$to_link $dst_obj"
     done
     rm -f libbitshuffle.a
@@ -738,9 +747,12 @@ build_orc() {
     -DLZ4_HOME=$TP_INSTALL_DIR \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DZLIB_HOME=$TP_INSTALL_DIR \
+    -DZSTD_HOME=$TP_INSTALL_DIR \
+    -DZSTD_INCLUDE_DIR=$TP_INSTALL_DIR/include \
+    -DZSTD_LIBRARIES=$TP_INSTALL_DIR/lib/libzstd.a \
     -DBUILD_LIBHDFSPP=OFF \
     -DBUILD_CPP_TESTS=OFF \
-    -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR 
+    -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
@@ -882,8 +894,6 @@ build_hdfs3() {
     check_if_source_exist $HDFS3_SOURCE
     cd $TP_SOURCE_DIR/$HDFS3_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    # export CC=/opt/compiler/gcc-10/bin/gcc
-    # export CXX=/opt/compiler/gcc-10/bin/g++
     ../bootstrap --dependency=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR
     make -j $PARALLEL && make install
 }
@@ -901,6 +911,15 @@ build_benchmark() {
     mkdir $TP_INCLUDE_DIR/benchmark
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/include/benchmark/benchmark.h $TP_INCLUDE_DIR/benchmark/
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/build/src/libbenchmark.a $TP_LIB_DIR/
+}
+
+# breakpad
+build_breakpad() {
+    check_if_source_exist $BREAKPAD_SOURCE
+
+    cd $TP_SOURCE_DIR/$BREAKPAD_SOURCE
+    ./configure --prefix=$TP_INSTALL_DIR
+    make -j $PARALLEL && make install
 }
 
 build_libunixodbc
@@ -925,6 +944,7 @@ build_thrift
 build_leveldb
 build_brpc
 build_rocksdb
+build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
 build_arrow
@@ -952,6 +972,7 @@ build_xml2
 build_gsasl
 build_hdfs3
 build_benchmark
+build_breakpad
 
 echo "Finished to build all thirdparties"
 

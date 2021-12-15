@@ -660,7 +660,7 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        if (true == col.isAllowNull()) {
+        if (col.isAllowNull() || globalState.outerJoinedTupleIds.containsKey(d.getId())) {
             result.setIsNullable(true);
         } else {
             result.setIsNullable(false);
@@ -1204,6 +1204,32 @@ public class Analyzer {
     }
 
     /**
+     * Get all predicates belonging to one or more tuples that have not yet been assigned
+     * Since these predicates will be assigned by upper-level plan nodes in the future,
+     * the columns associated with these predicates will also be required by upper-level nodes.
+     * So these columns should be projected in the table function node.
+     */
+    public List<Expr> getRemainConjuncts(List<TupleId> tupleIds) {
+        Set<ExprId> remainConjunctIds = Sets.newHashSet();
+        for (TupleId tupleId : tupleIds) {
+            if (tuplePredicates.get(tupleId) !=null) {
+                remainConjunctIds.addAll(tuplePredicates.get(tupleId));
+            }
+        }
+        remainConjunctIds.removeAll(globalState.assignedConjuncts);
+        List<Expr> result = Lists.newArrayList();
+        for (ExprId conjunctId : remainConjunctIds) {
+            Expr e = globalState.conjuncts.get(conjunctId);
+            Preconditions.checkState(e != null);
+            if (e.isAuxExpr()) {
+                continue;
+            }
+            result.add(e);
+        }
+        return result;
+    }
+
+    /**
      * Makes the given semi-joined tuple visible such that its slots can be referenced.
      * If tid is null, makes the currently visible semi-joined tuple invisible again.
      */
@@ -1643,6 +1669,17 @@ public class Analyzer {
         this.changeResSmap = changeResSmap;
     }
 
+    // The star join reorder is turned on
+    // when 'enable_join_reorder_based_cost = false' and 'disable_join_reorder = false'
+    public boolean enableStarJoinReorder() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+    }
+
+    // The cost based join reorder is turned on
+    // when 'enable_join_reorder_based_cost = true' and 'disable_join_reorder = false'
     // Load plan and query plan are the same framework
     // Some Load method in doris access through http protocol, which will cause the session may be empty.
     // In order to avoid the occurrence of null pointer exceptions, a check will be added here
@@ -1650,7 +1687,7 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost();
+        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
     
     public boolean safeIsEnableFoldConstantByBe() {

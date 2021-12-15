@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/bind.hpp>
+#include <functional>
 #include <string>
 
 #include "util/cpu_info.h"

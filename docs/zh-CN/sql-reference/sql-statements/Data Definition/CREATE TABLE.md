@@ -96,7 +96,7 @@ under the License.
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、
        * BITMAP_UNION(仅用于 BITMAP 列，为 BITMAP 独有的聚合方式)、
-       * REPLACE_IF_NOT_NULL：这个聚合类型的含义是当且仅当新导入数据是非NULL值时会发生替换行为，如果新导入的数据是NULL，那么Doris仍然会保留原值。注意：如果用在建表时REPLACE_IF_NOT_NULL列指定了NOT NULL，那么Doris仍然会将其转化NULL，不会向用户报错。用户可以借助这个类型完成部分列导入的功能。
+       * REPLACE_IF_NOT_NULL：这个聚合类型的含义是当且仅当新导入数据是非NULL值时会发生替换行为，如果新导入的数据是NULL，那么Doris仍然会保留原值。注意：如果用在建表时REPLACE_IF_NOT_NULL列指定了NOT NULL，那么Doris仍然会将其转化NULL，不会向用户报错。用户可以借助这个类型完成部分列导入的功能。**这里要注意的是字段默认值要给NULL，而不能是空字符串，如果是空字符串，会给你替换成空字符串**。
        * 该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指这个。
 
     是否允许为NULL: 默认允许为 NULL。NULL 值在导入数据中用 \N 来表示
@@ -165,7 +165,6 @@ under the License.
     
     ```
     其中 database 是 hive 表对应的库名字，table 是 hive 表的名字，hive.metastore.uris 是 hive metastore 服务地址。
-    注意：目前hive外部表仅用于Spark Load使用，不支持查询。
 
 4. key_desc
     语法：
@@ -211,7 +210,7 @@ under the License.
             注意：
                 1) 分区一般用于时间维度的数据管理
                 2) 有数据回溯需求的，可以考虑首个分区为空分区，以便后续增加分区
-
+        
         2）Fixed Range
             语法：
             ```
@@ -239,7 +238,7 @@ under the License.
                 ...
                 )
             ```
-
+        
             说明：
                 使用指定的 key 列和制定的枚举值进行分区。
                 1) 分区名称仅支持字母开头，字母、数字和下划线组成
@@ -248,10 +247,10 @@ under the License.
                 3) 分区为枚举值集合，各个分区之间分区值不能重复
                 4) 不可导入 NULL 值
                 5) 分区值不能缺省，必须指定至少一个
-
+        
         2) 多列分区
             语法：
-
+        
             ```
                 PARTITION BY LIST(k1, k2)
                 (
@@ -260,7 +259,7 @@ under the License.
                 ...
                 )
             ```
-
+        
             说明：
                 1) 多列分区的分区是元组枚举值的集合
                 2) 每个元组值的个数必须与分区列个数相等

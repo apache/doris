@@ -21,9 +21,8 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
-#include <boost/shared_ptr.hpp>
-#include <boost/thread/thread.hpp>
 #include <iostream>
+#include <thread>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -46,6 +45,7 @@
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/network_util.h"
+#include "util/proto_util.h"
 #include "util/thrift_client.h"
 #include "util/thrift_util.h"
 
@@ -145,6 +145,9 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 
     _closure->ref();
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
+    request_row_batch_transfer_attachment<PTransmitDataParams,
+                                          RefCountClosure<PTransmitDataResult>>(&_brpc_request,
+                                                                                _closure);
     _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     if (batch != nullptr) {
         _brpc_request.release_row_batch();
@@ -171,8 +174,8 @@ Status DataStreamSender::Channel::add_row(TupleRow* row) {
     const std::vector<TupleDescriptor*>& descs = _row_desc.tuple_descriptors();
 
     for (int i = 0; i < descs.size(); ++i) {
-        if (UNLIKELY(row->get_tuple(i) == NULL)) {
-            dest->set_tuple(i, NULL);
+        if (UNLIKELY(row->get_tuple(i) == nullptr)) {
+            dest->set_tuple(i, nullptr);
         } else {
             dest->set_tuple(i, row->get_tuple(i)->deep_copy(*descs[i], _batch->tuple_data_pool()));
         }
@@ -198,9 +201,8 @@ Status DataStreamSender::Channel::send_current_batch(bool eos) {
 }
 
 Status DataStreamSender::Channel::send_local_batch(bool eos) {
-    boost::shared_ptr<DataStreamRecvr> recvr =
-            _parent->state()->exec_env()->stream_mgr()->find_recvr(_fragment_instance_id,
-                                                                   _dest_node_id);
+    std::shared_ptr<DataStreamRecvr> recvr = _parent->state()->exec_env()->stream_mgr()->find_recvr(
+            _fragment_instance_id, _dest_node_id);
     if (recvr != nullptr) {
         recvr->add_batch(_batch.get(), _parent->_sender_id, true);
         if (eos) {
@@ -213,9 +215,8 @@ Status DataStreamSender::Channel::send_local_batch(bool eos) {
 }
 
 Status DataStreamSender::Channel::send_local_batch(RowBatch* batch, bool use_move) {
-    boost::shared_ptr<DataStreamRecvr> recvr =
-            _parent->state()->exec_env()->stream_mgr()->find_recvr(_fragment_instance_id,
-                                                                   _dest_node_id);
+    std::shared_ptr<DataStreamRecvr> recvr = _parent->state()->exec_env()->stream_mgr()->find_recvr(
+            _fragment_instance_id, _dest_node_id);
     if (recvr != nullptr) {
         recvr->add_batch(batch, _parent->_sender_id, use_move);
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, batch->total_byte_size());
@@ -230,7 +231,7 @@ Status DataStreamSender::Channel::close_internal() {
     VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id
              << " #rows= " << ((_batch == nullptr) ? 0 : _batch->num_rows());
-    if (_batch != NULL && _batch->num_rows() > 0) {
+    if (_batch != nullptr && _batch->num_rows() > 0) {
         RETURN_IF_ERROR(send_current_batch(true));
     } else {
         RETURN_IF_ERROR(send_batch(nullptr, true));
@@ -265,9 +266,9 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _current_pb_batch(&_pb_batch1),
           _pool(pool),
           _sender_id(sender_id),
-          _serialize_batch_timer(NULL),
-          _bytes_sent_counter(NULL),
-          _local_bytes_send_counter(NULL) {}
+          _serialize_batch_timer(nullptr),
+          _bytes_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr) {}
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                                    const TDataStreamSink& sink,
@@ -275,13 +276,13 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
                                    int per_channel_buffer_size,
                                    bool send_query_statistics_with_every_batch)
         : _row_desc(row_desc),
-          _profile(NULL),
+          _profile(nullptr),
           _current_pb_batch(&_pb_batch1),
           _pool(pool),
           _sender_id(sender_id),
-          _serialize_batch_timer(NULL),
-          _bytes_sent_counter(NULL),
-          _local_bytes_send_counter(NULL),
+          _serialize_batch_timer(nullptr),
+          _bytes_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr),
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
           _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
@@ -413,7 +414,7 @@ DataStreamSender::~DataStreamSender() {
 }
 
 Status DataStreamSender::open(RuntimeState* state) {
-    DCHECK(state != NULL);
+    DCHECK(state != nullptr);
     RETURN_IF_ERROR(Expr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));
@@ -550,7 +551,7 @@ Status DataStreamSender::find_partition(RuntimeState* state, TupleRow* row, Part
         void* partition_val = ctx->get_value(row);
         // construct a PartRangeKey
         PartRangeKey tmpPartKey;
-        if (NULL != partition_val) {
+        if (nullptr != partition_val) {
             RETURN_IF_ERROR(
                     PartRangeKey::from_value(ctx->root()->type().type, partition_val, &tmpPartKey));
         } else {
@@ -584,10 +585,10 @@ Status DataStreamSender::process_distribute(RuntimeState* state, TupleRow* row,
     uint32_t hash_val = 0;
     for (auto& ctx : part->distributed_expr_ctxs()) {
         void* partition_val = ctx->get_value(row);
-        if (partition_val != NULL) {
+        if (partition_val != nullptr) {
             hash_val = RawValue::zlib_crc32(partition_val, ctx->root()->type(), hash_val);
         } else {
-            //NULL is treat as 0 when hash
+            //nullptr is treat as 0 when hash
             static const int INT_VALUE = 0;
             static const TypeDescriptor INT_TYPE(TYPE_INT);
             hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);

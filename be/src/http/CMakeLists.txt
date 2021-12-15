@@ -50,6 +50,6 @@ add_library(Webserver STATIC
   action/meta_action.cpp
   action/compaction_action.cpp
   action/config_action.cpp
-  action/check_rpc_channel_action
-  action/reset_rpc_channel_action
+  action/check_rpc_channel_action.cpp
+  action/reset_rpc_channel_action.cpp
 )

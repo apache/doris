@@ -212,6 +212,7 @@ module.exports = [
       "variables",
       "update",
       "multi-tenant",
+      "orthogonal-bitmap-manual",
     ],
     sidebarDepth: 1,
   },
@@ -232,6 +233,7 @@ module.exports = [
       "doris-on-es",
       "logstash",
       "odbc-of-doris",
+      "hive-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
@@ -242,13 +244,6 @@ module.exports = [
         children: [
           "contribute-udf",
           "user-defined-function",
-          {
-            title: "Users contribute UDF",
-            directoryPath: "contrib/",
-            children:[
-                "udaf-orthogonal-bitmap-manual",
-            ],
-          },          
         ],
       },
     ],
@@ -430,6 +425,9 @@ module.exports = [
               "bitmap_xor",
               "to_bitmap",
               "bitmap_max",
+              "orthogonal_bitmap_intersect",
+              "orthogonal_bitmap_intersect_count",
+              "orthogonal_bitmap_union_count",
             ],
           },
           {
@@ -627,10 +625,19 @@ module.exports = [
         "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
-        "be-vscode-dev",		
+        "be-vscode-dev",
         "java-format-code",
         "cpp-format-code",
-        "How-to-Share-blogs"
+        "How-to-Share-blogs",
+        "minidump",
+        "bitmap-hll-file-format",
+    ],
+  },
+  {
+    title: "FAQ",
+    directoryPath: "faq/",
+    children: [
+        "faq"
     ],
   },
   {
@@ -643,6 +650,7 @@ module.exports = [
       "feedback",
       "how-to-contribute",
       "committer-guide",
+      "commit-format-specification",
       "pull-request",
       "release-process",
       "verify-apache-release",

@@ -38,6 +38,7 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+        <log4j2.version>2.16.0</log4j2.version>
     </properties>
 
     <profiles>
@@ -74,7 +75,7 @@ under the License.
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-web</artifactId>
-            <version>2.14.0</version>
+            <version>${log4j2.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -252,18 +253,21 @@ under the License.
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
+            <version>${log4j2.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
+            <version>${log4j2.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-slf4j-impl -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-slf4j-impl</artifactId>
+            <version>${log4j2.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-log4j12 -->
@@ -514,21 +518,6 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-aws</artifactId>
-            <version>2.8.0</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>log4j</groupId>
-                    <artifactId>log4j</artifactId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>servlet-api</artifactId>
-                    <groupId>javax.servlet</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
@@ -650,6 +639,26 @@ under the License.
             <groupId>io.grpc</groupId>
             <artifactId>grpc-stub</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-metastore</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <classifier>core</classifier>
+            <scope>provided</scope>
+        </dependency>
+        
+        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-hdfs -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs</artifactId>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -709,10 +718,10 @@ under the License.
                 <configuration>
                     <!-->set larger, eg, 3, to reduce the time or running FE unit tests<-->
                     <forkCount>${fe_ut_parallel}</forkCount>
-                    <!-->not reuse forked jvm, so that each unit test will run in separate jvm. to avoid singleton confict<-->
+                    <!-->not reuse forked jvm, so that each unit test will run in separate jvm. to avoid singleton conflict<-->
                     <reuseForks>false</reuseForks>
                     <argLine>
-                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/1.48/jmockit-1.48.jar
+                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
                     </argLine>
                 </configuration>
             </plugin>

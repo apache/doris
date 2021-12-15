@@ -18,9 +18,8 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_CROSS_JOIN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_CROSS_JOIN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread.hpp>
 #include <string>
+#include <thread>
 #include <unordered_set>
 
 #include "exec/blocking_join_node.h"
@@ -55,7 +54,7 @@ protected:
 
 private:
     // Object pool for build RowBatches, stores all BuildBatches in _build_rows
-    boost::scoped_ptr<ObjectPool> _build_batch_pool;
+    std::unique_ptr<ObjectPool> _build_batch_pool;
     // List of build batches, constructed in prepare()
     RowBatchList _build_batches;
     RowBatchList::TupleRowIterator _current_build_row;

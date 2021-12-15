@@ -89,12 +89,12 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 #define TEST_PREDICATE_DEFINITION(CLASS_NAME)                                                     \
     class CLASS_NAME : public testing::Test {                                                     \
     public:                                                                                       \
-        CLASS_NAME() : _vectorized_batch(NULL) {                                                  \
+        CLASS_NAME() : _vectorized_batch(nullptr) {                                               \
             _mem_tracker.reset(new MemTracker(-1));                                               \
             _mem_pool.reset(new MemPool(_mem_tracker.get()));                                     \
         }                                                                                         \
         ~CLASS_NAME() {                                                                           \
-            if (_vectorized_batch != NULL) {                                                      \
+            if (_vectorized_batch != nullptr) {                                                   \
                 delete _vectorized_batch;                                                         \
             }                                                                                     \
         }                                                                                         \
@@ -803,8 +803,7 @@ TEST_LESS_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestLessPredicate, FLOAT_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true,
-                    &tablet_schema);
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {

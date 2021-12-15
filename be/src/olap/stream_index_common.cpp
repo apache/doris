@@ -23,7 +23,7 @@
 namespace doris {
 
 ColumnStatistics::ColumnStatistics()
-        : _minimum(NULL), _maximum(NULL), _ignored(true), _null_supported(false) {}
+        : _minimum(nullptr), _maximum(nullptr), _ignored(true), _null_supported(false) {}
 
 ColumnStatistics::~ColumnStatistics() {
     SAFE_DELETE(_minimum);

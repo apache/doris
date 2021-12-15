@@ -68,7 +68,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
-    std::vector<doris::ExprContext*> _pre_filter; 
+    std::vector<TExpr> _pre_filter; 
 };
 
 void BrokerScannerTest::init_desc_table() {

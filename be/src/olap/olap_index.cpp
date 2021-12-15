@@ -47,7 +47,7 @@ MemIndex::~MemIndex() {
     _num_entries = 0;
     for (vector<SegmentMetaInfo>::iterator it = _meta.begin(); it != _meta.end(); ++it) {
         free(it->buffer.data);
-        it->buffer.data = NULL;
+        it->buffer.data = nullptr;
         it->buffer.length = 0;
     }
 }
@@ -60,7 +60,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     uint32_t adler_checksum = 0;
     uint32_t num_entries = 0;
 
-    if (file == NULL) {
+    if (file == nullptr) {
         res = OLAP_ERR_INPUT_PARAMETER_ERROR;
         LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         return res;
@@ -127,7 +127,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     _num_entries = meta.range.last;
     _meta.push_back(meta);
 
-    (current_num_rows_per_row_block == NULL ||
+    (current_num_rows_per_row_block == nullptr ||
      (*current_num_rows_per_row_block = meta.file_header.message().num_rows_per_block()));
 
     if (OLAP_UNLIKELY(num_entries == 0)) {
@@ -318,7 +318,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
 OLAPStatus MemIndex::init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
                           std::vector<TabletColumn>* short_key_columns) {
     if (short_key_columns == nullptr) {
-        LOG(WARNING) << "fail to init MemIndex, NULL short key columns.";
+        LOG(WARNING) << "fail to init MemIndex, nullptr short key columns.";
         return OLAP_ERR_INDEX_LOAD_ERROR;
     }
 

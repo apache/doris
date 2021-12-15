@@ -96,7 +96,7 @@ namespace doris {
     } while (0)
 
 Mutex::Mutex() {
-    PTHREAD_MUTEX_INIT_WITH_LOG(&_lock, NULL);
+    PTHREAD_MUTEX_INIT_WITH_LOG(&_lock, nullptr);
 }
 
 Mutex::~Mutex() {
