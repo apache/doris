@@ -618,6 +618,13 @@ module.exports = [
     ],
   },
   {
+    title: "Doris User",
+    directoryPath: "case-user/",
+    children: [
+        "case-user",
+    ],
+  },
+  {
     title: "Developer Guide",
     directoryPath: "developer-guide/",
     children: [
