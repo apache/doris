@@ -39,18 +39,7 @@ class BitmapFunctions {
 public:
     static void init();
     static void bitmap_init(FunctionContext* ctx, StringVal* slot);
-    //in order to compatible version, now only support 2 or more columns parameters
-    //TODO: could remove only one parameters in feature
-    static void bitmaps_union_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
-    static void bitmaps_union_update(FunctionContext* ctx, const StringVal& first_bitmap, int num_args,
-                                     const StringVal* bitmap_strs, StringVal* dst);
-    static void bitmaps_intersect_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
-    static void bitmaps_intersect_update(FunctionContext* ctx, const StringVal& first_bitmap, int num_args,
-                                         const StringVal* bitmap_strs, StringVal* dst);
-    //TODO: this is bitmap_union bitmap_intersect only have one column parameters
-    //in feature could remove 
-    static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
-    static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    static StringVal bitmap_empty(FunctionContext* ctx);
 
     template <typename T>
     static void bitmap_update_int(FunctionContext* ctx, const T& src, StringVal* dst);
@@ -60,12 +49,11 @@ public:
     // Get the bitmap cardinality, the difference from bitmap_finalize method is
     // bitmap_get_value method doesn't free memory, this function is used in analytic get_value function
     static BigIntVal bitmap_get_value(FunctionContext* ctx, const StringVal& src);
-    static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
 
+    static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     // the dst value could be null
     static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
-
-    static StringVal bitmap_empty(FunctionContext* ctx);
+    static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
                                           const StringVal& dst);
@@ -78,6 +66,7 @@ public:
     static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs,
                                      const StringVal& rhs);
 
+    static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
@@ -86,6 +75,21 @@ public:
     static StringVal bitmap_not(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_and_not(FunctionContext* ctx, const StringVal& src,
                                     const StringVal& dst);
+
+    //TODO: this functions support variable parameter, but in order to version compatible
+    //so have not remove old functions, and now is the version of 0.15, in the future could remove that functions
+    static StringVal bitmap_or(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                               const StringVal* bitmap_strs);
+    static StringVal bitmap_and(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                const StringVal* bitmap_strs);
+    static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                const StringVal* bitmap_strs);
+    static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs);
+    static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs);
+    static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs);
 
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap

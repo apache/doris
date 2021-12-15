@@ -502,7 +502,9 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)
                 || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)
                 || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_INTERSECT)) {
-
+            if (children.size() != 1) {
+                throw new AnalysisException(fnName + " function could only have one child");
+            }
             Type inputType = getChild(0).getType();
             if (!inputType.isBitmapType()) {
                 throw new AnalysisException(fnName + " function's argument should be of BITMAP type, but was " + inputType);

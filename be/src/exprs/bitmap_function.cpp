@@ -291,105 +291,6 @@ BigIntVal BitmapFunctions::bitmap_get_value(FunctionContext* ctx, const StringVa
     return result;
 }
 
-// the dst value could be null
-void BitmapFunctions::nullable_bitmap_init(FunctionContext* ctx, StringVal* dst) {
-    dst->is_null = true;
-}
-
-//for bitmap_intersect merge
-void BitmapFunctions::bitmaps_intersect_merge(FunctionContext* ctx, const StringVal& src,
-                                              StringVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-    // if dst is null, the src input is the first value
-    if (dst->is_null) {
-        dst->is_null = false;
-        dst->len = sizeof(BitmapValue);
-        dst->ptr = (uint8_t*)new BitmapValue((char*)src.ptr);
-        return;
-    }
-    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
-    // zero size means the src input is a agg object
-    if (src.len == 0) {
-        (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(src.ptr);
-    } else {
-        (*dst_bitmap) &= BitmapValue((char*)src.ptr);
-    }
-}
-
-void BitmapFunctions::bitmaps_union_merge(FunctionContext* ctx, const StringVal& src,
-                                          StringVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
-    if (src.len == 0) {
-        (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src.ptr);
-    } else {
-        (*dst_bitmap) |= BitmapValue((char*)src.ptr);
-    }
-}
-
-void BitmapFunctions::bitmaps_union_update(FunctionContext* ctx, const StringVal& first_bitmap,
-                                           int num_args, const StringVal* bitmap_strs,
-                                           StringVal* dst) {
-    if (bitmap_strs->is_null && first_bitmap.is_null) {
-        return;
-    }
-    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
-
-    if (first_bitmap.len == 0) {
-        (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(first_bitmap.ptr);
-    } else {
-        (*dst_bitmap) |= BitmapValue((char*)first_bitmap.ptr);
-    }
-
-    for (int i = 0; i < num_args; ++i) {
-        if (bitmap_strs[i].is_null) {
-            continue;
-        }
-        if (bitmap_strs[i].len == 0) {
-            (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
-        } else {
-            (*dst_bitmap) |= BitmapValue((char*)bitmap_strs[i].ptr);
-        }
-    }
-}
-
-void BitmapFunctions::bitmaps_intersect_update(FunctionContext* ctx, const StringVal& first_bitmap,
-                                               int num_args, const StringVal* bitmap_strs,
-                                               StringVal* dst) {
-    if (bitmap_strs->is_null && first_bitmap.is_null) {
-        return;
-    }
-
-    if (dst->is_null) {
-        dst->is_null = false;
-        dst->len = sizeof(BitmapValue);
-        dst->ptr = first_bitmap.is_null ? (uint8_t*)new BitmapValue((char*)bitmap_strs[0].ptr)
-                                        : (uint8_t*)new BitmapValue((char*)first_bitmap.ptr);
-    }
-
-    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
-    if (first_bitmap.len == 0) {
-        (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(first_bitmap.ptr);
-    } else {
-        (*dst_bitmap) &= BitmapValue((char*)first_bitmap.ptr);
-    }
-
-    for (int i = 0; i < num_args; ++i) {
-        if (bitmap_strs[i].is_null) {
-            continue;
-        }
-        if (bitmap_strs[i].len == 0) {
-            (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
-        } else {
-            (*dst_bitmap) &= BitmapValue((char*)bitmap_strs[i].ptr);
-        }
-    }
-}
-
 void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
     if (src.is_null) {
         return;
@@ -401,6 +302,11 @@ void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, S
     } else {
         (*dst_bitmap) |= BitmapValue((char*)src.ptr);
     }
+}
+
+// the dst value could be null
+void BitmapFunctions::nullable_bitmap_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = true;
 }
 
 void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
@@ -567,6 +473,31 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
+                                     int num_args, const StringVal* bitmap_strs) {
+    DCHECK_GE(num_args, 1);
+    if (lhs.is_null || bitmap_strs->is_null) {
+        return StringVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+    for (int i = 0; i < num_args; ++i) {
+        if (bitmap_strs[i].is_null) {
+            return StringVal::null();
+        }
+        if (bitmap_strs[i].len == 0) {
+            bitmap |= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            bitmap |= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
+    }
+    return serialize(ctx, &bitmap);
+}
+
 StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs,
                                       const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
@@ -586,6 +517,32 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
     }
     return serialize(ctx, &bitmap);
 }
+
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs,
+                                      int num_args, const StringVal* bitmap_strs) {
+    DCHECK_GE(num_args, 1);
+    if (lhs.is_null || bitmap_strs->is_null) {
+        return StringVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+    for (int i = 0; i < num_args; ++i) {
+        if (bitmap_strs[i].is_null) {
+            return StringVal::null();
+        }
+        if (bitmap_strs[i].len == 0) {
+            bitmap &= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            bitmap &= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
+    }
+    return serialize(ctx, &bitmap);
+}
+
 BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVal& lhs,
                                             const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
@@ -605,6 +562,32 @@ BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVa
     }
 }
 
+BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                           const StringVal* bitmap_strs) {
+    DCHECK_GE(num_args, 1);
+    if (lhs.is_null || bitmap_strs->is_null) {
+        return BigIntVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    for (int i = 0; i < num_args; i++) {
+        if (bitmap_strs[i].is_null) {
+            return BigIntVal::null();
+        }
+        if (bitmap_strs[i].len == 0) {
+            bitmap &= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            bitmap &= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
+    }
+    return {static_cast<int64_t>(bitmap.cardinality())};
+}
+
 BigIntVal BitmapFunctions::bitmap_or_count(FunctionContext* ctx, const StringVal& lhs,
                                            const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
@@ -622,6 +605,32 @@ BigIntVal BitmapFunctions::bitmap_or_count(FunctionContext* ctx, const StringVal
     } else {
         return bitmap.or_cardinality(BitmapValue((char*)rhs.ptr));
     }
+}
+
+BigIntVal BitmapFunctions::bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                           const StringVal* bitmap_strs) {
+    DCHECK_GE(num_args, 1);
+    if (lhs.is_null || bitmap_strs->is_null) {
+        return BigIntVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    for (int i = 0; i < num_args; i++) {
+        if (bitmap_strs[i].is_null) {
+            return BigIntVal::null();
+        }
+        if (bitmap_strs[i].len == 0) {
+            bitmap |= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            bitmap |= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
+    }
+    return {static_cast<int64_t>(bitmap.cardinality())};
 }
 
 StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs,
@@ -644,6 +653,31 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs,
+                                      int num_args, const StringVal* bitmap_strs) {
+    DCHECK_GE(num_args, 1);
+    if (lhs.is_null || bitmap_strs->is_null) {
+        return StringVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+    for (int i = 0; i < num_args; ++i) {
+        if (bitmap_strs[i].is_null) {
+            return StringVal::null();
+        }
+        if (bitmap_strs[i].len == 0) {
+            bitmap ^= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            bitmap ^= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
+    }
+    return serialize(ctx, &bitmap);
+}
+
 BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs,
                                             const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
@@ -661,6 +695,32 @@ BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVa
     } else {
         return bitmap.xor_cardinality(BitmapValue((char*)rhs.ptr));
     }
+}
+
+BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                           const StringVal* bitmap_strs) {
+    DCHECK_GE(num_args, 1);
+    if (lhs.is_null || bitmap_strs->is_null) {
+        return BigIntVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    for (int i = 0; i < num_args; i++) {
+        if (bitmap_strs[i].is_null) {
+            return BigIntVal::null();
+        }
+        if (bitmap_strs[i].len == 0) {
+            bitmap ^= *reinterpret_cast<BitmapValue*>(bitmap_strs[i].ptr);
+        } else {
+            bitmap ^= BitmapValue((char*)bitmap_strs[i].ptr);
+        }
+    }
+    return {static_cast<int64_t>(bitmap.cardinality())};
 }
 
 StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs,

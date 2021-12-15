@@ -33,7 +33,7 @@ under the License.
 
 `BITMAP BITMAP_INTERSECT(BITMAP value)`
 
-输入一组或多组 bitmap 值，求这些 bitmap 值的交集，并返回。
+输入一组 bitmap 值，求这一组 bitmap 值的交集，并返回。
 
 ## example
 
