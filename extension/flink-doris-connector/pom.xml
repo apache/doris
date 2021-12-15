@@ -37,8 +37,7 @@ under the License.
         <maven-javadoc-plugin.version>3.3.0</maven-javadoc-plugin.version>
         <maven-source-plugin.version>3.2.1</maven-source-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.home>${basedir}/../../</doris.home>
-        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+        <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
     </properties>
 
     <profiles>
