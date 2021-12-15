@@ -465,7 +465,7 @@ We will only discuss the case of a single BE. If the user cluster has more than 
 
 The system limits the number of Broker Load jobs running in a cluster to prevent too many Load jobs from running at the same time.
 
-First, the configuration parameter of FE: `desired_max_waiting_jobs` will limit the number of Broker Load jobs that are running (the job status is PENDING or LOADING) in a cluster. The default is 100. If this threshold is exceeded, the newly submitted job will be rejected directly.
+First, the configuration parameter of FE: `desired_max_waiting_jobs` will limit the number of Broker Load jobs that are pending or running (the job status is PENDING or LOADING) in a cluster. The default is 100. If this threshold is exceeded, the newly submitted job will be rejected directly.
 
 A Broker Load job will be divided into pending task and loading task phases. Among them, the pending task is responsible for obtaining the information of the imported file, and the loading task will be sent to BE to perform specific import tasks.
 
