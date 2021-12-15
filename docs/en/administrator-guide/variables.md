@@ -122,7 +122,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `character_set_client`
 
-     Used for compatibility with MySQL clients. No practical effect.
+   Used for compatibility with MySQL clients. No practical effect.
 
 * `character_set_connection`
 
@@ -222,7 +222,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
         Forward to Master to view information about the relevant PROC stored in the Master FE metadata. Mainly used for metadata comparison.
         
 * `init_connect`
-   
+
     Used for compatibility with MySQL clients. No practical effect.
     
 * `interactive_timeout`
@@ -416,7 +416,7 @@ Translated with www.DeepL.com/Translator (free version)
     When execute insert statement, doris will wait for the transaction to commit and visible after the import is completed.
     This parameter controls the timeout of waiting for transaction to be visible. The default value is 10000, and the minimum value is 1000.
 
-*  `enable_exchange_node_parallel_merge`
+* `enable_exchange_node_parallel_merge`
 
     In a sort query, when an upper level node receives the ordered data of the lower level node, it will sort the corresponding data on the exchange node to ensure that the final data is ordered. However, when a single thread merges multiple channels of data, if the amount of data is too large, it will lead to a single point of exchange node merge bottleneck.
 
@@ -443,3 +443,6 @@ Translated with www.DeepL.com/Translator (free version)
 * `disable_join_reorder`
 
     Used to turn off all automatic join reorder algorithms in the system. There are two values: true and false.It is closed by default, that is, the automatic join reorder algorithm of the system is adopted. After set to true, the system will close all automatic sorting algorithms, adopt the original SQL table order, and execute join
+
+* `return_object_data_as_binary`
+    Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array

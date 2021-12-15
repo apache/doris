@@ -633,7 +633,8 @@ module.exports = [
         "java-format-code",
         "cpp-format-code",
         "How-to-Share-blogs",
-        "minidump"
+        "minidump",
+        "bitmap-hll-file-format",
     ],
   },
   {

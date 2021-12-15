@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2.dpp;
-
-import org.apache.doris.common.Codec;
-import org.apache.doris.load.loadv2.dpp.BitmapValue;
+package org.apache.doris.common.io;
 
 import org.roaringbitmap.BitmapDataProvider;
 import org.roaringbitmap.BitmapDataProviderSupplier;
