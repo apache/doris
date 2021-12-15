@@ -45,6 +45,8 @@ public:
 
     bool is_numeric() const override { return false; }
 
+    bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
+
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
