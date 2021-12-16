@@ -152,6 +152,7 @@ public class SqlBlockRuleMgrTest {
 
         ShowSqlBlockRuleStmt showStmt = new ShowSqlBlockRuleStmt("test_rule1");
 
+        Assert.assertEquals(1, mgr.getSqlBlockRule(showStmt).size());
         Assert.assertEquals("select \\* from test_table", mgr.getSqlBlockRule(showStmt).get(0).getSql());
     }
 }
