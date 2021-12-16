@@ -153,7 +153,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Copy c'tor. Also passes in new id.
+     * Copy ctor. Also passes in new id.
      */
     protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName) {
         this.id = id;
