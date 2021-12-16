@@ -45,6 +45,8 @@ message PTransmitDataParams {
     optional PQueryStatistics query_statistics = 8;
 
     optional PBlock block = 9;
+    // transfer the RowBatch to the Controller Attachment
+    optional bool transfer_by_attachment = 10 [default = false];
 };
 
 message PTransmitDataResult {
@@ -96,6 +98,8 @@ message PTabletWriterAddBatchRequest {
     repeated int64 partition_ids = 8;
     // the backend which send this request
     optional int64 backend_id = 9 [default = -1];
+    // transfer the RowBatch to the Controller Attachment
+    optional bool transfer_by_attachment = 10 [default = false];
 };
 
 message PTabletWriterAddBatchResult {
