@@ -184,7 +184,6 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
                                         ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
-    int64_t merged_count = 0;
     do {
         if (UNLIKELY(_next_key == nullptr)) {
             *eof = true;
@@ -196,23 +195,13 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
         // skip the lower version rows;
-        while (nullptr != _next_key) {
-            auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
-            if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
-                break;
-            }
-
+        auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
+        if (LIKELY(res != OLAP_ERR_DATA_EOF)) {
             if (UNLIKELY(res != OLAP_SUCCESS)) {
                 LOG(WARNING) << "next failed: " << res;
                 return res;
             }
-
-            // break while can NOT doing aggregation
-            if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
-                agg_finalize_row(_value_cids, row_cursor, mem_pool);
-                break;
-            }
-            ++merged_count;
+            agg_finalize_row(_value_cids, row_cursor, mem_pool);
             cur_delete_flag = _next_delete_flag;
         }
 
@@ -223,7 +212,6 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
         }
         _stats.rows_del_filtered++;
     } while (cur_delete_flag);
-    _merged_rows += merged_count;
     return OLAP_SUCCESS;
 }
 
