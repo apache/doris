@@ -48,6 +48,7 @@
 #include "exec/schema_scan_node.h"
 #include "exec/select_node.h"
 #include "exec/spill_sort_node.h"
+#include "exec/table_function_node.h"
 #include "exec/topn_node.h"
 #include "exec/union_node.h"
 #include "exprs/expr_context.h"
@@ -470,6 +471,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
         *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::TABLE_FUNCTION_NODE:
+        *node = pool->add(new TableFunctionNode(pool, tnode, descs));
         return Status::OK();
 
     default:

@@ -55,6 +55,7 @@ import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.Arrays;
 import java.util.List;
+
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
@@ -84,7 +85,10 @@ public class FunctionCallExpr extends Expr {
     private Expr originStmtFnExpr;
 
     private boolean isRewrote = false;
-    
+
+    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "Currently only support `explode_split`, `explode_bitmap` " +
+            "and `explode_json_array_xx` table functions";
+
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -127,7 +131,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     private FunctionCallExpr(
-        FunctionName fnName, FunctionParams params, boolean isMergeAggFn) {
+            FunctionName fnName, FunctionParams params, boolean isMergeAggFn) {
         super();
         this.fnName = fnName;
         fnParams = params;
@@ -158,7 +162,7 @@ public class FunctionCallExpr extends Expr {
         super(other);
         fnName = other.fnName;
         isAnalyticFnCall = other.isAnalyticFnCall;
-     //   aggOp = other.aggOp;
+        //   aggOp = other.aggOp;
         // fnParams = other.fnParams;
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
@@ -245,12 +249,12 @@ public class FunctionCallExpr extends Expr {
         }
         if (((FunctionCallExpr) expr).fnParams.isDistinct()) {
             sb.append("DISTINCT ");
-        }  
+        }
         boolean isJsonFunction = false;
         int len = children.size();
         List<String> result = Lists.newArrayList();
         if ((fnName.getFunction().equalsIgnoreCase("json_array")) ||
-            (fnName.getFunction().equalsIgnoreCase("json_object"))) {
+                (fnName.getFunction().equalsIgnoreCase("json_object"))) {
             len = len - 1;
             isJsonFunction = true;
         }
@@ -277,7 +281,7 @@ public class FunctionCallExpr extends Expr {
 
     public boolean isScalarFunction() {
         Preconditions.checkState(fn != null);
-        return fn instanceof ScalarFunction ;
+        return fn instanceof ScalarFunction;
     }
 
     public boolean isAggregateFunction() {
@@ -289,6 +293,7 @@ public class FunctionCallExpr extends Expr {
         Preconditions.checkState(fn != null);
         return fn instanceof BuiltinAggregateFunction && !isAnalyticFnCall;
     }
+
     /**
      * Returns true if this is a call to an aggregate function that returns
      * non-null on an empty input (e.g. count).
@@ -296,7 +301,7 @@ public class FunctionCallExpr extends Expr {
     public boolean returnsNonNullOnEmpty() {
         Preconditions.checkNotNull(fn);
         return fn instanceof AggregateFunction
-            && ((AggregateFunction) fn).returnsNonNullOnEmpty();
+                && ((AggregateFunction) fn).returnsNonNullOnEmpty();
     }
 
     public boolean isDistinct() {
@@ -372,8 +377,8 @@ public class FunctionCallExpr extends Expr {
             }
             return;
         }
-        
-        if(fnName.getFunction().equalsIgnoreCase("json_array")) {
+
+        if (fnName.getFunction().equalsIgnoreCase("json_array")) {
             String res = parseJsonDataType(false);
             if (children.size() == originChildSize) {
                 children.add(new StringLiteral(res));
@@ -381,8 +386,8 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
-        if(fnName.getFunction().equalsIgnoreCase("json_object")) {
-            if ((children.size()&1) == 1 && (originChildSize == children.size())) {
+        if (fnName.getFunction().equalsIgnoreCase("json_object")) {
+            if ((children.size() & 1) == 1 && (originChildSize == children.size())) {
                 throw new AnalysisException("json_object can't be odd parameters, need even parameters: " + this.toSql());
             }
             String res = parseJsonDataType(true);
@@ -395,7 +400,7 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("group_concat")) {
             if (children.size() > 2 || children.isEmpty()) {
                 throw new AnalysisException(
-                         "group_concat requires one or two parameters: " + this.toSql());
+                        "group_concat requires one or two parameters: " + this.toSql());
             }
 
             if (fnParams.isDistinct()) {
@@ -405,7 +410,7 @@ public class FunctionCallExpr extends Expr {
             Expr arg0 = getChild(0);
             if (!arg0.type.isStringType() && !arg0.type.isNull()) {
                 throw new AnalysisException(
-                         "group_concat requires first parameter to be of type STRING: " + this.toSql());
+                        "group_concat requires first parameter to be of type STRING: " + this.toSql());
             }
 
             if (children.size() == 2) {
@@ -490,7 +495,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("intersect_count function first argument should be of BITMAP type, but was " + inputType);
             }
 
-            for(int i = 2; i < children.size(); i++) {
+            for (int i = 2; i < children.size(); i++) {
                 if (!getChild(i).isConstant()) {
                     throw new AnalysisException("intersect_count function filter_values arg must be constant");
                 }
@@ -667,7 +672,7 @@ public class FunctionCallExpr extends Expr {
                 type = getChild(0).type.getMaxResolutionType();
             }
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{type},
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
             Type compatibleType = this.children.get(0).getType();
             for (int i = 1; i < this.children.size(); ++i) {
@@ -688,36 +693,36 @@ public class FunctionCallExpr extends Expr {
                 fn = getTableFunction(fnName.getFunction(), childTypes,
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 if (fn == null) {
-                    throw new AnalysisException("Doris only support `explode_split(varchar, varchar)` table function");
+                    throw new AnalysisException(UNKNOWN_TABLE_FUNCTION_MSG);
                 }
-                return;
-            }
-            // now first find function in built-in functions
-            if (Strings.isNullOrEmpty(fnName.getDb())) {
-                Type[] childTypes = collectChildReturnTypes();
-                fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
-                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            }
-
-            // find user defined functions
-            if (fn == null) {
-                if (!analyzer.isUDFAllowed()) {
-                    throw new AnalysisException(
-                            "Does not support non-builtin functions, or function does not exist: " + this.toSqlImpl());
+            } else {
+                // now first find function in built-in functions
+                if (Strings.isNullOrEmpty(fnName.getDb())) {
+                    Type[] childTypes = collectChildReturnTypes();
+                    fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
+                            Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 }
 
-                String dbName = fnName.analyzeDb(analyzer);
-                if (!Strings.isNullOrEmpty(dbName)) {
-                    // check operation privilege
-                    if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(
-                            ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+                // find user defined functions
+                if (fn == null) {
+                    if (!analyzer.isUDFAllowed()) {
+                        throw new AnalysisException(
+                                "Does not support non-builtin functions, or function does not exist: " + this.toSqlImpl());
                     }
-                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbName);
-                    if (db != null) {
-                        Function searchDesc = new Function(
-                                fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-                        fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+
+                    String dbName = fnName.analyzeDb(analyzer);
+                    if (!Strings.isNullOrEmpty(dbName)) {
+                        // check operation privilege
+                        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(
+                                ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+                            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+                        }
+                        Database db = Catalog.getCurrentCatalog().getDbNullable(dbName);
+                        if (db != null) {
+                            Function searchDesc = new Function(
+                                    fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+                            fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                        }
                     }
                 }
             }
@@ -729,7 +734,7 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
-        || fnName.getFunction().equalsIgnoreCase("date_format")) {
+                || fnName.getFunction().equalsIgnoreCase("date_format")) {
             // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
             if (children.size() > 1) {
                 final StringLiteral fmtLiteral = (StringLiteral) children.get(1);
@@ -994,40 +999,34 @@ public class FunctionCallExpr extends Expr {
         result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
-    public String forJSON(String str){
+
+    public String forJSON(String str) {
         final StringBuilder result = new StringBuilder();
         StringCharacterIterator iterator = new StringCharacterIterator(str);
         char character = iterator.current();
-        while (character != StringCharacterIterator.DONE){
-          if( character == '\"' ){
-            result.append("\\\"");
-          }
-          else if(character == '\\'){
-            result.append("\\\\");
-          }
-          else if(character == '/'){
-            result.append("\\/");
-          }
-          else if(character == '\b'){
-            result.append("\\b");
-          }
-          else if(character == '\f'){
-            result.append("\\f");
-          }
-          else if(character == '\n'){
-            result.append("\\n");
-          }
-          else if(character == '\r'){
-            result.append("\\r");
-          }
-          else if(character == '\t'){
-            result.append("\\t");
-          }
-          else {
-            result.append(character);
-          }
-          character = iterator.next();
+        while (character != StringCharacterIterator.DONE) {
+            if (character == '\"') {
+                result.append("\\\"");
+            } else if (character == '\\') {
+                result.append("\\\\");
+            } else if (character == '/') {
+                result.append("\\/");
+            } else if (character == '\b') {
+                result.append("\\b");
+            } else if (character == '\f') {
+                result.append("\\f");
+            } else if (character == '\n') {
+                result.append("\\n");
+            } else if (character == '\r') {
+                result.append("\\r");
+            } else if (character == '\t') {
+                result.append("\\t");
+            } else {
+                result.append(character);
+            }
+            character = iterator.next();
         }
-        return result.toString();    
-      }
+        return result.toString();
+    }
 }
+

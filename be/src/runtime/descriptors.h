@@ -108,7 +108,6 @@ private:
     friend class TupleDescriptor;
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
-    friend class TupleDescriptor;
 
     const SlotId _id;
     const TypeDescriptor _type;
