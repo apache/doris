@@ -48,7 +48,7 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
      * Applicable scene:
      * The performance and results of the following scenarios are equivalent.
      * 1) "select * from T where t1 = 2.0" is converted to "select * from T where t1 = 2"
-     * 2) "select * from T where t1 = 2.1" is converted to "EMPTYSET"
+     * 2) "select * from T where t1 = 2.1" is converted to "select * from T where 2 = 2.1" (`EMPTY`)
      * 3) "select * from T where t1 != 2.0" is converted to "select * from T where t1 != 2"
      * 4) "select * from T where t1 != 2.1" is converted to "select * from T"
      * 5) "select * from T where t1 <= 2.0" is converted to "select * from T where t1 <= 2"

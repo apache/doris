@@ -35,6 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
@@ -232,11 +233,11 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public void roundCeiling() {
-        value = value.setScale(0, 2);
+        value = value.setScale(0, RoundingMode.CEILING);
     }
 
     public void roundFloor() {
-        value = value.setScale(0, 3);
+        value = value.setScale(0, RoundingMode.FLOOR);
     }
 
     @Override
