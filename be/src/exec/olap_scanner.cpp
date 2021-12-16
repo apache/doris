@@ -61,7 +61,6 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }
 
-OlapScanner::~OlapScanner() {}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
