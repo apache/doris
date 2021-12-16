@@ -622,6 +622,13 @@ module.exports = [
     ],
   },
   {
+    title: "Doris用户",
+    directoryPath: "case-user/",
+    children: [
+        "case-user",
+    ],
+  },
+  {
     title: "开发者手册",
     directoryPath: "developer-guide/",
     children: [
