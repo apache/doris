@@ -17,17 +17,8 @@
 
 package org.apache.doris.manager.common.domain;
 
-public class FeStartCommandRequestBody {
-    private String helpHostPort;
+public class BeStartCommandRequestBody {
     private boolean stopBeforeStart;
-
-    public String getHelpHostPort() {
-        return helpHostPort;
-    }
-
-    public void setHelpHostPort(String helpHostPort) {
-        this.helpHostPort = helpHostPort;
-    }
 
     public boolean isStopBeforeStart() {
         return stopBeforeStart;

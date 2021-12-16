@@ -25,7 +25,7 @@ public class AgentConstants {
 
     public static final int COMMAND_HISTORY_SAVE_MAX_COUNT = 100;
 
-    public static final String BASH_BIN = "/bin/sh ";
+    public static final String BASH_BIN = " /bin/bash ";
 
     public static final String FE_CONFIG_KEY_META_DIR = "meta_dir";
     public static final String BE_CONFIG_KEY_STORAGE_DIR = "storage_root_path";
@@ -33,8 +33,6 @@ public class AgentConstants {
     public static final String BE_CONFIG_KEY_HTTP_PORT = "webserver_port";
     public static final String BROKER_CONFIG_KEY_IPC_PORT = "broker_ipc_port";
 
-    public static final String FE_DEFAULT_META_DIR_RELATIVE_PATH = "/doris-meta";
-    public static final String BE_DEFAULT_STORAGE_DIR_RELATIVE_PATH = "/storage";
     public static final String FE_CONFIG_FILE_RELATIVE_PATH = "/conf/fe.conf";
     public static final String BE_CONFIG_FILE_RELATIVE_PATH = "/conf/be.conf";
     public static final String BROKER_CONFIG_FILE_RELATIVE_PATH = "/conf/apache_hdfs_broker.conf";

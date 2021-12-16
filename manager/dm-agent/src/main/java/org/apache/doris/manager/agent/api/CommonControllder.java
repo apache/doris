@@ -19,6 +19,7 @@ package org.apache.doris.manager.agent.api;
 
 import org.apache.doris.manager.agent.register.AgentContext;
 import org.apache.doris.manager.agent.service.BeService;
+import org.apache.doris.manager.agent.service.BrokerService;
 import org.apache.doris.manager.agent.service.FeService;
 import org.apache.doris.manager.agent.service.Service;
 import org.apache.doris.manager.agent.service.ServiceContext;
@@ -74,6 +75,9 @@ public class CommonControllder {
         } else if (ServiceRole.findByName(register.getRole()) == ServiceRole.BE) {
             BeService beService = new BeService(register.getInstallDir());
             ServiceContext.register(beService);
+        } else if (ServiceRole.findByName(register.getRole()) == ServiceRole.BROKER) {
+            BrokerService brokerService = new BrokerService(register.getInstallDir());
+            ServiceContext.register(brokerService);
         } else {
             return RResult.error("unkown service role");
         }

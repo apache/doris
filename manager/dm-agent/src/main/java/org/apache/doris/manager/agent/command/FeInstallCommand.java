@@ -109,11 +109,6 @@ public class FeInstallCommand extends Command {
         @Override
         public void onSuccess(FeInstallTaskDesc taskDesc) {
             FeService feService = new FeService(taskDesc.getInstallDir());
-
-            if (taskDesc.isCreateMetaDir()) {
-                feService.createMetaDir(false);
-            }
-
             ServiceContext.register(feService);
         }
     }

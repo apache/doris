@@ -96,7 +96,7 @@ public class WriteBeConfCommand extends BeCommand {
             service.load();
 
             if (taskDesc.isCreateStorageDir()) {
-                service.createStrorageDir(true);
+                service.createStrorageDir();
             }
         }
     }

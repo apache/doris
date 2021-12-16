@@ -74,6 +74,11 @@ manager/dm-server/target
 manager/dm-server/dm-server.iml
 manager/.idea/
 manager/manager.iml
+manager/general/target
+manager/manager-server/target
+manager/manager/target
+manager/target
+
 
 #ignore vscode project file
 .vscode

@@ -109,7 +109,7 @@ public class BeService extends Service {
         return false;
     }
 
-    public void createStrorageDir(boolean createDefaultMetaDir) {
+    public void createStrorageDir() {
         String storageVal = null;
         String storageValInConfig = getConfig().getProperty(AgentConstants.BE_CONFIG_KEY_STORAGE_DIR);
         if (Objects.nonNull(storageValInConfig) && storageValInConfig.contains("${DORIS_HOME}/")) {
@@ -120,8 +120,6 @@ public class BeService extends Service {
             storageVal = installDir + subDir;
         } else if (Objects.nonNull(storageValInConfig) && storageValInConfig.startsWith("/")) {
             storageVal = storageValInConfig;
-        } else if (createDefaultMetaDir) {
-            storageVal = installDir + AgentConstants.BE_DEFAULT_STORAGE_DIR_RELATIVE_PATH;
         }
 
         if (Objects.nonNull(storageVal)) {

@@ -40,7 +40,9 @@ public class ScriptTask extends Task<ScriptTaskDesc> {
     @Override
     protected int execute() throws IOException, InterruptedException {
         Runtime rt = Runtime.getRuntime();
-        Process proc = rt.exec(taskDesc.getScriptCmd());
+        String[] commands = {"/bin/bash", "-c", ""};
+        commands[2] = taskDesc.getScriptCmd();
+        Process proc = rt.exec(commands);
         BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
         BufferedReader stdError = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
 

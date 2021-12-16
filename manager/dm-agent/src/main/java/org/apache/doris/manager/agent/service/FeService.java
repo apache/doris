@@ -92,7 +92,7 @@ public class FeService extends Service {
         return false;
     }
 
-    public void createMetaDir(boolean createDefaultMetaDir) {
+    public void createMetaDir() {
         String dir = null;
         String metaDir = getConfig().getProperty(AgentConstants.FE_CONFIG_KEY_META_DIR);
         if (Objects.nonNull(metaDir) && metaDir.contains("${DORIS_HOME}/")) {
@@ -103,8 +103,8 @@ public class FeService extends Service {
             dir = installDir + subDir;
         } else if (Objects.nonNull(metaDir) && metaDir.startsWith("/")) {
             dir = metaDir;
-        } else if (createDefaultMetaDir) {
-            dir = installDir + AgentConstants.FE_DEFAULT_META_DIR_RELATIVE_PATH;
+        } else {
+            dir = installDir + File.separator + metaDir;
         }
 
         if (Objects.nonNull(dir)) {
