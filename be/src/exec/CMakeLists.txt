@@ -58,6 +58,7 @@ set(EXEC_FILES
     plain_text_line_reader.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
+    table_function_node.cpp
     es_scan_node.cpp
     es_http_scan_node.cpp
     es_http_scanner.cpp
