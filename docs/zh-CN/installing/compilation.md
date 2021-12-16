@@ -46,7 +46,7 @@ under the License.
 
 > 注1：针对不同的 Doris 版本，需要下载对应的镜像版本。从 Apache Doris 0.15 版本起，后续镜像版本号将与 Doris 版本号统一。比如可以使用 `apache/incubator-doris:build-env-for-0.15.0 `  来编译 0.15.0 版本。
 >
-> 注2：`apache/incubator-doris:build-env-latest` 用于编译最新主干版本代码，会随主干版本不断更新。
+> 注2：`apache/incubator-doris:build-env-latest` 用于编译最新主干版本代码，会随主干版本不断更新。可以查看 `docker/README.md` 中的更新时间。
 
 | 镜像版本 | commit id | doris 版本 |
 |---|---|---|

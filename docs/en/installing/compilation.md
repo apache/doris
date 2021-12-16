@@ -47,7 +47,7 @@ This document focuses on how to code Doris through source code.
 
 > Note1: For different versions of Doris, you need to download the corresponding mirror version. From Apache Doris 0.15 version, the docker image will keep same version number with Doris. For example, you can use  `apache/incubator-doris:build-env-for-0.15.0` to compile Apache Doris 0.15.0.
 >
-> Node2: `apache/incubator-doris:build-env-latest` is for compiling trunk code, and will be updated along with trunk code.
+> Node2: `apache/incubator-doris:build-env-latest` is for compiling trunk code, and will be updated along with trunk code. View the update time in `docker/README.md`
 
 | image version | commit id | release version |
 |---|---|---|
