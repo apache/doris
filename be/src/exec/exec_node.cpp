@@ -656,6 +656,10 @@ Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
     return state->check_query_state(msg);
 }
 
+Status ExecNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    return Status::NotSupported("Not Implemented get batch");
+}
+
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     return Status::NotSupported("Not Implemented get block");
 }

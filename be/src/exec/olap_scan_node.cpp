@@ -59,8 +59,6 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters) {}
 
-OlapScanNode::~OlapScanNode() {}
-
 Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _direct_conjunct_size = state->enable_vectorized_exec() ? 1 : _conjunct_ctxs.size();
@@ -1671,6 +1669,5 @@ Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
     return Status::OK();
 }
 
-void OlapScanNode::debug_string(int /* indentation_level */, std::stringstream* /* out */) const {}
 
 } // namespace doris
