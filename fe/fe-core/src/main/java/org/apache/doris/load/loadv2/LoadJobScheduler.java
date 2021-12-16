@@ -18,18 +18,12 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.collect.Queues;
 
@@ -66,12 +60,13 @@ public class LoadJobScheduler extends MasterDaemon {
 
     private void process() throws InterruptedException {
         while (true) {
-            if (!needScheduleJobs.isEmpty()) {
-                if (needScheduleJobs.peek() instanceof BrokerLoadJob && Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().isTaskQueueFull()) {
-                    LOG.warn("Failed to take one broker load job from queue because of task queue in loading_load_task_scheduler is full");
-                    return;
-                }
-            } else {
+            if (needScheduleJobs.isEmpty()) {
+                return;
+            }
+
+            if (needScheduleJobs.peek() instanceof BrokerLoadJob && !Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().hasIdleThread()) {
+                LOG.info("Failed to take one broker load job from queue because of loading_load_task_scheduler is full." +
+                        " Waiting for next round. You can try to increase the value of Config.async_loading_load_task_pool_size");
                 return;
             }
 
@@ -81,40 +76,18 @@ public class LoadJobScheduler extends MasterDaemon {
             // schedule job
             try {
                 loadJob.execute();
-            } catch (LabelAlreadyUsedException | AnalysisException | MetaNotFoundException | QuotaExceedException e) {
-                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                                 .add("error_msg", "There are error properties in job. Job will be cancelled")
-                                 .build(), e);
-                // transaction not begin, so need not abort
-                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
-                        false, true);
             } catch (LoadException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                                 .add("error_msg", "Failed to submit etl job. Job will be cancelled")
-                                 .build(), e);
-                // transaction already begin, so need abort
-                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
-                                              true, true);
-            } catch (DuplicatedRequestException e) {
-                // should not happen in load job scheduler, there is no request id.
-                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                        .add("error_msg", "Failed to begin txn with duplicate request. Job will be rescheduled later")
-                        .build(), e);
-                needScheduleJobs.put(loadJob);
-                return;
-            } catch (BeginTransactionException e) {
-                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                                 .add("error_msg", "Failed to begin txn when job is scheduling. "
-                                         + "Job will be rescheduled later")
-                                 .build(), e);
-                needScheduleJobs.put(loadJob);
-                return;
-            } catch (RejectedExecutionException e) {
-                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                        .add("error_msg", "Failed to submit etl job. Job queue is full.")
+                        .add("error_msg", "Failed to submit etl job. Job will be cancelled")
                         .build(), e);
                 loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
                         true, true);
+            } catch (RejectedExecutionException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
+                        .add("error_msg", "Failed to submit etl job. Job queue is full. retry later")
+                        .build(), e);
+                needScheduleJobs.put(loadJob);
+                return;
             }
         }
     }

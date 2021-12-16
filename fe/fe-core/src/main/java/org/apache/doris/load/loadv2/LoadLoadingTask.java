@@ -111,6 +111,7 @@ public class LoadLoadingTask extends LoadTask {
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
         beginTime = System.nanoTime();
+        ((BrokerLoadJob) callback).updateState(JobState.LOADING);
         executeOnce();
     }
 
