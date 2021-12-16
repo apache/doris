@@ -31,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.SynchronousQueue;
@@ -103,8 +104,8 @@ public class ThreadPoolManager {
     }
 
     public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread, int queueSize, String poolName, boolean needRegisterMetric) {
-       return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME ,TimeUnit.SECONDS, new LinkedBlockingQueue<>(queueSize),
-               new BlockedPolicy(poolName, 60), poolName, needRegisterMetric);
+        return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS, new LinkedBlockingQueue<>(queueSize),
+                new BlockedPolicy(poolName, 60), poolName, needRegisterMetric);
     }
 
     public static ThreadPoolExecutor newDaemonProfileThreadPool(int numThread, int queueSize, String poolName,
@@ -115,13 +116,13 @@ public class ThreadPoolManager {
     }
 
     public static ThreadPoolExecutor newDaemonThreadPool(int corePoolSize,
-                                               int maximumPoolSize,
-                                               long keepAliveTime,
-                                               TimeUnit unit,
-                                               BlockingQueue<Runnable> workQueue,
-                                               RejectedExecutionHandler handler,
-                                               String poolName,
-                                               boolean needRegisterMetric) {
+                                                         int maximumPoolSize,
+                                                         long keepAliveTime,
+                                                         TimeUnit unit,
+                                                         BlockingQueue<Runnable> workQueue,
+                                                         RejectedExecutionHandler handler,
+                                                         String poolName,
+                                                         boolean needRegisterMetric) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
         if (needRegisterMetric) {
@@ -164,7 +165,7 @@ public class ThreadPoolManager {
 
         @Override
         public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-           LOG.warn("Task " + r.toString() + " rejected from " + threadPoolName + " " + executor.toString());
+            LOG.warn("Task " + r.toString() + " rejected from " + threadPoolName + " " + executor.toString());
         }
     }
 
@@ -173,7 +174,7 @@ public class ThreadPoolManager {
      */
     static class BlockedPolicy implements RejectedExecutionHandler {
 
-        private static final Logger LOG = LogManager.getLogger(LogDiscardPolicy.class);
+        private static final Logger LOG = LogManager.getLogger(BlockedPolicy.class);
 
         private String threadPoolName;
 
@@ -187,14 +188,20 @@ public class ThreadPoolManager {
         @Override
         public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
             try {
-                executor.getQueue().offer(r, timeoutSeconds, TimeUnit.SECONDS);
+                boolean ret = executor.getQueue().offer(r, timeoutSeconds, TimeUnit.SECONDS);
+                if (!ret) {
+                    throw new RejectedExecutionException("submit task failed, queue size is full: " + this.threadPoolName);
+                }
             } catch (InterruptedException e) {
-                LOG.warn("Task " + r.toString() + " wait to enqueue in " + threadPoolName + " " + executor.toString() + " failed");
+                String errMsg = String.format("Task %s wait to enqueue in %s %s failed",
+                        r.toString(), threadPoolName, executor.toString());
+                LOG.warn(errMsg);
+                throw new RejectedExecutionException(errMsg);
             }
         }
     }
 
-    static class LogDiscardOldestPolicy implements RejectedExecutionHandler{
+    static class LogDiscardOldestPolicy implements RejectedExecutionHandler {
 
         private static final Logger LOG = LogManager.getLogger(LogDiscardOldestPolicy.class);
 

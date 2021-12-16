@@ -38,9 +38,7 @@ import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DataQualityException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -60,8 +58,6 @@ import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -200,12 +196,6 @@ public class SparkLoadJobTest {
                             @Injectable MasterTaskExecutor executor) throws Exception {
         new Expectations() {
             {
-                Catalog.getCurrentGlobalTransactionMgr();
-                result = transactionMgr;
-                transactionMgr.beginTransaction(dbId, Lists.newArrayList(), label, null,
-                                                (TransactionState.TxnCoordinator) any, LoadJobSourceType.FRONTEND,
-                                                anyLong, anyLong);
-                result = transactionId;
                 pendingTask.init();
                 pendingTask.getSignature();
                 result = pendingTaskId;
@@ -220,9 +210,7 @@ public class SparkLoadJobTest {
         SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.execute();
 
-        // check transaction id and id to tasks
-        Assert.assertEquals(transactionId, job.getTransactionId());
-        Assert.assertTrue(job.idToTasks.containsKey(pendingTaskId));
+        Assert.assertEquals(JobState.PENDING, job.getState());
     }
 
     @Test
@@ -272,7 +260,7 @@ public class SparkLoadJobTest {
         new Expectations() {
             {
                 handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
-                                        (SparkResource) any, (BrokerDesc) any);
+                        (SparkResource) any, (BrokerDesc) any);
                 result = status;
             }
         };
@@ -295,7 +283,7 @@ public class SparkLoadJobTest {
         new Expectations() {
             {
                 handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
-                                        (SparkResource) any, (BrokerDesc) any);
+                        (SparkResource) any, (BrokerDesc) any);
                 result = status;
             }
         };
@@ -315,7 +303,7 @@ public class SparkLoadJobTest {
         new Expectations() {
             {
                 handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
-                                        (SparkResource) any, (BrokerDesc) any);
+                        (SparkResource) any, (BrokerDesc) any);
                 result = status;
             }
         };
@@ -337,7 +325,7 @@ public class SparkLoadJobTest {
         status.getCounters().put("dpp.abnorm.ALL", "1");
         Map<String, Long> filePathToSize = Maps.newHashMap();
         String filePath = String.format("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9/V1.label6.%d.%d.%d.0.%d.parquet",
-                                        tableId, partitionId, indexId, schemaHash);
+                tableId, partitionId, indexId, schemaHash);
         long fileSize = 6L;
         filePathToSize.put(filePath, fileSize);
         PartitionInfo partitionInfo = new RangePartitionInfo();
@@ -346,7 +334,7 @@ public class SparkLoadJobTest {
         new Expectations() {
             {
                 handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
-                                        (SparkResource) any, (BrokerDesc) any);
+                        (SparkResource) any, (BrokerDesc) any);
                 result = status;
                 handler.getEtlFilePaths(etlOutputPath, (BrokerDesc) any);
                 result = filePathToSize;
@@ -380,7 +368,7 @@ public class SparkLoadJobTest {
                 Catalog.getCurrentGlobalTransactionMgr();
                 result = transactionMgr;
                 transactionMgr.commitTransaction(dbId, (List<Table>) any, transactionId, (List<TabletCommitInfo>) any,
-                                                 (LoadJobFinalOperation) any);
+                        (LoadJobFinalOperation) any);
             }
         };
 
@@ -466,7 +454,7 @@ public class SparkLoadJobTest {
         loadStartTimestamp = 1592388888L;
         String tabletMeta = String.format("%d.%d.%d.0.%d", tableId, partitionId, indexId, schemaHash);
         String filePath = String.format("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9/V1.label6.%d.%d.%d.0.%d.parquet",
-                                        tableId, partitionId, indexId, schemaHash);
+                tableId, partitionId, indexId, schemaHash);
         long fileSize = 6L;
         tabletMetaToFileInfo.put(tabletMeta, Pair.create(filePath, fileSize));
 
