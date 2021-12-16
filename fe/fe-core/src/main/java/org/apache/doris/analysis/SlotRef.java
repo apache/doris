@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -372,6 +373,19 @@ public class SlotRef extends Expr {
             }
             columnNames.add(desc.getColumn().getName());
         }
+    }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
+        if (isAnalyzed && desc != null && desc.getParent().getTable() == null && desc.getSourceExprs() != null) {
+            List<Expr> newSourceExprs = Lists.newArrayList();
+            for (int i = 0; i < desc.getSourceExprs().size(); ++i) {
+                newSourceExprs.add(desc.getSourceExprs().get(i).substituteImpl(smap, analyzer));
+            }
+            desc.setSourceExprs(newSourceExprs);
+            return this;
+        }
+        return super.substituteImpl(smap, analyzer);
     }
 
     public Table getTable() {

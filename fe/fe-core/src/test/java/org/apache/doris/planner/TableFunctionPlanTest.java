@@ -19,19 +19,19 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.io.FileUtils;
-
-import java.io.File;
-import java.util.UUID;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.File;
+import java.util.UUID;
 
 public class TableFunctionPlanTest {
     private static String runningDir = "fe/mocked/TableFunctionPlanTest/" + UUID.randomUUID().toString() + "/";
@@ -54,6 +54,11 @@ public class TableFunctionPlanTest {
         String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar, k3 varchar) "
                 + "DUPLICATE KEY(k1) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        createTblStmtStr = "create table db1.tbl2(k1 int, k2 varchar, v1 bitmap bitmap_union) "
+                + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
@@ -172,15 +177,11 @@ public class TableFunctionPlanTest {
     public void errorParam() throws Exception {
         String sql = "explain select k1, e1 from db1.tbl1 lateral view explode_split(k2) tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains("Doris only support `explode_split(varchar, varchar)` table function"));
+        Assert.assertTrue(explainString.contains(FunctionCallExpr.UNKNOWN_TABLE_FUNCTION_MSG));
 
         sql = "explain select k1, e1 from db1.tbl1 lateral view explode_split(k1) tmp as e1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains("Doris only support `explode_split(varchar, varchar)` table function"));
-
-        sql = "explain select k1, e1 from db1.tbl1 lateral view explode_split(k1, k2) tmp as e1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains("Split separator of explode must be a string const"));
+        Assert.assertTrue(explainString.contains(FunctionCallExpr.UNKNOWN_TABLE_FUNCTION_MSG));
     }
 
     /* Case2 table function in where stmt
@@ -385,29 +386,59 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
         String formatString = explainString.replaceAll(" ", "");
         Assert.assertTrue(formatString.contains(
-                          "SlotDescriptor{id=0,col=k1,type=INT}\n"
+                "SlotDescriptor{id=0,col=k1,type=INT}\n"
                         + "parent=0\n"
                         + "materialized=true"
         ));
         Assert.assertTrue(formatString.contains(
-                          "SlotDescriptor{id=1,col=k2,type=VARCHAR(*)}\n"
+                "SlotDescriptor{id=1,col=k2,type=VARCHAR(*)}\n"
                         + "parent=0\n"
                         + "materialized=true"
         ));
         Assert.assertTrue(formatString.contains(
-                          "SlotDescriptor{id=2,col=null,type=INT}\n"
+                "SlotDescriptor{id=2,col=null,type=INT}\n"
                         + "parent=1\n"
                         + "materialized=true"
         ));
         Assert.assertTrue(formatString.contains(
-                          "SlotDescriptor{id=3,col=null,type=VARCHAR(*)}\n"
+                "SlotDescriptor{id=3,col=null,type=VARCHAR(*)}\n"
                         + "parent=1\n"
                         + "materialized=true"
         ));
         Assert.assertTrue(formatString.contains(
-                          "SlotDescriptor{id=6,col=e1,type=VARCHAR(*)}\n"
+                "SlotDescriptor{id=6,col=e1,type=VARCHAR(*)}\n"
                         + "parent=3\n"
                         + "materialized=true"
         ));
+    }
+
+    @Test
+    public void testExplodeBitmap() throws Exception {
+        String sql = "desc select k1, e1 from db1.tbl2 lateral view explode_bitmap(v1) tmp1 as e1 ";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("table function: explode_bitmap(`default_cluster:db1`.`tbl2`.`v1`)"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    @Test
+    public void testExplodeJsonArray() throws Exception {
+        String sql = "desc select k1, e1 from db1.tbl2 lateral view explode_json_array_int('[1,2,3]') tmp1 as e1 ";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("table function: explode_json_array_int('[1,2,3]')"));
+        Assert.assertTrue(explainString.contains("output slot id: 0 1"));
+
+        sql = "desc select k1, e1 from db1.tbl2 lateral view explode_json_array_string('[\"a\",\"b\",\"c\"]') tmp1 as e1 ";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("table function: explode_json_array_string('[\"a\",\"b\",\"c\"]')"));
+        Assert.assertTrue(explainString.contains("output slot id: 0 1"));
+
+        sql = "desc select k1, e1 from db1.tbl2 lateral view explode_json_array_double('[1.1, 2.2, 3.3]') tmp1 as e1 ";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("table function: explode_json_array_double('[1.1, 2.2, 3.3]')"));
+        Assert.assertTrue(explainString.contains("output slot id: 0 1"));
     }
 }

@@ -435,6 +435,15 @@ module.exports = [
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
           },
+          {
+            title: "table functions",
+            directoryPath: "table-functions/",
+            children: [
+              "explode-bitmap",
+              "explode-split",
+              "explode-json-array"
+            ],
+          },
           "window-function",
           "cast",
           "digital-masking",
@@ -585,6 +594,7 @@ module.exports = [
               "alter-routine-load",
               "insert",
               "UPDATE",
+              "lateral-view",
             ],
           },
           {
