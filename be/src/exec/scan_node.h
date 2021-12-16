@@ -69,16 +69,15 @@ class ScanNode : public ExecNode {
 public:
     ScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : ExecNode(pool, tnode, descs) {}
-    virtual ~ScanNode() {}
 
     // Set up counters
-    virtual Status prepare(RuntimeState* state);
+    Status prepare(RuntimeState* state) override;
 
     // Convert scan_ranges into node-specific scan restrictions.  This should be
     // called after prepare()
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
-    virtual bool is_scan_node() const { return true; }
+    bool is_scan_node() const override { return true; }
 
     RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
     RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
