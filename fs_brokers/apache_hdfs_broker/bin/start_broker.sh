@@ -41,14 +41,19 @@ export PID_DIR=`cd "$curdir"; pwd`
 
 export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8"
 export BROKER_LOG_DIR="$BROKER_HOME/log"
-# export JAVA_HOME="/usr/java/jdk1.8.0_131"
 # java
-if [ "$JAVA_HOME" = "" ]; then
-  echo "Error: JAVA_HOME is not set."
-  exit 1
+if [ -z "$JAVA_HOME" ] ; then
+  JAVA=`which java`
+else
+  JAVA="$JAVA_HOME/bin/java"
 fi
 
-JAVA=$JAVA_HOME/bin/java
+if [ ! -x "$JAVA" ] ; then
+  echo "The JAVA_HOME environment variable is not defined correctly"
+  echo "This environment variable is needed to run this program"
+  echo "NB: JAVA_HOME should point to a JDK not a JRE"
+  exit 1
+fi
 
 # add libs to CLASSPATH
 for f in $BROKER_HOME/lib/*.jar; do

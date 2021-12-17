@@ -62,39 +62,39 @@ if [ -e $DORIS_HOME/bin/palo_env.sh ]; then
     source $DORIS_HOME/bin/palo_env.sh
 fi
 
-# java
-if [ "$JAVA_HOME" = "" ]; then
-  echo "Error: JAVA_HOME is not set."
+if [ -z "$JAVA_HOME" ] ; then
+  JAVA=`which java`
+else
+  JAVA="$JAVA_HOME/bin/java"
+fi
+
+if [ ! -x "$JAVA" ] ; then
+  echo "The JAVA_HOME environment variable is not defined correctly"
+  echo "This environment variable is needed to run this program"
+  echo "NB: JAVA_HOME should point to a JDK not a JRE"
   exit 1
 fi
-JAVA=$JAVA_HOME/bin/java
 
 # get jdk version, return version as an Integer.
 # 1.8 => 8, 13.0 => 13
 jdk_version() {
     local result
-    local java_cmd=$JAVA_HOME/bin/java
     local IFS=$'\n'
     # remove \r for Cygwin
-    local lines=$("$java_cmd" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
-    if [[ -z $java_cmd ]]
-    then
-        result=no_java
-    else
-        for line in $lines; do
-            if [[ (-z $result) && ($line = *"version \""*) ]]
+    local lines=$("$JAVA" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
+    for line in $lines; do
+        if [[ (-z $result) && ($line = *"version \""*) ]]
+        then
+            local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
+            # on macOS, sed doesn't support '?'
+            if [[ $ver = "1."* ]]
             then
-                local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
-                # on macOS, sed doesn't support '?'
-                if [[ $ver = "1."* ]]
-                then
-                    result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
-                else
-                    result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
-                fi
+                result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
+            else
+                result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
             fi
-        done
-    fi
+        fi
+    done
     echo "$result"
 }
 

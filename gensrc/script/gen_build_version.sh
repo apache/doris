@@ -77,14 +77,18 @@ build_short_hash="${short_revision}"
 build_time="${date}"
 build_info="${user}@${hostname}"
 
-java_cmd=
-if [[ (-n "$JAVA_HOME") && (-x "$JAVA_HOME/bin/java") ]]; then
-    java_cmd="$JAVA_HOME/bin/java"
+if [ -z "$JAVA_HOME" ] ; then
+  java_cmd=`which java`
 else
-    echo "JAVA_HOME is not set, or java bin is not found"
-    exit -1
+  java_cmd="$JAVA_HOME/bin/java"
 fi
 
+if [ ! -x "$java_cmd" ] ; then
+  echo "The JAVA_HOME environment variable is not defined correctly"
+  echo "This environment variable is needed to run this program"
+  echo "NB: JAVA_HOME should point to a JDK not a JRE"
+  exit 1
+fi
 java_version_str=`$java_cmd -fullversion 2>&1`
 java_version_str=$(echo $java_version_str | sed -e 's/"/\\"/g')
 

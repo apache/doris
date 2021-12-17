@@ -85,14 +85,21 @@ export CLANG_COMPATIBLE_FLAGS=`echo | ${DORIS_GCC_HOME}/bin/gcc -Wp,-v -xc++ - -
                 | grep -E '^\s+/' | awk '{print "-I" $1}' | tr '\n' ' '`
 
 # check java home
-if [[ -z ${JAVA_HOME} ]]; then
-    echo "Error: JAVA_HOME is not set"
-    exit 1
+if [ -z "$JAVA_HOME" ] ; then
+  export JAVACMD=`which java`
+  JAVAP=`which javap`
+else
+  export JAVA="${JAVA_HOME}/bin/java"
+  JAVAP="${JAVA_HOME}/bin/javap"
 fi
 
-# check java version
-export JAVA=${JAVA_HOME}/bin/java
-JAVAP=${JAVA_HOME}/bin/javap
+if [ ! -x "$JAVA" ] ; then
+  echo "The JAVA_HOME environment variable is not defined correctly"
+  echo "This environment variable is needed to run this program"
+  echo "NB: JAVA_HOME should point to a JDK not a JRE"
+  exit 1
+fi
+
 JAVA_VER=$(${JAVAP} -verbose java.lang.String | grep "major version" | cut -d " " -f5)
 if [[ $JAVA_VER -lt 52 ]]; then
     echo "Error: require JAVA with JDK version at least 1.8"
