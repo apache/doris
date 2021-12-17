@@ -29,8 +29,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -98,7 +98,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testBeNumMin(@Injectable PartitionInfo partitionInfo1,
+    public void testRoutineLoadTaskConcurrentNum(@Injectable PartitionInfo partitionInfo1,
                              @Injectable PartitionInfo partitionInfo2,
                              @Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
@@ -127,13 +127,13 @@ public class KafkaRoutineLoadJobTest {
                 minTimes = 0;
             }
         };
-
+        Config.max_routine_load_task_concurrent_num = 6;
         // 2 partitions, 1 be
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName1, 1L,
                         1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList1);
-        Assert.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
+        Assert.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 3 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
@@ -151,7 +151,7 @@ public class KafkaRoutineLoadJobTest {
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
                 1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList4);
-        Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
+        Assert.assertEquals(6, routineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
 
