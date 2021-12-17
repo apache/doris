@@ -523,10 +523,13 @@ build_rocksdb() {
 
 # cyrus_sasl
 build_cyrus_sasl() {
-   check_if_source_exist $CYRUS_SASL_SOURCE
-   cd $TP_SOURCE_DIR/$CYRUS_SASL_SOURCE
-   ./configure --prefix=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR --enable-static --enable-shared=no --with-openssl=$TP_INSTALL_DIR
-   make -j $PARALLEL && make install
+    check_if_source_exist $CYRUS_SASL_SOURCE
+    cd $TP_SOURCE_DIR/$CYRUS_SASL_SOURCE
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    CFLAGS="-fPIC" \
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static --enable-shared=no --with-openssl=$TP_INSTALL_DIR --with-pic
+    make -j $PARALLEL && make install
 }
 
 # librdkafka
