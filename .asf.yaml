@@ -17,7 +17,7 @@
 #
 
 github:
-  description: Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
+  description: Apache Doris(Incubating) is an MPP-based interactive SQL data warehousing for reporting and analysis.
   homepage: https://doris.apache.org/
   labels:
     - data-warehousing
