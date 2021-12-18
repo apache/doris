@@ -45,11 +45,11 @@ public class FeStartCommand extends FeCommand {
 
         if (Objects.nonNull(requestBody) && requestBody.isStopBeforeStart()) {
             scriptCmd += AgentConstants.BASH_BIN;
-            scriptCmd += ServiceContext.getServiceMap().get(ServiceRole.FE).getInstallDir() + "/bin/stop_fe.sh ;";
+            scriptCmd += ServiceContext.getServiceMap().get(ServiceRole.FE).getInstallDir() + "/bin/stop_fe.sh ; ";
         }
 
-        scriptCmd += AgentConstants.BASH_BIN;
-        scriptCmd += ServiceContext.getServiceMap().get(ServiceRole.FE).getInstallDir() + "/bin/start_fe.sh ";
+        scriptCmd += "cd " + ServiceContext.getServiceMap().get(ServiceRole.FE).getInstallDir() + " && ";
+        scriptCmd += AgentConstants.BASH_BIN + "./bin/start_fe.sh ";
         if (Objects.nonNull(requestBody) && Objects.nonNull(requestBody.getHelpHostPort()) && requestBody.getHelpHostPort().length() > 0) {
             scriptCmd += " --help " + requestBody.getHelpHostPort();
         }

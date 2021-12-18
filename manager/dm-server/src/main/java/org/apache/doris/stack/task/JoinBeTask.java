@@ -65,6 +65,7 @@ public class JoinBeTask extends AbstractTask {
         String addBeSqlFormat = "ALTER SYSTEM ADD BACKEND \"%s:%s\"";
         String addBe = String.format(addBeSqlFormat, taskDesc.getBeHost(), beHeatPort);
         try {
+            log.info("execute {}", addBe);
             JdbcUtil.execute(conn, addBe);
             return "Add backend success";
         } catch (SQLException e) {

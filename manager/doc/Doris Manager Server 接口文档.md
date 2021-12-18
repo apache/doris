@@ -421,7 +421,7 @@
 
 **URL**
 
-> /api/process/historyProgress
+> /api/process/currentProcess
 
 **支持格式**
 
@@ -439,13 +439,17 @@
 > |:-----   |:------|:-----------------------------   |
 > |msg   |String    |调用信息   |
 > |code  |String | 结果状态。0：正常  |
-> |data.id  |String | 流程id |
-> |data.processType   |String | 流程进度  |
+> |data.id  |String | 当前安装流程id |
+> |data.processType   |String | 当前安装流程类型(进度)：INSTALL_AGENT 安装Agent,INSTALL_SERVICE 安装服务,DEPLOY_CONFIG 分发配置,START_SERVICE 启动服务,BUILD_CLUSTER 组件集群  |
+> |data.processStep   |int | 流程步骤:0,1,2,3  |
 > |data.finish   |String | 流程完成标志  |
+> |data.status   |String | 流程状态  |
+> |data.createTime   |Date | 创建时间  |
+> |data.updateTime   |Date | 更新时间  |
 
 **接口示例**
 
-> 地址：http://localhost:9601/api/process/historyProgress
+> 地址：http://localhost:9601/api/process/currentProcess
 
 > 返回参数：
 ``` json
@@ -455,8 +459,8 @@
     "data": {
         "id": 1,
         "clusterId": 0,
-        "userId": 0,
         "processType": "START_SERVICE",
+        "processStep": 0,
         "createTime": "2021-11-02T01:29:58.000+00:00",
         "updateTime": "2021-11-02T01:29:58.000+00:00",
         "finish": "NO"
@@ -872,5 +876,48 @@
         "totalMemory": "15.5 GiB",
         "host": "127.0.0.1"
     }]
+}
+```
+
+
+#### 16.返回上一步
+
+**接口功能**
+
+> 返回上一步，只有第四步可以返回上一步，其余均不可返回上一步
+
+**URL**
+
+> /api/process/back/{processId}
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+无
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/back/1
+
+> 请求参数：无
+
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0
 }
 ```

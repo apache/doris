@@ -19,7 +19,6 @@ package org.apache.doris.manager.agent.service;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.agent.register.AgentContext;
@@ -30,6 +29,8 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -37,8 +38,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-@Slf4j
 public class BeService extends Service {
+
+    private static final Logger TASKLOG = LoggerFactory.getLogger(AgentConstants.LOG_TYPE_TASK);
 
     public BeService(String installDir) {
         super(ServiceRole.BE, installDir, installDir + AgentConstants.BE_CONFIG_FILE_RELATIVE_PATH);
@@ -53,9 +55,9 @@ public class BeService extends Service {
                 continue;
             }
 
-            int lastIndex = split.lastIndexOf(".");
+            int lastIndex = split.indexOf(",");
             if (lastIndex == -1) {
-                list.add(split.substring(0));
+                list.add(split);
             } else {
                 list.add(split.substring(0, lastIndex));
             }
@@ -120,6 +122,9 @@ public class BeService extends Service {
             storageVal = installDir + subDir;
         } else if (Objects.nonNull(storageValInConfig) && storageValInConfig.startsWith("/")) {
             storageVal = storageValInConfig;
+        } else {
+            TASKLOG.info("be storage path must be start ${DORIS_HOME} or /,path={}", storageVal);
+            throw new AgentException("parse be storage path failed");
         }
 
         if (Objects.nonNull(storageVal)) {
@@ -128,7 +133,7 @@ public class BeService extends Service {
                 File file = new File(dir);
                 if (!file.exists()) {
                     boolean r = file.mkdirs();
-                    log.info("create storage path:{},ret:{}", dir, r);
+                    TASKLOG.info("create storage path:{},ret:{}", dir, r);
                 }
             }
         }

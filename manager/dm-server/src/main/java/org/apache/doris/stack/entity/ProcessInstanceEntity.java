@@ -23,6 +23,7 @@ import lombok.NoArgsConstructor;
 import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
+import org.apache.doris.stack.model.response.CurrentProcessResp;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -88,5 +89,16 @@ public class ProcessInstanceEntity {
         this.updateTime = new Date();
         this.finish = Flag.NO;
         this.status = ExecutionStatus.RUNNING;
+    }
+
+    public CurrentProcessResp transToCurrentResp() {
+        CurrentProcessResp processResp = new CurrentProcessResp();
+        processResp.setId(id);
+        processResp.setClusterId(clusterId);
+        processResp.setProcessStep(processType.getProcessStep());
+        processResp.setCreateTime(createTime);
+        processResp.setUpdateTime(updateTime);
+        processResp.setStatus(status);
+        return processResp;
     }
 }

@@ -95,4 +95,10 @@ public class AgentCache {
         }
         return agent.getPort();
     }
+
+    public void refresh(List<AgentEntity> agentEntities) {
+        hostAgentCache.clear();
+        Map<String, AgentEntity> agentsMap = agentEntities.stream().collect(Collectors.toMap(AgentEntity::getHost, v -> v, (v1, v2) -> v1));
+        hostAgentCache.putAll(agentsMap);
+    }
 }

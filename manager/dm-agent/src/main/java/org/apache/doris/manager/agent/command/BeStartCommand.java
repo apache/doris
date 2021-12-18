@@ -46,8 +46,8 @@ public class BeStartCommand extends BeCommand {
             scriptCmd += AgentConstants.BASH_BIN;
             scriptCmd += ServiceContext.getServiceMap().get(ServiceRole.BE).getInstallDir() + "/bin/stop_be.sh ;";
         }
-        scriptCmd += AgentConstants.BASH_BIN;
-        scriptCmd += ServiceContext.getServiceMap().get(ServiceRole.BE).getInstallDir() + "/bin/start_be.sh --daemon";
+        scriptCmd += "cd " + ServiceContext.getServiceMap().get(ServiceRole.BE).getInstallDir() + " && ";
+        scriptCmd += AgentConstants.BASH_BIN + "./bin/start_be.sh --daemon";
         taskDesc.setScriptCmd(scriptCmd);
         return new ScriptTask(taskDesc);
     }

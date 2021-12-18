@@ -25,7 +25,9 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BeStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.BrokerInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BrokerStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
@@ -133,6 +135,8 @@ public class AgentProcessImpl implements AgentProcess {
         if (installInfos == null) {
             throw new ServerException("Please specify the host configuration to be installed");
         }
+        //add broker
+        addBrokerInstallnfo(installInfos);
         for (DorisInstall install : installInfos) {
             String key = install.getHost() + "-" + install.getRole();
             if (agentRoleList.contains(key)) {
@@ -150,31 +154,45 @@ public class AgentProcessImpl implements AgentProcess {
         }
     }
 
+    private void addBrokerInstallnfo(List<DorisInstall> installInfos) {
+        List<String> brokerList = installInfos.stream().map(DorisInstall::getHost).distinct().collect(Collectors.toList());
+        for (String broker : brokerList) {
+            DorisInstall brokerInstall = new DorisInstall();
+            brokerInstall.setHost(broker);
+            brokerInstall.setRole(ServiceRole.BROKER.name());
+            installInfos.add(brokerInstall);
+        }
+    }
+
     private void installDoris(int processId, DorisInstall install, String packageUrl, String installDir) {
         if (!installDir.endsWith(File.separator)) {
             installDir = installDir + File.separator;
         }
+        String serviceInstallDir = "";
         CommandRequest creq = new CommandRequest();
         TaskInstanceEntity installServiceTmp = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE, ExecutionStatus.SUBMITTED);
         if (ServiceRole.FE.name().equals(install.getRole())) {
+            serviceInstallDir = installDir + ServiceRole.FE.getInstallName();
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
             feBody.setMkFeMetadir(true);
             feBody.setPackageUrl(packageUrl);
-            feBody.setInstallDir(installDir + ServiceRole.FE.getInstallName());
+            feBody.setInstallDir(serviceInstallDir);
             creq.setCommandType(CommandType.INSTALL_FE.name());
             creq.setBody(JSON.toJSONString(feBody));
             installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_FE);
         } else if (ServiceRole.BE.name().equals(install.getRole())) {
+            serviceInstallDir = installDir + ServiceRole.BE.getInstallName();
             BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
             beBody.setMkBeStorageDir(true);
             beBody.setPackageUrl(packageUrl);
-            beBody.setInstallDir(installDir + ServiceRole.BE.getInstallName());
+            beBody.setInstallDir(serviceInstallDir);
             creq.setCommandType(CommandType.INSTALL_BE.name());
             creq.setBody(JSON.toJSONString(beBody));
             installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_BE);
         } else if (ServiceRole.BROKER.name().equals(install.getRole())) {
+            serviceInstallDir = installDir + ServiceRole.BROKER.getInstallName();
             BrokerInstallCommandRequestBody broker = new BrokerInstallCommandRequestBody();
-            broker.setInstallDir(installDir + ServiceRole.BROKER.getInstallName());
+            broker.setInstallDir(serviceInstallDir);
             broker.setPackageUrl(packageUrl);
             creq.setCommandType(CommandType.INSTALL_BROKER.name());
             creq.setBody(JSON.toJSONString(broker));
@@ -187,8 +205,8 @@ public class AgentProcessImpl implements AgentProcess {
             return;
         }
         handleAgentTask(installService, creq);
-        agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir, Flag.NO));
-        log.info("agent {} installing doris {}", install.getHost(), install.getRole());
+        agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), serviceInstallDir, Flag.NO));
+        log.info("agent {} installing doris {} in dir {}", install.getHost(), install.getRole(), serviceInstallDir);
     }
 
     /**
@@ -410,10 +428,18 @@ public class AgentProcessImpl implements AgentProcess {
                     Integer leaderFeEditLogPort = getFeEditLogPort(leaderFeHost, agentCache.agentPort(leaderFeHost));
                     feBody.setHelpHostPort(leaderFeHost + ":" + leaderFeEditLogPort);
                 }
+                feBody.setStopBeforeStart(true);
                 creq.setBody(JSON.toJSONString(feBody));
                 break;
             case START_BE:
+                BeStartCommandRequestBody beBody = new BeStartCommandRequestBody();
+                beBody.setStopBeforeStart(true);
+                creq.setBody(JSON.toJSONString(beBody));
+                break;
             case START_BROKER:
+                BrokerStartCommandRequestBody brokerBody = new BrokerStartCommandRequestBody();
+                brokerBody.setStopBeforeStart(true);
+                creq.setBody(JSON.toJSONString(brokerBody));
                 break;
             default:
                 log.error("not support command: {}", commandType.name());

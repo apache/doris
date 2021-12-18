@@ -62,6 +62,14 @@ public enum ProcessTypeEnum {
         }
     }
 
+    public int getProcessStep() {
+        if (this == BUILD_CLUSTER || this == START_SERVICE) {
+            return START_SERVICE.getCode();
+        } else {
+            return this.getCode();
+        }
+    }
+
     public int getCode() {
         return code;
     }

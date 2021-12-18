@@ -24,6 +24,7 @@ import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
+import org.apache.doris.stack.model.response.TaskInstanceResp;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -90,10 +91,6 @@ public class TaskInstanceEntity {
     @Column(name = "skip", nullable = false)
     private Flag skip;
 
-    private String taskRole;
-
-    private String response;
-
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;
@@ -120,5 +117,19 @@ public class TaskInstanceEntity {
         this.startTime = new Date();
         this.finish = Flag.NO;
         this.skip = Flag.NO;
+    }
+
+    public TaskInstanceResp transToModel() {
+        TaskInstanceResp taskResp = new TaskInstanceResp();
+        taskResp.setId(id);
+        taskResp.setProcessId(processId);
+        taskResp.setProcessType(processType);
+        taskResp.setTaskType(taskType);
+        taskResp.setStatus(status);
+        taskResp.setStartTime(startTime);
+        taskResp.setEndTime(endTime);
+        taskResp.setFinish(finish);
+        taskResp.setSkip(skip);
+        return taskResp;
     }
 }

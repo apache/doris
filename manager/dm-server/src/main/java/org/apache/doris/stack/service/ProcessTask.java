@@ -17,8 +17,9 @@
 
 package org.apache.doris.stack.service;
 
-import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
+import org.apache.doris.stack.model.response.CurrentProcessResp;
+import org.apache.doris.stack.model.response.TaskInstanceResp;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -30,11 +31,11 @@ public interface ProcessTask {
      * query user history installation progress
      * null means that nothing currently being installed
      */
-    ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception;
+    CurrentProcessResp currentProcess(HttpServletRequest request, HttpServletResponse response) throws Exception;
 
     List<TaskInstanceEntity> processProgress(HttpServletRequest request, HttpServletResponse response, int processId);
 
-    List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId);
+    List<TaskInstanceResp> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId);
 
     void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
 
@@ -59,4 +60,5 @@ public interface ProcessTask {
      */
     Object taskLog(int taskId);
 
+    void backPrevious(int processId);
 }

@@ -20,8 +20,9 @@ package org.apache.doris.stack.controller;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
+import org.apache.doris.stack.model.response.CurrentProcessResp;
+import org.apache.doris.stack.model.response.TaskInstanceResp;
 import org.apache.doris.stack.service.ProcessTask;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,12 +46,12 @@ public class ProcessTaskController {
     private ProcessTask processTask;
 
     /**
-     * query user history installation progress
+     * query user current installation progress
      */
-    @ApiOperation(value = "query user history installation progress")
-    @RequestMapping(value = "/historyProgress", method = RequestMethod.GET)
-    public RResult historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        ProcessInstanceEntity process = processTask.historyProgress(request, response);
+    @ApiOperation(value = "query user current installation process")
+    @RequestMapping(value = "/currentProcess", method = RequestMethod.GET)
+    public RResult currentProcess(HttpServletRequest request, HttpServletResponse response) throws Exception {
+        CurrentProcessResp process = processTask.currentProcess(request, response);
         return RResult.success(process);
     }
 
@@ -72,7 +73,7 @@ public class ProcessTaskController {
     @RequestMapping(value = "/{processId}/currentTasks", method = RequestMethod.GET)
     public RResult taskProgress(HttpServletRequest request, HttpServletResponse response,
                                 @PathVariable(value = "processId") int processId) {
-        List<TaskInstanceEntity> tasks = processTask.taskProgress(request, response, processId);
+        List<TaskInstanceResp> tasks = processTask.taskProgress(request, response, processId);
         return RResult.success(tasks);
     }
 
@@ -134,4 +135,12 @@ public class ProcessTaskController {
         return RResult.success(processTask.taskLog(taskId));
     }
 
+    /**
+     * Go back to the previous step
+     */
+    @RequestMapping(value = "/back/{processId}", method = RequestMethod.POST)
+    public RResult backPrevious(@PathVariable int processId) {
+        processTask.backPrevious(processId);
+        return RResult.success();
+    }
 }
