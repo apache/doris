@@ -17,6 +17,7 @@
 
 package org.apache.doris.master;
 
+import org.apache.commons.io.output.NullOutputStream;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
@@ -58,14 +59,6 @@ public class Checkpoint extends MasterDaemon {
         super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
         this.imageDir = Catalog.getServingCatalog().getImageDir();
         this.editLog = editLog;
-    }
-
-    public static class NullOutputStream extends OutputStream {
-        public void write(byte[] b, int off, int len) throws IOException {
-        }
-
-        public void write(int b) throws IOException {
-        }
     }
 
     @Override
