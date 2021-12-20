@@ -43,6 +43,14 @@ under the License.
 
 创建 dockerfile
 
+VSCode 中使用 Ctrl-D 替换掉所有的
+
+- <!!! your user !!!>
+- <!!! your user password !!!>
+- <!!! root password !!!>
+- <!!! your git email !!!>
+- <!!! your git username !!!>
+
 ```dockerfile
 FROM apache/incubator-doris:build-env-latest
 
@@ -67,7 +75,7 @@ RUN git config --global color.ui true \
 # 按需安装 zsh and oh my zsh, 更易于使用，不需要的移除
 USER root
 RUN yum install -y zsh \
-        && chsh -s /bin/zsh jakevin
+        && chsh -s /bin/zsh <!!! your user !!!>
 USER <!!! your user !!!>
 RUN wget https://github.com/robbyrussell/oh-my-zsh/raw/master/tools/install.sh -O - | zsh \
         && git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
