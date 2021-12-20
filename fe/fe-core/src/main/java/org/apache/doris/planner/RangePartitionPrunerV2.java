@@ -203,7 +203,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                 return Collections.emptyList();
             case NO_FILTERS:
             default:
-                return noFiltersResult(minKey, maxKey, column, rangeMap);
+                return noFiltersResult(minKey, maxKey, columnIdx, rangeMap);
         }
     }
 
@@ -215,14 +215,10 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
     }
 
     private Collection<Long> noFiltersResult(PartitionKey minKey, PartitionKey maxKey,
-                                             Column keyColumn,
+                                             int columnIdx,
                                              RangeMap<PartitionKey, Long> rangeMap) throws AnalysisException {
-        minKey.pushColumn(LiteralExpr.createInfinity(
-            Type.fromPrimitiveType(keyColumn.getDataType()), false),
-            keyColumn.getDataType());
-        maxKey.pushColumn(LiteralExpr.createInfinity(
-            Type.fromPrimitiveType(keyColumn.getDataType()), true),
-            keyColumn.getDataType());
+        pushInfinity(minKey, columnIdx, false);
+        pushInfinity(maxKey, columnIdx, true);
         Collection<Long> result;
         try {
             result = Lists.newArrayList(
