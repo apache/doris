@@ -17,13 +17,15 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -45,9 +47,20 @@ public interface LoadTaskInfo {
     public boolean isStripOuterArray();
     public boolean isFuzzyParse();
     public boolean isNumAsString();
+    public boolean isReadJsonByLine();
     public String getPath();
-    public List<ImportColumnDesc> getColumnExprDescs();
+
+    public ImportColumnDescs getColumnExprDescs();
     public boolean isStrictMode();
+
+    public Expr getPrecedingFilter();
     public Expr getWhereExpr();
-    public ColumnSeparator getColumnSeparator();
+    public Separator getColumnSeparator();
+    public Separator getLineDelimiter();
+    public int getSendBatchParallelism();
+
+    public static class ImportColumnDescs {
+        public List<ImportColumnDesc> descs = Lists.newArrayList();
+        public boolean isColumnDescsRewrited = false;
+    }
 }

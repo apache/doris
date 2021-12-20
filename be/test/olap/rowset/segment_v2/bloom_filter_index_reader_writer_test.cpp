@@ -277,11 +277,11 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
     decimal12_t* val = new decimal12_t[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
-        val[i] = decimal12_t(i + 1, i + 1);
+        val[i] = {i + 1, i + 1};
     }
 
     std::string file_name = "bloom_filter_decimal";
-    decimal12_t not_exist_value = decimal12_t(666, 666);
+    decimal12_t not_exist_value = {666, 666};
     test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_DECIMAL>(file_name, val, num, 1,
                                                                             &not_exist_value);
     delete[] val;

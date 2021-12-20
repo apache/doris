@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -88,12 +89,15 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class DeleteHandler implements Writable {
     private static final Logger LOG = LogManager.getLogger(DeleteHandler.class);
@@ -105,9 +109,12 @@ public class DeleteHandler implements Writable {
     @SerializedName(value = "dbToDeleteInfos")
     private Map<Long, List<DeleteInfo>> dbToDeleteInfos;
 
+    private ReentrantReadWriteLock lock;
+
     public DeleteHandler() {
         idToDeleteJob = Maps.newConcurrentMap();
         dbToDeleteInfos = Maps.newConcurrentMap();
+        lock = new ReentrantReadWriteLock();
     }
 
     private enum CancelType {
@@ -117,54 +124,75 @@ public class DeleteHandler implements Writable {
         UNKNOWN
     }
 
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
     public void process(DeleteStmt stmt) throws DdlException, QueryStateException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
-        String partitionName = stmt.getPartitionName();
+        List<String> partitionNames = stmt.getPartitionNames();
+        boolean noPartitionSpecified = partitionNames.isEmpty();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         DeleteJob deleteJob = null;
         try {
             MarkedCountDownLatch<Long, Long> countDownLatch;
             long transactionId = -1;
-            Table table = null;
+            OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+            olapTable.readLock();
             try {
-               table = db.getTableOrThrowException(tableName, Table.TableType.OLAP);
-            } catch (MetaNotFoundException e) {
-                throw new DdlException(e.getMessage());
-            }
-
-            table.readLock();
-            try {
-                OlapTable olapTable = (OlapTable) table;
-
                 if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
-                    throw new DdlException("Table's state is not normal: " + tableName);
+                    // table under alter operation can also do delete.
+                    // just add a comment here to notice.
                 }
 
-                if (partitionName == null) {
-                    if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                        throw new DdlException("This is a range partitioned table."
-                                + " You should specify partition in delete stmt");
-                    } else {
+                if (noPartitionSpecified) {
+                    if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE ||
+                            olapTable.getPartitionInfo().getType() == PartitionType.LIST) {
+                        if (!ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
+                            throw new DdlException("This is a range or list partitioned table."
+                                    + " You should specify partition in delete stmt, or set delete_without_partition to true");
+                        } else {
+                            partitionNames.addAll(olapTable.getPartitionNames());
+                        }
+                    } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                         // this is a unpartitioned table, use table name as partition name
-                        partitionName = olapTable.getName();
+                        partitionNames.add(olapTable.getName());
+                    } else {
+                        throw new DdlException("Unknown partition type: " + olapTable.getPartitionInfo().getType());
                     }
                 }
 
-                Partition partition = olapTable.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition does not exist. name: " + partitionName);
+                Map<Long, Short> partitionReplicaNum = Maps.newHashMap();
+                List<Partition> partitions = Lists.newArrayList();
+                for (String partName : partitionNames) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        throw new DdlException("Partition does not exist. name: " + partName);
+                    }
+                    partitions.add(partition);
+                    partitionReplicaNum.put(partition.getId(),
+                            olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum());
                 }
 
                 List<String> deleteConditions = Lists.newArrayList();
 
                 // pre check
-                checkDeleteV2(olapTable, partition, conditions, deleteConditions);
+                checkDeleteV2(olapTable, partitions, conditions, deleteConditions);
 
                 // generate label
                 String label = "delete_" + UUID.randomUUID();
@@ -172,61 +200,72 @@ public class DeleteHandler implements Writable {
                 long jobId = Catalog.getCurrentCatalog().getNextId();
                 // begin txn here and generate txn id
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                        Lists.newArrayList(table.getId()), label, null,
+                        Lists.newArrayList(olapTable.getId()), label, null,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         TransactionState.LoadJobSourceType.FRONTEND, jobId, Config.stream_load_default_timeout_second);
 
-                DeleteInfo deleteInfo = new DeleteInfo(db.getId(), olapTable.getId(), tableName,
-                        partition.getId(), partitionName,
-                        -1, 0, deleteConditions);
-                deleteJob = new DeleteJob(jobId, transactionId, label, deleteInfo);
+
+                DeleteInfo deleteInfo = new DeleteInfo(db.getId(), olapTable.getId(), tableName, deleteConditions);
+                deleteInfo.setPartitions(noPartitionSpecified, partitions.stream().map(p -> p.getId()).collect(Collectors.toList()), partitionNames);
+                deleteJob = new DeleteJob(jobId, transactionId, label, partitionReplicaNum, deleteInfo);
                 idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
 
                 Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId);
+                // must call this to make sure we only handle the tablet in the mIndex we saw here.
+                // table may be under schema changge or rollup, and the newly created tablets will not be checked later,
+                // to make sure that the delete transaction can be done successfully.
+                txnState.addTableIndexes(olapTable);
+
                 // task sent to be
                 AgentBatchTask batchTask = new AgentBatchTask();
                 // count total replica num
+                // Get ALL materialized indexes, because delete condition will be applied to all indexes
                 int totalReplicaNum = 0;
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        totalReplicaNum += tablet.getReplicas().size();
+                for (Partition partition : partitions) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        for (Tablet tablet : index.getTablets()) {
+                            totalReplicaNum += tablet.getReplicas().size();
+                        }
                     }
                 }
                 countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
 
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    long indexId = index.getId();
-                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                for (Partition partition : partitions) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        long indexId = index.getId();
+                        int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
-                    for (Tablet tablet : index.getTablets()) {
-                        long tabletId = tablet.getId();
+                        for (Tablet tablet : index.getTablets()) {
+                            long tabletId = tablet.getId();
 
-                        // set push type
-                        TPushType type = TPushType.DELETE;
+                            // set push type
+                            TPushType type = TPushType.DELETE;
 
-                        for (Replica replica : tablet.getReplicas()) {
-                            long replicaId = replica.getId();
-                            long backendId = replica.getBackendId();
-                            countDownLatch.addMark(backendId, tabletId);
+                            for (Replica replica : tablet.getReplicas()) {
+                                long replicaId = replica.getId();
+                                long backendId = replica.getBackendId();
+                                countDownLatch.addMark(backendId, tabletId);
 
-                            // create push task for each replica
-                            PushTask pushTask = new PushTask(null,
-                                    replica.getBackendId(), db.getId(), olapTable.getId(),
-                                    partition.getId(), indexId,
-                                    tabletId, replicaId, schemaHash,
-                                    -1, 0, "", -1, 0,
-                                    -1, type, conditions,
-                                    true, TPriority.NORMAL,
-                                    TTaskType.REALTIME_PUSH,
-                                    transactionId,
-                                    Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
-                            pushTask.setIsSchemaChanging(false);
-                            pushTask.setCountDownLatch(countDownLatch);
+                                // create push task for each replica
+                                PushTask pushTask = new PushTask(null,
+                                        replica.getBackendId(), db.getId(), olapTable.getId(),
+                                        partition.getId(), indexId,
+                                        tabletId, replicaId, schemaHash,
+                                        -1, 0, "", -1, 0,
+                                        -1, type, conditions,
+                                        true, TPriority.NORMAL,
+                                        TTaskType.REALTIME_PUSH,
+                                        transactionId,
+                                        Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+                                pushTask.setIsSchemaChanging(false);
+                                pushTask.setCountDownLatch(countDownLatch);
 
-                            if (AgentTaskQueue.addTask(pushTask)) {
-                                batchTask.addTask(pushTask);
-                                deleteJob.addPushTask(pushTask);
-                                deleteJob.addTablet(tabletId);
+                                if (AgentTaskQueue.addTask(pushTask)) {
+                                    batchTask.addTask(pushTask);
+                                    deleteJob.addPushTask(pushTask);
+                                    deleteJob.addTablet(tabletId);
+                                }
                             }
                         }
                     }
@@ -245,7 +284,7 @@ public class DeleteHandler implements Writable {
                 }
                 throw new DdlException(t.getMessage(), t);
             } finally {
-                table.readUnlock();
+                olapTable.readUnlock();
             }
 
             long timeoutMs = deleteJob.getTimeoutMs();
@@ -264,7 +303,7 @@ public class DeleteHandler implements Writable {
                 // only show at most 5 results
                 List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
                 if (!subList.isEmpty()) {
-                    errMsg = "unfinished replicas: " + Joiner.on(", ").join(subList);
+                    errMsg = "unfinished replicas [BackendId=TabletId]: " + Joiner.on(", ").join(subList);
                 }
                 LOG.warn(errMsg);
 
@@ -300,14 +339,14 @@ public class DeleteHandler implements Writable {
                             cancelJob(deleteJob, CancelType.UNKNOWN, e.getMessage());
                             throw new DdlException(e.getMessage(), e);
                         }
-                        commitJob(deleteJob, db, table, timeoutMs);
+                        commitJob(deleteJob, db, olapTable, timeoutMs);
                         break;
                     default:
                         Preconditions.checkState(false, "wrong delete job state: " + state.name());
                         break;
                 }
             } else {
-                commitJob(deleteJob, db, table, timeoutMs);
+                commitJob(deleteJob, db, olapTable, timeoutMs);
             }
         } finally {
             if (!FeConstants.runningUnitTest) {
@@ -409,8 +448,11 @@ public class DeleteHandler implements Writable {
                     job.getTransactionId(), dbId);
             dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
             List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
-            synchronized (deleteInfoList) {
+            writeLock();
+            try {
                 deleteInfoList.add(job.getDeleteInfo());
+            } finally {
+                writeUnlock();
             }
         }
     }
@@ -465,26 +507,33 @@ public class DeleteHandler implements Writable {
         return slotRef;
     }
 
-    private void checkDeleteV2(OlapTable table, Partition partition, List<Predicate> conditions, List<String> deleteConditions)
+    private void checkDeleteV2(OlapTable table, List<Partition> partitions, List<Predicate> conditions, List<String> deleteConditions)
             throws DdlException {
 
-        // check partition state
-        Partition.PartitionState state = partition.getState();
-        if (state != Partition.PartitionState.NORMAL) {
-            // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORMAL: " + state.name());
-        }
-
         // check condition column is key column and condition value
+        // Here we use "getFullSchema()" to get all columns including VISIBLE and SHADOW columns
         Map<String, Column> nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (Column column : table.getBaseSchema()) {
+        for (Column column : table.getFullSchema()) {
             nameToColumn.put(column.getName(), column);
         }
+
         for (Predicate condition : conditions) {
             SlotRef slotRef = getSlotRef(condition);
             String columnName = slotRef.getColumnName();
             if (!nameToColumn.containsKey(columnName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
+            }
+
+            if (Column.isShadowColumn(columnName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Can not apply delete condition to shadow column");
+            }
+
+            // Check if this column is under schema change, if yes, there will be a shadow column related to it.
+            // And we don't allow doing delete operation when a condition column is under schema change.
+            String shadowColName = Column.getShadowName(columnName);
+            if (nameToColumn.containsKey(shadowColName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Column " + columnName + " is under" +
+                        " schema change operation. Do not allow delete operation");
             }
 
             Column column = nameToColumn.get(columnName);
@@ -505,12 +554,16 @@ public class DeleteHandler implements Writable {
                     // if a bool cond passed to be, be's zone_map cannot handle bool correctly,
                     // change it to a tinyint type here;
                     value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
-                    if (column.getDataType() == PrimitiveType.BOOLEAN ) {
+                    if (column.getDataType() == PrimitiveType.BOOLEAN) {
                         if (value.toLowerCase().equals("true")) {
                             binaryPredicate.setChild(1, LiteralExpr.create("1", Type.TINYINT));
                         } else if (value.toLowerCase().equals("false")) {
                             binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
                         }
+                    } else if (column.getDataType() == PrimitiveType.DATE || column.getDataType() == PrimitiveType.DATETIME) {
+                        DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
+                        value = dateLiteral.getStringValue();
+                        binaryPredicate.setChild(1, LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType())));
                     }
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {
@@ -523,7 +576,13 @@ public class DeleteHandler implements Writable {
                     InPredicate inPredicate = (InPredicate) condition;
                     for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                         value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
-                        LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                        if (column.getDataType() == PrimitiveType.DATE || column.getDataType() == PrimitiveType.DATETIME) {
+                            DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
+                            value = dateLiteral.getStringValue();
+                            inPredicate.setChild(i, LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType())));
+                        } else {
+                            LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                        }
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
@@ -533,8 +592,15 @@ public class DeleteHandler implements Writable {
             // set schema column name
             slotRef.setCol(column.getName());
         }
+
+        // check materialized index.
+        // only need to check the first partition, because each partition has same materialized views
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
-        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+        Partition partition = partitions.get(0);
+        // Here we check ALL materialized views instead of just VISIBLE ones.
+        // For example, when a table is doing rollup or schema change. there will be some SHADOW indexes.
+        // And we also need to check these SHADOW indexes to see if the delete condition can be applied to them.
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
             if (table.getBaseIndexId() == index.getId()) {
                 continue;
             }
@@ -603,64 +669,50 @@ public class DeleteHandler implements Writable {
     }
 
     // show delete stmt
-    public List<List<Comparable>> getDeleteInfosByDb(long dbId, boolean forUser) {
+    public List<List<Comparable>> getDeleteInfosByDb(long dbId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }
 
         String dbName = db.getFullName();
-        List<DeleteInfo> deleteInfos = dbToDeleteInfos.get(dbId);
-        if (deleteInfos == null) {
-            return infos;
+        List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
+
+        readLock();
+        try {
+            if (deleteInfoList == null) {
+                return infos;
+            }
+
+            for (DeleteInfo deleteInfo : deleteInfoList) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                        deleteInfo.getTableName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                List<Comparable> info = Lists.newArrayList();
+                info.add(deleteInfo.getTableName());
+                if (deleteInfo.isNoPartitionSpecified()) {
+                    info.add("*");
+                } else {
+                    info.add(Joiner.on(", ").join(deleteInfo.getPartitionNames()));
+                }
+
+                info.add(TimeUtils.longToTimeString(deleteInfo.getCreateTimeMs()));
+                String conds = Joiner.on(", ").join(deleteInfo.getDeleteConditions());
+                info.add(conds);
+
+                info.add("FINISHED");
+                infos.add(info);
+            }
+        } finally {
+            readUnlock();
         }
 
-        for (DeleteInfo deleteInfo : deleteInfos) {
-
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                    deleteInfo.getTableName(),
-                    PrivPredicate.LOAD)) {
-                continue;
-            }
-
-
-            List<Comparable> info = Lists.newArrayList();
-            if (!forUser) {
-                info.add(-1L);
-                info.add(deleteInfo.getTableId());
-            }
-            info.add(deleteInfo.getTableName());
-            if (!forUser) {
-                info.add(deleteInfo.getPartitionId());
-            }
-            info.add(deleteInfo.getPartitionName());
-
-            info.add(TimeUtils.longToTimeString(deleteInfo.getCreateTimeMs()));
-            String conds = Joiner.on(", ").join(deleteInfo.getDeleteConditions());
-            info.add(conds);
-
-            if (!forUser) {
-                info.add(deleteInfo.getPartitionVersion());
-                info.add(deleteInfo.getPartitionVersionHash());
-            }
-            // for loading state, should not display loading, show deleting instead
-//                if (loadJob.getState() == LoadJob.JobState.LOADING) {
-//                    info.add("DELETING");
-//                } else {
-//                    info.add(loadJob.getState().name());
-//                }
-            info.add("FINISHED");
-            infos.add(info);
-        }
         // sort by createTimeMs
-        int sortIndex;
-        if (!forUser) {
-            sortIndex = 5;
-        } else {
-            sortIndex = 2;
-        }
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(sortIndex);
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(2);
         Collections.sort(infos, comparator);
         return infos;
     }
@@ -671,19 +723,54 @@ public class DeleteHandler implements Writable {
         LOG.info("replay delete, dbId {}", dbId);
         dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
         List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
-        synchronized (deleteInfoList) {
+        writeLock();
+        try {
             deleteInfoList.add(deleteInfo);
+        } finally {
+            writeUnlock();
         }
     }
 
     // for delete handler, we only persist those delete already finished.
     @Override
     public void write(DataOutput out) throws IOException {
+        removeOldDeleteInfos();
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static DeleteHandler read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DeleteHandler.class);
+        DeleteHandler deleteHandler = GsonUtils.GSON.fromJson(json, DeleteHandler.class);
+        deleteHandler.removeOldDeleteInfos();
+        return deleteHandler;
+    }
+
+    public void removeOldDeleteInfos() {
+        long curTime = System.currentTimeMillis();
+        int counter = 0;
+        Iterator<Entry<Long, List<DeleteInfo>>> iter1 = dbToDeleteInfos.entrySet().iterator();
+        while (iter1.hasNext()) {
+            List<DeleteInfo> deleteInfoList = iter1.next().getValue();
+
+            writeLock();
+            try {
+                Iterator<DeleteInfo> iter2 = deleteInfoList.iterator();
+                while (iter2.hasNext()) {
+                    DeleteInfo deleteInfo = iter2.next();
+                    if ((curTime - deleteInfo.getCreateTimeMs()) / 1000
+                            > Config.streaming_label_keep_max_second) {
+                        iter2.remove();
+                        ++counter;
+                    }
+                }
+            } finally {
+                writeUnlock();
+            }
+
+            if (deleteInfoList.isEmpty()) {
+                iter1.remove();
+            }
+        }
+        LOG.debug("remove expired delete job info num: {}", counter);
     }
 }

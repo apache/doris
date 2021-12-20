@@ -52,6 +52,8 @@ Syntax:
     col_name: Name of column
     col_type: Type of column
     ```
+        BOOLEAN(1 Byte)
+            Range: {0,1}
         TINYINT(1 Byte)
             Range: -2^7 + 1 ~ 2^7 - 1
         SMALLINT(2 Bytes)
@@ -64,7 +66,7 @@ Syntax:
             Range: -2^127 + 1 ~ 2^127 - 1
         FLOAT(4 Bytes)
             Support scientific notation
-        DOUBLE(12 Bytes)
+        DOUBLE(8 Bytes)
             Support scientific notation
         DECIMAL[(precision, scale)] (16 Bytes)
             Default is DECIMAL(10, 0)
@@ -88,20 +90,19 @@ Syntax:
             BITMAP type, No need to specify length. Represent a set of unsigned bigint numbers, the largest element could be 2^64 - 1
     ```
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column   is value column.
+
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION: Only for HLL type
-       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will   occur if and only if the newly imported data is a non-null value. If the newly imported   data is null, Doris will still retain the original value. Note: if NOT NULL is specified  in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it     to NULL and will not report an error to the user. Users can leverage this aggregate type    to achieve importing some of columns.
+       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns .**It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string**.
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
-    Notice:  
-    
-        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+    Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
     Explain:
-        index_name：index name
-        col_name：column name
+        index_name: index name
+        col_name: column name
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type
@@ -143,7 +144,7 @@ Syntax:
         ```
     
         For different broker, the broker properties are different
-    Notice:
+        Notice:
         Files name in "path" is separated by ",". If file name includes ",", use "%2c" instead.     If file name includes "%", use "%25" instead.
         Support CSV and Parquet. Support GZ, BZ2, LZ4, LZO(LZOP)
     3) For hive, properties should include:
@@ -155,7 +156,7 @@ Syntax:
         )
         ```
         "database" is the name of the database corresponding to the hive table, "table" is the name of the hive table, and "hive.metastore.uris" is the hive metastore service address.
-        Notice: At present, hive external tables are only used for Spark Load and query is not supported.
+        
 4. key_desc
     Syntax:
         key_type(k1[,k2 ...])
@@ -172,44 +173,88 @@ Syntax:
     NOTICE:
         Except for AGGREGATE KEY, no need to specify aggregation type for value columns.
 5. partition_desc
-    Partition has two ways to use:
-    1) LESS THAN
-    Syntax:
+    Currently, both RANGE and LIST partitioning methods are supported.
+    5.1 RANGE partition 
+        RANGE Partition has two ways to use:
+        1) LESS THAN
+        Syntax:
 
-        ```
-        PARTITION BY RANGE (k1, k2, ...)
-        (
-        PARTITION partition_name1 VALUES LESS THAN MAXVALUE|("value1", "value2", ...),
-        PARTITION partition_name2 VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
-        ...
-        )
-        ```
+            ```
+            PARTITION BY RANGE (k1, k2, ...)
+            (
+            PARTITION partition_name1 VALUES LESS THAN MAXVALUE|("value1", "value2", ...),
+            PARTITION partition_name2 VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
+            ...
+            )
+            ```
+        
+        Explain:
+            Use the specified key column and the specified range of values for partitioning.
+            1) Partition name only support [A-z0-9_]
+            2) Partition key column's type should be:
+                TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
+            3) The range is [closed, open). And the lower bound of first partition is MIN VALUE of  specified column type.
+            4) NULL values should be save in partition which includes MIN VALUE.
+            5) Support multi partition columns, the the default partition value is MIN VALUE.
+        2）Fixed Range
+        Syntax:
+            ```
+            PARTITION BY RANGE (k1, k2, k3, ...)
+            (
+            PARTITION partition_name1 VALUES [("k1-lower1", "k2-lower1", "k3-lower1",...),  ("k1-upper1", "k2-upper1", "k3-upper1", ...)),
+            PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2",  MAXVALUE, ))
+            "k3-upper1-2", ...
+            )
+            ```
+        Explain:
+            1）The Fixed Range is more flexible than the LESS THAN, and the left and right intervals    are completely determined by the user.
+            2）Others are consistent with LESS THAN.
 
-    Explain:
-        1) Partition name only support [A-z0-9_]
-        2) Partition key column's type should be:
-            TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
-        3) The range is [closed, open). And the lower bound of first partition is MIN VALUE of  specified column type.
-        4) NULL values should be save in partition which includes MIN VALUE.
-        5) Support multi partition columns, the the default partition value is MIN VALUE.
-    2）Fixed Range
-    Syntax:
-        ```
-        PARTITION BY RANGE (k1, k2, k3, ...)
-        (
-        PARTITION partition_name1 VALUES [("k1-lower1", "k2-lower1", "k3-lower1",...),  ("k1-upper1", "k2-upper1", "k3-upper1", ...)),
-        PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2",  MAXVALUE, ))
-        "k3-upper1-2", ...
-        )
-        ```
-    Explain:
-        1）The Fixed Range is more flexible than the LESS THAN, and the left and right intervals    are completely determined by the user.
-        2）Others are consistent with LESS THAN.
+    5.2 LIST partition
+        LIST partition is divided into single column partition and multi-column partition
+        1) Single column partition
+            Syntax.
+
+            ```
+                PARTITION BY LIST(k1)
+                (
+                PARTITION partition_name1 VALUES IN ("value1", "value2", ...) ,
+                PARTITION partition_name2 VALUES IN ("value1", "value2", ...)
+                ...
+                )
+            ```
+        
+            Explain:
+                Use the specified key column and the formulated enumeration value for partitioning.
+                1) Partition name only support [A-z0-9_]
+                2) Partition key column's type should be:
+                    BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME, CHAR, VARCHAR
+                3) Partition is a collection of enumerated values, partition values cannot be duplicated between partitions
+                4) NULL values cannot be imported
+                5) partition values cannot be defaulted, at least one must be specified
+        
+        2) Multi-column partition
+            Syntax.
+        
+            ```
+                PARTITION BY LIST(k1, k2)
+                (
+                PARTITION partition_name1 VALUES IN (("value1", "value2"), ("value1", "value2"), ...) ,
+                PARTITION partition_name2 VALUES IN (("value1", "value2"), ("value1", "value2"), ...)
+                ...
+                )
+            ```
+        
+            Explain:
+                1) the partition of a multi-column partition is a collection of tuple enumeration values
+                2) The number of tuple values per partition must be equal to the number of columns in the partition
+                3) The other partitions are synchronized with the single column partition
+
 6. distribution_desc
     1) Hash
-    Syntax:
+       Syntax:
         `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
-    Explain:
+       Explain:
         The default buckets is 10.
 7. PROPERTIES
     1) If ENGINE type is olap. User can specify storage medium, cooldown time and replication   number:
@@ -218,7 +263,8 @@ Syntax:
         PROPERTIES (
             "storage_medium" = "[SSD|HDD]",
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
-            ["replication_num" = "3"]
+            ["replication_num" = "3"],
+			["replication_allocation" = "xxx"]
             )
         ```
     
@@ -228,6 +274,8 @@ Syntax:
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
         replication_num:        Replication number of a partition. Default is 3.
+        replication_allocation:     Specify the distribution of replicas according to the resource tag.
+
         If table is not range partitions. This property takes on Table level. Or it will takes on   Partition level.
         User can specify different properties for different partition by `ADD PARTITION` or     `MODIFY PARTITION` statements.
     2) If Engine type is olap, user can set bloom filter index for column.
@@ -248,39 +296,39 @@ Syntax:
         )
         ```
     
-    4) if you want to use the dynamic partitioning feature, specify it in properties
+    4) if you want to use the dynamic partitioning feature, specify it in properties. Note: Dynamic partitioning only supports RANGE partitions
     
         ```
         PROPERTIES (
             "dynamic_partition.enable" = "true|false",
             "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
-            "dynamic_partitoin.end" = "${integer_value}",
+            "dynamic_partition.end" = "${integer_value}",
             "dynamic_partition.prefix" = "${string_value}",
             "dynamic_partition.buckets" = "${integer_value}
         )    
        ```
        
-       Dynamic_partition. Enable: specifies whether dynamic partitioning at the table level is enabled
-       
-       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as HOUR, DAY, WEEK, and MONTH.
+       dynamic_partition.enable: specifies whether dynamic partitioning at the table level is enabled
+       dynamic_partition.time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as HOUR, DAY, WEEK, and MONTH.
                                      Attention: When the time unit is HOUR, the data type of partition column cannot be DATE.
+       dynamic_partition.end: used to specify the number of partitions created in advance
+       dynamic_partition.prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
+       dynamic_partition.buckets: specifies the number of partition buckets that are automatically created
+       dynamic_partition.create_history_partition: specifies whether create history partitions, default value is false
+       dynamic_partition.history_partition_num: used to specify the number of history partitions when enable create_history_partition
+       dynamic_partition.reserved_history_periods: Used to specify the range of reserved history periods
        
-       Dynamic_partition. End: used to specify the number of partitions created in advance
-       
-       Dynamic_partition. Prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
-       
-       Dynamic_partition. Buckets: specifies the number of partition buckets that are automatically created
        ```
-8. rollup_index
+    5)  You can create multiple Rollups in bulk when building a table
     grammar:
     ```
       ROLLUP (rollup_name (column_name1, column_name2, ...)
                      [FROM from_index_name]
                       [PROPERTIES ("key"="value", ...)],...)
     ```
-
-    5) if you want to use the inmemory table feature, specify it in properties
-
+    
+    6) if you want to use the inmemory table feature, specify it in properties
+    
         ```
         PROPERTIES (
            "in_memory"="true"
@@ -293,16 +341,16 @@ Syntax:
     ```
     CREATE TABLE example_db.table_hash
     (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    k1 BOOLEAN,
+    k2 TINYINT,
+    k3 DECIMAL(10, 2) DEFAULT "10.5",
     v1 CHAR(10) REPLACE,
     v2 INT SUM
     )
     ENGINE=olap
-    AGGREGATE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2, k3)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
 2. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
@@ -316,16 +364,15 @@ Syntax:
     v2 SMALLINT SUM DEFAULT "10"
     )
     ENGINE=olap
-    UNIQUE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
-    "storage_type"="column",
     "storage_medium" = "SSD",
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
     ```
 
-3. Create an olap table, with range partitioned, distributed by hash.
+3. Create an olap table, with range partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
 
 1) LESS THAN
 
@@ -364,6 +411,7 @@ Syntax:
     Data outside these ranges will not be loaded.
 
 2) Fixed Range
+    ```
     CREATE TABLE table_range
     (
     k1 DATE,
@@ -383,9 +431,83 @@ Syntax:
     PROPERTIES(
     "storage_medium" = "SSD"
     );
+    ```
+4. Create an olap table, with list partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
 
-4. Create a mysql table
-   4.1 Create MySQL table directly from external table information
+    1) Single column partition
+
+    ```
+    CREATE TABLE example_db.table_list
+    (
+    k1 INT,
+    k2 VARCHAR(128),
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    ENGINE=olap
+    DUPLICATE KEY(k1, k2, k3)
+    PARTITION BY LIST (k1)
+    (
+    PARTITION p1 VALUES IN ("1", "2", "3"),
+    PARTITION p2 VALUES IN ("4", "5", "6"),
+    PARTITION p3 VALUES IN ("7", "8", "9")
+    )
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD", "storage_cooldown_time" = "2022-06-04 00:00:00"
+    );
+    ```
+
+    Explain:
+    This statement will divide the data into 3 partitions as follows.
+
+    ```
+    ("1", "2", "3")
+    ("4", "5", "6")
+    ("7", "8", "9")
+    ```
+
+    Data that does not fall within these partition enumeration values will be filtered as illegal data
+
+    2) Multi-column partition
+
+    ```
+    CREATE TABLE example_db.table_list
+    (
+    k1 INT,
+    k2 VARCHAR(128),
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    ENGINE=olap
+    DUPLICATE KEY(k1, k2, k3)
+    PARTITION BY LIST (k1, k2)
+    (
+    PARTITION p1 VALUES IN (("1", "beijing"), ("1", "shanghai")),
+    PARTITION p2 VALUES IN (("2", "beijing"), ("2", "shanghai")),
+    PARTITION p3 VALUES IN (("3", "beijing"), ("3", "shanghai"))
+    )
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD", "storage_cooldown_time" = "2022-06-04 00:00:00"
+    );
+    ```
+
+    Explain:
+    This statement will divide the data into 3 partitions as follows.
+
+    ```
+    (("1", "beijing"), ("1", "shanghai"))
+    (("2", "beijing"), ("2", "shanghai"))
+    (("3", "beijing"), ("3", "shanghai"))
+    ```
+
+    Data that is not within these partition enumeration values will be filtered as illegal data
+
+5. Create a mysql table
+   5.1 Create MySQL table directly from external table information
 ```
     CREATE EXTERNAL TABLE example_db.table_mysql
     (
@@ -407,7 +529,7 @@ Syntax:
     )
 ```
 
-   4.2 Create MySQL table with external ODBC catalog resource
+   5.2 Create MySQL table with external ODBC catalog resource
 ```
    CREATE EXTERNAL RESOURCE "mysql_resource" 
    PROPERTIES
@@ -437,7 +559,7 @@ Syntax:
     )
 ```
 
-5. Create a broker table, with file on HDFS, line delimit by "|", column separated by "\n"
+6. Create a broker table, with file on HDFS, line delimit by "|", column separated by "\n"
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -460,7 +582,7 @@ Syntax:
     );
     ```
 
-6. Create table will HLL column
+7. Create table will HLL column
 
     ```
     CREATE TABLE example_db.example_table
@@ -475,7 +597,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
-7. Create a table will BITMAP_UNION column
+8. Create a table will BITMAP_UNION column
 
     ```
     CREATE TABLE example_db.example_table
@@ -490,7 +612,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
-8. Create 2 colocate join table.
+9. Create 2 colocate join table.
 
     ```
     CREATE TABLE `t1` (
@@ -513,7 +635,7 @@ Syntax:
     );
     ```
 
-9. Create a broker table, with file on BOS.
+10. Create a broker table, with file on BOS.
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -531,7 +653,7 @@ Syntax:
     );
     ```
 
-10. Create a table with a bitmap index 
+11. Create a table with a bitmap index 
 
     ```
     CREATE TABLE example_db.table_hash
@@ -545,11 +667,10 @@ Syntax:
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
     
-11. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
+12. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
 
     ```
     [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -569,12 +690,7 @@ Syntax:
         )
         ENGINE=olap
         DUPLICATE KEY(k1, k2, k3)
-        PARTITION BY RANGE (k1)
-        (
-        PARTITION p1 VALUES LESS THAN ("2014-01-01"),
-        PARTITION p2 VALUES LESS THAN ("2014-06-01"),
-        PARTITION p3 VALUES LESS THAN ("2014-12-01")
-        )
+        PARTITION BY RANGE (k1) ()
         DISTRIBUTED BY HASH(k2) BUCKETS 32
         PROPERTIES(
         "storage_medium" = "SSD",
@@ -584,7 +700,7 @@ Syntax:
         "dynamic_partition.buckets" = "32"
          );
      ```
-12. Create a table with rollup index
+13. Create a table with rollup index
 ```
     CREATE TABLE example_db.rolup_index_table
     (
@@ -604,7 +720,7 @@ Syntax:
     PROPERTIES("replication_num" = "3");
 ```
 
-12. Create a inmemory table:
+14. Create a inmemory table:
 
 ```
     CREATE TABLE example_db.table_hash
@@ -622,7 +738,7 @@ Syntax:
     PROPERTIES ("in_memory"="true");
 ```
 
-13. Create a hive external table
+15. Create a hive external table
 ```
     CREATE TABLE example_db.table_hive
     (
@@ -637,6 +753,39 @@ Syntax:
       "table" = "hive_table_name",
       "hive.metastore.uris" = "thrift://127.0.0.1:9083"
     );
+```
+
+16. Specify the replica distribution of the table through replication_allocation
+
+```	
+    CREATE TABLE example_db.table_hash
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5"
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+	);
+
+    CREATE TABLE example_db.dynamic_partition
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+     );
 ```
 
 ## keyword

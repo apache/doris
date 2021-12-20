@@ -183,8 +183,8 @@ public:
         *result = std::move(tmp_range);
     }
 
-    static Roaring ranges_to_roaring(const RowRanges& ranges) {
-        Roaring result;
+    static roaring::Roaring ranges_to_roaring(const RowRanges& ranges) {
+        roaring::Roaring result;
         for (auto it = ranges._ranges.begin(); it != ranges._ranges.end(); ++it) {
             result.addRange(it->from(), it->to());
         }

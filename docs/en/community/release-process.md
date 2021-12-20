@@ -48,7 +48,7 @@ The general process of publication is as follows:
 	5. send result email to general@incubator.apache.org
 5. Finalizing and posting a release
 	1. Upload the signature package to [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris) and generate relevant links
-	2. Publish download links on Doris website and GitHub
+	2. Publish download links on Doris website and GitHub, clean up old version packages on svn
 	3. Send Announce mail to general@incubator.apache.org
 
 
@@ -65,7 +65,7 @@ If you are a new Release Manager, you can read up on the process from the follow
 
 Release manager needs Mr. A to sign his own public key before publishing and upload it to the public key 
 server. Then he can use this public key to sign the package ready for publication.
-If your key already exists in [key] (https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
+If your key already exists in [key](https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
 
 
 #### Installation and configuration of signature software GnuPG
@@ -87,11 +87,6 @@ After installation, the default configuration file gpg.conf will be placed in th
 ```
 
 If this directory or file does not exist, you can create an empty file directly.
-Edit gpg.conf, modify or add KeyServer configuration:
-
-```
-keyserver hkp http://keys.gnupg.net
-```
 
 Apache signature recommends SHA512, which can be done by configuring gpg.
 Edit gpg.conf and add the following three lines:
@@ -212,7 +207,7 @@ mQINBFwJEQ0BEACwqLluHfjBqD/RWZ4uoYxNYHlIzZvbvxAlwS2mn53BirLIU/G3
 Public key servers are servers that store users'public keys exclusively on the network. The send-keys parameter uploads the public key to the server.
 
 ```
-gpg --send-keys xxxx
+gpg --send-keys xxxx --keyserver https://keyserver.ubuntu.com/
 ```
 
 Where XXX is the last step -- the string after pub in the list-keys result, as shown above: 33DBF2E0
@@ -220,12 +215,12 @@ Where XXX is the last step -- the string after pub in the list-keys result, as s
 You can also upload the contents of the above public-key.txt through the following website:
 
 ```
-http://keys.gnupg.net
+https://keyserver.ubuntu.com/
 ```
 
-After successful upload, you can query the website and enter 0x33DBF2E0:
+After successfully upload, you can query the website and enter 0x33DBF2E0:
 
-http://keys.gnupg.net
+https://keyserver.ubuntu.com/
 
 Queries on the site are delayed and may take an hour.
 
@@ -250,18 +245,38 @@ sub   4096R/0E8182E6 2018-12-06
 
 Paste the fingerprint above (i.e. 07AA E690 B01D 1A4B 469B 0BEF 5E29 CE39 33DB F2E0) into your user information:
 
+```
 https://id.apache.org
 OpenPGP Public Key Primary Fingerprint:
+```
+
+> Notice: One can has multi Public Key。
 
 #### Generating keys
 
 ```
-svn co //dist.apache.org/repos/dist/dev/incubator/doris/
-# edit doris/KEY file
+svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+# edit doris/KEYS file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
 svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
+
+Note that the KEYS file must be published to the following svn repo at he same time:
+
+```
+svn co https://dist.apache.org/repos/dist/release/incubator/doris
+# edit doris/KEYS file
+svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
+```
+
+It will be automatically synced to:
+
+```
+https://downloads.apache.org/incubator/doris/KEYS
+```
+
+In the follow-up voting mail, the KEYS file in `https://downloads.apache.org/incubator/doris/KEYS` should be used.
 
 ## Prepare for release
 
@@ -305,7 +320,7 @@ After the entire branch is stable, the release can be prepared.
 1. Download the compiled image
 
          ```
-         docker pull apachedoris/doris-dev:build-env-1.2
+         docker pull apache/incubator-doris:build-env-1.3.1
          ```
 
 2. Use official documents to compile the new branch, see [Docker Development Mirror Compilation](http://doris.apache.org/master/zh-CN/installing/compilation.html)
@@ -340,7 +355,7 @@ $ git tag
 
 ### Packing Signature
 
-The following steps also need to log into user accounts directly through terminals such as SecureCRT, and can not be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
+The following steps also need to log into user accounts directly through terminals such as SecureCRT, and cannot be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
 
 ```
 $ git checkout 0.9.0-rc01
@@ -412,7 +427,7 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc1/
 This has been signed with PGP key 33DBF2E0, corresponding to
 lide@apache.org.
 KEYS file is available here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -499,7 +514,7 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc01/
 
 This has been signed with PGP key 33DBF2E0, corresponding to lide@apache.org.
 KEYS file is available here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -513,12 +528,12 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apachedoris/doris-dev:build-env
+$ docker pull apache/incubator-doris:build-env-1.3.1
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apachedoris/doris-dev:build-env
+$ docker run -it apache/incubator-doris:build-env-1.3.1
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.
@@ -643,9 +658,36 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 
 2. Doris Official Website Download Page
 
+The download page is a markdown file, the address is as follows.
 ```
-http://doris.apache.org /downloads.html
+docs/zh-CN/downloads/downloads.md
+docs/en/downloads/downloads.md
 ```
+1. You need to change the download package address of the last released version to the apache archive address (see below).
+2. Add the download information of the new version.
+
+#### clean up the old release package from svn
+
+1. clean up old release package 
+
+Since svn only needs to save the latest version of the package, when a new version is released, the old version of the package should be cleaned up from svn.
+
+```
+https://dist.apache.org/repos/dist/release/incubator/doris/
+https://dist.apache.org/repos/dist/dev/incubator/doris/
+```
+
+Keep only the latest version of the package in these two addresses.
+
+2. Change the download link of the old version package on the download page to the address of the archive page
+
+```
+Download page: http://doris.apache.org/downloads.html
+Archive page: http://archive.apache.org/dist/incubator/doris
+```
+
+Apache will have a synchronization mechanism to archive historical release versions. For details, see: [how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
+So even if the old package is removed from svn, it can still be found on the archive page.
 
 ### Send Announce e-mail to general@incubator.apache.org
 

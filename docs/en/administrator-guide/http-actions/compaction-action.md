@@ -32,7 +32,26 @@ This API is used to view the overall compaction status of a BE node or the compa
 
 ### The overall compaction status of the node
 
-(TODO)
+```
+curl -X GET http://be_host:webserver_port/api/compaction/run_status
+```
+
+Return JSON:
+
+```
+{
+  "CumulativeCompaction": {
+         "/home/disk1" : [10001, 10002],
+         "/home/disk2" : [10003]
+  },
+  "BaseCompaction": {
+         "/home/disk1" : [10001, 10002],
+         "/home/disk2" : [10003]
+  }
+}
+```
+
+This structure represents the id of the tablet that is performing the compaction task in a certain data directory, and the type of compaction.
 
 ### Specify the compaction status of the tablet
 
@@ -65,6 +84,7 @@ If the tablet exists, the result is returned in JSON format:
         "[50-50] 0 DELETE NONOVERLAPPING 574.00 B",
         "[51-51] 5 DATA OVERLAPPING 574.00 B"
     ],
+    "missing_rowsets": [],
     "stale version path": [
         {
             "path id": "2",
@@ -87,6 +107,7 @@ Explanation of results:
 * last cumulative failure time: The time when the last cumulative compaction failed. After 10 minutes by default, cumulative compaction is attempted on the this tablet again.
 * last base failure time: The time when the last base compaction failed. After 10 minutes by default, base compaction is attempted on the this tablet again.
 * rowsets: The current rowsets collection of this tablet. [0-48] means a rowset with version 0-48. The second number is the number of segments in a rowset. The `DELETE` indicates the delete version. `OVERLAPPING` and `NONOVERLAPPING` indicates whether data between segments is overlap.
+* missing_rowset: The missing rowsets.
 * stale version path: The merged version path of the rowset collection currently merged in the tablet. It is an array structure and each element represents a merged path. Each element contains three attributes: path id indicates the version path id, and last create time indicates the creation time of the most recent rowset on the path. By default, all rowsets on this path will be deleted after half an hour at the last create time.
 
 ### Examples

@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -39,6 +40,9 @@ public class TableName implements Writable {
     }
 
     public TableName(String db, String tbl) {
+        if (Catalog.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+            tbl = tbl.toLowerCase();
+        }
         this.db = db;
         this.tbl = tbl;
     }
@@ -137,4 +141,10 @@ public class TableName implements Writable {
         db = Text.readString(in);
         tbl = Text.readString(in);
     }
+
+    public TableName cloneWithoutAnalyze() {
+        TableName tableName = new TableName(this.db, this.tbl);
+        return tableName;
+    }
 }
+

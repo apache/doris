@@ -18,13 +18,14 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_JOIN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_JOIN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread.hpp>
-#include <boost/unordered_set.hpp>
+#include <future>
 #include <string>
+#include <thread>
+#include <unordered_set>
 
 #include "exec/exec_node.h"
 #include "exec/hash_table.h"
+#include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
@@ -62,12 +63,13 @@ protected:
     void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
-    boost::scoped_ptr<HashTable> _hash_tbl;
+    friend class IRuntimeFilter;
+
+    std::unique_ptr<HashTable> _hash_tbl;
     HashTable::Iterator _hash_tbl_iterator;
-    bool _is_push_down;
 
     // for right outer joins, keep track of what's been joined
-    typedef boost::unordered_set<TupleRow*> BuildTupleRowSet;
+    typedef std::unordered_set<TupleRow*> BuildTupleRowSet;
     BuildTupleRowSet _joined_build_rows;
 
     TJoinOp::type _join_op;
@@ -90,9 +92,9 @@ private:
     bool _match_all_build; // output all rows coming from the build input
     bool _build_unique;    // build a hash table without duplicated rows
 
-    bool _matched_probe;                    // if true, we have matched the current probe row
-    bool _eos;                              // if true, nothing left to return in get_next()
-    boost::scoped_ptr<MemPool> _build_pool; // holds everything referenced in _hash_tbl
+    bool _matched_probe;                  // if true, we have matched the current probe row
+    bool _eos;                            // if true, nothing left to return in get_next()
+    std::unique_ptr<MemPool> _build_pool; // holds everything referenced in _hash_tbl
 
     // Size of the TupleRow (just the Tuple ptrs) from the build (right) and probe (left)
     // sides. Set to zero if the build/probe tuples are not returned, e.g., for semi joins.
@@ -103,9 +105,10 @@ private:
     // _probe_batch must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
-    boost::scoped_ptr<RowBatch> _probe_batch;
+    std::unique_ptr<RowBatch> _probe_batch;
     int _probe_batch_pos; // current scan pos in _probe_batch
-    bool _probe_eos;      // if true, probe child has no more rows to process
+    int _probe_counter;
+    bool _probe_eos; // if true, probe child has no more rows to process
     TupleRow* _current_probe_row;
 
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row
@@ -115,11 +118,6 @@ private:
     // byte size of result tuple row (sum of the tuple ptrs, not the tuple data).
     // This should be the same size as the probe tuple row.
     int _result_tuple_row_size;
-
-    // Function declaration for codegen'd function.  Signature must match
-    // HashJoinNode::ProcessBuildBatch
-    typedef void (*ProcessBuildBatchFn)(HashJoinNode*, RowBatch*);
-    ProcessBuildBatchFn _process_build_batch_fn;
 
     // HashJoinNode::process_probe_batch() exactly
     typedef int (*ProcessProbeBatchFn)(HashJoinNode*, RowBatch*, RowBatch*, int);
@@ -137,10 +135,12 @@ private:
     RuntimeProfile::Counter* _probe_rows_counter;    // num probe rows
     RuntimeProfile::Counter* _build_buckets_counter; // num buckets in hash table
     RuntimeProfile::Counter* _hash_tbl_load_factor_counter;
+    RuntimeProfile::Counter* _hash_table_list_min_size;
+    RuntimeProfile::Counter* _hash_table_list_max_size;
 
     // Supervises ConstructHashTable in a separate thread, and
     // returns its status in the promise parameter.
-    void build_side_thread(RuntimeState* state, boost::promise<Status>* status);
+    void build_side_thread(RuntimeState* state, std::promise<Status>* status);
 
     // We parallelise building the build-side with Open'ing the
     // probe-side. If, for example, the probe-side child is another
@@ -161,7 +161,7 @@ private:
     int process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch, int max_added_rows);
 
     // Construct the build hash table, adding all the rows in 'build_batch'
-    void process_build_batch(RowBatch* build_batch);
+    Status process_build_batch(RuntimeState* state, RowBatch* build_batch);
 
     // Write combined row, consisting of probe_row and build_row, to out_row.
     // This is replaced by codegen.
@@ -170,10 +170,12 @@ private:
     // Returns a debug string for probe_rows.  Probe rows have tuple ptrs that are
     // uninitialized; the left hand child only populates the tuple ptrs it is responsible
     // for.  This function outputs just the probe row values and leaves the build
-    // side values as NULL.
+    // side values as nullptr.
     // This is only used for debugging and outputting the left child rows before
     // doing the join.
     std::string get_probe_row_output_string(TupleRow* probe_row);
+
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
 } // namespace doris

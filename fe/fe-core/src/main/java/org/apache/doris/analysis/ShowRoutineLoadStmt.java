@@ -81,6 +81,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("CustomProperties")
                     .add("Statistic")
                     .add("Progress")
+                    .add("Lag")
                     .add("ReasonOfStateChanged")
                     .add("ErrorLogUrls")
                     .add("OtherMsg")

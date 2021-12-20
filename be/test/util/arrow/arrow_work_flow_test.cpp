@@ -21,7 +21,6 @@
 #include <arrow/type.h>
 #include <gtest/gtest.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/logging.h"
@@ -159,26 +158,6 @@ void ArrowWorkFlowTest::init_desc_tbl() {
         offset += sizeof(DateTimeValue);
     }
     ++i;
-    // decimal_column
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        TTypeDesc ttype = gen_type_desc(TPrimitiveType::DECIMAL);
-        ttype.types[0].scalar_type.__set_precision(10);
-        ttype.types[0].scalar_type.__set_scale(5);
-        t_slot_desc.__set_slotType(ttype);
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("decimal_column");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(DecimalValue);
-    }
-    ++i;
     // decimalv2_column
     {
         TSlotDescriptor t_slot_desc;
@@ -280,13 +259,6 @@ void ArrowWorkFlowTest::init_desc_tbl() {
     }
     {
         TColumnType column_type;
-        column_type.__set_type(TPrimitiveType::DECIMAL);
-        column_type.__set_precision(10);
-        column_type.__set_scale(5);
-        column_type_map["decimal_column"] = column_type;
-    }
-    {
-        TColumnType column_type;
         column_type.__set_type(TPrimitiveType::DECIMALV2);
         column_type.__set_precision(9);
         column_type.__set_scale(3);
@@ -308,7 +280,6 @@ void ArrowWorkFlowTest::init_desc_tbl() {
     std::vector<std::string> columns;
     columns.push_back("int_column");
     columns.push_back("date_column");
-    columns.push_back("decimal_column");
     columns.push_back("decimalv2_column");
     columns.push_back("fix_len_string_column");
     columns.push_back("largeint_column");
@@ -326,6 +297,7 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
     _tnode.csv_scan_node.__set_file_paths(file_paths);
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node.init(_tnode);
     Status status = scan_node.prepare(_state);
     ASSERT_TRUE(status.ok());
 
@@ -350,7 +322,7 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
                                         &record_batch);
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(6, record_batch->num_rows());
-        ASSERT_EQ(6, record_batch->num_columns());
+        ASSERT_EQ(5, record_batch->num_columns());
         std::string result;
         status = serialize_record_batch(*record_batch, &result);
         ASSERT_TRUE(status.ok());

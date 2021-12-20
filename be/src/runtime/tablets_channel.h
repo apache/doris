@@ -67,7 +67,7 @@ public:
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
     // to include all tablets written in this channel.
     // no-op when this channel has been closed or cancelled
-    Status close(int sender_id, bool* finished,
+    Status close(int sender_id, int64_t backend_id, bool* finished,
                  const google::protobuf::RepeatedField<int64_t>& partition_ids,
                  google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
@@ -78,7 +78,7 @@ public:
     // eg. flush the largest memtable immediately.
     // return Status::OK if mem is reduced.
     // no-op when this channel has been closed or cancelled
-    Status reduce_mem_usage();
+    Status reduce_mem_usage(int64_t mem_limit);
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 

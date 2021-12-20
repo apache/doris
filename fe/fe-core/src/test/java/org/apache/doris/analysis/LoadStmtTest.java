@@ -30,18 +30,16 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.Lists;
+import org.apache.doris.task.LoadTaskInfo;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.google.common.collect.Lists;
+
 import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -143,20 +141,41 @@ public class LoadStmtTest {
 
     @Test
     public void testRewrite() throws Exception{
+        LoadTaskInfo.ImportColumnDescs columnDescs = new LoadTaskInfo.ImportColumnDescs();
         List<ImportColumnDesc> columns1 = getColumns("c1,c2,c3,tmp_c4=c1 + 1, tmp_c5 = tmp_c4+1");
-        Load.rewriteColumns(columns1);
+        columnDescs.descs = columns1;
+        columnDescs.isColumnDescsRewrited = false;
+        Load.rewriteColumns(columnDescs);
         String orig = "`c1` + 1 + 1";
         Assert.assertEquals(orig, columns1.get(4).getExpr().toString());
 
         List<ImportColumnDesc> columns2 = getColumns("c1,c2,c3,tmp_c5 = tmp_c4+1, tmp_c4=c1 + 1");
+        columnDescs.descs = columns2;
+        columnDescs.isColumnDescsRewrited = false;
         String orig2 = "`tmp_c4` + 1";
-        Load.rewriteColumns(columns2);
+        Load.rewriteColumns(columnDescs);
         Assert.assertEquals(orig2, columns2.get(3).getExpr().toString());
 
         List<ImportColumnDesc> columns3 = getColumns("c1,c2,c3");
+        columnDescs.descs = columns3;
+        columnDescs.isColumnDescsRewrited = false;
         String orig3 = "c3";
-        Load.rewriteColumns(columns3);
+        Load.rewriteColumns(columnDescs);
         Assert.assertEquals(orig3, columns3.get(2).toString());
+
+        List<ImportColumnDesc> columns4 = getColumns("c1, c1=ifnull(c1, 0), c2=ifnull(c1, 0)");
+        columnDescs.descs = columns4;
+        columnDescs.isColumnDescsRewrited = false;
+        Load.rewriteColumns(columnDescs);
+        Assert.assertEquals("c1", columns4.get(0).toString());
+        Assert.assertEquals("c1=ifnull(`c1`, 0)", columns4.get(1).toString());
+        Assert.assertEquals("c2=ifnull(ifnull(`c1`, 0), 0)", columns4.get(2).toString());
+        // will not rewrite again
+        Assert.assertTrue(columnDescs.isColumnDescsRewrited);
+        Load.rewriteColumns(columnDescs);
+        Assert.assertEquals("c1", columns4.get(0).toString());
+        Assert.assertEquals("c1=ifnull(`c1`, 0)", columns4.get(1).toString());
+        Assert.assertEquals("c2=ifnull(ifnull(`c1`, 0), 0)", columns4.get(2).toString());
 
     }
 

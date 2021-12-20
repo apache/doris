@@ -17,23 +17,25 @@
 
 package org.apache.doris.load;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
-public class DeleteInfo implements Writable {
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
+
+public class DeleteInfo implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "dbId")
     private long dbId;
@@ -41,48 +43,36 @@ public class DeleteInfo implements Writable {
     private long tableId;
     @SerializedName(value = "tableName")
     private String tableName;
-    @SerializedName(value = "partitionId")
-    private long partitionId;
-    @SerializedName(value = "partitionName")
-    private String partitionName;
-    @SerializedName(value = "partitionVersion")
-    private long partitionVersion;
-    @SerializedName(value = "partitionVersionHash")
-    private long partitionVersionHash;
-    private List<ReplicaPersistInfo> replicaInfos;
-
     @SerializedName(value = "deleteConditions")
     private List<String> deleteConditions;
     @SerializedName(value = "createTimeMs")
     private long createTimeMs;
+    @SerializedName(value = "partitionIds")
+    private List<Long> partitionIds;
+    @SerializedName(value = "partitionNames")
+    private List<String> partitionNames;
+    @SerializedName(value = "noPartitionSpecified")
+    private boolean noPartitionSpecified = false;
 
-    private AsyncDeleteJob asyncDeleteJob;
+    // The following partition id and partition name are deprecated.
+    // Leave them here just for compatibility
+    @Deprecated
+    @SerializedName(value = "partitionId")
+    private long partitionId;
+    @Deprecated
+    @SerializedName(value = "partitionName")
+    private String partitionName;
 
     public DeleteInfo() {
-        this.replicaInfos = new ArrayList<ReplicaPersistInfo>();
         this.deleteConditions = Lists.newArrayList();
-        this.asyncDeleteJob = null;
     }
 
-    public DeleteInfo(long dbId, long tableId, String tableName, long partitionId, String partitionName,
-                      long partitionVersion, long partitionVersionHash, List<String> deleteConditions) {
+    public DeleteInfo(long dbId, long tableId, String tableName, List<String> deleteConditions) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
-        this.partitionId = partitionId;
-        this.partitionName = partitionName;
-        this.partitionVersion = partitionVersion;
-        this.partitionVersionHash = partitionVersionHash;
-        this.replicaInfos = new ArrayList<ReplicaPersistInfo>();
         this.deleteConditions = deleteConditions;
-
         this.createTimeMs = System.currentTimeMillis();
-
-        this.asyncDeleteJob = null;
-    }
-
-    public long getJobId() {
-        return this.asyncDeleteJob == null ? -1 : this.asyncDeleteJob.getJobId();
     }
 
     public long getDbId() {
@@ -97,34 +87,6 @@ public class DeleteInfo implements Writable {
         return tableName;
     }
 
-    public long getPartitionId() {
-        return partitionId;
-    }
-
-    public String getPartitionName() {
-        return partitionName;
-    }
-
-    public long getPartitionVersion() {
-        return partitionVersion;
-    }
-
-    public long getPartitionVersionHash() {
-        return partitionVersionHash;
-    }
-
-    public List<ReplicaPersistInfo> getReplicaPersistInfos() {
-        return this.replicaInfos;
-    }
-
-    public void addReplicaPersistInfo(ReplicaPersistInfo info) {
-        this.replicaInfos.add(info);
-    }
-
-    public void setDeleteConditions(List<String> deleteConditions) {
-        this.deleteConditions = deleteConditions;
-    }
-
     public List<String> getDeleteConditions() {
         return deleteConditions;
     }
@@ -133,59 +95,51 @@ public class DeleteInfo implements Writable {
         return createTimeMs;
     }
 
-    public AsyncDeleteJob getAsyncDeleteJob() {
-        return asyncDeleteJob;
+    public boolean isNoPartitionSpecified() {
+        return noPartitionSpecified;
     }
 
-    public void setAsyncDeleteJob(AsyncDeleteJob asyncDeleteJob) {
-        this.asyncDeleteJob = asyncDeleteJob;
+    public void setPartitions(boolean noPartitionSpecified, List<Long> partitionIds, List<String> partitionNames) {
+        this.noPartitionSpecified = noPartitionSpecified;
+        Preconditions.checkState(partitionIds.size() == partitionNames.size());
+        this.partitionIds = partitionIds;
+        this.partitionNames = partitionNames;
     }
 
-    public DeleteState getState() {
-        return asyncDeleteJob == null ? DeleteState.FINISHED : asyncDeleteJob.getState();
+    public List<Long> getPartitionIds() {
+        return partitionIds;
     }
-    
-    public void updatePartitionVersionInfo(long newVersion, long newVersionHash) {
-        this.partitionVersion = newVersion;
-        this.partitionVersionHash = newVersionHash;
+
+    public List<String> getPartitionNames() {
+        return partitionNames;
+    }
+
+    public static DeleteInfo read(DataInput in) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_96) {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, DeleteInfo.class);
+        } else {
+            DeleteInfo deleteInfo = new DeleteInfo();
+            deleteInfo.readFields(in);
+            return deleteInfo;
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-        out.writeLong(partitionVersion);
-        out.writeLong(partitionVersionHash);
-        out.writeInt(replicaInfos.size());
-        for (ReplicaPersistInfo info : replicaInfos) {
-            info.write(out);
-        }
-
-        Text.writeString(out, tableName);
-        Text.writeString(out, partitionName);
-
-        out.writeInt(deleteConditions.size());
-        for (String deleteCond : deleteConditions) {
-            Text.writeString(out, deleteCond);
-        }
-
-        out.writeLong(createTimeMs);
-
-        if (asyncDeleteJob == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            asyncDeleteJob.write(out);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
-        partitionId = in.readLong();
-        partitionVersion = in.readLong();
-        partitionVersionHash = in.readLong();
+        long partitionId = in.readLong();
+        long partitionVersion = in.readLong();
+        long partitionVersionHash = in.readLong();
+        this.partitionIds = Lists.newArrayList(partitionId);
+
+        List<ReplicaPersistInfo> replicaInfos = Lists.newArrayList();
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             ReplicaPersistInfo info = ReplicaPersistInfo.read(in);
@@ -194,7 +148,7 @@ public class DeleteInfo implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_11) {
             tableName = Text.readString(in);
-            partitionName = Text.readString(in);
+            String partitionName = Text.readString(in);
 
             size = in.readInt();
             for (int i = 0; i < size; i++) {
@@ -203,12 +157,22 @@ public class DeleteInfo implements Writable {
             }
 
             createTimeMs = in.readLong();
+            this.partitionNames = Lists.newArrayList(partitionName);
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_19) {
-            if (in.readBoolean()) {
-                asyncDeleteJob = AsyncDeleteJob.read(in);
-            }
+            boolean hasAsyncDeleteJob = in.readBoolean();
+            Preconditions.checkState(!hasAsyncDeleteJob, "async delete job is deprecated");
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // This logic is just for forward compatibility
+        if (this.partitionId > 0) {
+            Preconditions.checkState(!Strings.isNullOrEmpty(this.partitionName));
+            this.partitionIds = Lists.newArrayList(this.partitionId);
+            this.partitionNames = Lists.newArrayList(this.partitionName);
         }
     }
 }

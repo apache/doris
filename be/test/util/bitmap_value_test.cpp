@@ -25,6 +25,7 @@
 #include "util/bitmap_value.h"
 
 namespace doris {
+using roaring::Roaring;
 
 TEST(BitmapValueTest, bitmap_union) {
     BitmapValue empty;
@@ -306,6 +307,25 @@ TEST(BitmapValueTest, bitmap_to_string) {
     ASSERT_STREQ("1,2", empty.to_string().c_str());
 }
 
+TEST(BitmapValueTest, sub_limit) {
+    BitmapValue bitmap({1,2,3,10,11,5,6,7,8,9});
+    BitmapValue ret_bitmap1;
+    ASSERT_EQ(5, bitmap.sub_limit(0, 5, &ret_bitmap1));
+    ASSERT_STREQ("1,2,3,5,6", ret_bitmap1.to_string().c_str());
+
+    BitmapValue ret_bitmap2;
+    ASSERT_EQ(6, bitmap.sub_limit(6, 10, &ret_bitmap2));
+    ASSERT_STREQ("6,7,8,9,10,11", ret_bitmap2.to_string().c_str());
+
+    BitmapValue ret_bitmap3;
+    ASSERT_EQ(3, bitmap.sub_limit(5, 3, &ret_bitmap3));
+    ASSERT_STREQ("5,6,7", ret_bitmap3.to_string().c_str());
+
+    BitmapValue ret_bitmap4;
+    ASSERT_EQ(5, bitmap.sub_limit(2, 5, &ret_bitmap4));
+    ASSERT_STREQ("2,3,5,6,7", ret_bitmap4.to_string().c_str());
+}
+
 TEST(BitmapValueTest, bitmap_single_convert) {
     BitmapValue bitmap;
     ASSERT_STREQ("", bitmap.to_string().c_str());
@@ -325,6 +345,43 @@ TEST(BitmapValueTest, bitmap_single_convert) {
 
     bitmap |= bitmap_u;
     ASSERT_EQ(BitmapValue::BITMAP, bitmap._type);
+}
+
+TEST(BitmapValueTest, bitmap_value_iterator_test) {
+    BitmapValue empty;
+    for (auto iter = empty.begin(); iter != empty.end(); ++iter) {
+        // should not goes here
+        ASSERT_TRUE(false);
+    }
+
+    BitmapValue single(1024);
+    for (auto iter = single.begin(); iter != single.end(); ++iter) {
+        ASSERT_EQ(1024, *iter);
+    }
+
+    int i = 0;
+    BitmapValue bitmap({0, 1025, 1026, UINT32_MAX, UINT64_MAX});
+    for (auto iter = bitmap.begin(); iter != bitmap.end(); ++iter, ++i) {
+        switch (i) {
+            case 0:
+                ASSERT_EQ(0, *iter);
+                break;
+            case 1:
+                ASSERT_EQ(1025, *iter);
+                break;
+            case 2:
+                ASSERT_EQ(1026, *iter);
+                break;
+            case 3:
+                ASSERT_EQ(UINT32_MAX, *iter);
+                break;
+            case 4:
+                ASSERT_EQ(UINT64_MAX, *iter);
+                break;
+            default:
+                ASSERT_TRUE(false); 
+        }
+    }
 }
 } // namespace doris
 

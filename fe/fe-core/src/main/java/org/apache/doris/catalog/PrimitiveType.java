@@ -48,20 +48,25 @@ public enum PrimitiveType {
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR),
 
-    DECIMAL("DECIMAL", 40, TPrimitiveType.DECIMAL),
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2),
     
     HLL("HLL", 16, TPrimitiveType.HLL),
     TIME("TIME", 8, TPrimitiveType.TIME),
     // we use OBJECT type represent BITMAP type in Backend
     BITMAP("BITMAP", 16, TPrimitiveType.OBJECT),
+    ARRAY("ARRAY", 24, TPrimitiveType.ARRAY),
+    MAP("MAP", 24, TPrimitiveType.MAP),
+    STRUCT("MAP", 24, TPrimitiveType.STRUCT),
+    STRING("STRING", 16, TPrimitiveType.STRING),
     // Unsupported scalar types.
-    BINARY("BINARY", -1, TPrimitiveType.BINARY);
+    BINARY("BINARY", -1, TPrimitiveType.BINARY),
+    ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
 
 
     private static final int DATE_INDEX_LEN = 3;
     private static final int DATETIME_INDEX_LEN = 8;
     private static final int VARCHAR_INDEX_LEN = 20;
+    private static final int STRING_INDEX_LEN = 20;
     private static final int DECIMAL_INDEX_LEN = 12;
 
     private static ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
@@ -78,10 +83,10 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DOUBLE);
         builder.put(NULL_TYPE, DATE);
         builder.put(NULL_TYPE, DATETIME);
-        builder.put(NULL_TYPE, DECIMAL);
         builder.put(NULL_TYPE, DECIMALV2);
         builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
+        builder.put(NULL_TYPE, STRING);
         builder.put(NULL_TYPE, BITMAP);
         builder.put(NULL_TYPE, TIME);
         // Boolean
@@ -95,9 +100,9 @@ public enum PrimitiveType {
         builder.put(BOOLEAN, DOUBLE);
         builder.put(BOOLEAN, DATE);
         builder.put(BOOLEAN, DATETIME);
-        builder.put(BOOLEAN, DECIMAL);
         builder.put(BOOLEAN, DECIMALV2);
         builder.put(BOOLEAN, VARCHAR);
+        builder.put(BOOLEAN, STRING);
         // Tinyint
         builder.put(TINYINT, BOOLEAN);
         builder.put(TINYINT, TINYINT);
@@ -109,9 +114,9 @@ public enum PrimitiveType {
         builder.put(TINYINT, DOUBLE);
         builder.put(TINYINT, DATE);
         builder.put(TINYINT, DATETIME);
-        builder.put(TINYINT, DECIMAL);
         builder.put(TINYINT, DECIMALV2);
         builder.put(TINYINT, VARCHAR);
+        builder.put(TINYINT, STRING);
         // Smallint
         builder.put(SMALLINT, BOOLEAN);
         builder.put(SMALLINT, TINYINT);
@@ -123,9 +128,9 @@ public enum PrimitiveType {
         builder.put(SMALLINT, DOUBLE);
         builder.put(SMALLINT, DATE);
         builder.put(SMALLINT, DATETIME);
-        builder.put(SMALLINT, DECIMAL);
         builder.put(SMALLINT, DECIMALV2);
         builder.put(SMALLINT, VARCHAR);
+        builder.put(SMALLINT, STRING);
         // Int
         builder.put(INT, BOOLEAN);
         builder.put(INT, TINYINT);
@@ -137,9 +142,9 @@ public enum PrimitiveType {
         builder.put(INT, DOUBLE);
         builder.put(INT, DATE);
         builder.put(INT, DATETIME);
-        builder.put(INT, DECIMAL);
         builder.put(INT, DECIMALV2);
         builder.put(INT, VARCHAR);
+        builder.put(INT, STRING);
         // Bigint
         builder.put(BIGINT, BOOLEAN);
         builder.put(BIGINT, TINYINT);
@@ -151,9 +156,9 @@ public enum PrimitiveType {
         builder.put(BIGINT, DOUBLE);
         builder.put(BIGINT, DATE);
         builder.put(BIGINT, DATETIME);
-        builder.put(BIGINT, DECIMAL);
         builder.put(BIGINT, DECIMALV2);
         builder.put(BIGINT, VARCHAR);
+        builder.put(BIGINT, STRING);
         // Largeint
         builder.put(LARGEINT, BOOLEAN);
         builder.put(LARGEINT, TINYINT);
@@ -165,9 +170,9 @@ public enum PrimitiveType {
         builder.put(LARGEINT, DOUBLE);
         builder.put(LARGEINT, DATE);
         builder.put(LARGEINT, DATETIME);
-        builder.put(LARGEINT, DECIMAL);
         builder.put(LARGEINT, DECIMALV2);
         builder.put(LARGEINT, VARCHAR);
+        builder.put(LARGEINT, STRING);
         // Float
         builder.put(FLOAT, BOOLEAN);
         builder.put(FLOAT, TINYINT);
@@ -179,9 +184,9 @@ public enum PrimitiveType {
         builder.put(FLOAT, DOUBLE);
         builder.put(FLOAT, DATE);
         builder.put(FLOAT, DATETIME);
-        builder.put(FLOAT, DECIMAL);
         builder.put(FLOAT, DECIMALV2);
         builder.put(FLOAT, VARCHAR);
+        builder.put(FLOAT, STRING);
         // Double
         builder.put(DOUBLE, BOOLEAN);
         builder.put(DOUBLE, TINYINT);
@@ -193,9 +198,9 @@ public enum PrimitiveType {
         builder.put(DOUBLE, DOUBLE);
         builder.put(DOUBLE, DATE);
         builder.put(DOUBLE, DATETIME);
-        builder.put(DOUBLE, DECIMAL);
         builder.put(DOUBLE, DECIMALV2);
         builder.put(DOUBLE, VARCHAR);
+        builder.put(DOUBLE, STRING);
         // Date
         builder.put(DATE, BOOLEAN);
         builder.put(DATE, TINYINT);
@@ -207,9 +212,9 @@ public enum PrimitiveType {
         builder.put(DATE, DOUBLE);
         builder.put(DATE, DATE);
         builder.put(DATE, DATETIME);
-        builder.put(DATE, DECIMAL);
         builder.put(DATE, DECIMALV2);
         builder.put(DATE, VARCHAR);
+        builder.put(DATE, STRING);
         // Datetime
         builder.put(DATETIME, BOOLEAN);
         builder.put(DATETIME, TINYINT);
@@ -221,12 +226,13 @@ public enum PrimitiveType {
         builder.put(DATETIME, DOUBLE);
         builder.put(DATETIME, DATE);
         builder.put(DATETIME, DATETIME);
-        builder.put(DATETIME, DECIMAL);
         builder.put(DATETIME, DECIMALV2);
         builder.put(DATETIME, VARCHAR);
+        builder.put(DATETIME, STRING);
         // Char
         builder.put(CHAR, CHAR);
         builder.put(CHAR, VARCHAR);
+        builder.put(CHAR, STRING);
         // Varchar
         builder.put(VARCHAR, BOOLEAN);
         builder.put(VARCHAR, TINYINT);
@@ -238,23 +244,29 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DOUBLE);
         builder.put(VARCHAR, DATE);
         builder.put(VARCHAR, DATETIME);
-        builder.put(VARCHAR, DECIMAL);
         builder.put(VARCHAR, DECIMALV2);
         builder.put(VARCHAR, VARCHAR);
+        builder.put(VARCHAR, STRING);
         builder.put(VARCHAR, HLL);
         builder.put(VARCHAR, BITMAP);
-        // Decimal
-        builder.put(DECIMAL, BOOLEAN);
-        builder.put(DECIMAL, TINYINT);
-        builder.put(DECIMAL, SMALLINT);
-        builder.put(DECIMAL, INT);
-        builder.put(DECIMAL, BIGINT);
-        builder.put(DECIMAL, LARGEINT);
-        builder.put(DECIMAL, FLOAT);
-        builder.put(DECIMAL, DOUBLE);
-        builder.put(DECIMAL, DECIMAL);
-        builder.put(DECIMAL, DECIMALV2);
-        builder.put(DECIMAL, VARCHAR);
+
+        // Varchar
+        builder.put(STRING, BOOLEAN);
+        builder.put(STRING, TINYINT);
+        builder.put(STRING, SMALLINT);
+        builder.put(STRING, INT);
+        builder.put(STRING, BIGINT);
+        builder.put(STRING, LARGEINT);
+        builder.put(STRING, FLOAT);
+        builder.put(STRING, DOUBLE);
+        builder.put(STRING, DATE);
+        builder.put(STRING, DATETIME);
+        builder.put(STRING, DECIMALV2);
+        builder.put(STRING, VARCHAR);
+        builder.put(STRING, STRING);
+        builder.put(STRING, HLL);
+        builder.put(STRING, BITMAP);
+
         // DecimalV2
         builder.put(DECIMALV2, BOOLEAN);
         builder.put(DECIMALV2, TINYINT);
@@ -264,17 +276,19 @@ public enum PrimitiveType {
         builder.put(DECIMALV2, LARGEINT);
         builder.put(DECIMALV2, FLOAT);
         builder.put(DECIMALV2, DOUBLE);
-        builder.put(DECIMALV2, DECIMAL);
         builder.put(DECIMALV2, DECIMALV2);
         builder.put(DECIMALV2, VARCHAR);
- 
+        builder.put(DECIMALV2, STRING);
+
         // HLL
         builder.put(HLL, HLL);
         builder.put(HLL, VARCHAR);
+        builder.put(HLL, STRING);
 
         // BITMAP
         builder.put(BITMAP, BITMAP);
         builder.put(BITMAP, VARCHAR);
+        builder.put(BITMAP, STRING);
 
         //TIME
         builder.put(TIME, TIME);
@@ -303,7 +317,6 @@ public enum PrimitiveType {
         numericTypes.add(LARGEINT);
         numericTypes.add(FLOAT);
         numericTypes.add(DOUBLE);
-        numericTypes.add(DECIMAL);
         numericTypes.add(DECIMALV2);
 
         supportedTypes = Lists.newArrayList();
@@ -317,14 +330,16 @@ public enum PrimitiveType {
         supportedTypes.add(FLOAT);
         supportedTypes.add(DOUBLE);
         supportedTypes.add(VARCHAR);
+        supportedTypes.add(STRING);
         supportedTypes.add(HLL);
         supportedTypes.add(CHAR);
         supportedTypes.add(DATE);
         supportedTypes.add(DATETIME);
         supportedTypes.add(TIME);
-        supportedTypes.add(DECIMAL);
         supportedTypes.add(DECIMALV2);
         supportedTypes.add(BITMAP);
+        supportedTypes.add(ARRAY);
+        supportedTypes.add(MAP);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -358,7 +373,7 @@ public enum PrimitiveType {
     private static PrimitiveType[][] compatibilityMatrix;
 
     static {
-        compatibilityMatrix = new PrimitiveType[BINARY.ordinal() + 1][BINARY.ordinal() + 1];
+        compatibilityMatrix = new PrimitiveType[PrimitiveType.values().length][PrimitiveType.values().length];
 
         // NULL_TYPE is compatible with any type and results in the non-null type.
         compatibilityMatrix[NULL_TYPE.ordinal()][NULL_TYPE.ordinal()] = NULL_TYPE;
@@ -374,7 +389,7 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][DATETIME.ordinal()] = DATETIME;
         compatibilityMatrix[NULL_TYPE.ordinal()][CHAR.ordinal()] = CHAR;
         compatibilityMatrix[NULL_TYPE.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[NULL_TYPE.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][TIME.ordinal()] = TIME;
         compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;
@@ -391,7 +406,7 @@ public enum PrimitiveType {
         compatibilityMatrix[BOOLEAN.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[BOOLEAN.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[BOOLEAN.ordinal()][TIME.ordinal()] = TIME;
 
@@ -406,7 +421,7 @@ public enum PrimitiveType {
         compatibilityMatrix[TINYINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[TINYINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[TINYINT.ordinal()][TIME.ordinal()] = TIME;
 
@@ -420,7 +435,7 @@ public enum PrimitiveType {
         compatibilityMatrix[SMALLINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[SMALLINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[SMALLINT.ordinal()][TIME.ordinal()] = TIME;
 
@@ -433,7 +448,7 @@ public enum PrimitiveType {
         compatibilityMatrix[INT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[INT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[INT.ordinal()][TIME.ordinal()] = TIME;
 
@@ -445,7 +460,7 @@ public enum PrimitiveType {
         compatibilityMatrix[BIGINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[BIGINT.ordinal()][TIME.ordinal()] = TIME;
 
@@ -456,7 +471,7 @@ public enum PrimitiveType {
         compatibilityMatrix[LARGEINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[LARGEINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[LARGEINT.ordinal()][TIME.ordinal()] = TIME;
 
@@ -466,7 +481,7 @@ public enum PrimitiveType {
         compatibilityMatrix[FLOAT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[FLOAT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[FLOAT.ordinal()][TIME.ordinal()] = TIME;
 
@@ -475,7 +490,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DOUBLE.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[DOUBLE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DOUBLE.ordinal()][TIME.ordinal()] = TIME;
 
@@ -483,31 +498,33 @@ public enum PrimitiveType {
         compatibilityMatrix[DATE.ordinal()][DATETIME.ordinal()] = DATETIME;
         compatibilityMatrix[DATE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][DECIMAL.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[DATE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 
         compatibilityMatrix[DATETIME.ordinal()][DATETIME.ordinal()] = DATETIME;
         compatibilityMatrix[DATETIME.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][DECIMAL.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[DATETIME.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 
         compatibilityMatrix[CHAR.ordinal()][CHAR.ordinal()] = CHAR;
         compatibilityMatrix[CHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[CHAR.ordinal()][DECIMAL.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[CHAR.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 
         compatibilityMatrix[VARCHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[VARCHAR.ordinal()][DECIMAL.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 
-        compatibilityMatrix[DECIMAL.ordinal()][DECIMAL.ordinal()] = DECIMAL;
+        compatibilityMatrix[STRING.ordinal()][STRING.ordinal()] = STRING;
+        compatibilityMatrix[STRING.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[STRING.ordinal()][TIME.ordinal()] = INVALID_TYPE;
+
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL.ordinal()] = DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = INVALID_TYPE;
         
         compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
@@ -518,11 +535,7 @@ public enum PrimitiveType {
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = TIME;
     }
 
-    private static PrimitiveType[][] schemaChangeCompatibilityMatrix;
-
     static {
-        schemaChangeCompatibilityMatrix = new PrimitiveType[HLL.ordinal() + 1][HLL.ordinal() + 1];
-
         // NULL_TYPE is compatible with any type and results in the non-null type.
         compatibilityMatrix[NULL_TYPE.ordinal()][NULL_TYPE.ordinal()] = NULL_TYPE;
         compatibilityMatrix[NULL_TYPE.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
@@ -555,8 +568,6 @@ public enum PrimitiveType {
 
     public static PrimitiveType fromThrift(TPrimitiveType tPrimitiveType) {
         switch (tPrimitiveType) {
-            case INVALID_TYPE:
-                return INVALID_TYPE;
             case NULL_TYPE:
                 return NULL_TYPE;
             case BOOLEAN:
@@ -575,14 +586,34 @@ public enum PrimitiveType {
                 return FLOAT;
             case DOUBLE:
                 return DOUBLE;
+            case DATE:
+                return DATE;
+            case DATETIME:
+                return DATETIME;
+            case BINARY:
+                return BINARY;
+            case DECIMALV2:
+                return DECIMALV2;
+            case TIME:
+                return TIME;
             case VARCHAR:
                 return VARCHAR;
+            case STRING:
+                return STRING;
             case CHAR:
                 return CHAR;
             case HLL:
                 return HLL;
             case OBJECT:
                 return BITMAP;
+            case ARRAY:
+                return ARRAY;
+            case MAP:
+                return MAP;
+            case STRUCT:
+                return STRUCT;
+            case ALL:
+                return ALL;
             default:
                 return INVALID_TYPE;
         }
@@ -597,7 +628,7 @@ public enum PrimitiveType {
     }
 
     public static int getMaxSlotSize() {
-        return DECIMAL.slotSize;
+        return ARRAY.slotSize;
     }
 
     /**
@@ -650,16 +681,13 @@ public enum PrimitiveType {
         return this == FLOAT || this == DOUBLE;
     }
 
-    public boolean isDecimalType() {
-        return this == DECIMAL;
-    }
 
     public boolean isDecimalV2Type() {
         return this == DECIMALV2;
     }
 
     public boolean isNumericType() {
-        return isFixedPointType() || isFloatingPointType() || isDecimalType() || isDecimalV2Type();
+        return isFixedPointType() || isFloatingPointType() || isDecimalV2Type();
     }
 
     public boolean isValid() {
@@ -674,12 +702,16 @@ public enum PrimitiveType {
         return (this == DATE || this == DATETIME);
     }
 
+    public boolean isArrayType(){
+        return this == ARRAY;
+    }
+
     public boolean isStringType() {
-        return (this == VARCHAR || this == CHAR || this == HLL);
+        return (this == VARCHAR || this == CHAR || this == HLL || this == STRING);
     }
 
     public boolean isCharFamily() {
-        return (this == VARCHAR || this == CHAR);
+        return (this == VARCHAR || this == CHAR || this == STRING);
     }
 
     public boolean isIntegerType() {
@@ -715,9 +747,10 @@ public enum PrimitiveType {
                     return MysqlColType.MYSQL_TYPE_DATETIME;
                 }
             }
-            case DECIMAL:
             case DECIMALV2:
                 return MysqlColType.MYSQL_TYPE_NEWDECIMAL;
+            case STRING:
+                return MysqlColType.MYSQL_TYPE_BLOB;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }
@@ -734,7 +767,8 @@ public enum PrimitiveType {
             case CHAR:
                 // char index size is length
                 return -1;
-            case DECIMAL:
+            case STRING:
+                return STRING_INDEX_LEN;
             case DECIMALV2:
                 return DECIMAL_INDEX_LEN;
             default:

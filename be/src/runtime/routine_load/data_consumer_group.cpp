@@ -67,7 +67,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     Status result_st = Status::OK();
     // start all consumers
     for (auto& consumer : _consumers) {
-        if (!_thread_pool.offer(boost::bind<void>(
+        if (!_thread_pool.offer(std::bind<void>(
                     &KafkaDataConsumerGroup::actual_consume, this, consumer, &_queue,
                     ctx->max_interval_s * 1000, [this, &result_st](const Status& st) {
                         std::unique_lock<std::mutex> lock(_mutex);
@@ -86,7 +86,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                          << ", group id: " << _grp_id;
             return Status::InternalError("failed to submit data consumer");
         } else {
-            VLOG_CRITICAL << "submit a data consumer: " << consumer->id() << ", group id: " << _grp_id;
+            VLOG_CRITICAL << "submit a data consumer: " << consumer->id()
+                          << ", group id: " << _grp_id;
         }
     }
 
@@ -126,7 +127,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                       << ", left_time: " << left_time << ", left_rows: " << left_rows
                       << ", left_bytes: " << left_bytes
                       << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
-                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000;
+                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000
+                      << ", " << ctx->brief();
 
             // shutdown queue
             _queue.shutdown();
@@ -147,7 +149,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             if (left_bytes == ctx->max_batch_size) {
                 // nothing to be consumed, we have to cancel it, because
                 // we do not allow finishing stream load pipe without data
-                kafka_pipe->cancel();
+                kafka_pipe->cancel("no data");
                 return Status::Cancelled("Cancelled");
             } else {
                 DCHECK(left_bytes < ctx->max_batch_size);
@@ -163,8 +165,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
         bool res = _queue.blocking_get(&msg);
         if (res) {
             VLOG_NOTICE << "get kafka message"
-                    << ", partition: " << msg->partition() << ", offset: " << msg->offset()
-                    << ", len: " << msg->len();
+                        << ", partition: " << msg->partition() << ", offset: " << msg->offset()
+                        << ", len: " << msg->len();
 
             (kafka_pipe.get()->*append_data)(static_cast<const char*>(msg->payload()),
                                              static_cast<size_t>(msg->len()));
@@ -174,7 +176,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                 left_bytes -= msg->len();
                 cmt_offset[msg->partition()] = msg->offset();
                 VLOG_NOTICE << "consume partition[" << msg->partition() << " - " << msg->offset()
-                        << "]";
+                            << "]";
             } else {
                 // failed to append this msg, we must stop
                 LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;

@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -130,7 +131,7 @@ public:
     // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
     // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
     virtual OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                   uint64_t request_block_row_count,
+                                   uint64_t request_block_row_count, size_t key_num,
                                    std::vector<OlapTuple>* ranges) = 0;
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
@@ -159,6 +160,7 @@ public:
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
+    const RowsetMetaPB& get_rowset_pb() { return rowset_meta()->get_rowset_pb(); }
     inline KeysType keys_type() { return _schema->keys_type(); }
 
     // remove all files in this rowset
@@ -191,8 +193,8 @@ public:
             return;
         }
         VLOG_NOTICE << "rowset is close. rowset state from:" << old_state << " to "
-                << _rowset_state_machine.rowset_state() << ", version:" << start_version() << "-"
-                << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
+                    << _rowset_state_machine.rowset_state() << ", version:" << start_version()
+                    << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -205,6 +207,8 @@ public:
 
     // return whether `path` is one of the files in this rowset
     virtual bool check_path(const std::string& path) = 0;
+
+    virtual bool check_file_exist() = 0;
 
     // return an unique identifier string for this rowset
     std::string unique_id() const { return _rowset_path + "/" + rowset_id().to_string(); }
@@ -220,7 +224,7 @@ public:
     }
 
     // this function is called by reader to increase reference of rowset
-    void aquire() { ++_refs_by_reader; }
+    void acquire() { ++_refs_by_reader; }
 
     void release() {
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
@@ -237,7 +241,8 @@ public:
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
-                VLOG_NOTICE << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                VLOG_NOTICE
+                        << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
                         << ", version:" << start_version() << "-" << end_version()
                         << ", tabletid:" << _rowset_meta->tablet_id();
             }

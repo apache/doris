@@ -28,6 +28,7 @@ import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
@@ -74,7 +75,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     // Profile of this load job, including all tasks' profiles
     private RuntimeProfile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
-    private boolean isReportSuccess = false;
+    private boolean enableProfile = false;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -86,14 +87,15 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReportSucc()) {
-            isReportSuccess = true;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
+            enableProfile = true;
         }
     }
 
     @Override
     public void beginTxn()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
@@ -192,12 +194,12 @@ public class BrokerLoadJob extends BulkLoadJob {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                         isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
-                        getLoadParallelism(), isReportSuccess ? jobProfile : null);
+                        getLoadParallelism(), getSendBatchParallelism(), enableProfile ? jobProfile : null);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),
@@ -304,7 +306,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     private void writeProfile() {
-        if (!isReportSuccess) {
+        if (!enableProfile) {
             return;
         }
 
@@ -324,8 +326,6 @@ public class BrokerLoadJob extends BulkLoadJob {
         // Add the summary profile to the first
         jobProfile.addFirstChild(summaryProfile);
         jobProfile.computeTimeInChildProfile();
-        StringBuilder builder = new StringBuilder();
-        jobProfile.prettyPrint(builder, "");
         ProfileManager.getInstance().pushProfile(jobProfile);
     }
 
@@ -342,6 +342,16 @@ public class BrokerLoadJob extends BulkLoadJob {
         commitInfos.addAll(attachment.getCommitInfoList());
         progress = (int) ((double) finishedTaskIds.size() / idToTasks.size() * 100);
         if (progress == 100) {
+            progress = 99;
+        }
+    }
+
+    @Override
+    public void updateProgress(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
+                               long scannedBytes, boolean isDone) {
+        super.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
+        progress = (int) ((double) loadStatistic.getLoadBytes() / loadStatistic.totalFileSizeB * 100);
+        if (progress >= 100) {
             progress = 99;
         }
     }

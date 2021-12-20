@@ -23,15 +23,22 @@
 namespace doris {
 
 // This class is used to defer a function when this object is deconstruct
-class DeferOp {
+// A Better Defer operator #5576
+// for C++17
+// Defer defer {[]{ call something }};
+//
+// for C++11
+// auto op = [] {};
+// Defer<decltype<op>> (op);
+template <class T>
+class Defer {
 public:
-    typedef std::function<void()> DeferFunction;
-    DeferOp(const DeferFunction& func) : _func(func) {}
-
-    ~DeferOp() { _func(); };
+    Defer(T& closure) : _closure(closure) {}
+    Defer(T&& closure) : _closure(std::move(closure)) {}
+    ~Defer() { _closure(); }
 
 private:
-    DeferFunction _func;
+    T _closure;
 };
 
 } // namespace doris

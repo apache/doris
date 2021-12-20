@@ -108,8 +108,8 @@ public class AnalyticEvalNode extends PlanNode {
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
-        analyzer.getDescTbl().computeMemLayout();
-        intermediateTupleDesc.computeMemLayout();
+        analyzer.getDescTbl().computeStatAndMemLayout();
+        intermediateTupleDesc.computeStatAndMemLayout();
         // we add the analyticInfo's smap to the combined smap of our child
         outputSmap = logicalToPhysicalSmap;
         createDefaultSmap(analyzer);
@@ -138,6 +138,19 @@ public class AnalyticEvalNode extends PlanNode {
     @Override
     protected void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            return;
+        }
+        cardinality = cardinality == -1 ? getChild(0).cardinality : cardinality;
+        applyConjunctsSelectivity();
+        capCardinalityAtLimit();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats AnalyticEval: cardinality={}", cardinality);
+        }
+    }
+
+    @Override
+    protected void computeOldCardinality() {
         cardinality = getChild(0).cardinality;
     }
 
@@ -199,10 +212,12 @@ public class AnalyticEvalNode extends PlanNode {
         }
     }
 
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder();
-        //    output.append(String.format("%s%s", prefix, getDisplayLabel()));
-        //    output.append("\n");
         output.append(prefix + "functions: ");
         List<String> strings = Lists.newArrayList();
 

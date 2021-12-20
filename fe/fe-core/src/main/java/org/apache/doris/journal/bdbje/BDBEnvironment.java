@@ -33,6 +33,7 @@ import com.sleepycat.je.Durability.SyncPolicy;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.EnvironmentFailureException;
 import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.NoConsistencyRequiredPolicy;
@@ -43,6 +44,7 @@ import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -111,7 +113,7 @@ public class BDBEnvironment {
         replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
 
         if (isElectable) {
-            replicationConfig.setReplicaAckTimeout(2, TimeUnit.SECONDS);
+            replicationConfig.setReplicaAckTimeout(Config.bdbje_replica_ack_timeout_second, TimeUnit.SECONDS);
             replicationConfig.setConfigParam(ReplicationConfig.REPLICA_MAX_GROUP_COMMIT, "0");
             replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
         } else {
@@ -319,6 +321,8 @@ public class BDBEnvironment {
                 break;
             } catch (InsufficientLogException e) {
                 throw e;
+            } catch (RollbackException e) {
+                throw e;
             } catch (EnvironmentFailureException e) {
                 tried++;
                 if (tried == RETRY_TIME) {
@@ -339,13 +343,11 @@ public class BDBEnvironment {
         
         if (names != null) {
             for (String name : names) {
-                // We don't count epochDB
-                if (name.equals("epochDB")) {
-                    continue;
+                if (StringUtils.isNumeric(name)) {
+                    ret.add(Long.parseLong(name));
+                } else {
+                    // LOG.debug("get database names, skipped {}", name);
                 }
-                
-                long db = Long.parseLong(name);
-                ret.add(db);
             }
         }
         
@@ -385,6 +387,40 @@ public class BDBEnvironment {
         }
     }
     
+        // Close environment
+    public void closeReplicatedEnvironment() {
+        if (replicatedEnvironment != null) {
+            try {
+                // Finally, close the store and environment.
+                replicatedEnvironment.close();
+            } catch (DatabaseException exception) {
+                LOG.error("Error closing replicatedEnvironment", exception);
+                System.exit(-1);
+            }
+        }
+    }
+        // open environment
+    public void openReplicatedEnvironment(File envHome) {
+        for (int i = 0; i < RETRY_TIME; i++) {
+            try {
+                // open the environment
+                replicatedEnvironment = new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
+                break;
+            } catch (DatabaseException e) {
+                if (i < RETRY_TIME - 1) {
+                    try {
+                        Thread.sleep(5 * 1000);
+                    } catch (InterruptedException e1) {
+                        e1.printStackTrace();
+                    }
+                } else {
+                    LOG.error("error to open replicated environment. will exit.", e);
+                    System.exit(-1);
+                }
+            }
+        }
+    }
+
     private SyncPolicy getSyncPolicy(String policy) {
         if (policy.equalsIgnoreCase("SYNC")) {
             return Durability.SyncPolicy.SYNC;

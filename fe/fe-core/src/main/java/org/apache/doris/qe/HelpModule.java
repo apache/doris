@@ -301,7 +301,11 @@ public class HelpModule {
     // whether need reload ZipFile
     public static HelpModule getInstance() {
         if (instance == null) {
-            instance = new HelpModule();
+            synchronized (HelpModule.class) {
+                if (instance == null) {
+                    instance = new HelpModule();
+                }
+            }
         }
         
         try {

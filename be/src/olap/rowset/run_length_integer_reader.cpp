@@ -219,7 +219,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     int64_t mask = (1L << ((bw * 8) - 1));
 
     // if MSB of base value is 1 then base is negative value else positive
-    // TODO(lijiao) : 为什么这里不用zig_zag来表示？
+    // TODO(lijiao): Why is zig_zag not used here?
     if ((base & mask) != 0) {
         base = base & ~mask;
         base = -base;
@@ -254,7 +254,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     // if gap is <=255 then patch value cannot be 0
     while (curr_gap == 255 && curr_patch == 0) {
         actual_gap += 255;
-        patch_idx++;
+        ++patch_idx;
         curr_gap = (uint64_t)unpacked_patch[patch_idx] >> pw;
         curr_patch = unpacked_patch[patch_idx] & ((1L << pw) - 1);
     }

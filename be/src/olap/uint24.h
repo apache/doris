@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -26,13 +27,7 @@ namespace doris {
 // 24bit int type, used to store date type in storage
 struct uint24_t {
 public:
-    uint24_t() { memset(data, 0, sizeof(data)); }
-
-    uint24_t(const uint24_t& value) {
-        data[0] = value.data[0];
-        data[1] = value.data[1];
-        data[2] = value.data[2];
-    }
+    uint24_t() = default;
 
     uint24_t(const uint32_t& value) {
         data[0] = static_cast<uint8_t>(value);
@@ -40,7 +35,7 @@ public:
         data[2] = static_cast<uint8_t>(value >> 16);
     }
 
-    uint24_t& operator=(const uint32_t& value) {
+    uint24_t& operator=(const uint32_t value) {
         data[0] = static_cast<uint8_t>(value);
         data[1] = static_cast<uint8_t>(value >> 8);
         data[2] = static_cast<uint8_t>(value >> 16);
@@ -54,7 +49,7 @@ public:
         return *this;
     }
 
-    uint24_t& operator=(const uint64_t& value) {
+    uint24_t& operator=(const uint64_t value) {
         data[0] = static_cast<uint8_t>(value);
         data[1] = static_cast<uint8_t>(value >> 8);
         data[2] = static_cast<uint8_t>(value >> 16);
@@ -66,7 +61,7 @@ public:
         return *this;
     }
 
-    uint24_t& operator>>=(const int& bits) {
+    uint24_t& operator>>=(const int bits) {
         *this = static_cast<uint>(*this) >> bits;
         return *this;
     }
@@ -83,14 +78,14 @@ public:
         return value;
     }
 
-    uint24_t& operator=(const int& value) {
+    uint24_t& operator=(const int value) {
         data[0] = static_cast<uint8_t>(value);
         data[1] = static_cast<uint8_t>(value >> 8);
         data[2] = static_cast<uint8_t>(value >> 16);
         return *this;
     }
 
-    uint24_t& operator=(const int64_t& value) {
+    uint24_t& operator=(const int64_t value) {
         data[0] = static_cast<uint8_t>(value);
         data[1] = static_cast<uint8_t>(value >> 8);
         data[2] = static_cast<uint8_t>(value >> 16);
@@ -146,6 +141,8 @@ public:
 private:
     uint8_t data[3];
 } __attribute__((packed));
+
+static_assert(std::is_trivial<uint24_t>::value, "uint24_t should be a POD type");
 
 inline std::ostream& operator<<(std::ostream& os, const uint24_t& val) {
     os << val.to_string();

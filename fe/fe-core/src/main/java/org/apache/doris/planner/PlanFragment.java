@@ -17,25 +17,28 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
-import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -95,7 +98,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // specification of the partition of the input of this fragment;
     // an UNPARTITIONED fragment is executed on only a single node
     // TODO: improve this comment, "input" is a bit misleading
-    private final DataPartition dataPartition;
+    private DataPartition dataPartition;
+
+    // specification of the actually input partition of this fragment when transmitting to be.
+    // By default, the value of the data partition in planner and the data partition transmitted to be are the same.
+    // So this attribute is empty.
+    // But sometimes the planned value and the serialized value are inconsistent. You need to set this value.
+    // At present, this situation only occurs in the fragment where the scan node is located.
+    // Since the data partition expression of the scan node is actually constructed from the schema of the table,
+    //   the expression is not analyzed.
+    // This will cause this expression to not be serialized correctly and transmitted to be.
+    // In this case, you need to set this attribute to DataPartition RANDOM to avoid the problem.
+    private DataPartition dataPartitionForThrift;
 
     // specification of how the output of this fragment is partitioned (i.e., how
     // it's sent to its destination);
@@ -115,6 +129,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // default value is 1
     private int parallelExecNum = 1;
 
+    // The runtime filter id that produced
+    private Set<RuntimeFilterId> builderRuntimeFilterIds;
+    // The runtime filter id that is expected to be used
+    private Set<RuntimeFilterId> targetRuntimeFilterIds;
+
+    // has colocate plan node
+    private boolean hasColocatePlanNode = false;
+
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -124,8 +146,15 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.dataPartition = partition;
         this.outputPartition = DataPartition.UNPARTITIONED;
         this.transferQueryStatisticsWithEveryBatch = false;
+        this.builderRuntimeFilterIds = new HashSet<>();
+        this.targetRuntimeFilterIds = new HashSet<>();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
+    }
+
+    public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition, DataPartition partitionForThrift) {
+        this(id, root, partition);
+        this.dataPartitionForThrift = partitionForThrift;
     }
 
     /**
@@ -160,11 +189,38 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.outputExprs = Expr.cloneList(outputExprs, null);
     }
 
+    public void resetOutputExprs(TupleDescriptor tupleDescriptor) {
+        this.outputExprs = Lists.newArrayList();
+        for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+            SlotRef slotRef = new SlotRef(slotDescriptor);
+            outputExprs.add(slotRef);
+        }
+    }
+
+    public ArrayList<Expr> getOutputExprs() {
+        return outputExprs;
+    }
+
+    public void setBuilderRuntimeFilterIds(RuntimeFilterId rid) {
+        this.builderRuntimeFilterIds.add(rid);
+    }
+
+    public void setTargetRuntimeFilterIds(RuntimeFilterId rid) {
+        this.targetRuntimeFilterIds.add(rid);
+    }
+
+    public void setHasColocatePlanNode(boolean hasColocatePlanNode) {
+        this.hasColocatePlanNode = hasColocatePlanNode;
+    }
+
+    public boolean hasColocatePlanNode() {
+        return hasColocatePlanNode;
+    }
+
     /**
      * Finalize plan tree and create stream sink, if needed.
      */
-    public void finalize(Analyzer analyzer, boolean validateFileFormats)
-            throws UserException, NotImplementedException {
+    public void finalize(QueryStmt queryStmt) {
         if (sink != null) {
             return;
         }
@@ -181,11 +237,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 // "select 1 + 2"
                 return;
             }
-            // add ResultSink
             Preconditions.checkState(sink == null);
-            // we're streaming to an result sink
-            ResultSink bufferSink = new ResultSink(planRoot.getId(), TResultSinkType.MYSQL_PROTOCAL);
-            sink = bufferSink;
+            if (queryStmt != null && queryStmt.hasOutFileClause()) {
+                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause());
+            } else {
+                // add ResultSink
+                // we're streaming to an result sink
+                sink = new ResultSink(planRoot.getId());
+            }
         }
     }
 
@@ -212,7 +271,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         if (sink != null) {
             result.setOutputSink(sink.toThrift());
         }
-        result.setPartition(dataPartition.toThrift());
+        if (dataPartitionForThrift == null) {
+            result.setPartition(dataPartition.toThrift());
+        } else {
+            result.setPartition(dataPartitionForThrift.toThrift());
+        }
 
         // TODO chenhao , calculated by cost
         result.setMinReservationBytes(0);
@@ -246,6 +309,15 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return (dataPartition.getType() != TPartitionType.UNPARTITIONED);
     }
 
+    public void updateDataPartition(DataPartition dataPartition) {
+        if (this.dataPartition == DataPartition.UNPARTITIONED) {
+            return;
+        }
+        this.dataPartition = dataPartition;
+    }
+
+    public PlanFragmentId getId() { return fragmentId; }
+
     public PlanFragment getDestFragment() {
         if (destNode == null) return null;
         return destNode.getFragment();
@@ -256,6 +328,15 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         PlanFragment dest = getDestFragment();
         Preconditions.checkNotNull(dest);
         dest.addChild(this);
+    }
+
+    public List<DataPartition> getInputDataPartition() {
+        List<DataPartition> result = Lists.newArrayList();
+        result.add(getDataPartition());
+        for (PlanFragment child : children) {
+            result.add(child.getOutputPartition());
+        }
+        return result;
     }
 
     public DataPartition getDataPartition() {
@@ -301,8 +382,26 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.sink = sink;
     }
 
+    public void resetSink(DataSink sink) {
+        sink.setFragment(this);
+        this.sink = sink;
+    }
+
     public PlanFragmentId getFragmentId() {
         return fragmentId;
+    }
+
+    public Set<RuntimeFilterId> getBuilderRuntimeFilterIds() {
+        return builderRuntimeFilterIds;
+    }
+
+    public Set<RuntimeFilterId> getTargetRuntimeFilterIds() {
+        return targetRuntimeFilterIds;
+    }
+
+    public void clearRuntimeFilters() {
+        builderRuntimeFilterIds.clear();
+        targetRuntimeFilterIds.clear();
     }
 
     public void setTransferQueryStatisticsWithEveryBatch(boolean value) {

@@ -17,10 +17,17 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Apache Doris(incubating)
-# Usage:
-#    sh build.sh        build both Backend and Frontend.
-#    sh build.sh -clean clean previous output and build.
+# This script is used to compile Apache Doris(incubating).
+# Usage: 
+#    sh build.sh --help
+# Eg:
+#    sh build.sh                            build all
+#    sh build.sh  --be                      build Backend without clean
+#    sh build.sh  --fe --clean              clean and build Frontend and Spark Dpp application, without web UI
+#    sh build.sh  --fe --be --clean         clean and build Frontend, Spark Dpp application and Backend, without web UI
+#    sh build.sh  --spark-dpp               build Spark DPP application alone
+#    sh build.sh  --fe --ui                 build Frontend web ui with npm
+#    sh build.sh  --fe --be --ui --clean    clean and build Frontend, Spark Dpp application, Backend and web UI
 #
 # You need to make sure all thirdparty libraries have been
 # compiled and installed correctly.
@@ -41,8 +48,6 @@ if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
     ${DORIS_THIRDPARTY}/build-thirdparty.sh
 fi
 
-PARALLEL=$[$(nproc)/4+1]
-
 # Check args
 usage() {
   echo "
@@ -53,16 +58,37 @@ Usage: $0 <options>
      --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
      --clean            clean and build target
+     -j                 build Backend parallel
 
   Eg.
     $0                                      build all
     $0 --be                                 build Backend without clean
-    $0 --fe --clean                         clean and build Frontend and Spark Dpp application
-    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
+    $0 --fe --clean                         clean and build Frontend and Spark Dpp application, without web UI
+    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend, without web UI
     $0 --spark-dpp                          build Spark DPP application alone
-    $0 --fe --ui                         build Frontend web ui with npm
+    $0 --fe --ui                            build Frontend web ui with npm
   "
   exit 1
+}
+
+clean_gensrc() {
+    pushd ${DORIS_HOME}/gensrc
+    make clean
+    rm -rf ${DORIS_HOME}/fe/fe-core/target
+    popd
+}
+
+clean_be() {
+    pushd ${DORIS_HOME}
+    rm -rf $CMAKE_BUILD_DIR
+    rm -rf ${DORIS_HOME}/be/output/
+    popd
+}
+
+clean_fe() {
+    pushd ${DORIS_HOME}/fe
+    ${MVN_CMD} clean
+    popd
 }
 
 OPTS=$(getopt \
@@ -75,6 +101,7 @@ OPTS=$(getopt \
   -l 'spark-dpp' \
   -l 'clean' \
   -l 'help' \
+  -o 'j:' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -83,12 +110,12 @@ fi
 
 eval set -- "$OPTS"
 
+PARALLEL=$[$(nproc)/4+1]
 BUILD_BE=
 BUILD_FE=
 BUILD_UI=
 BUILD_SPARK_DPP=
 CLEAN=
-RUN_UT=
 HELP=0
 if [ $# == 1 ] ; then
     # default
@@ -97,14 +124,12 @@ if [ $# == 1 ] ; then
     BUILD_UI=1
     BUILD_SPARK_DPP=1
     CLEAN=0
-    RUN_UT=0
 else
     BUILD_BE=0
     BUILD_FE=0
     BUILD_UI=0
     BUILD_SPARK_DPP=0
     CLEAN=0
-    RUN_UT=0
     while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
@@ -112,11 +137,11 @@ else
             --ui) BUILD_UI=1 ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
-            --ut) RUN_UT=1   ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
+            -j) PARALLEL=$2; shift 2 ;;
             --) shift ;  break ;;
-            *) ehco "Internal error" ; exit 1 ;;
+            *) echo "Internal error" ; exit 1 ;;
         esac
     done
 fi
@@ -126,13 +151,27 @@ if [[ ${HELP} -eq 1 ]]; then
     exit
 fi
 
+# build thirdparty libraries if necessary
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh -j $PARALLEL
+fi
+
 if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
-    echo "--clean can not be specified without --fe or --be or --spark-dpp"
-    exit 1
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
 fi
 
 if [[ -z ${WITH_MYSQL} ]]; then
     WITH_MYSQL=OFF
+fi
+if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
+    GLIBC_COMPATIBILITY=ON
+fi
+if [[ -z ${USE_AVX2} ]]; then
+    USE_AVX2=ON
 fi
 if [[ -z ${WITH_LZO} ]]; then
     WITH_LZO=OFF
@@ -143,22 +182,22 @@ echo "Get params:
     BUILD_FE            -- $BUILD_FE
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
+    PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
-    RUN_UT              -- $RUN_UT
     WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
+    GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
+    USE_AVX2            -- $USE_AVX2
 "
 
 # Clean and build generated code
+if [ ${CLEAN} -eq 1 ]; then
+    clean_gensrc
+fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
-if [ ${CLEAN} -eq 1 ]; then
-   make clean
-   rm -rf ${DORIS_HOME}/fe/fe-core/target
-fi
 # DO NOT using parallel make(-j) for gensrc
 make
-cd ${DORIS_HOME}
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
@@ -166,13 +205,20 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
-        rm -rf $CMAKE_BUILD_DIR
-        rm -rf ${DORIS_HOME}/be/output/
+        clean_be
     fi
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
-    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
-    ${BUILD_SYSTEM} -j${PARALLEL}
+    ${CMAKE_CMD} -G "${GENERATOR}"  \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+            -DMAKE_TEST=OFF \
+            ${CMAKE_USE_CCACHE} \
+            -DWITH_MYSQL=${WITH_MYSQL} \
+            -DWITH_LZO=${WITH_LZO} \
+            -DUSE_AVX2=${USE_AVX2} \
+            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
+    ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}
 fi
@@ -193,7 +239,6 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
         FE_MODULES="fe-common,spark-dpp,fe-core"
     fi
 fi
-
 
 function build_ui() {
     # check NPM env here, not in env.sh.
@@ -235,7 +280,7 @@ if [ ${FE_MODULES}x != ""x ]; then
     echo "Build Frontend Modules: $FE_MODULES"
     cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
-        ${MVN_CMD} clean
+        clean_fe
     fi
     ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests
     cd ${DORIS_HOME}
@@ -262,6 +307,8 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
         cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
 
         cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/fe/webroot/static/
+        mkdir -p ${DORIS_OUTPUT}/fe/log
+        mkdir -p ${DORIS_OUTPUT}/fe/doris-meta
 
     elif [ ${BUILD_SPARK_DPP} -eq 1 ]; then
         install -d ${DORIS_OUTPUT}/fe/spark-dpp/
@@ -287,6 +334,9 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
 
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
+    mkdir -p ${DORIS_OUTPUT}/be/log
+    mkdir -p ${DORIS_OUTPUT}/be/storage
+
 
 fi
 

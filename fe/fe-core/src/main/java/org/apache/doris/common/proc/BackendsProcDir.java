@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.gson.Gson;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.Cluster;
@@ -25,8 +24,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -35,6 +34,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -52,10 +52,9 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("ErrMsg").add("Version").add("Status")
+            .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
             .build();
 
-    public static final int IP_INDEX = 2;
     public static final int HOSTNAME_INDEX = 3;
 
     private SystemInfoService clusterInfoService;
@@ -120,7 +119,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(backend.getHost());
             if (Strings.isNullOrEmpty(clusterName)) {
-                backendInfo.add(FrontendOptions.getHostnameByIp(backend.getHost()));
+                backendInfo.add(NetUtils.getHostnameByIp(backend.getHost()));
                 backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));
@@ -165,18 +164,22 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
-
+            // tag
+            backendInfo.add(backend.getTag().toString());
+            // err msg
             backendInfo.add(backend.getHeartbeatErrMsg());
+            // version
             backendInfo.add(backend.getVersion());
+            // status
             backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
 
             comparableBackendInfos.add(backendInfo);
         }
 
         // backends proc node get result too slow, add log to observer.
-        LOG.info("backends proc get tablet num cost: {}, total cost: {}",
-                 watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
-         
+        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
+                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+
         // sort by cluster name, host name
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1, 3);
         comparableBackendInfos.sort(comparator);

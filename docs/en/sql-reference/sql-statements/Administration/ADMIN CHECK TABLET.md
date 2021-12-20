@@ -29,14 +29,14 @@ under the License.
 
 This statement is used to perform a specified check operation on a list of tablets.
 
-Syntax：
+Syntax:
 
 ```
 ADMIN CHECK TABLE (tablet_id1, tablet_id2, ...)
 PROPERTIES("type" = "...");
 ```
 
-说明：
+Note:
 
 1. You must specify the list of tablet ids and the "type" property in PROPERTIES.
 2. Currently "type" only supports:

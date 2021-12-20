@@ -35,6 +35,7 @@ public final class QueryStatisticsItem {
     private final List<FragmentInstanceInfo> fragmentInstanceInfos;
     // root query profile
     private final RuntimeProfile queryProfile;
+    private final boolean isReportSucc;
 
     private QueryStatisticsItem(Builder builder) {
         this.queryId = builder.queryId;
@@ -45,6 +46,7 @@ public final class QueryStatisticsItem {
         this.queryStartTime = builder.queryStartTime;
         this.fragmentInstanceInfos = builder.fragmentInstanceInfos;
         this.queryProfile = builder.queryProfile;
+        this.isReportSucc = builder.isReportSucc;
     }
 
     public String getDb() {
@@ -80,6 +82,10 @@ public final class QueryStatisticsItem {
         return queryProfile;
     }
 
+    public boolean getIsReportSucc () {
+        return isReportSucc;
+    }
+
     public static final class Builder {
         private String queryId;
         private String db;
@@ -89,6 +95,7 @@ public final class QueryStatisticsItem {
         private long queryStartTime;
         private List<FragmentInstanceInfo> fragmentInstanceInfos;
         private RuntimeProfile queryProfile;
+        private boolean isReportSucc;
 
         public Builder() {
             fragmentInstanceInfos = Lists.newArrayList();
@@ -131,6 +138,11 @@ public final class QueryStatisticsItem {
 
         public Builder profile(RuntimeProfile profile) {
             this.queryProfile = profile;
+            return this;
+        }
+
+        public Builder isReportSucc(boolean isReportSucc) {
+            this.isReportSucc = isReportSucc;
             return this;
         }
 

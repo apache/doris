@@ -104,9 +104,9 @@ In the existing Doris import process, the data structure of global dictionary is
 
 ### Build process
 
-1. Read the data from the upstream data source and generate a hive temporary table, which is recorded as `hive_table`。
+1. Read the data from the upstream data source and generate a hive temporary table, which is recorded as `hive_table`.
 
-2. Extract the de duplicated values of the fields to be de duplicated from the `hive_table`, and generate a new hive table, which is marked as `distinct_value_table`。
+2. Extract the de duplicated values of the fields to be de duplicated from the `hive_table`, and generate a new hive table, which is marked as `distinct_value_table`.
 
 3. Create a new global dictionary table named `dict_table`; one column is the original value, and the other is the encoded value.
 
@@ -122,7 +122,7 @@ In the existing Doris import process, the data structure of global dictionary is
 
 1. Read data from the data source. The upstream data source can be HDFS file or hive table.
 
-2. Map the read data, calculate the expression, and generate the bucket field `bucket_id` according to the partition information。
+2. Map the read data, calculate the expression, and generate the bucket field `bucket_id` according to the partition information.
 
 3. Generate rolluptree according to rollup metadata of Doris table.
 
@@ -179,7 +179,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
 - Spark related parameters are as follows:
 
-  - `spark.master`: required, yarn is supported at present, `spark://host:port`。
+  - `spark.master`: required, yarn is supported at present, `spark://host:port`.
 
   - `spark.submit.deployMode`: the deployment mode of Spark Program. It is required and supports cluster and client.
 
@@ -189,7 +189,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
   - Other parameters are optional, refer to `http://spark.apache.org/docs/latest/configuration.html`
 
-- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`。
+- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
 
 - `broker`: the name of the broker. Spark is required when used as an ETL resource. You need to use the 'alter system add broker' command to complete the configuration in advance.
 
@@ -407,6 +407,48 @@ PROPERTIES
 
 ```
 
+Example 3: when the upstream data source is hive binary type table
+
+```sql
+step 1: create hive external table
+CREATE EXTERNAL TABLE hive_t1
+(
+    k1 INT,
+    K2 SMALLINT,
+    k3 varchar(50),
+    uuid varchar(100)
+)
+ENGINE=hive
+properties
+(
+"database" = "tmp",
+"table" = "t1",
+"hive.metastore.uris" = "thrift://0.0.0.0:8080"
+);
+
+step 2: submit load command
+LOAD LABEL db1.label1
+(
+    DATA FROM TABLE hive_t1
+    INTO TABLE tbl1
+    (k1,k2,k3)
+    SET
+    (
+		uuid=binary_bitmap(uuid)
+    )
+)
+WITH RESOURCE 'spark0'
+(
+    "spark.executor.memory" = "2g",
+    "spark.shuffle.compress" = "true"
+)
+PROPERTIES
+(
+    "timeout" = "3600"
+);
+
+```
+
 You can view the details syntax about creating load by input `help spark load`. This paper mainly introduces the parameter meaning and precautions in the creation and load syntax of spark load.
 
 #### Label
@@ -448,6 +490,14 @@ The data type applicable to the aggregate columns of the Doris table is of type 
 In the load command, you can specify the field to build a global dictionary. The format is: '```doris field name=bitmap_dict(hive_table field name)```
 
 It should be noted that the construction of global dictionary is supported only when the upstream data source is hive table.
+
+#### Load when data source is hive binary type table
+
+The data type applicable to the aggregate column of the doris table is bitmap type, and the data type of the corresponding column in the hive table of the data source is binary (through the org.apache.doris.load.loadv2.dpp.BitmapValue (FE spark-dpp) class serialized) type.
+
+There is no need to build a global dictionary, just specify the corresponding field in the load command, the format is: ```doris field name=binary_bitmap (hive table field name)```
+
+Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table.
 
 ### Show load
 
@@ -545,7 +595,7 @@ The path of the packaged spark dependent file (empty by default).
 
 + `spark_launcher_log_dir`
 
-The directory where the spark client's commit log is stored (`Fe/log/spark)_launcher_log`）。
+The directory where the spark client's commit log is stored (`Fe/log/spark)_launcher_log`）.
 
 + `yarn_client_path`
 

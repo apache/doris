@@ -31,13 +31,13 @@ import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
-import org.apache.kafka.common.PartitionInfo;
-import org.junit.Assert;
-import org.junit.Test;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.kafka.common.PartitionInfo;
+import org.junit.Assert;
+import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -139,9 +139,10 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", currentProgress);
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
-        Assert.assertEquals(new Long(1), Deencapsulation.getField(routineLoadJob, "abortedTaskNum"));
+        Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
     }
 
     @Test
@@ -195,7 +196,7 @@ public class RoutineLoadJobTest {
     public void testUpdateWhileDbDeleted(@Mocked Catalog catalog) throws UserException {
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -212,10 +213,10 @@ public class RoutineLoadJobTest {
                                             @Injectable Database database) throws UserException {
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -237,10 +238,10 @@ public class RoutineLoadJobTest {
 
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
             }
@@ -279,13 +280,14 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
-        Deencapsulation.setField(routineLoadJob, "currentErrorRows", 1);
-        Deencapsulation.setField(routineLoadJob, "currentTotalRows", 99);
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
+        Deencapsulation.setField(jobStatistic, "currentErrorRows", 1);
+        Deencapsulation.setField(jobStatistic, "currentTotalRows", 99);
         Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 2L, 0L, 0L, 1L, 1L, false);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, Deencapsulation.getField(routineLoadJob, "state"));
-        Assert.assertEquals(new Long(0), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
-        Assert.assertEquals(new Long(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
+        Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
+        Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
 
     }
 
@@ -311,6 +313,40 @@ public class RoutineLoadJobTest {
 
         Map<Long, Integer> beIdConcurrentTasksNum = routineLoadJob.getBeCurrentTasksNumMap();
         Assert.assertEquals(2, (int) beIdConcurrentTasksNum.get(1L));
+    }
+
+    @Test
+    public void testGetShowCreateInfo() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", "test", 1,
+                11, "localhost:9092", "test_topic");
+        Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
+        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
+        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
+        String showCreateInfo = routineLoadJob.getShowCreateInfo();
+        String expect = "CREATE ROUTINE LOAD test_load ON 11\n" +
+                "WITH APPEND\n" +
+                "PROPERTIES\n" +
+                "(\n" +
+                "\"desired_concurrent_number\" = \"0\",\n" +
+                "\"max_error_number\" = \"10\",\n" +
+                "\"max_batch_interval\" = \"10\",\n" +
+                "\"max_batch_rows\" = \"10\",\n" +
+                "\"max_batch_size\" = \"104857600\",\n" +
+                "\"format\" = \"csv\",\n" +
+                "\"strip_outer_array\" = \"false\",\n" +
+                "\"num_as_string\" = \"false\",\n" +
+                "\"fuzzy_parse\" = \"false\",\n" +
+                "\"strict_mode\" = \"false\",\n" +
+                "\"timezone\" = \"Asia/Shanghai\",\n" +
+                "\"exec_mem_limit\" = \"2147483648\"\n" +
+                ")\n" +
+                "FROM KAFKA\n" +
+                "(\n" +
+                "\"kafka_broker_list\" = \"localhost:9092\",\n" +
+                "\"kafka_topic\" = \"test_topic\"\n" +
+                ");";
+        System.out.println(showCreateInfo);
+        Assert.assertEquals(expect, showCreateInfo);
     }
 
 }

@@ -43,10 +43,14 @@ enum TExprNodeType {
   TUPLE_IS_NULL_PRED,
   INFO_FUNC,
   FUNCTION_CALL,
+  ARRAY_LITERAL,
   
   // TODO: old style compute functions. this will be deprecated
   COMPUTE_FUNCTION_CALL,
   LARGE_INT_LITERAL,
+
+  // only used in runtime filter
+  BLOOM_PRED,
 }
 
 //enum TAggregationOp {
@@ -178,6 +182,9 @@ struct TExprNode {
   // If set, child[vararg_start_idx] is the first vararg child.
   27: optional i32 vararg_start_idx
   28: optional Types.TPrimitiveType child_type
+
+  // For vectorized engine
+  29: optional bool is_nullable
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

@@ -17,12 +17,6 @@
 
 package org.apache.doris.load;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -44,6 +38,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -52,21 +47,29 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class DeleteHandlerTest {
 
@@ -102,7 +105,7 @@ public class DeleteHandlerTest {
     private ConnectContext connectContext = new ConnectContext();
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
 
         globalTransactionMgr = new GlobalTransactionMgr(catalog);
@@ -110,12 +113,7 @@ public class DeleteHandlerTest {
         deleteHandler = new DeleteHandler();
         auth = AccessTestUtil.fetchAdminAccess();
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        try {
-            db = CatalogMocker.mockDb();
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        db = CatalogMocker.mockDb();
         TabletMeta tabletMeta = new TabletMeta(DB_ID, TBL_ID, PARTITION_ID, TBL_ID, 0, null);
         invertedIndex.addTablet(TABLET_ID, tabletMeta);
         invertedIndex.addReplica(TABLET_ID, new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
@@ -133,11 +131,11 @@ public class DeleteHandlerTest {
 
         new Expectations() {
             {
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
@@ -225,7 +223,7 @@ public class DeleteHandlerTest {
         Set<Replica> finishedReplica = Sets.newHashSet();
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_2, BACKEND_ID_2, 0, Replica.ReplicaState.NORMAL));
-        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(TABLET_ID);
+        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(PARTITION_ID, TABLET_ID);
         tabletDeleteInfo.getFinishedReplicas().addAll(finishedReplica);
 
         new MockUp<DeleteJob>() {
@@ -274,7 +272,7 @@ public class DeleteHandlerTest {
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_2, BACKEND_ID_2, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_3, BACKEND_ID_3, 0, Replica.ReplicaState.NORMAL));
-        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(TABLET_ID);
+        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(PARTITION_ID, TABLET_ID);
         tabletDeleteInfo.getFinishedReplicas().addAll(finishedReplica);
 
         new MockUp<DeleteJob>() {
@@ -324,7 +322,7 @@ public class DeleteHandlerTest {
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_2, BACKEND_ID_2, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_3, BACKEND_ID_3, 0, Replica.ReplicaState.NORMAL));
-        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(TABLET_ID);
+        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(PARTITION_ID, TABLET_ID);
         tabletDeleteInfo.getFinishedReplicas().addAll(finishedReplica);
 
         new MockUp<DeleteJob>() {
@@ -386,7 +384,7 @@ public class DeleteHandlerTest {
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_2, BACKEND_ID_2, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_3, BACKEND_ID_3, 0, Replica.ReplicaState.NORMAL));
-        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(TABLET_ID);
+        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(PARTITION_ID, TABLET_ID);
         tabletDeleteInfo.getFinishedReplicas().addAll(finishedReplica);
 
         new MockUp<DeleteJob>() {
@@ -443,7 +441,7 @@ public class DeleteHandlerTest {
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_2, BACKEND_ID_2, 0, Replica.ReplicaState.NORMAL));
         finishedReplica.add(new Replica(REPLICA_ID_3, BACKEND_ID_3, 0, Replica.ReplicaState.NORMAL));
-        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(TABLET_ID);
+        TabletDeleteInfo tabletDeleteInfo = new TabletDeleteInfo(PARTITION_ID, TABLET_ID);
         tabletDeleteInfo.getFinishedReplicas().addAll(finishedReplica);
 
         new MockUp<DeleteJob>() {

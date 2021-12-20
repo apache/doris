@@ -23,13 +23,16 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ResourceGroup;
 import org.apache.doris.catalog.ResourceType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
@@ -39,8 +42,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -58,13 +59,18 @@ import java.util.regex.Pattern;
  * This user is just qualified by cluster name, not host which it connected from.
  */
 public class UserProperty implements Writable {
-    private static final Logger LOG = LogManager.getLogger(UserProperty.class);
-
+    // advanced properties
     private static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
+    private static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
+    private static final String PROP_RESOURCE_TAGS = "resource_tags";
     private static final String PROP_RESOURCE = "resource";
+    private static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
+    private static final String PROP_CPU_RESOURCE_LIMIT = "cpu_resource_limit";
+    // advanced properties end
+
+    private static final String PROP_LOAD_CLUSTER = "load_cluster";
     private static final String PROP_QUOTA = "quota";
     private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
-    private static final String PROP_LOAD_CLUSTER = "load_cluster";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
@@ -73,7 +79,8 @@ public class UserProperty implements Writable {
 
     private String qualifiedUser;
 
-    private long maxConn = 100;
+    private CommonUserProperties commonProperties = new CommonUserProperties();
+
     // Resource belong to this user.
     private UserResource resource = new UserResource(1000);
     // load cluster
@@ -87,20 +94,22 @@ public class UserProperty implements Writable {
      */
     private WhiteList whiteList = new WhiteList();
 
-    @Deprecated
-    private byte[] password;
-    @Deprecated
-    private boolean isAdmin = false;
-    @Deprecated
-    private boolean isSuperuser = false;
-    @Deprecated
-    private Map<String, AccessPrivilege> dbPrivMap = Maps.newHashMap();
+    public static final Set<Tag> INVALID_RESOURCE_TAGS;
+
+    static {
+        INVALID_RESOURCE_TAGS = Sets.newHashSet();
+        INVALID_RESOURCE_TAGS.add(Tag.INVALID_TAG);
+    }
 
     static {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE + ".", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
                 + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_QUERY_INSTANCES + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_SQL_BLOCK_RULES + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_CPU_RESOURCE_LIMIT + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE_TAGS + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -120,31 +129,27 @@ public class UserProperty implements Writable {
     }
 
     public long getMaxConn() {
-        return maxConn;
+        return this.commonProperties.getMaxConn();
+    }
+
+    public long getMaxQueryInstances() {
+        return commonProperties.getMaxQueryInstances();// maxQueryInstances;
+    }
+
+    public String[] getSqlBlockRules() {
+        return commonProperties.getSqlBlockRulesSplit();
+    }
+
+    public int getCpuResourceLimit() {
+        return commonProperties.getCpuResourceLimit();
     }
 
     public WhiteList getWhiteList() {
         return whiteList;
     }
 
-    @Deprecated
-    public byte[] getPassword() {
-        return password;
-    }
-
-    @Deprecated
-    public boolean isAdmin() {
-        return isAdmin;
-    }
-
-    @Deprecated
-    public boolean isSuperuser() {
-        return isSuperuser;
-    }
-
-    @Deprecated
-    public Map<String, AccessPrivilege> getDbPrivMap() {
-        return dbPrivMap;
+    public Set<Tag> getCopiedResourceTags() {
+        return Sets.newHashSet(this.commonProperties.getResourceTags());
     }
 
     public void setPasswordForDomain(String domain, byte[] password, boolean errOnExist) throws DdlException {
@@ -161,9 +166,14 @@ public class UserProperty implements Writable {
         whiteList.removeDomain(domain);
     }
 
-    public void update(List<Pair<String, String>> properties) throws DdlException {
+    public void update(List<Pair<String, String>> properties) throws UserException {
         // copy
-        long newMaxConn = maxConn;
+        long newMaxConn = this.commonProperties.getMaxConn();
+        long newMaxQueryInstances = this.commonProperties.getMaxQueryInstances();
+        String sqlBlockRules = this.commonProperties.getSqlBlockRules();
+        int cpuResourceLimit = this.commonProperties.getCpuResourceLimit();
+        Set<Tag> resourceTags = this.commonProperties.getResourceTags();
+
         UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
@@ -237,13 +247,70 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
+                // set property "max_query_instances" = "1000"
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_MAX_QUERY_INSTANCES + " format error");
+                }
+
+                try {
+                    newMaxQueryInstances = Long.parseLong(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_MAX_QUERY_INSTANCES + " is not number");
+                }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_SQL_BLOCK_RULES)) {
+                // set property "sql_block_rules" = "test_rule1,test_rule2"
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
+                }
+                sqlBlockRules = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_CPU_RESOURCE_LIMIT)) {
+                // set property "cpu_resource_limit" = "2";
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_CPU_RESOURCE_LIMIT + " format error");
+                }
+                int limit = -1;
+                try {
+                    limit = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(key + " is not number");
+                }
+
+                if (limit <= 0) {
+                    throw new DdlException(key + " is not valid");
+                }
+
+                cpuResourceLimit = limit;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_RESOURCE_TAGS)) {
+                if (keyArr.length != 2) {
+                    throw new DdlException(PROP_RESOURCE_TAGS + " format error");
+                }
+                if (!keyArr[1].equals(Tag.TYPE_LOCATION)) {
+                    throw new DdlException("Only support location tag now");
+                }
+
+                if (Strings.isNullOrEmpty(value)) {
+                    // This is for compatibility. empty value means to unset the resource tag property.
+                    // So that user will have permission to query all tags.
+                    resourceTags = Sets.newHashSet();
+                } else {
+                    try {
+                        resourceTags = parseLocationResoureTags(value);
+                    } catch (NumberFormatException e) {
+                        throw new DdlException(PROP_RESOURCE_TAGS + " parse failed: " + e.getMessage());
+                    }
+                }
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
         }
 
         // set
-        maxConn = newMaxConn;
+        this.commonProperties.setMaxConn(newMaxConn);
+        this.commonProperties.setMaxQueryInstances(newMaxQueryInstances);
+        this.commonProperties.setSqlBlockRules(sqlBlockRules);
+        this.commonProperties.setCpuResourceLimit(cpuResourceLimit);
+        this.commonProperties.setResourceTags(resourceTags);
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -251,6 +318,16 @@ public class UserProperty implements Writable {
             defaultLoadCluster = null;
         }
         clusterToDppConfig = newDppConfigs;
+    }
+
+    private Set<Tag> parseLocationResoureTags(String value) throws AnalysisException {
+        Set<Tag> tags = Sets.newHashSet();
+        String[] parts = value.replaceAll(" ", "").split(",");
+        for (String part : parts) {
+            Tag tag = Tag.create(Tag.TYPE_LOCATION, part);
+            tags.add(tag);
+        }
+        return tags;
     }
 
     private void updateLoadCluster(String[] keyArr, String value, Map<String, DppConfig> newDppConfigs)
@@ -326,7 +403,19 @@ public class UserProperty implements Writable {
         String dot = SetUserPropertyVar.DOT_SEPARATOR;
 
         // max user connections
-        result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(maxConn)));
+        result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(commonProperties.getMaxConn())));
+
+        // max query instance
+        result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES, String.valueOf(commonProperties.getMaxQueryInstances())));
+
+        // sql block rules
+        result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, commonProperties.getSqlBlockRules()));
+
+        // cpu resource limit
+        result.add(Lists.newArrayList(PROP_CPU_RESOURCE_LIMIT, String.valueOf(commonProperties.getCpuResourceLimit())));
+
+        // resource tag
+        result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
 
         // resource
         ResourceGroup group = resource.getResource();
@@ -406,8 +495,8 @@ public class UserProperty implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        // user name
         Text.writeString(out, qualifiedUser);
-        out.writeLong(maxConn);
 
         // user resource
         resource.write(out);
@@ -419,21 +508,25 @@ public class UserProperty implements Writable {
             out.writeBoolean(true);
             Text.writeString(out, defaultLoadCluster);
         }
-
         out.writeInt(clusterToDppConfig.size());
         for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {
             Text.writeString(out, entry.getKey());
             entry.getValue().write(out);
         }
 
+        // whiteList
         whiteList.write(out);
+
+        // common properties
+        commonProperties.write(out);
     }
+
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
             // consume the flag of empty user name
             in.readBoolean();
         }
-            
+        
         // user name
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
             qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
@@ -443,19 +536,25 @@ public class UserProperty implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
             int passwordLen = in.readInt();
-            password = new byte[passwordLen];
+            byte[] password = new byte[passwordLen];
             in.readFully(password);
 
-            isAdmin = in.readBoolean();
+            // boolean isAdmin
+            in.readBoolean();
 
             if (Catalog.getCurrentCatalogJournalVersion() >= 1) {
-                isSuperuser = in.readBoolean();
+                // boolean isSuperuser
+                in.readBoolean();
             }
         }
 
-        maxConn = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+            long maxConn = in.readLong();
+            this.commonProperties.setMaxConn(maxConn);
+        }
 
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
+            Map<String, AccessPrivilege> dbPrivMap = Maps.newHashMap();
             int numPriv = in.readInt();
             for (int i = 0; i < numPriv; ++i) {
                 String dbName = null;
@@ -487,6 +586,7 @@ public class UserProperty implements Writable {
             }
         }
 
+        // whiteList
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_21) {
             whiteList.readFields(in);
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_69) {
@@ -501,6 +601,11 @@ public class UserProperty implements Writable {
                     Text.readString(in);
                 }
             }
+        }
+
+        // common properties
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
+            this.commonProperties = CommonUserProperties.read(in);
         }
     }
 }

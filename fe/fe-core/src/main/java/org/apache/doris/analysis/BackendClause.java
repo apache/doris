@@ -32,7 +32,6 @@ import java.util.Map;
 
 public class BackendClause extends AlterClause {
     protected List<String> hostPorts;
-
     protected List<Pair<String, Integer>> hostPortPairs;
 
     protected BackendClause(List<String> hostPorts) {

@@ -190,15 +190,14 @@ public class SparkRepository {
             {
                 // 1. upload spark2x
                 srcFilePath = localSpark2xPath;
-                String fileName = getFileName(PATH_DELIMITER, srcFilePath);
                 String origFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, "", fileName, "");
+                        assemblyFileName(PREFIX_LIB, "", SPARK_2X, ".zip");
                 upload(srcFilePath, origFilePath);
                 // 2. rename spark2x
                 String md5sum = getMd5String(srcFilePath);
                 long size = getFileSize(srcFilePath);
                 String destFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, md5sum, fileName, "");
+                        assemblyFileName(PREFIX_LIB, md5sum, SPARK_2X, ".zip");
                 rename(origFilePath, destFilePath);
                 currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
             }
@@ -306,7 +305,7 @@ public class SparkRepository {
     // output:  md5sum_spark-dpp-1.0.0-jar-with-dependencies
     private static String unwrap(String prefix, String fileName) {
         int pos = fileName.lastIndexOf(".");
-        return fileName.substring(prefix.length(), pos);
+        return fileName.substring(prefix.length(), pos > 0 ? pos : fileName.length());
     }
 
     private static String joinPrefix(String prefix, String fileName) {

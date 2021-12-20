@@ -67,7 +67,7 @@ Variables that support both session-level and global-level setting include:
 * `time_zone`
 * `wait_timeout`
 * `sql_mode`
-* `is_report_success`
+* `enable_profile`
 * `query_timeout`
 * `exec_mem_limit`
 * `batch_size`
@@ -75,6 +75,7 @@ Variables that support both session-level and global-level setting include:
 * `parallel_exchange_instance_num`
 * `allow_partition_column_nullable`
 * `insert_visible_timeout_ms`
+* `enable_fold_constant_by_be`
 
 Variables that support only global-level setting include:
 
@@ -94,7 +95,7 @@ The SET_VAR hint sets the session value of a system variable temporarily (for th
 
 ```
 SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
-SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 ```
 
 Note that the comment must start with /*+ and can only follow the SELECT.
@@ -121,7 +122,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `character_set_client`
 
-     Used for compatibility with MySQL clients. No practical effect.
+   Used for compatibility with MySQL clients. No practical effect.
 
 * `character_set_connection`
 
@@ -151,17 +152,28 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `delete_without_partition`
+
+    When set to true. When using the delete command to delete partition table data, no partition is required. The delete operation will be automatically applied to all partitions.
+
+     Note, however, that the automatic application to all partitions may cause the delete command to take a long time to trigger a large number of subtasks and cause a long time. If it is not necessary, it is not recommended to turn it on.
+
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join] (./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
+
+* `enable_bucket_shuffle_join`
+
+    Controls whether the [Bucket Shuffle Join] (./bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+
 * `disable_streaming_preaggregations`
 
     Controls whether streaming pre-aggregation is turned on. The default is false, which is enabled. Currently not configurable and enabled by default.
     
 * `enable_insert_strict`
 
-    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here] (./load-data/insert-into-manual.md).
+    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here](./load-data/insert-into-manual.md).
 
 * `enable_spilling`
 
@@ -183,7 +195,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `forward_to_master`
 
-    The user sets whether to forward some commands to the Master FE node for execution. The default is false, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail information can only be obtained from the Master FE node.
+    The user sets whether to forward some commands to the Master FE node for execution. The default is `true`, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail information can only be obtained from the Master FE node.
     
     For example, the `SHOW BACKENDS;` command, if not forwarded to the Master FE node, can only see some basic information such as whether the node is alive, and forwarded to the Master FE to obtain more detailed information including the node startup time and the last heartbeat time.
     
@@ -210,14 +222,14 @@ Note that the comment must start with /*+ and can only follow the SELECT.
         Forward to Master to view information about the relevant PROC stored in the Master FE metadata. Mainly used for metadata comparison.
         
 * `init_connect`
-   
+
     Used for compatibility with MySQL clients. No practical effect.
     
 * `interactive_timeout`
 
     Used for compatibility with MySQL clients. No practical effect.
     
-* `is_report_success`
+* `enable_profile`
 
     Used to set whether you need to view the profile of the query. The default is false, which means no profile is required.
     
@@ -227,7 +239,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
     `fe_host:fe_http:port/query`
     
-    It will display the most recent 100 queries which `is_report_success` is set to true.
+    It will display the most recent 100 queries which `enable_profile` is set to true.
     
 * `language`
 
@@ -247,7 +259,35 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `lower_case_table_names`
 
-    Used for compatibility with MySQL clients. Cannot be set. Table names in current Doris are case sensitive by default.
+    Used to control whether the user table name is case-sensitive.
+
+    A value of 0 makes the table name case-sensitive. The default is 0.
+
+    When the value is 1, the table name is case insensitive. Doris will convert the table name to lowercase when storing and querying.  
+    The advantage is that any case of table name can be used in one statement. The following SQL is correct:
+    ```
+    mysql> show tables;
+    +------------------+
+    | Tables_ in_testdb|
+    +------------------+
+    | cost             |
+    +------------------+
+    mysql> select * from COST where COst.id < 100 order by cost.id;
+    ```
+    The disadvantage is that the table name specified in the table creation statement cannot be obtained after table creation. The table name viewed by 'show tables' is lower case of the specified table name.
+
+    When the value is 2, the table name is case insensitive. Doris stores the table name specified in the table creation statement and converts it to lowercase for comparison during query.  
+    The advantage is that the table name viewed by 'show tables' is the table name specified in the table creation statement;  
+    The disadvantage is that only one case of table name can be used in the same statement. For example, the table name 'cost' can be used to query the 'cost' table:
+    ```
+    mysql> select * from COST where COST.id < 100 order by COST.id;
+    ```
+
+    This variable is compatible with MySQL and must be configured at cluster initialization by specifying `lower_case_table_names=` in fe.conf. It cannot be modified by the `set` statement after cluster initialization is complete, nor can it be modified by restarting or upgrading the cluster.
+
+    The system view table names in information_schema are case-insensitive and behave as 2 when the value of `lower_case_table_names` is 0.
+
+Translated with www.DeepL.com/Translator (free version)
 
 * `max_allowed_packet`
 
@@ -305,9 +345,13 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Not used.
     
+* `send_batch_parallelism`
+
+    Used to set the default parallelism for sending batch when execute InsertStmt operation, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
+
 * `sql_mode`
 
-    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here] (./sql-mode.md).
+    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](./sql-mode.md).
     
 * `sql_safe_updates`
 
@@ -323,7 +367,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `time_zone`
 
-    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here] (./time-zone.md).
+    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here](./time-zone.md).
     
 * `tx_isolation`
 
@@ -371,3 +415,34 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     When execute insert statement, doris will wait for the transaction to commit and visible after the import is completed.
     This parameter controls the timeout of waiting for transaction to be visible. The default value is 10000, and the minimum value is 1000.
+
+* `enable_exchange_node_parallel_merge`
+
+    In a sort query, when an upper level node receives the ordered data of the lower level node, it will sort the corresponding data on the exchange node to ensure that the final data is ordered. However, when a single thread merges multiple channels of data, if the amount of data is too large, it will lead to a single point of exchange node merge bottleneck.
+
+    Doris optimizes this part if there are too many data nodes in the lower layer. Exchange node will start multithreading for parallel merging to speed up the sorting process. This parameter is false by default, which means that exchange node does not adopt parallel merge sort to reduce the extra CPU and memory consumption.
+
+* `extract_wide_range_expr`
+
+    Used to control whether turn on the 'Wide Common Factors' rule. The value has two: true or false. On by default.
+
+* `enable_fold_constant_by_be`
+
+    Used to control the calculation method of constant folding. The default is `false`, that is, calculation is performed in `FE`; if it is set to `true`, it will be calculated by `BE` through `RPC` request.
+
+* `cpu_resource_limit`
+
+     Used to limit the resource overhead of a query. This is an experimental feature. The current implementation is to limit the number of scan threads for a query on a single node. The number of scan threads is limited, and the data returned from the bottom layer slows down, thereby limiting the overall computational resource overhead of the query. Assuming it is set to 2, a query can use up to 2 scan threads on a single node.
+
+     This parameter will override the effect of `parallel_fragment_exec_instance_num`. That is, assuming that `parallel_fragment_exec_instance_num` is set to 4, and this parameter is set to 2. Then 4 execution instances on a single node will share up to 2 scanning threads.
+
+     This parameter will be overridden by the `cpu_resource_limit` configuration in the user property.
+
+     The default is -1, which means no limit.
+
+* `disable_join_reorder`
+
+    Used to turn off all automatic join reorder algorithms in the system. There are two values: true and false.It is closed by default, that is, the automatic join reorder algorithm of the system is adopted. After set to true, the system will close all automatic sorting algorithms, adopt the original SQL table order, and execute join
+
+* `return_object_data_as_binary`
+    Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array

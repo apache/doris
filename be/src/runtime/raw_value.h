@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_RAW_VALUE_H
 #define DORIS_BE_RUNTIME_RAW_VALUE_H
 
-#include <boost/functional/hash.hpp>
 #include <string>
 
 #include "common/logging.h"
@@ -39,7 +38,7 @@ public:
     // Ascii output precision for double/float
     static const int ASCII_PRECISION;
 
-    // Convert 'value' into ascii and write to 'stream'. NULL turns into "NULL". 'scale'
+    // Convert 'value' into ascii and write to 'stream'. nullptr turns into NULL. 'scale'
     // determines how many digits after the decimal are printed for floating point numbers,
     // -1 indicates to use the stream's current formatting.
     static void print_value(const void* value, const TypeDescriptor& type, int scale,
@@ -94,13 +93,13 @@ public:
 
     // Writes the bytes of a given value into the slot of a tuple.
     // For string values, the string data is copied into memory allocated from 'pool'
-    // only if pool is non-NULL.
+    // only if pool is non-nullptr.
     static void write(const void* value, Tuple* tuple, const SlotDescriptor* slot_desc,
                       MemPool* pool);
 
     // Writes 'src' into 'dst' for type.
-    // For string values, the string data is copied into 'pool' if pool is non-NULL.
-    // src must be non-NULL.
+    // For string values, the string data is copied into 'pool' if pool is non-nullptr.
+    // src must be non-nullptr.
     static void write(const void* src, void* dst, const TypeDescriptor& type, MemPool* pool);
 
     // Writes 'src' into 'dst' for type.
@@ -145,6 +144,7 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_STRING:
         string_value1 = reinterpret_cast<const StringValue*>(v1);
         string_value2 = reinterpret_cast<const StringValue*>(v2);
         return string_value1->lt(*string_value2);
@@ -153,10 +153,6 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_DATETIME:
         return *reinterpret_cast<const DateTimeValue*>(v1) <
                *reinterpret_cast<const DateTimeValue*>(v2);
-
-    case TYPE_DECIMAL:
-        return *reinterpret_cast<const DecimalValue*>(v1) <
-               *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
@@ -200,6 +196,7 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_STRING:
         string_value1 = reinterpret_cast<const StringValue*>(v1);
         string_value2 = reinterpret_cast<const StringValue*>(v2);
         return string_value1->eq(*string_value2);
@@ -208,10 +205,6 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_DATETIME:
         return *reinterpret_cast<const DateTimeValue*>(v1) ==
                *reinterpret_cast<const DateTimeValue*>(v2);
-
-    case TYPE_DECIMAL:
-        return *reinterpret_cast<const DecimalValue*>(v1) ==
-               *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
@@ -233,7 +226,7 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
 //  seed ^= v + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& type, uint32_t seed) {
     // Hash_combine with v = 0
-    if (v == NULL) {
+    if (v == nullptr) {
         uint32_t value = 0x9e3779b9;
         return seed ^ (value + (seed << 6) + (seed >> 2));
     }
@@ -241,7 +234,8 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     switch (type) {
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::hash(string_value->ptr, string_value->len, seed);
     }
@@ -273,9 +267,6 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     case TYPE_DATETIME:
         return HashUtil::hash(v, 16, seed);
 
-    case TYPE_DECIMAL:
-        return HashUtil::hash(v, 40, seed);
-
     case TYPE_DECIMALV2:
         return HashUtil::hash(v, 16, seed);
 
@@ -291,7 +282,7 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
 inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType& type,
                                              uint32_t seed) {
     // Hash_combine with v = 0
-    if (v == NULL) {
+    if (v == nullptr) {
         uint32_t value = 0x9e3779b9;
         return seed ^ (value + (seed << 6) + (seed >> 2));
     }
@@ -299,7 +290,8 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     switch (type) {
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::fnv_hash(string_value->ptr, string_value->len, seed);
     }
@@ -331,9 +323,6 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     case TYPE_DATETIME:
         return HashUtil::fnv_hash(v, 16, seed);
 
-    case TYPE_DECIMAL:
-        return ((DecimalValue*)v)->hash(seed);
-
     case TYPE_DECIMALV2:
         return HashUtil::fnv_hash(v, 16, seed);
 
@@ -350,14 +339,15 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
 // Because crc32 hardware is not equal with zlib crc32
 inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, uint32_t seed) {
     // Hash_combine with v = 0
-    if (v == NULL) {
+    if (v == nullptr) {
         uint32_t value = 0x9e3779b9;
         return seed ^ (value + (seed << 6) + (seed >> 2));
     }
 
     switch (type.type) {
     case TYPE_VARCHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::zlib_crc_hash(string_value->ptr, string_value->len, seed);
     }
@@ -392,16 +382,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_DATETIME: {
         const DateTimeValue* date_val = (const DateTimeValue*)v;
         char buf[64];
-        char* end = date_val->to_string(buf);
-
-        return HashUtil::zlib_crc_hash(buf, end - buf - 1, seed);
-    }
-    case TYPE_DECIMAL: {
-        const DecimalValue* dec_val = (const DecimalValue*)v;
-        int64_t int_val = dec_val->int_value();
-        int32_t frac_val = dec_val->frac_value();
-        seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
-        return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
+        int len = date_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, seed);
     }
 
     case TYPE_DECIMALV2: {

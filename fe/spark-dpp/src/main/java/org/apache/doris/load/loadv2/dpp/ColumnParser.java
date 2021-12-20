@@ -19,19 +19,23 @@ package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
-import org.joda.time.DateTime;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.Date;
 
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
 
-    protected static final Logger LOG = LogManager.getLogger(ColumnParser.class);
+    protected static final Logger LOG = LoggerFactory.getLogger(ColumnParser.class);
+
+    // thread safe formatter
+    public static final DateTimeFormatter DATE_FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd");
+    public static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss");
 
     public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws SparkDppException {
         String columnType = etlColumn.columnType;
@@ -158,7 +162,7 @@ class DateParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Date.parse(value);
+            DATE_FORMATTER.parseDateTime(value);
         } catch (IllegalArgumentException e) {
             return false;
         }
@@ -170,7 +174,7 @@ class DatetimeParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            DateTime.parse(value);
+            DATE_TIME_FORMATTER.parseDateTime(value);
         } catch (IllegalArgumentException e) {
             return false;
         }

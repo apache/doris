@@ -39,7 +39,7 @@ There are multiple time zone related parameters in Doris
 
 * `system_time_zone`:
 
-When the server starts, it will be set automatically according to the time zone set by the machine, which can not be modified after setting.
+When the server starts, it will be set automatically according to the time zone set by the machine, which cannot be modified after setting.
 
 * `time_zone`:
 
@@ -93,6 +93,6 @@ Time zone values can be given in several formats, case-insensitive:
 
 ## Time zone format list
 
-[List of TZ database time zones] (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
+[List of TZ database time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
 
 [Edit on GitHub](https://github.com/apache/incubator-doris/blob/master/docs/documentation/en/administrator-guide/time-zone_EN.md)

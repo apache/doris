@@ -54,6 +54,8 @@ under the License.
     col_type：列类型
 
     ```
+        BOOLEAN（1字节）
+            范围：{0,1}
         TINYINT（1字节）
             范围：-2^7 + 1 ~ 2^7 - 1
         SMALLINT（2字节）
@@ -66,7 +68,7 @@ under the License.
             范围：-2^127 + 1 ~ 2^127 - 1
         FLOAT（4字节）
             支持科学计数法
-        DOUBLE（12字节）
+        DOUBLE（8字节）
             支持科学计数法
         DECIMAL[(precision, scale)] (16字节)
             保证精度的小数类型。默认是 DECIMAL(10, 0)
@@ -90,10 +92,11 @@ under the License.
     ```
 
     agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
+    
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、
        * BITMAP_UNION(仅用于 BITMAP 列，为 BITMAP 独有的聚合方式)、
-       * REPLACE_IF_NOT_NULL：这个聚合类型的含义是当且仅当新导入数据是非NULL值时会发生替换行为，如果新导入的数据是NULL，那么Doris仍然会保留原值。注意：如果用在建表时REPLACE_IF_NOT_NULL列指定了NOT NULL，那么Doris仍然会将其转化NULL，不会向用户报错。用户可以借助这个类型完成部分列导入的功能。
+       * REPLACE_IF_NOT_NULL：这个聚合类型的含义是当且仅当新导入数据是非NULL值时会发生替换行为，如果新导入的数据是NULL，那么Doris仍然会保留原值。注意：如果用在建表时REPLACE_IF_NOT_NULL列指定了NOT NULL，那么Doris仍然会将其转化NULL，不会向用户报错。用户可以借助这个类型完成部分列导入的功能。**这里要注意的是字段默认值要给NULL，而不能是空字符串，如果是空字符串，会给你替换成空字符串**。
        * 该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指这个。
 
     是否允许为NULL: 默认允许为 NULL。NULL 值在导入数据中用 \N 来表示
@@ -162,9 +165,8 @@ under the License.
     
     ```
     其中 database 是 hive 表对应的库名字，table 是 hive 表的名字，hive.metastore.uris 是 hive metastore 服务地址。
-    注意：目前hive外部表仅用于Spark Load使用，不支持查询。
 
-1. key_desc
+4. key_desc
     语法：
         `key_type(k1[,k2 ...])`
     说明：
@@ -180,48 +182,90 @@ under the License.
     注意：
         除AGGREGATE KEY外，其他key_type在建表时，value列不需要指定聚合类型。
 
-2. partition_desc
-    partition描述有两种使用方式
-    1) LESS THAN
-        语法：
+5. partition_desc
+    目前支持 RANGE 和 LIST 两种分区方式。
+    5.1 RANGE 分区
+        RANGE partition描述有两种使用方式
+        1) LESS THAN
+            语法：
 
-        ```
-            PARTITION BY RANGE (k1, k2, ...)
-            (
-            PARTITION partition_name1 VALUES LESS THAN MAXVALUE|("value1", "value2", ...),
-            PARTITION partition_name2 VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
-            ...
-            )
-        ```
+            ```
+                PARTITION BY RANGE (k1, k2, ...)
+                (
+                PARTITION partition_name1 VALUES LESS THAN MAXVALUE|("value1", "value2", ...),
+                PARTITION partition_name2 VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
+                ...
+                )
+            ```
+            
+            说明：
+                使用指定的 key 列和指定的数值范围进行分区。
+                1) 分区名称仅支持字母开头，字母、数字和下划线组成
+                2) 目前仅支持以下类型的列作为 Range 分区列
+                    TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
+                3) 分区为左闭右开区间，首个分区的左边界为做最小值
+                4) NULL 值只会存放在包含最小值的分区中。当包含最小值的分区被删除后，NULL 值将无法导入。
+                5) 可以指定一列或多列作为分区列。如果分区值缺省，则会默认填充最小值。
+            
+            注意：
+                1) 分区一般用于时间维度的数据管理
+                2) 有数据回溯需求的，可以考虑首个分区为空分区，以便后续增加分区
         
-        说明：
-            使用指定的 key 列和指定的数值范围进行分区。
-            1) 分区名称仅支持字母开头，字母、数字和下划线组成
-            2) 目前仅支持以下类型的列作为 Range 分区列，且只能指定一个分区列
-                TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
-            3) 分区为左闭右开区间，首个分区的左边界为做最小值
-            4) NULL 值只会存放在包含最小值的分区中。当包含最小值的分区被删除后，NULL 值将无法导入。
-            5) 可以指定一列或多列作为分区列。如果分区值缺省，则会默认填充最小值。
+        2）Fixed Range
+            语法：
+            ```
+                PARTITION BY RANGE (k1, k2, k3, ...)
+                (
+                PARTITION partition_name1 VALUES [("k1-lower1", "k2-lower1", "k3-lower1",...), ("k1-upper1", "k2-upper1", "k3-upper1", ...)),
+                PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
+                "k3-upper1-2", ...
+                )
+            ```
+            说明：
+                1）Fixed Range比LESS THAN相对灵活些，左右区间完全由用户自己确定
+                2）其他与LESS THAN保持同步
+
+    5.2 LIST 分区
+        LIST partition分为单列分区和多列分区
+        1) 单列分区
+            语法：
+
+            ```
+                PARTITION BY LIST(k1)
+                (
+                PARTITION partition_name1 VALUES IN ("value1", "value2", ...),
+                PARTITION partition_name2 VALUES IN ("value1", "value2", ...)
+                ...
+                )
+            ```
         
-        注意：
-            1) 分区一般用于时间维度的数据管理
-            2) 有数据回溯需求的，可以考虑首个分区为空分区，以便后续增加分区
+            说明：
+                使用指定的 key 列和制定的枚举值进行分区。
+                1) 分区名称仅支持字母开头，字母、数字和下划线组成
+                2) 目前仅支持以下类型的列作为 List 分区列
+                    BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME, CHAR, VARCHAR
+                3) 分区为枚举值集合，各个分区之间分区值不能重复
+                4) 不可导入 NULL 值
+                5) 分区值不能缺省，必须指定至少一个
+        
+        2) 多列分区
+            语法：
+        
+            ```
+                PARTITION BY LIST(k1, k2)
+                (
+                PARTITION partition_name1 VALUES IN (("value1", "value2"), ("value1", "value2"), ...),
+                PARTITION partition_name2 VALUES IN (("value1", "value2"), ("value1", "value2"), ...)
+                ...
+                )
+            ```
+        
+            说明：
+                1) 多列分区的分区是元组枚举值的集合
+                2) 每个元组值的个数必须与分区列个数相等
+                3) 其他与单列分区保持同步
 
-    2）Fixed Range
-        语法：
-        ```
-            PARTITION BY RANGE (k1, k2, k3, ...)
-            (
-            PARTITION partition_name1 VALUES [("k1-lower1", "k2-lower1", "k3-lower1",...), ("k1-upper1", "k2-upper1", "k3-upper1", ...)),
-            PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
-            "k3-upper1-2", ...
-            )
-        ```
-        说明：
-            1）Fixed Range比LESS THAN相对灵活些，左右区间完全由用户自己确定
-            2）其他与LESS THAN保持同步
-
-3. distribution_desc
+6. distribution_desc
         1) Hash 分桶
         语法：
             `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
@@ -230,7 +274,7 @@ under the License.
 
     建议:建议使用Hash分桶方式
 
-4. PROPERTIES
+7. PROPERTIES
     1) 如果 ENGINE 类型为 olap
            可以在 properties 设置该表数据的初始存储介质、存储到期时间和副本数。
 
@@ -239,6 +283,7 @@ under the License.
            "storage_medium" = "[SSD|HDD]",
            ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
            ["replication_num" = "3"]
+           ["replication_allocation" = "xxx"]
            )
     ```
 
@@ -247,7 +292,8 @@ under the License.
        storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
                                默认存放 30 天。
                                格式为："yyyy-MM-dd HH:mm:ss"
-       replication_num:        指定分区的副本数。默认为 3
+       replication_num:        指定分区的副本数。默认为 3。
+       replication_allocation:     按照资源标签来指定副本分布。
     
        当表为单分区表时，这些属性为表的属性。
            当表为两级分区时，这些属性为附属于每一个分区。
@@ -271,14 +317,14 @@ under the License.
            )
 ```
 
-    4) 如果希望使用动态分区特性，需要在properties 中指定
+    4) 如果希望使用动态分区特性，需要在properties 中指定。注意：动态分区只支持 RANGE 分区
 
 ```
       PROPERTIES (
           "dynamic_partition.enable" = "true|false",
           "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
           "dynamic_partition.start" = "${integer_value}",
-          "dynamic_partitoin.end" = "${integer_value}",
+          "dynamic_partition.end" = "${integer_value}",
           "dynamic_partition.prefix" = "${string_value}",
           "dynamic_partition.buckets" = "${integer_value}
 ```
@@ -289,6 +335,9 @@ under the License.
     dynamic_partition.end: 用于指定提前创建的分区数量。值必须大于0。
     dynamic_partition.prefix: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
+    dynamic_partition.create_history_partition: 用于创建历史分区功能是否开启。默认为 false。
+    dynamic_partition.history_partition_num: 当开启创建历史分区功能时，用于指定创建历史分区数量。
+    dynamic_partition.reserved_history_periods: 用于指定保留的历史分区的时间段。
     
     5) 建表时可以批量创建多个 Rollup
     语法：
@@ -322,16 +371,16 @@ under the License.
     ```
     CREATE TABLE example_db.table_hash
     (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    k1 BOOLEAN,
+    k2 TINYINT,
+    k3 DECIMAL(10, 2) DEFAULT "10.5",
     v1 CHAR(10) REPLACE,
     v2 INT SUM
     )
     ENGINE=olap
-    AGGREGATE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2, k3)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
 2. 创建一个 olap 表，使用 Hash 分桶，使用列存，相同key的记录进行覆盖，
@@ -346,10 +395,9 @@ under the License.
     v2 SMALLINT SUM DEFAULT "10"
     )
     ENGINE=olap
-    UNIQUE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
-    "storage_type"="column"，
     "storage_medium" = "SSD",
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
@@ -418,9 +466,84 @@ under the License.
     );
     ```
 
-4. 创建一个 mysql 表
+4. 创建一个 olap 表，使用 List 分区，使用Hash分桶，默认使用列存，
+   相同key的记录同时存在，设置初始存储介质和冷却时间
 
-   4.1 直接通过外表信息创建mysql表
+    1）单列分区
+
+    ```
+    CREATE TABLE example_db.table_list
+    (
+    k1 INT,
+    k2 VARCHAR(128),
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    ENGINE=olap
+    DUPLICATE KEY(k1, k2, k3)
+    PARTITION BY LIST (k1)
+    (
+    PARTITION p1 VALUES IN ("1", "2", "3"),
+    PARTITION p2 VALUES IN ("4", "5", "6"),
+    PARTITION p3 VALUES IN ("7", "8", "9")
+    )
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD", "storage_cooldown_time" = "2022-06-04 00:00:00"
+    );
+    ```
+
+    说明：
+    这个语句会将数据划分成如下3个分区：
+
+    ```
+    ("1", "2", "3")
+    ("4", "5", "6")
+    ("7", "8", "9")
+    ```
+
+    不在这些分区枚举值内的数据将视为非法数据被过滤
+
+    2) 多列分区
+
+    ```
+    CREATE TABLE example_db.table_list
+    (
+    k1 INT,
+    k2 VARCHAR(128),
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    ENGINE=olap
+    DUPLICATE KEY(k1, k2, k3)
+    PARTITION BY LIST (k1, k2)
+    (
+    PARTITION p1 VALUES IN (("1","beijing"), ("1", "shanghai")),
+    PARTITION p2 VALUES IN (("2","beijing"), ("2", "shanghai")),
+    PARTITION p3 VALUES IN (("3","beijing"), ("3", "shanghai"))
+    )
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD", "storage_cooldown_time" = "2022-06-04 00:00:00"
+    );
+    ```
+
+    说明：
+    这个语句会将数据划分成如下3个分区：
+
+    ```
+    (("1","beijing"), ("1", "shanghai"))
+    (("2","beijing"), ("2", "shanghai"))
+    (("3","beijing"), ("3", "shanghai"))
+    ```
+
+    不在这些分区枚举值内的数据将视为非法数据被过滤
+
+5. 创建一个 mysql 表
+
+   5.1 直接通过外表信息创建mysql表
 ```
     CREATE EXTERNAL TABLE example_db.table_mysql
     (
@@ -442,7 +565,7 @@ under the License.
     )
 ```
 
-   4.2 通过External Catalog Resource创建mysql表
+   5.2 通过External Catalog Resource创建mysql表
 ```
    CREATE EXTERNAL RESOURCE "mysql_resource" 
    PROPERTIES
@@ -472,7 +595,7 @@ under the License.
     )
 ```
 
-5. 创建一个数据文件存储在HDFS上的 broker 外部表, 数据使用 "|" 分割，"\n" 换行
+6. 创建一个数据文件存储在HDFS上的 broker 外部表, 数据使用 "|" 分割，"\n" 换行
 
 ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -495,7 +618,7 @@ under the License.
     )
 ```
 
-6. 创建一张含有HLL列的表
+7. 创建一张含有HLL列的表
 
 ```
     CREATE TABLE example_db.example_table
@@ -507,11 +630,10 @@ under the License.
     )
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-7. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
+8. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
 
 ```
     CREATE TABLE example_db.example_table
@@ -523,11 +645,10 @@ under the License.
     )
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-8. 创建两张支持Colocate Join的表t1 和t2
+9. 创建两张支持Colocate Join的表t1 和t2
 
 ```
     CREATE TABLE `t1` (
@@ -551,7 +672,7 @@ under the License.
     );
 ```
 
-9. 创建一个数据文件存储在BOS上的 broker 外部表
+10. 创建一个数据文件存储在BOS上的 broker 外部表
 
 ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -569,7 +690,7 @@ under the License.
     )
 ```
 
-10. 创建一个带有bitmap 索引的表
+11. 创建一个带有bitmap 索引的表
 
 ```
     CREATE TABLE example_db.table_hash
@@ -583,11 +704,10 @@ under the License.
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-11. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
+12. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
 
 ```
 [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -607,12 +727,7 @@ under the License.
     )
     ENGINE=olap
     DUPLICATE KEY(k1, k2, k3)
-    PARTITION BY RANGE (k1)
-    (
-    PARTITION p1 VALUES LESS THAN ("2014-01-01"),
-    PARTITION p2 VALUES LESS THAN ("2014-06-01"),
-    PARTITION p3 VALUES LESS THAN ("2014-12-01")
-    )
+    PARTITION BY RANGE (k1) ()
     DISTRIBUTED BY HASH(k2) BUCKETS 32
     PROPERTIES(
     "storage_medium" = "SSD",
@@ -624,9 +739,9 @@ under the License.
      );
 ```
 
-12. Create a table with rollup index
+13. 创建一个带有rollup索引的表
 ```
-    CREATE TABLE example_db.rolup_index_table
+    CREATE TABLE example_db.rollup_index_table
     (
         event_day DATE,
         siteid INT DEFAULT '10',
@@ -642,8 +757,8 @@ under the License.
     r3(event_day)
     )
     PROPERTIES("replication_num" = "3");
-    
-13. 创建一个内存表
+```
+14. 创建一个内存表
 
 ```
     CREATE TABLE example_db.table_hash
@@ -661,7 +776,7 @@ under the License.
     PROPERTIES ("in_memory"="true");
 ```
 
-13. 创建一个hive外部表
+15. 创建一个hive外部表
 
 ```
     CREATE TABLE example_db.table_hive
@@ -679,8 +794,40 @@ under the License.
     );
 ```
 
+16. 通过 replication_allocation 指定表的副本分布
+
+```	
+    CREATE TABLE example_db.table_hash
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5"
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+	);
+
+
+    CREATE TABLE example_db.dynamic_partition
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+     );
+```
+
 ## keyword
 
     CREATE,TABLE
-
-```

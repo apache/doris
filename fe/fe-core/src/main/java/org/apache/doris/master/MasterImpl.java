@@ -35,7 +35,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
@@ -95,9 +94,12 @@ public class MasterImpl {
         // check task status
         // retry task by report process
         TStatus taskStatus = request.getTaskStatus();
-        LOG.debug("get task report: {}", request.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get task report: {}", request);
+        }
+
         if (taskStatus.getStatusCode() != TStatusCode.OK) {
-            LOG.warn("finish task reports bad. request: {}", request.toString());
+            LOG.warn("finish task reports bad. request: {}", request);
         }
 
         // get backend
@@ -110,7 +112,7 @@ public class MasterImpl {
             List<String> errorMsgs = new ArrayList<>();
             errorMsgs.add("backend not exist.");
             tStatus.setErrorMsgs(errorMsgs);
-            LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request.toString());
+            LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request);
             return result;
         }
 
@@ -303,7 +305,7 @@ public class MasterImpl {
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;
@@ -335,7 +337,7 @@ public class MasterImpl {
         }
         LOG.debug("push report state: {}", pushState.name());
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
         if (olapTable == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
@@ -394,7 +396,7 @@ public class MasterImpl {
                     Replica replica = findRelatedReplica(olapTable, partition,
                             backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
-                        deleteJob.addFinishedReplica(pushTabletId, replica);
+                        deleteJob.addFinishedReplica(partitionId, pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
                     }
                 }
@@ -514,7 +516,7 @@ public class MasterImpl {
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removePushTask(backendId, signature, finishVersion, finishVersionHash, 
                                           pushTask.getPushType(), pushTask.getTaskType());
@@ -549,13 +551,12 @@ public class MasterImpl {
 
         LOG.debug("push report state: {}", pushState.name());
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
         if (olapTable == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
             return;
         }
-
         olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);
@@ -602,22 +603,6 @@ public class MasterImpl {
                 if (pushTask.getVersion() != request.getRequestVersion()) {
                     throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
                             + request.getRequestVersion() + "]");
-                }
-
-                if (pushTask.isSyncDelete()) {
-                    pushTask.countDownLatch(backendId, signature);
-                } else {
-                    long asyncDeleteJobId = pushTask.getAsyncDeleteJobId();
-                    Preconditions.checkState(asyncDeleteJobId != -1);
-                    AsyncDeleteJob job = Catalog.getCurrentCatalog().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
-                    if (job == null) {
-                        throw new MetaNotFoundException("cannot find async delete job, job[" + asyncDeleteJobId + "]");
-                    }
-
-                    Preconditions.checkState(!infos.isEmpty());
-                    for (ReplicaPersistInfo info : infos) {
-                        job.addReplicaPersistInfos(info);
-                    }
                 }
             }
 

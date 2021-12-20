@@ -25,8 +25,6 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     const StringValue* string_value2;
     const DateTimeValue* ts_value1;
     const DateTimeValue* ts_value2;
-    const DecimalValue* decimal_value1;
-    const DecimalValue* decimal_value2;
     float f1 = 0;
     float f2 = 0;
     double d1 = 0;
@@ -36,11 +34,11 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     int64_t b1;
     int64_t b2;
 
-    if (NULL == v1 && NULL == v2) {
+    if (nullptr == v1 && nullptr == v2) {
         return 0;
-    } else if (NULL == v1 && NULL != v2) {
+    } else if (nullptr == v1 && nullptr != v2) {
         return -1;
-    } else if (NULL != v1 && NULL == v2) {
+    } else if (nullptr != v1 && nullptr == v2) {
         return 1;
     }
 
@@ -82,6 +80,7 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_STRING:
         string_value1 = reinterpret_cast<const StringValue*>(v1);
         string_value2 = reinterpret_cast<const StringValue*>(v2);
         return string_value1->compare(*string_value2);
@@ -91,12 +90,6 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
         ts_value1 = reinterpret_cast<const DateTimeValue*>(v1);
         ts_value2 = reinterpret_cast<const DateTimeValue*>(v2);
         return *ts_value1 > *ts_value2 ? 1 : (*ts_value1 < *ts_value2 ? -1 : 0);
-
-    case TYPE_DECIMAL:
-        decimal_value1 = reinterpret_cast<const DecimalValue*>(v1);
-        decimal_value2 = reinterpret_cast<const DecimalValue*>(v2);
-        return (*decimal_value1 > *decimal_value2) ? 1
-                                                   : (*decimal_value1 < *decimal_value2 ? -1 : 0);
 
     case TYPE_DECIMALV2: {
         DecimalV2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);

@@ -34,7 +34,7 @@ std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
                                const std::shared_ptr<MemTracker>& mem_tracker)
         : _key(key), _state(kInitialized), _closed_senders(64) {
-    _mem_tracker = MemTracker::CreateTracker(-1, "tablets channel", mem_tracker);
+    _mem_tracker = MemTracker::CreateTracker(-1, "TabletsChannel", mem_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -77,49 +77,65 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
     DCHECK(params.tablet_ids_size() == params.row_batch().num_rows());
-    std::lock_guard<std::mutex> l(_lock);
-    if (_state != kOpened) {
-        return _state == kFinished
-                       ? _close_status
-                       : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
-                                                                   _key.to_string(), _state));
-    }
-    auto next_seq = _next_seqs[params.sender_id()];
-    // check packet
-    if (params.packet_seq() < next_seq) {
-        LOG(INFO) << "packet has already recept before, expect_seq=" << next_seq
-                  << ", recept_seq=" << params.packet_seq();
-        return Status::OK();
-    } else if (params.packet_seq() > next_seq) {
-        LOG(WARNING) << "lost data packet, expect_seq=" << next_seq
-                     << ", recept_seq=" << params.packet_seq();
-        return Status::InternalError("lost data packet");
+    int64_t cur_seq;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_state != kOpened) {
+            return _state == kFinished
+                ? _close_status
+                : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
+                            _key.to_string(), _state));
+        }
+        cur_seq = _next_seqs[params.sender_id()];
+        // check packet
+        if (params.packet_seq() < cur_seq) {
+            LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
+                << ", recept_seq=" << params.packet_seq();
+            return Status::OK();
+        } else if (params.packet_seq() > cur_seq) {
+            LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
+                << ", recept_seq=" << params.packet_seq();
+            return Status::InternalError("lost data packet");
+        }
     }
 
     RowBatch row_batch(*_row_desc, params.row_batch(), _mem_tracker.get());
-
-    // iterator all data
+    std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
     for (int i = 0; i < params.tablet_ids_size(); ++i) {
-        auto tablet_id = params.tablet_ids(i);
-        auto it = _tablet_writers.find(tablet_id);
-        if (it == std::end(_tablet_writers)) {
-            return Status::InternalError(
-                    strings::Substitute("unknown tablet to append data, tablet=$0", tablet_id));
+        int64_t tablet_id = params.tablet_ids(i);
+        auto it = tablet_to_rowidxs.find(tablet_id);
+        if (it == tablet_to_rowidxs.end()) {
+            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int>{ i });
+        } else {
+            it->second.emplace_back(i);
         }
-        auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
+    }
+
+    for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
+        auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
+        if (tablet_writer_it == _tablet_writers.end()) {
+            return Status::InternalError(
+                    strings::Substitute("unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
+        }
+
+        OLAPStatus st = tablet_writer_it->second->write(&row_batch, tablet_to_rowidxs_it.second);
         if (st != OLAP_SUCCESS) {
-            const std::string& err_msg = strings::Substitute(
-                    "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2", it->first,
-                    _txn_id, st);
+            auto err_msg = strings::Substitute(
+                    "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",
+                    tablet_to_rowidxs_it.first, _txn_id, st);
             LOG(WARNING) << err_msg;
             return Status::InternalError(err_msg);
         }
     }
-    _next_seqs[params.sender_id()]++;
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _next_seqs[params.sender_id()] = cur_seq + 1;
+    }
     return Status::OK();
 }
 
-Status TabletsChannel::close(int sender_id, bool* finished,
+Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                              const google::protobuf::RepeatedField<int64_t>& partition_ids,
                              google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     std::lock_guard<std::mutex> l(_lock);
@@ -131,7 +147,8 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
-    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id;
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
+              << ", backend id: " << backend_id;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
@@ -176,36 +193,57 @@ Status TabletsChannel::close(int sender_id, bool* finished,
     return Status::OK();
 }
 
-Status TabletsChannel::reduce_mem_usage() {
+Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         // TabletsChannel is closed without LoadChannel's lock,
         // therefore it's possible for reduce_mem_usage() to be called right after close()
         return _close_status;
     }
-    // find tablet writer with largest mem consumption
-    int64_t max_consume = 0L;
-    DeltaWriter* writer = nullptr;
+
+    // Sort the DeltaWriters by mem consumption in descend order.
+    std::vector<DeltaWriter*> writers;
     for (auto& it : _tablet_writers) {
-        if (it.second->mem_consumption() > max_consume) {
-            max_consume = it.second->mem_consumption();
-            writer = it.second;
+        writers.push_back(it.second);
+    }
+    std::sort(writers.begin(), writers.end(),
+              [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
+                  return lhs->mem_consumption() > rhs->mem_consumption();
+              });
+
+    // Decide which writes should be flushed to reduce mem consumption.
+    // The main idea is to flush at least one third of the mem_limit.
+    // This is mainly to solve the following scenarios.
+    // Suppose there are N tablets in this TabletsChannel, and the mem limit is M.
+    // If the data is evenly distributed, when each tablet memory accumulates to M/N,
+    // the reduce memory operation will be triggered.
+    // At this time, the value of M/N may be much smaller than the value of `write_buffer_size`.
+    // If we flush all the tablets at this time, each tablet will generate a lot of small files.
+    // So here we only flush part of the tablet, and the next time the reduce memory operation is triggered,
+    // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
+    int64_t mem_to_flushed = mem_limit / 3;
+    int counter = 0;
+    int64_t  sum = 0;
+    for (auto writer : writers) {
+        if (writer->mem_consumption() <= 0) {
+            break;
+        }
+        ++counter;
+        sum += writer->mem_consumption();
+        if (sum > mem_to_flushed) {
+            break;
         }
     }
-
-    if (writer == nullptr || max_consume == 0) {
-        // barely not happend, just return OK
-        return Status::OK();
+    VLOG_CRITICAL << "flush " << counter << " memtables to reduce memory: " << sum;
+    for (int i = 0; i < counter; i++) {
+        writers[i]->flush_memtable_and_wait(false);
     }
 
-    VLOG_NOTICE << "pick the delte writer to flush, with mem consumption: " << max_consume
-            << ", channel key: " << _key;
-    OLAPStatus st = writer->flush_memtable_and_wait();
-    if (st != OLAP_SUCCESS) {
-        // flush failed, return error
-        std::stringstream ss;
-        ss << "failed to reduce mem consumption by flushing memtable. err: " << st;
-        return Status::InternalError(ss.str());
+    for (int i = 0; i < counter; i++) {
+        OLAPStatus st = writers[i]->wait_flush();
+        if (st != OLAP_SUCCESS) {
+            return Status::InternalError(fmt::format("failed to reduce mem consumption by flushing memtable. err: {}", st));
+        }
     }
     return Status::OK();
 }
@@ -262,7 +300,6 @@ Status TabletsChannel::cancel() {
     for (auto& it : _tablet_writers) {
         it.second->cancel();
     }
-    DCHECK_EQ(_mem_tracker->consumption(), 0);
     _state = kFinished;
     return Status::OK();
 }

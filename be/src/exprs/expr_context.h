@@ -21,9 +21,11 @@
 #include <memory>
 
 #include "common/status.h"
+#include "exprs/expr.h"
 #include "exprs/expr_value.h"
+#include "exprs/slot_ref.h"
 #include "udf/udf.h"
-#include "udf/udf_internal.h" // for ArrayVal
+#include "udf/udf_internal.h" // for CollectionVal
 
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf
@@ -67,7 +69,7 @@ public:
     /// originals but have their own MemPool and thread-local state. Clone() should be used
     /// to create an ExprContext for each execution thread that needs to evaluate
     /// 'root'. Note that clones are already opened. '*new_context' must be initialized by
-    /// the caller to NULL.
+    /// the caller to nullptr.
     Status clone(RuntimeState* state, ExprContext** new_context);
 
     Status clone(RuntimeState* state, ExprContext** new_ctx, Expr* root);
@@ -79,24 +81,7 @@ public:
     /// result in result_.
     void* get_value(TupleRow* row);
 
-    /// Convenience function: extract value into col_val and sets the
-    /// appropriate __isset flag.
-    /// If the value is NULL and as_ascii is false, nothing is set.
-    /// If 'as_ascii' is true, writes the value in ascii into stringVal
-    /// (nulls turn into "NULL");
-    /// if it is false, the specific field in col_val that receives the value is
-    /// based on the type of the expr:
-    /// TYPE_BOOLEAN: boolVal
-    /// TYPE_TINYINT/SMALLINT/INT: intVal
-    /// TYPE_BIGINT: longVal
-    /// TYPE_FLOAT/DOUBLE: doubleVal
-    /// TYPE_STRING: stringVal
-    /// TYPE_TIMESTAMP: stringVal
-    /// Note: timestamp is converted to string via RawValue::PrintValue because HiveServer2
-    /// requires timestamp in a string format.
-    void get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val);
-
-    /// Convenience functions: print value into 'str' or 'stream'.  NULL turns into "NULL".
+    /// Convenience functions: print value into 'str' or 'stream'.  nullptr turns into "NULL".
     void print_value(TupleRow* row, std::string* str);
     void print_value(void* value, std::string* str);
     void print_value(void* value, std::stringstream* stream);
@@ -136,7 +121,6 @@ public:
     // TODO(zc):
     // ArrayVal GetArrayVal(TupleRow* row);
     DateTimeVal get_datetime_val(TupleRow* row);
-    DecimalVal get_decimal_val(TupleRow* row);
     DecimalV2Val get_decimalv2_val(TupleRow* row);
 
     /// Frees all local allocations made by fn_contexts_. This can be called when result
@@ -148,7 +132,7 @@ public:
     bool opened() { return _opened; }
 
     /// If 'expr' is constant, evaluates it with no input row argument and returns the
-    /// result in 'const_val'. Sets 'const_val' to NULL if the argument is not constant.
+    /// result in 'const_val'. Sets 'const_val' to nullptr if the argument is not constant.
     /// The returned AnyVal and associated varlen data is owned by this evaluator. This
     /// should only be called after Open() has been called on this expr. Returns an error
     /// if there was an error evaluating the expression or if memory could not be allocated
@@ -170,6 +154,8 @@ private:
     friend class Expr;
     friend class ScalarFnCall;
     friend class InPredicate;
+    friend class RuntimePredicateWrapper;
+    friend class BloomFilterPredicate;
     friend class OlapScanNode;
     friend class EsScanNode;
     friend class EsPredicate;
@@ -205,6 +191,13 @@ private:
     /// This is used by Exprs to call GetValue() on a child expr, rather than root_.
     void* get_value(Expr* e, TupleRow* row);
 };
+
+inline void* ExprContext::get_value(TupleRow* row) {
+    if (_root->is_slotref()) {
+        return SlotRef::get_value(_root, row);
+    }
+    return get_value(_root, row);
+}
 
 } // namespace doris
 

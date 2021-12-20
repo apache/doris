@@ -22,8 +22,8 @@
 
 #include <algorithm>
 #include <boost/assign.hpp>
-#include <boost/regex.hpp>
 #include <iostream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -32,13 +32,12 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/utils.h"
+#include "util/cpu_info.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
-#include "util/cpu_info.h"
 
 using namespace std;
 using namespace doris;
-using namespace boost::assign;
 using google::protobuf::RepeatedPtrField;
 
 namespace doris {
@@ -116,7 +115,7 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
     TColumn k9;
     k9.column_name = "k9";
     k9.__set_is_key(true);
-    k9.column_type.type = TPrimitiveType::DECIMAL;
+    k9.column_type.type = TPrimitiveType::DECIMALV2;
     k9.column_type.__set_precision(6);
     k9.column_type.__set_scale(3);
     request->tablet_schema.columns.push_back(k9);
@@ -197,7 +196,7 @@ void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     TColumn k9;
     k9.column_name = "k9";
     k9.__set_is_key(true);
-    k9.column_type.type = TPrimitiveType::DECIMAL;
+    k9.column_type.type = TPrimitiveType::DECIMALV2;
     k9.column_type.__set_precision(6);
     k9.column_type.__set_scale(3);
     request->tablet_schema.columns.push_back(k9);
@@ -260,7 +259,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(tablet.get() != NULL);
+        ASSERT_TRUE(tablet.get() != nullptr);
         _tablet_path = tablet->tablet_path();
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
@@ -268,7 +267,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(
                 _create_dup_tablet.tablet_id, _create_dup_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(dup_tablet.get() != NULL);
+        ASSERT_TRUE(dup_tablet.get() != nullptr);
         _dup_tablet_path = tablet->tablet_path();
     }
 
@@ -431,7 +430,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(tablet.get() != NULL);
+        ASSERT_TRUE(tablet.get() != nullptr);
         _tablet_path = tablet->tablet_path();
     }
 

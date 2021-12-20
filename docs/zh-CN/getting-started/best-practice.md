@@ -97,15 +97,23 @@ Doris 数据模型上目前分为三类: AGGREGATE KEY, UNIQUE KEY, DUPLICATE KE
  
 ### 1.3 分区和分桶
 
-Doris 支持两级分区存储, 第一层为 RANGE 分区(partition), 第二层为 HASH 分桶(bucket)。
+Doris 支持两级分区存储, 第一层为分区(partition)，目前支持 RANGE 分区和 LIST 分区两种类型, 第二层为 HASH 分桶(bucket)。
 
-1.3.1. RANGE分区(partition)
+1.3.1. 分区(partition)
 
-    RANGE分区用于将数据划分成不同区间, 逻辑上可以理解为将原始表划分成了多个子表。业务上，多数用户会选择采用按时间进行partition, 让时间进行partition有以下好处：
+    分区用于将数据划分成不同区间, 逻辑上可以理解为将原始表划分成了多个子表。可以方便的按分区对数据进行管理，例如，删除数据时，更加迅速。
+
+1.3.1.1. RANGE分区
+
+    业务上，多数用户会选择采用按时间进行partition, 让时间进行partition有以下好处：
     
     * 可区分冷热数据
     * 可用上Doris分级存储(SSD + SATA)的功能
-    * 按分区删除数据时，更加迅速
+
+1.3.1.2. LIST分区
+
+    业务上，用户可以选择城市或者其他枚举值进行partition。
+
 
 1.3.2. HASH分桶(bucket)
 

@@ -68,21 +68,21 @@ Status SchemaColumnsScanner::start(RuntimeState* state) {
     }
     // get all database
     TGetDbsParams db_params;
-    if (NULL != _param->db) {
+    if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*_param->current_user_ident);
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             db_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
     } else {
@@ -112,6 +112,7 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
     case TPrimitiveType::DOUBLE:
         return "double";
     case TPrimitiveType::VARCHAR:
+    case TPrimitiveType::STRING:
         return "varchar";
     case TPrimitiveType::CHAR:
         return "char";
@@ -119,8 +120,7 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
         return "date";
     case TPrimitiveType::DATETIME:
         return "datetime";
-    case TPrimitiveType::DECIMALV2:
-    case TPrimitiveType::DECIMAL: {
+    case TPrimitiveType::DECIMALV2: {
         return "decimal";
     }
     default:
@@ -152,6 +152,8 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
         } else {
             return "varchar(20)";
         }
+    case TPrimitiveType::STRING:
+        return "string";
     case TPrimitiveType::CHAR:
         if (desc.__isset.columnLength) {
             return "char(" + std::to_string(desc.columnLength) + ")";
@@ -162,8 +164,7 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
         return "date";
     case TPrimitiveType::DATETIME:
         return "datetime";
-    case TPrimitiveType::DECIMALV2:
-    case TPrimitiveType::DECIMAL: {
+    case TPrimitiveType::DECIMALV2: {
         std::stringstream stream;
         stream << "decimal(";
         if (desc.__isset.columnPrecision) {
@@ -263,7 +264,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // For string columns, the maximum length in characters.
     {
         int data_type = _desc_result.columns[_column_index].columnDesc.columnType;
-        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR) {
+        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
+            data_type == TPrimitiveType::STRING) {
             void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
             int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
             if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
@@ -279,7 +281,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // For string columns, the maximum length in bytes.
     {
         int data_type = _desc_result.columns[_column_index].columnDesc.columnType;
-        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR) {
+        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
+            data_type == TPrimitiveType::STRING) {
             void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
             int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
             if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
@@ -390,18 +393,18 @@ Status SchemaColumnsScanner::get_new_desc() {
     TDescribeTableParams desc_params;
     desc_params.__set_db(_db_result.dbs[_db_index - 1]);
     desc_params.__set_table_name(_table_result.tables[_table_index++]);
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         desc_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             desc_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             desc_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::describe_table(*(_param->ip), _param->port, desc_params,
                                                      &_desc_result));
     } else {
@@ -415,21 +418,21 @@ Status SchemaColumnsScanner::get_new_desc() {
 Status SchemaColumnsScanner::get_new_table() {
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
-    if (NULL != _param->table) {
+    if (nullptr != _param->table) {
         table_params.__set_pattern(*(_param->table));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             table_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             table_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::get_table_names(*(_param->ip), _param->port, table_params,
                                                       &_table_result));
     } else {
@@ -443,8 +446,8 @@ Status SchemaColumnsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos
     if (!_is_init) {
         return Status::InternalError("use this class before inited.");
     }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("input parameter is NULL.");
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input parameter is nullptr.");
     }
     while (_column_index >= _desc_result.columns.size()) {
         if (_table_index >= _table_result.tables.size()) {

@@ -216,7 +216,7 @@ Relevant issues:
 Relevant issues:
 1. How to quickly locate a row within the page?
 
-	The data inside the page is encoding, so it can not locate the row-level data quickly. Different encoding methods have different schemes for fast line number positioning in-house, which need to be analyzed concretely:
+	The data inside the page is encoding, so it cannot locate the row-level data quickly. Different encoding methods have different schemes for fast line number positioning in-house, which need to be analyzed concretely:
 	- If it is rle-coded, skip is performed by resolving the head of RLE until the RLE block containing the row is reached, and then the reverse solution is performed.
 	- binary plain encoding: offset information will be stored in the page, and offset information will be specified in the page header. When reading, offset information will be parsed into the array first, so that you can quickly locate the data of a row of block through offset data information of each row.
 2. How to achieve efficient block reading? Consider merging adjacent blocks while they are being read, one-time reading?
@@ -232,4 +232,4 @@ It implements a scalable compression framework, supports a variety of compressio
 
 ## TODO ##
 1. How to implement nested types? How to locate line numbers in nested types?
-2. How to optimize the downstream bitmap and column statistics statistics caused by ScanRange splitting?
+2. How to optimize the downstream bitmap and column statistics caused by ScanRange splitting?

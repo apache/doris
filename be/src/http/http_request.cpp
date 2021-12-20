@@ -24,7 +24,6 @@
 #include <event2/keyvalq_struct.h>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/foreach.hpp>
 #include <sstream>
 #include <string>
 #include <vector>

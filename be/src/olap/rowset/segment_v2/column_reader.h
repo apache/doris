@@ -72,6 +72,8 @@ struct ColumnIteratorOptions {
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
 
+    std::shared_ptr<MemTracker> mem_tracker;
+
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
         CHECK_NOTNULL(stats);
@@ -121,9 +123,7 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
-                                      std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-                                      RowRanges* row_ranges);
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition, RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges);
@@ -159,9 +159,7 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions,
-                               std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-                               std::vector<uint32_t>* page_indexes);
+    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions, std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
@@ -198,6 +196,7 @@ public:
     virtual ~ColumnIterator() = default;
 
     virtual Status init(const ColumnIteratorOptions& opts) {
+        DCHECK(opts.mem_tracker.get() != nullptr);
         _opts = opts;
         return Status::OK();
     }
@@ -265,6 +264,8 @@ public:
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
+    Status seek_to_page_start();
+
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
@@ -307,15 +308,14 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
-
-    // page indexes those are DEL_PARTIAL_SATISFIED
-    std::unordered_set<uint32_t> _delete_partial_satisfied_pages;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(FileColumnIterator* offset_iterator,
-                                     ColumnIterator* item_iterator);
+    explicit ArrayFileColumnIterator(ColumnReader* reader,
+                                     FileColumnIterator* length_reader,
+                                     ColumnIterator* item_iterator,
+                                     ColumnIterator* null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 
@@ -323,20 +323,55 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
-    Status seek_to_first() override { return _offset_iterator->seek_to_first(); };
+    Status seek_to_first() override {
+        RETURN_IF_ERROR(_length_iterator->seek_to_first());
+        RETURN_IF_ERROR(_item_iterator->seek_to_first()); // lazy???
+        if (_array_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_first());
+        }
+        return Status::OK();
+    }
 
     Status seek_to_ordinal(ordinal_t ord) override {
-        return _offset_iterator->seek_to_ordinal(ord);
-    };
+        RETURN_IF_ERROR(_length_iterator->seek_to_ordinal(ord));
+        if (_array_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+        }
+
+        RETURN_IF_ERROR(_length_iterator->seek_to_page_start());
+        if (_length_iterator->get_current_ordinal() == ord) {
+            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(_length_iterator->get_current_page()->first_array_item_ordinal));
+        } else {
+            ordinal_t start_offset_in_this_page = _length_iterator->get_current_page()->first_array_item_ordinal;
+            ColumnBlock ordinal_block(_length_batch.get(), nullptr);
+            ordinal_t size_to_read = ord - start_offset_in_this_page;
+            bool has_null = false;
+            ordinal_t item_ordinal = start_offset_in_this_page;
+            while (size_to_read > 0) {
+                size_t this_read = _length_batch->capacity() < size_to_read ? _length_batch->capacity() : size_to_read;
+                ColumnBlockView ordinal_view(&ordinal_block);
+                RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
+                auto* ordinals = reinterpret_cast<ordinal_t*>(_length_batch->data());
+                for (int i = 0; i < this_read; ++i) {
+                    item_ordinal += ordinals[i];
+                }
+                size_to_read -= this_read;
+            }
+            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(item_ordinal));
+        }
+        return Status::OK();
+    }
 
     ordinal_t get_current_ordinal() const override {
-        return _offset_iterator->get_current_ordinal();
+        return _length_iterator->get_current_ordinal();
     }
 
 private:
-    std::unique_ptr<FileColumnIterator> _offset_iterator;
+    ColumnReader* _array_reader;
+    std::unique_ptr<FileColumnIterator> _length_iterator;
+    std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
-    std::unique_ptr<ColumnVectorBatch> _offset_batch;
+    std::unique_ptr<ColumnVectorBatch> _length_batch;
 };
 
 // This iterator is used to read default value column

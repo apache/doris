@@ -41,7 +41,9 @@ namespace doris {
 MemoryScratchSink::MemoryScratchSink(const RowDescriptor& row_desc,
                                      const std::vector<TExpr>& t_output_expr,
                                      const TMemoryScratchSink& sink)
-        : _row_desc(row_desc), _t_output_expr(t_output_expr) {}
+        : _row_desc(row_desc), _t_output_expr(t_output_expr) {
+    _name = "MemoryScratchSink";
+}
 
 MemoryScratchSink::~MemoryScratchSink() {}
 
@@ -71,7 +73,7 @@ Status MemoryScratchSink::prepare(RuntimeState* state) {
 }
 
 Status MemoryScratchSink::send(RuntimeState* state, RowBatch* batch) {
-    if (NULL == batch || 0 == batch->num_rows()) {
+    if (nullptr == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
     std::shared_ptr<arrow::RecordBatch> result;

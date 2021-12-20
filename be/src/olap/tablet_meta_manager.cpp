@@ -104,12 +104,6 @@ OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaH
     VLOG_NOTICE << "save tablet meta to meta store: key = " << key;
     OlapMeta* meta = store->get_meta();
 
-    TabletMetaPB de_tablet_meta_pb;
-    bool parsed = de_tablet_meta_pb.ParseFromString(meta_binary);
-    if (!parsed) {
-        LOG(FATAL) << "deserialize from previous serialize result failed";
-    }
-
     LOG(INFO) << "save tablet meta "
               << ", key:" << key << " meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
@@ -161,8 +155,10 @@ OLAPStatus TabletMetaManager::load_json_meta(DataDir* store, const std::string& 
     }
     boost::algorithm::trim(json_meta);
     TabletMetaPB tablet_meta_pb;
-    bool ret = json2pb::JsonToProtoMessage(json_meta, &tablet_meta_pb);
+    std::string error;
+    bool ret = json2pb::JsonToProtoMessage(json_meta, &tablet_meta_pb, &error);
     if (!ret) {
+        LOG(ERROR) << "JSON to protobuf message failed: " << error;
         return OLAP_ERR_HEADER_LOAD_JSON_HEADER;
     }
 

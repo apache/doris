@@ -73,9 +73,9 @@ public class AuditEventProcessor {
 
     public void handleAuditEvent(AuditEvent auditEvent) {
         try {
-            eventQueue.put(auditEvent);
-        } catch (InterruptedException e) {
-            LOG.debug("encounter exception when handle audit event, ignore", e);
+            eventQueue.add(auditEvent);
+        } catch (Exception e) {
+            LOG.warn("encounter exception when handle audit event, ignore", e);
         }
     }
 

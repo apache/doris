@@ -36,7 +36,8 @@ OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _connect_string(std::move(tnode.odbc_scan_node.connect_string)),
           _query_string(std::move(tnode.odbc_scan_node.query_string)),
           _tuple_id(tnode.odbc_scan_node.tuple_id),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr),
+          _slot_num(0) {}
 
 OdbcScanNode::~OdbcScanNode() {}
 
@@ -47,15 +48,15 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (NULL == state) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is null.");
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    if (NULL == _tuple_desc) {
+    if (nullptr == _tuple_desc) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
@@ -73,13 +74,13 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
 
     _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
 
-    if (_tuple_pool.get() == NULL) {
+    if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
     }
 
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
-    if (_text_converter.get() == NULL) {
+    if (_text_converter.get() == nullptr) {
         return Status::InternalError("new a text convertor failed.");
     }
 
@@ -92,8 +93,8 @@ Status OdbcScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << "OdbcScanNode::Open";
 
-    if (NULL == state) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is null.");
     }
 
     if (!_is_init) {
@@ -115,7 +116,8 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescript
     if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
                                      _tuple_pool.get())) {
         std::stringstream ss;
-        ss << "fail to convert odbc value '" << value << "' TO " << slot->type();
+        ss << "Fail to convert odbc value:'" << value << "' to " << slot->type() << " on column:`"
+           << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
 
@@ -125,8 +127,8 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescript
 Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     VLOG_CRITICAL << "OdbcScanNode::GetNext";
 
-    if (NULL == state || NULL == row_batch || NULL == eos) {
-        return Status::InternalError("input is NULL pointer");
+    if (nullptr == state || nullptr == row_batch || nullptr == eos) {
+        return Status::InternalError("input is nullptr pointer");
     }
 
     if (!_is_init) {
@@ -146,7 +148,7 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
     void* tuple_buffer = _tuple_pool->allocate(tuple_buffer_size);
 
-    if (NULL == tuple_buffer) {
+    if (nullptr == tuple_buffer) {
         return Status::InternalError("Allocate memory failed.");
     }
 
@@ -193,13 +195,13 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                     _tuple->set_null(slot_desc->null_indicator_offset());
                 } else {
                     std::stringstream ss;
-                    ss << "nonnull column contains NULL. table=" << _table_name
+                    ss << "nonnull column contains nullptr. table=" << _table_name
                        << ", column=" << slot_desc->col_name();
                     return Status::InternalError(ss.str());
                 }
             } else if (column_data.strlen_or_ind > column_data.buffer_length) {
                 std::stringstream ss;
-                ss << "nonnull column contains NULL. table=" << _table_name
+                ss << "nonnull column contains nullptr. table=" << _table_name
                    << ", column=" << slot_desc->col_name();
                 return Status::InternalError(ss.str());
             } else {

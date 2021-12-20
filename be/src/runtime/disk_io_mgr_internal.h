@@ -20,7 +20,6 @@
 
 #include <unistd.h>
 
-#include <boost/thread/locks.hpp>
 #include <queue>
 
 #include "common/logging.h"
@@ -41,13 +40,13 @@ struct DiskIoMgr::DiskQueue {
     int disk_id;
 
     // Lock that protects access to 'request_contexts' and 'work_available'
-    boost::mutex lock;
+    std::mutex lock;
 
     // Condition variable to signal the disk threads that there is work to do or the
     // thread should shut down.  A disk thread will be woken up when there is a reader
     // added to the queue. A reader is only on the queue when it has at least one
     // scan range that is not blocked on available buffers.
-    boost::condition_variable work_available;
+    std::condition_variable work_available;
 
     // list of all request contexts that have work queued on this disk
     std::list<RequestContext*> request_contexts;
@@ -55,7 +54,7 @@ struct DiskIoMgr::DiskQueue {
     // Enqueue the request context to the disk queue.  The DiskQueue lock must not be taken.
     inline void enqueue_context(RequestContext* worker) {
         {
-            boost::unique_lock<boost::mutex> disk_lock(lock);
+            std::unique_lock<std::mutex> disk_lock(lock);
             // Check that the reader is not already on the queue
             DCHECK(find(request_contexts.begin(), request_contexts.end(), worker) ==
                    request_contexts.end());
@@ -157,14 +156,14 @@ public:
     // in_flight_queue AND have not prepared a range by setting next_range_to_start.
     // The rule to make sure readers are scheduled correctly is to ensure anytime a
     // range is put on the in_flight_queue or anytime next_range_to_start is set to
-    // NULL, the reader is scheduled.
+    // nullptr, the reader is scheduled.
 
     // Adds range to in_flight_ranges, scheduling this reader on the disk threads
     // if necessary.
     // Reader lock must be taken before this.
     void schedule_scan_range(DiskIoMgr::ScanRange* range) {
         DCHECK_EQ(_state, Active);
-        DCHECK(range != NULL);
+        DCHECK(range != nullptr);
         RequestContext::PerDiskState& state = _disk_states[range->disk_id()];
         state.in_flight_ranges()->enqueue(range);
         state.schedule_context(this, range->disk_id());
@@ -264,7 +263,7 @@ private:
 
     // All fields below are accessed by multiple threads and the lock needs to be
     // taken before accessing them.
-    boost::mutex _lock;
+    std::mutex _lock;
 
     // Current state of the reader
     State _state;
@@ -289,13 +288,13 @@ private:
     // We currently populate one range per disk.
     // TODO: think about this some more.
     InternalQueue<ScanRange> _ready_to_start_ranges;
-    boost::condition_variable _ready_to_start_ranges_cv; // used with _lock
+    std::condition_variable _ready_to_start_ranges_cv; // used with _lock
 
     // Ranges that are blocked due to back pressure on outgoing buffers.
     InternalQueue<ScanRange> _blocked_ranges;
 
     // Condition variable for UnregisterContext() to wait for all disks to complete
-    boost::condition_variable _disks_complete_cond_var;
+    std::condition_variable _disks_complete_cond_var;
 
     // Struct containing state per disk. See comments in the disk read loop on how
     // they are used.
@@ -380,7 +379,7 @@ private:
             _num_remaining_ranges = 0;
             _is_on_queue = false;
             _num_threads_in_op = 0;
-            _next_scan_range_to_start = NULL;
+            _next_scan_range_to_start = nullptr;
         }
 
     private:
@@ -393,7 +392,7 @@ private:
         // For each disk, keeps track if the context is on this disk's queue, indicating
         // the disk must do some work for this context. The disk needs to do work in 4 cases:
         //  1) in_flight_ranges is not empty, the disk needs to read for this reader.
-        //  2) next_range_to_start is NULL, the disk needs to prepare a scan range to be
+        //  2) next_range_to_start is nullptr, the disk needs to prepare a scan range to be
         //     read next.
         //  3) the reader has been cancelled and this disk needs to participate in the
         //     cleanup.
@@ -426,7 +425,7 @@ private:
         // picks the next range to start. The range is set here and also added to the
         // _ready_to_start_ranges queue. The reader pulls from the queue in FIFO order,
         // so the ranges from different disks are round-robined. When the range is pulled
-        // off the _ready_to_start_ranges queue, it sets this variable to NULL, so the disk
+        // off the _ready_to_start_ranges queue, it sets this variable to nullptr, so the disk
         // knows to populate it again and add it to _ready_to_start_ranges i.e. it is used
         // as a flag by DiskIoMgr::GetNextScanRange to determine if it needs to add another
         // range to _ready_to_start_ranges.

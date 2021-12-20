@@ -89,12 +89,12 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 #define TEST_PREDICATE_DEFINITION(CLASS_NAME)                                                     \
     class CLASS_NAME : public testing::Test {                                                     \
     public:                                                                                       \
-        CLASS_NAME() : _vectorized_batch(NULL) {                                                  \
+        CLASS_NAME() : _vectorized_batch(nullptr) {                                               \
             _mem_tracker.reset(new MemTracker(-1));                                               \
             _mem_pool.reset(new MemPool(_mem_tracker.get()));                                     \
         }                                                                                         \
         ~CLASS_NAME() {                                                                           \
-            if (_vectorized_batch != NULL) {                                                      \
+            if (_vectorized_batch != nullptr) {                                                   \
                 delete _vectorized_batch;                                                         \
             }                                                                                     \
         }                                                                                         \
@@ -351,7 +351,7 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    decimal12_t value(5, 5);
+    decimal12_t value = {5, 5};
     ColumnPredicate* pred = new EqualPredicate<decimal12_t>(0, value);
 
     // for VectorizedBatch no nulls
@@ -803,8 +803,7 @@ TEST_LESS_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestLessPredicate, FLOAT_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true,
-                    &tablet_schema);
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
@@ -996,7 +995,7 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    decimal12_t value(5, 5);
+    decimal12_t value = {5, 5};
     ColumnPredicate* pred = new LessPredicate<decimal12_t>(0, value);
 
     // for VectorizedBatch no nulls
@@ -1013,7 +1012,7 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 5);
     uint16_t* sel = _vectorized_batch->selected();
-    decimal12_t sum(0, 0);
+    decimal12_t sum = {0, 0};
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }

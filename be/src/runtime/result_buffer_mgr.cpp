@@ -17,8 +17,6 @@
 
 #include "runtime/result_buffer_mgr.h"
 
-#include <boost/bind.hpp>
-
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/types.pb.h"
 #include "runtime/buffer_control_block.h"
@@ -40,7 +38,7 @@ ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
     // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
     // actual size of all BufferControlBlock.
     REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         return _buffer_map.size();
     });
 }
@@ -61,40 +59,39 @@ Status ResultBufferMgr::init() {
 }
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
-                                      boost::shared_ptr<BufferControlBlock>* sender) {
+                                      std::shared_ptr<BufferControlBlock>* sender) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
         return Status::OK();
     }
 
-    boost::shared_ptr<BufferControlBlock> control_block(
+    std::shared_ptr<BufferControlBlock> control_block(
             new BufferControlBlock(query_id, buffer_size));
     {
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
     }
     *sender = control_block;
     return Status::OK();
 }
 
-boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
-        const TUniqueId& query_id) {
+std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
     // TODO(zhaochun): this lock can be bottleneck?
-    boost::lock_guard<boost::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
         return iter->second;
     }
 
-    return boost::shared_ptr<BufferControlBlock>();
+    return std::shared_ptr<BufferControlBlock>();
 }
 
 Status ResultBufferMgr::fetch_data(const TUniqueId& query_id, TFetchDataResult* result) {
-    boost::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
 
-    if (NULL == cb) {
+    if (nullptr == cb) {
         // the sender tear down its buffer block
         return Status::InternalError("no result for this query.");
     }
@@ -106,7 +103,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
     TUniqueId tid;
     tid.__set_hi(finst_id.hi());
     tid.__set_lo(finst_id.lo());
-    boost::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
         LOG(WARNING) << "no result for this query, id=" << tid;
         ctx->on_failure(Status::InternalError("no result for this query"));
@@ -116,7 +113,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
 }
 
 Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
-    boost::lock_guard<boost::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
@@ -128,7 +125,7 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
 }
 
 Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
-    boost::lock_guard<boost::mutex> l(_timeout_lock);
+    std::lock_guard<std::mutex> l(_timeout_lock);
     TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
 
     if (_timeout_map.end() == iter) {
@@ -147,9 +144,9 @@ void ResultBufferMgr::cancel_thread() {
     do {
         // get query
         std::vector<TUniqueId> query_to_cancel;
-        time_t now_time = time(NULL);
+        time_t now_time = time(nullptr);
         {
-            boost::lock_guard<boost::mutex> l(_timeout_lock);
+            std::lock_guard<std::mutex> l(_timeout_lock);
             TimeoutMap::iterator end = _timeout_map.upper_bound(now_time + 1);
 
             for (TimeoutMap::iterator iter = _timeout_map.begin(); iter != end; ++iter) {

@@ -17,11 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -31,9 +26,15 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
-import com.google.common.base.Strings;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * Wraps a list of TableRef instances that form a FROM clause, allowing them to be
@@ -61,23 +62,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         this.needToSql = needToSql;
     }
 
-    private void sortTableRefForSubquery(Analyzer analyzer) {
-        Collections.sort(this.tableRefs_, new Comparator<TableRef>() {
-            @Override
-            public int compare(TableRef tableref1, TableRef tableref2) {
-                int i1 = 0;
-                int i2 = 0;
-                if (tableref1.getOnClause() != null) {
-                    i1 = 1;
-                }
-                if (tableref2.getOnClause() != null) {
-                    i2 = 1;
-                }
-                return i1 - i2;
-            }
-        });
-    }
-
     private void checkFromHiveTable(Analyzer analyzer) throws AnalysisException {
         for (TableRef tblRef : tableRefs_) {
             if (!(tblRef instanceof BaseTableRef)) {
@@ -95,20 +79,37 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
 
-            Database db = analyzer.getCatalog().getDb(dbName);
-            if (db == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-            }
-
+            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
             String tblName = tableName.getTbl();
-            Table table = db.getTable(tblName);
-            if (table == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
-            }
-            if (table.getType() == Table.TableType.HIVE) {
-                throw new AnalysisException("Query from hive table is not supported, table: " + tblName);
-            }
+            Table table = db.getTableOrAnalysisException(tblName);
         }
+    }
+
+    /**
+     * In some cases, the reorder method of select stmt will incorrectly sort the tableRef with on clause.
+     * The meaning of this function is to reset those tableRefs with on clauses.
+     * For example:
+     * Origin stmt: select * from t1 inner join t2 on t1.k1=t2.k1
+     * After analyze: select * from t2 on t1.k1=t2.k1 inner join t1
+     *
+     * If this statement just needs to be reanalyze (query rewriter), an error will be reported
+     * because the table t1 in the on clause cannot be recognized.
+     */
+    private void sortTableRefKeepSequenceOfOnClause() {
+        Collections.sort(this.tableRefs_, new Comparator<TableRef>() {
+            @Override
+            public int compare(TableRef tableref1, TableRef tableref2) {
+                int i1 = 0;
+                int i2 = 0;
+                if (tableref1.getOnClause() != null) {
+                    i1 = 1;
+                }
+                if (tableref2.getOnClause() != null) {
+                    i2 = 1;
+                }
+                return i1 - i2;
+            }
+        });
     }
 
     @Override
@@ -120,7 +121,14 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             return;
         }
 
-        sortTableRefForSubquery(analyzer);
+        // The order of the tables may have changed during the previous analyzer process.
+        // For example, a join b on xxx is changed to b on xxx join a.
+        // This change will cause the predicate in on clause be adjusted to the front of the association table,
+        // causing semantic analysis to fail. Unknown column 'column1' in 'table1'
+        // So we need to readjust the order of the tables here.
+        if (analyzer.enableStarJoinReorder()) {
+            sortTableRefKeepSequenceOfOnClause();
+        }
 
         // Start out with table refs to establish aliases.
         TableRef leftTblRef = null;  // the one to the left of tblRef

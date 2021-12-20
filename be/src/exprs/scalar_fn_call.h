@@ -45,7 +45,7 @@ class TExprNode;
 /// - Testing
 ///    - Test cancellation
 ///    - Type descs in UDA test harness
-///    - Allow more functions to be NULL in UDA test harness
+///    - Allow more functions to be nullptr in UDA test harness
 class ScalarFnCall : public Expr {
 public:
     virtual std::string debug_string() const;
@@ -53,6 +53,11 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new ScalarFnCall(*this));
     }
+
+    // TODO: just for table function.
+    // It is not good to expose this field to public.
+    // We should refactor it after implementing real table functions.
+    int get_fn_context_index() const { return _fn_context_index; }
 
 protected:
     friend class Expr;
@@ -76,9 +81,8 @@ protected:
     virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
     virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
-    // virtual doris_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
+    virtual CollectionVal get_array_val(ExprContext* context, TupleRow*);
 
 private:
     /// If this function has var args, children()[_vararg_start_idx] is the first vararg

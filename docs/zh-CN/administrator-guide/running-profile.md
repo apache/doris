@@ -44,10 +44,10 @@ FE将查询计划拆分成为Fragment下发到BE进行任务执行。BE在执行
 通过Mysql命令，将FE上的Report的开关打开
 
 ```
-mysql> set is_report_success=true; 
+mysql> set enable_profile=true; 
 ```
 
-之后执行对应的SQL语句之后，在FE的Web页面就可以看到对应SQL语句执行的Report信息：
+之后执行对应的SQL语句之后（旧版本为`is_report_success`），在FE的Web页面就可以看到对应SQL语句执行的Report信息：
 ![image.png](/images/running_profile.png)
 
 这里会列出最新执行完成的**100条语句**，我们可以通过Profile查看详细的统计信息。
@@ -82,7 +82,7 @@ Query:
            - RowsReturned: 8.322K (8322)
            - MemoryUsed: 0.00 
            - RowsReturnedRate: 811
-```
+ ```
 这里列出了Fragment的ID；```hostname```指的是执行Fragment的BE节点；```Active：10s270ms```表示该节点的执行总时间；```non-child: 0.14%```表示执行节点自身的执行时间（不包含子节点的执行时间）占总时间的百分比；
 
 `PeakMemoryUsage`表示`EXCHANGE_NODE`内存使用的峰值；`RowsReturned`表示`EXCHANGE_NODE`结果返回的行数；`RowsReturnedRate`=`RowsReturned`/`ActiveTime`；这三个统计信息在其他`NODE`中的含义相同。
@@ -109,12 +109,22 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 #### `DataStreamSender`
    - BytesSent: 发送的总数据量 = 接受者 * 发送数据量
    - IgnoreRows: 过滤的行数
+   - LocalBytesSent: 数据在Exchange过程中，记录本机节点的自发自收数据量
    - OverallThroughput: 总的吞吐量 = BytesSent / 时间
    - SerializeBatchTime: 发送数据序列化消耗的时间
    - UncompressedRowBatchSize: 发送数据压缩前的RowBatch的大小
 
+#### `ODBC_TABLE_SINK`
+   - NumSentRows: 写入外表的总行数
+   - TupleConvertTime: 发送数据序列化为Insert语句的耗时
+   - ResultSendTime: 通过ODBC Driver写入的耗时
+
 #### `EXCHANGE_NODE`
   - BytesReceived: 通过网络接收的数据量大小
+  - MergeGetNext: 当下层节点存在排序时，会在EXCHANGE NODE进行统一的归并排序，输出有序结果。该指标记录了Merge排序的总耗时，包含了MergeGetNextBatch耗时。
+  - MergeGetNextBatch：Merge节点取数据的耗时，如果为单层Merge排序，则取数据的对象为网络队列。若为多层Merge排序取数据对象为Child Merger。
+  - ChildMergeGetNext: 当下层的发送数据的Sender过多时，单线程的Merge会成为性能瓶颈，Doris会启动多个Child Merge线程并行归并排序。记录了Child Merge的排序耗时  该数值是多个线程的累加值。
+  - ChildMergeGetNextBatch: Child Merge节点从取数据的耗时，如果耗时过大，可能的瓶颈为下层的数据发送节点。 
   - DataArrivalWaitTime: 等待Sender发送数据的总时间
   - FirstBatchArrivalWaitTime: 等待第一个batch从Sender获取的时间
   - DeserializeRowBatchTimer: 反序列化网络数据的耗时
@@ -130,7 +140,7 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
   - MergeGetNext: MergeSort从多个sort_run获取下一个batch的耗时 (仅在落盘时计时）
   - MergeGetNextBatch: MergeSort提取下一个sort_run的batch的耗时 (仅在落盘时计时）
   - TotalMergesPerformed: 进行外排merge的次数
- 
+
 #### `AGGREGATION_NODE`
   - PartitionsCreated: 聚合查询拆分成Partition的个数
   - GetResultsTime: 从各个partition之中获取聚合结果的时间
@@ -193,13 +203,15 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms, % non-child: 0.00%)
   - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
   - TabletCount : 20                    # 该 ScanNode 涉及的 Tablet 数量。
   - TotalReadThroughput: 74.70 KB/sec   # BytesRead除以该节点运行的总时间（从Open到Close），对于IO受限的查询，接近磁盘的总吞吐量。
+  - ScannerBatchWaitTime: 426.886us     # 用于统计transfer 线程等待scaner 线程返回rowbatch的时间。
+  - ScannerWorkerWaitTime: 17.745us     # 用于统计scanner thread 等待线程池中可用工作线程的时间。
   OlapScanner:
     - BlockConvertTime: 8.941us         # 将向量化Block转换为行结构的 RowBlock 的耗时。向量化 Block 在 V1 中为 VectorizedRowBatch，V2中为 RowBlockV2。
     - BlockFetchTime: 468.974us         # Rowset Reader 获取 Block 的时间。
     - ReaderInitTime: 5.475ms           # OlapScanner 初始化 Reader 的时间。V1 中包括组建 MergeHeap 的时间。V2 中包括生成各级 Iterator 并读取第一组Block的时间。
     - RowsDelFiltered: 0                # 包括根据 Tablet 中存在的 Delete 信息过滤掉的行数，以及 unique key 模型下对被标记的删除行过滤的行数。
     - RowsPushedCondFiltered: 0         # 根据传递下推的谓词过滤掉的条件，比如 Join 计算中从 BuildTable 传递给 ProbeTable 的条件。该数值不准确，因为如果过滤效果差，就不再过滤了。
-    - ScanTime: 39.24us                 # 从 ScanNode 返回给上层节点的行数。
+    - ScanTime: 39.24us                 # 从 ScanNode 返回给上层节点的时间。
     - ShowHintsTime_V1: 0ns             # V2 中无意义。V1 中读取部分数据来进行 ScanRange 的切分。
     SegmentIterator:
       - BitmapIndexFilterTimer: 779ns   # 利用 bitmap 索引过滤数据的耗时。

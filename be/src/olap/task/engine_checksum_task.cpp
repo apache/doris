@@ -17,7 +17,7 @@
 
 #include "olap/task/engine_checksum_task.h"
 
-#include "olap/reader.h"
+#include "olap/tuple_reader.h"
 #include "olap/row.h"
 
 namespace doris {
@@ -42,20 +42,20 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
               << ", version=" << _version;
     OLAPStatus res = OLAP_SUCCESS;
 
-    if (_checksum == NULL) {
+    if (_checksum == nullptr) {
         OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id, _schema_hash);
-    if (NULL == tablet.get()) {
+    if (nullptr == tablet.get()) {
         OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
                          _schema_hash);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    Reader reader;
+    TupleReader reader;
     ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = READER_CHECKSUM;
@@ -64,7 +64,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     {
         ReadLock rdlock(tablet->get_header_lock_ptr());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
-        if (message == NULL) {
+        if (message == nullptr) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }

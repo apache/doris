@@ -45,11 +45,6 @@ DateTimeValue get_val(const FunctionContext::TypeDesc* type, const DateTimeVal& 
 }
 
 template <>
-DecimalValue get_val(const FunctionContext::TypeDesc* type, const DecimalVal& x) {
-    return DecimalValue::from_decimal_val(x);
-}
-
-template <>
 DecimalV2Value get_val(const FunctionContext::TypeDesc* type, const DecimalV2Val& x) {
     return DecimalV2Value::from_decimal_val(x);
 }
@@ -98,7 +93,7 @@ BooleanVal InPredicate::templated_in(FunctionContext* ctx, const T& val, int num
     if (strategy == SET_LOOKUP) {
         SetLookupState<SetType>* state = reinterpret_cast<SetLookupState<SetType>*>(
                 ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        DCHECK(state != NULL);
+        DCHECK(state != nullptr);
         found = set_lookup(state, val);
     } else {
         DCHECK_EQ(strategy, ITERATE);
@@ -112,7 +107,7 @@ BooleanVal InPredicate::templated_in(FunctionContext* ctx, const T& val, int num
 
 template <typename T, typename SetType>
 BooleanVal InPredicate::set_lookup(SetLookupState<SetType>* state, const T& v) {
-    DCHECK(state != NULL);
+    DCHECK(state != nullptr);
     SetType val = get_val<T, SetType>(state->type, v);
     bool found = state->val_set.find(val) != state->val_set.end();
     if (found) {
@@ -181,7 +176,6 @@ IN_FUNCTIONS(FloatVal, float, float_val)
 IN_FUNCTIONS(DoubleVal, double, double_val)
 IN_FUNCTIONS(StringVal, StringValue, string_val)
 IN_FUNCTIONS(DateTimeVal, DateTimeValue, datetime_val)
-IN_FUNCTIONS(DecimalVal, DecimalValue, decimal_val)
 IN_FUNCTIONS(DecimalV2Val, DecimalV2Value, decimalv2_val)
 IN_FUNCTIONS(LargeIntVal, __int128, large_int_val)
 

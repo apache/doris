@@ -31,8 +31,8 @@ public class EsShardPartitionsTest extends EsTestCase {
     @Test
     public void testPartition() throws Exception {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
-                .getDb(CatalogTestUtil.testDb1)
-                .getTable(CatalogTestUtil.testEsTableId1);
+                .getDbOrMetaException(CatalogTestUtil.testDb1)
+                .getTableOrMetaException(CatalogTestUtil.testEsTableId1);
         EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions("doe",
                 loadJsonFromFile("data/es/test_search_shards.json"));
         EsTablePartitions esTablePartitions = EsTablePartitions.fromShardPartitions(esTable, esShardPartitions);

@@ -23,6 +23,8 @@
 #include <snappy/snappy.h>
 #include <zlib.h>
 
+#include <limits>
+
 #include "gutil/strings/substitute.h"
 #include "util/faststring.h"
 
@@ -50,6 +52,10 @@ public:
     ~Lz4BlockCompression() override {}
 
     Status compress(const Slice& input, Slice* output) const override {
+        if (input.size > std::numeric_limits<int32_t>::max() ||
+            output->size > std::numeric_limits<int32_t>::max()) {
+            return Status::InvalidArgument("LZ4 cannot handle data large than 2G");
+        }
         auto compressed_len =
                 LZ4_compress_default(input.data, output->data, input.size, output->size);
         if (compressed_len == 0) {
@@ -71,7 +77,12 @@ public:
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) const override { return LZ4_compressBound(len); }
+    size_t max_compressed_len(size_t len) const override {
+        if (len > std::numeric_limits<int32_t>::max()) {
+            return 0;
+        }
+        return LZ4_compressBound(len);
+    }
 };
 
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
@@ -120,6 +131,9 @@ public:
     }
 
     size_t max_compressed_len(size_t len) const override {
+        if (len > std::numeric_limits<int32_t>::max()) {
+            return 0;
+        }
         return std::max(LZ4F_compressBound(len, &_s_preferences),
                         LZ4F_compressFrameBound(len, &_s_preferences));
     }
@@ -176,18 +190,12 @@ private:
 };
 
 LZ4F_preferences_t Lz4fBlockCompression::_s_preferences = {
-        {
-                LZ4F_max256KB,
-                LZ4F_blockLinked,
-                LZ4F_noContentChecksum,
-                LZ4F_frame,
-                0,     // unknown content size,
-                {0, 0} // reserved, must be set to 0
-        },
-        0,            // compression level; 0 == default
-        0,            // autoflush
-        {0, 0, 0, 0}, // reserved, must be set to 0
-};
+        {LZ4F_max256KB, LZ4F_blockLinked, LZ4F_noContentChecksum, LZ4F_frame, 0ULL, 0U,
+         LZ4F_noBlockChecksum},
+        0,
+        0u,
+        0u,
+        {0u, 0u, 0u}};
 
 class SnappySlicesSource : public snappy::Source {
 public:

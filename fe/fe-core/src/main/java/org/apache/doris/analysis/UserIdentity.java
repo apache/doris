@@ -158,6 +158,10 @@ public class UserIdentity implements Writable {
         return null;
     }
 
+    public boolean isRootUser() {
+        return user.equals(PaloAuth.ROOT_USER);
+    }
+
     public TUserIdentity toThrift() {
         Preconditions.checkState(isAnalyzed);
         TUserIdentity tUserIdent = new TUserIdentity();

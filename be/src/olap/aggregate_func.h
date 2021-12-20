@@ -90,7 +90,7 @@ private:
     FieldAggregationMethod _agg_method;
 };
 
-template <FieldType field_type>
+template <FieldType field_type, FieldType sub_type = OLAP_FIELD_TYPE_NONE>
 struct BaseAggregateFuncs {
     static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
                      ObjectPool* agg_pool) {
@@ -98,9 +98,13 @@ struct BaseAggregateFuncs {
         if (src_null) {
             return;
         }
-
-        const TypeInfo* _type_info = get_type_info(field_type);
-        _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+        if constexpr (field_type == OLAP_FIELD_TYPE_ARRAY) {
+            const TypeInfo* _type_info = get_collection_type_info(sub_type);
+            _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+        } else {
+            const TypeInfo* _type_info = get_type_info(field_type);
+            _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+        }
     }
 
     // Default update do nothing.
@@ -110,8 +114,9 @@ struct BaseAggregateFuncs {
     static void finalize(RowCursorCell* src, MemPool* mem_pool) {}
 };
 
-template <FieldAggregationMethod agg_method, FieldType field_type>
-struct AggregateFuncTraits : public BaseAggregateFuncs<field_type> {};
+template <FieldAggregationMethod agg_method, FieldType field_type,
+          FieldType sub_type = OLAP_FIELD_TYPE_NONE>
+struct AggregateFuncTraits : public BaseAggregateFuncs<field_type, sub_type> {};
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL>
@@ -235,6 +240,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR>
 };
 
 template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> {};
 
@@ -307,6 +316,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR>
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_CHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_STRING>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <FieldType field_type>
@@ -398,6 +411,10 @@ template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {};
 
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {};
+
 // REPLACE_IF_NOT_NULL
 
 template <FieldType field_type>
@@ -408,7 +425,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_typ
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 
@@ -423,7 +440,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIEL
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 
@@ -446,6 +463,12 @@ template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL,
                                      OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL,
+                                     OLAP_FIELD_TYPE_VARCHAR> {};
+
 // when data load, after hll_hash function, hll_union column won't be null
 // so when init, update hll, the src is not null
 template <>
@@ -461,9 +484,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
         auto* hll = new HyperLogLog(*src_slice);
+
         dst_slice->data = reinterpret_cast<char*>(hll);
 
-        mem_pool->mem_tracker()->Consume(sizeof(HyperLogLog));
+        mem_pool->mem_tracker()->Consume(hll->memory_consumed());
 
         agg_pool->add(hll);
     }
@@ -492,6 +516,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         slice->data = (char*)mem_pool->allocate(hll->max_serialized_size());
         slice->size = hll->serialize((uint8_t*)slice->data);
+        hll->clear();
     }
 };
 // when data load, after bitmap_init function, bitmap_union column won't be null
@@ -508,10 +533,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
         auto bitmap = new BitmapValue(src_slice->data);
-
-        dst_slice->data = (char*)bitmap;
-
         mem_pool->mem_tracker()->Consume(sizeof(BitmapValue));
+        dst_slice->data = (char*)bitmap;
 
         agg_pool->add(bitmap);
     }
@@ -551,12 +574,20 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
 };
 
-template <FieldAggregationMethod aggMethod, FieldType fieldType>
-struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType> {
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
+};
+
+template <FieldAggregationMethod aggMethod, FieldType fieldType,
+          FieldType subType = OLAP_FIELD_TYPE_NONE>
+struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType, subType> {
     static const FieldAggregationMethod agg_method = aggMethod;
     static const FieldType type = fieldType;
+    static const FieldType sub_type = subType;
 };
 
 const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,
-                                        const FieldType field_type);
+                                        const FieldType field_type,
+                                        const FieldType sub_type = OLAP_FIELD_TYPE_NONE);
 } // namespace doris

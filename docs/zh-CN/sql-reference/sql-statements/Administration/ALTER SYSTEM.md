@@ -47,6 +47,8 @@ under the License.
             ALTER SYSTEM DROP ALL BROKER broker_name
         9) 设置一个 Load error hub，用于集中展示导入时的错误信息
             ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
+        10) 修改一个 BE 节点的属性
+            ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 
     说明：
         1) host 可以是主机名或者ip地址
@@ -72,6 +74,12 @@ under the License.
                     broker: broker 的名称
                     path: 远端存储路径
                     other properties: 其他访问远端存储所必须的信息，比如认证信息等。
+
+        7) 修改 BE 节点属性目前支持以下属性：
+
+            1. tag.location：资源标签
+            2. disable_query: 查询禁用属性
+            3. disable_load: 导入禁用属性
         
 ## example
 
@@ -114,7 +122,19 @@ under the License.
     8. 删除当前的 load error hub
         ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
         ("type"= "null");
+
+    9. 修改 BE 的资源标签
+
+        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
+    
+    10. 修改 BE 的查询禁用属性
         
+        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
+        
+    11. 修改 BE 的导入禁用属性
+       
+        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true"); 
+       
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE
 

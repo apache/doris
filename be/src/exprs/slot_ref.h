@@ -27,13 +27,13 @@ namespace doris {
 // We inline this here in order for Expr::get_value() to be able
 // to reference SlotRef::compute_fn() directly.
 // Splitting it up into separate .h files would require circular #includes.
-class SlotRef : public Expr {
+class SlotRef final : public Expr {
 public:
     SlotRef(const TExprNode& node);
     SlotRef(const SlotDescriptor* desc);
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new SlotRef(*this)); }
 
-    // TODO: this is a hack to allow aggregation nodes to work around NULL slot
+    // TODO: this is a hack to allow aggregation nodes to work around nullptr slot
     // descriptors. Ideally the FE would dictate the type of the intermediate SlotRefs.
     SlotRef(const SlotDescriptor* desc, const TypeDescriptor& type);
 
@@ -67,9 +67,8 @@ public:
     virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
     virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
-    // virtual doris_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
+    virtual doris_udf::CollectionVal get_array_val(ExprContext* context, TupleRow*);
 
 private:
     int _tuple_idx;                             // within row
@@ -88,8 +87,8 @@ inline bool SlotRef::vector_compute_fn(Expr* expr, VectorizedRowBatch* /* batch 
 inline void* SlotRef::get_value(Expr* expr, TupleRow* row) {
     SlotRef* ref = (SlotRef*)expr;
     Tuple* t = row->get_tuple(ref->_tuple_idx);
-    if (t == NULL || t->is_null(ref->_null_indicator_offset)) {
-        return NULL;
+    if (t == nullptr || t->is_null(ref->_null_indicator_offset)) {
+        return nullptr;
     }
     return t->get_slot(ref->_slot_offset);
 }

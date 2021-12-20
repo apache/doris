@@ -122,7 +122,7 @@ public:
 
 protected:
     IBinaryReader()
-            : _file(NULL),
+            : _file(nullptr),
               _content_len(0),
               _curr(0),
               _adler_checksum(ADLER32_INIT),
@@ -200,6 +200,8 @@ public:
     MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:
+    OLAPStatus fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                              FieldType type);
     bool _ready;
     bool _eof;
     TupleDescriptor* _tuple_desc;
@@ -211,6 +213,8 @@ private:
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;
+    // Not used, just for placeholding
+    std::vector<TExpr> _pre_filter_texprs;
 };
 
 } // namespace doris

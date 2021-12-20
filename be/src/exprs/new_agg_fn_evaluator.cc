@@ -229,7 +229,7 @@ void NewAggFnEvaluator::Close(const vector<NewAggFnEvaluator*>& evals, RuntimeSt
 
 void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_slot_desc,
                                    Tuple* dst) {
-    if (src->is_null) {
+    if (src->is_null && dst_slot_desc.is_nullable()) {
         dst->set_null(dst_slot_desc.null_indicator_offset());
         return;
     }
@@ -267,6 +267,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         *reinterpret_cast<StringValue*>(slot) =
                 StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
         return;
@@ -275,10 +276,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
         *reinterpret_cast<DateTimeValue*>(slot) =
                 DateTimeValue::from_datetime_val(*reinterpret_cast<const DateTimeVal*>(src));
         return;
-    case TYPE_DECIMAL:
-        *reinterpret_cast<DecimalValue*>(slot) =
-                DecimalValue::from_decimal_val(*reinterpret_cast<const DecimalVal*>(src));
-        return;
+
     case TYPE_DECIMALV2:
         *reinterpret_cast<PackedInt128*>(slot) = reinterpret_cast<const DecimalV2Val*>(src)->val;
         return;
@@ -323,7 +321,7 @@ static void SetAnyVal(const SlotDescriptor& desc, Tuple* tuple, AnyVal* dst) {
 // Utility to put val into an AnyVal struct
 inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& type,
                                            AnyVal* dst) {
-    if (slot == NULL) {
+    if (slot == nullptr) {
         dst->is_null = true;
         return;
     }
@@ -366,6 +364,7 @@ inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescripto
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -374,11 +373,6 @@ inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescripto
     case TYPE_DATETIME:
         reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
                 reinterpret_cast<DateTimeVal*>(dst));
-        return;
-
-    case TYPE_DECIMAL:
-        reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
-                reinterpret_cast<DecimalVal*>(dst));
         return;
 
     case TYPE_DECIMALV2:
@@ -539,14 +533,14 @@ void NewAggFnEvaluator::Merge(Tuple* src, Tuple* dst) {
 }
 
 void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& dst_slot_desc,
-                                            Tuple* dst, void* fn) {
+                                            Tuple* dst, void* fn, bool add_null) {
     // No fn was given and the src and dst are identical. Nothing to be done.
     if (fn == nullptr && src == dst) return;
     // src != dst means we are performing a Finalize(), so even if fn == null we
     // still must copy the value of the src slot into dst.
 
     const SlotDescriptor& slot_desc = intermediate_slot_desc();
-    bool src_slot_null = src->is_null(slot_desc.null_indicator_offset());
+    bool src_slot_null = add_null || src->is_null(slot_desc.null_indicator_offset());
     void* src_slot = nullptr;
     if (!src_slot_null) src_slot = src->get_slot(slot_desc.tuple_offset());
 
@@ -611,15 +605,10 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& ds
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_STRING: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
-        SetDstSlot(&v, dst_slot_desc, dst);
-        break;
-    }
-    case TYPE_DECIMAL: {
-        typedef DecimalVal (*Fn)(FunctionContext*, AnyVal*);
-        DecimalVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
         SetDstSlot(&v, dst_slot_desc, dst);
         break;
     }

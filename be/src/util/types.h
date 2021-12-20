@@ -22,10 +22,12 @@ namespace doris {
 // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
 // for __int128 load/store. This will cause segment fault.
 struct PackedInt128 {
-    PackedInt128() : value(0) {}
+    // PackedInt128() : value(0) {}
+    PackedInt128() = default;
 
     PackedInt128(const __int128& value_) { value = value_; }
-
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
     PackedInt128& operator=(const __int128& value_) {
         value = value_;
         return *this;
@@ -34,6 +36,8 @@ struct PackedInt128 {
         value = rhs.value;
         return *this;
     }
+#pragma GCC diagnostic pop
+
     __int128 value;
 } __attribute__((packed));
 

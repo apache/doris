@@ -17,15 +17,15 @@
 
 #include "common/daemon.h"
 
-#include <signal.h>
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h>
+#include <signal.h>
 
 #include "common/config.h"
+#include "exprs/array_functions.h"
 #include "exprs/bitmap_function.h"
 #include "exprs/cast_functions.h"
 #include "exprs/compound_predicate.h"
-#include "exprs/decimal_operators.h"
 #include "exprs/decimalv2_operators.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/es_functions.h"
@@ -40,6 +40,7 @@
 #include "exprs/new_in_predicate.h"
 #include "exprs/operators.h"
 #include "exprs/string_functions.h"
+#include "exprs/table_function/dummy_table_functions.h"
 #include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/topn_function.h"
@@ -245,12 +246,12 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     IsNullPredicate::init();
     LikePredicate::init();
     StringFunctions::init();
+    ArrayFunctions::init();
     CastFunctions::init();
     InPredicate::init();
     MathFunctions::init();
     EncryptionFunctions::init();
     TimestampFunctions::init();
-    DecimalOperators::init();
     DecimalV2Operators::init();
     TimeOperators::init();
     UtilityFunctions::init();
@@ -264,6 +265,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     HllFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();
+    DummyTableFunctions::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
@@ -289,6 +291,12 @@ void Daemon::start() {
     CHECK(st.ok()) << st.to_string();
 
     if (config::enable_metric_calculator) {
+        CHECK(DorisMetrics::instance()->is_inited())
+                << "enable metric calculator failed, maybe you set enable_system_metrics to false "
+                << " or there may be some hardware error which causes metric init failed, please "
+                   "check log first;"
+                << " you can set enable_metric_calculator = false to quickly recover ";
+
         st = Thread::create(
                 "Daemon", "calculate_metrics_thread",
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);

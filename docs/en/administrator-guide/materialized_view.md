@@ -71,11 +71,7 @@ Therefore, users need to combine their own query statements and data dimension i
 
 The second point is that in the actual analysis query, not all dimensional analysis will be covered. Therefore, it is enough to create a materialized view for the commonly used combination of dimensions, so as to achieve a space and time balance.
 
-The materialized view can be created by the following command. Creating a materialized view is an asynchronous operation, which means that after the user successfully submits the creation task, Doris will calculate the existing data in the background until the creation is successful.
-
-```
-CREATE MATERIALIZED VIEW
-```
+Creating a materialized view is an asynchronous operation, which means that after the user successfully submits the creation task, Doris will calculate the existing data in the background until the creation is successful.
 
 The specific syntax can be viewed through the following command:
 
@@ -150,11 +146,7 @@ You can see that the current `mv_test` table has three materialized views: mv\_1
 
 ### Delete materialized view
 
-If the user no longer needs the materialized view, you can delete the materialized view with the following command:
-
-```
-DROP MATERIALIZED VIEW
-```
+If the user no longer needs the materialized view, you can delete the materialized view by 'DROP' commen.
 
 The specific syntax can be viewed through the following command:
 
@@ -486,6 +478,7 @@ This problem can be solved by creating a materialized view with k3 as the first 
 2. If the conditional column of the delete statement does not exist in the materialized view, the delete operation cannot be performed. If you must delete data, you need to delete the materialized view before deleting the data.
 3. Too many materialized views on a single table will affect the efficiency of importing: When importing data, the materialized view and base table data are updated synchronously. If a table has more than 10 materialized view tables, it may cause the import speed to be very high. slow. This is the same as a single import needs to import 10 tables at the same time.
 4. The same column with different aggregate functions cannot appear in a materialized view at the same time. For example, select sum(a), min(a) from table are not supported.
+5. For the Unique Key data model, the materialized view can only change the column order and cannot play the role of aggregation. Therefore, in the Unique Key model, it is not possible to perform coarse-grained aggregation operations on the data by creating a materialized view.
 
 ## Error
 1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data"

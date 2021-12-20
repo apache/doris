@@ -104,7 +104,7 @@ public class TableQueryPlanAction extends RestBaseController {
                 return ResponseEntityBuilder.badRequest("malformed json: " + e.getMessage());
             }
 
-            sql = String.valueOf(jsonObject.opt("sql"));
+            sql = jsonObject.optString("sql");
             if (Strings.isNullOrEmpty(sql)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
@@ -114,14 +114,10 @@ public class TableQueryPlanAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
-            Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-            if (db == null) {
-                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
-            }
-            Table table = null;
+            Table table;
             try {
-                // just only support OlapTable, ignore others such as ESTable
-                table = db.getTableOrThrowException(tblName, Table.TableType.OLAP);
+                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }

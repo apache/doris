@@ -67,14 +67,13 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `time_zone`
 * `wait_timeout`
 * `sql_mode`
-* `is_report_success`
+* `enable_profile`
 * `query_timeout`
 * `exec_mem_limit`
 * `batch_size`
-* `parallel_fragment_exec_instance_num`
-* `parallel_exchange_instance_num`
 * `allow_partition_column_nullable`
 * `insert_visible_timeout_ms`
+* `enable_fold_constant_by_be`
 
 只支持全局生效的变量包括：
 
@@ -94,7 +93,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
 ```
 SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
-SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 ```
 
 注意注释必须以/*+ 开头，并且只能跟随在SELECT之后。
@@ -150,10 +149,20 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `collation_server`
 
     用于兼容 MySQL 客户端。无实际作用。
+
+* `delete_without_partition`
+
+    设置为 true 时。当使用 delete 命令删除分区表数据时，可以不指定分区。delete 操作将会自动应用到所有分区。
+
+    但注意，自动应用到所有分区可能到导致 delete 命令耗时触发大量子任务导致耗时较长。如无必要，不建议开启。
     
 * `disable_colocate_join`
 
     控制是否启用 [Colocation Join](./colocation-join.md) 功能。默认为 false，表示启用该功能。true 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Colocation Join。
+
+* `enable_bucket_shuffle_join`
+
+    控制是否启用 [Bucket Shuffle Join](./bucket-shuffle-join.md) 功能。默认为 true，表示启用该功能。false 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Bucket Shuffle Join。
     
 * `disable_streaming_preaggregations`
 
@@ -183,7 +192,7 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
     
 * `forward_to_master`
 
-    用户设置是否将一些命令转发到 Master FE 节点执行。默认为 false，即不转发。Doris 中存在多个 FE 节点，其中一个为 Master 节点。通常用户可以连接任意 FE 节点进行全功能操作。但部分信息查看指令，只有从 Master FE 节点才能获取详细信息。
+    用户设置是否将一些show 类命令转发到 Master FE 节点执行。默认为 `true`，即转发。Doris 中存在多个 FE 节点，其中一个为 Master 节点。通常用户可以连接任意 FE 节点进行全功能操作。但部分信息查看指令，只有从 Master FE 节点才能获取详细信息。
     
     如 `SHOW BACKENDS;` 命令，如果不转发到 Master FE 节点，则仅能看到节点是否存活等一些基本信息，而转发到 Master FE 则可以获取包括节点启动时间、最后一次心跳时间等更详细的信息。
     
@@ -217,7 +226,7 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 
     用于兼容 MySQL 客户端。无实际作用。
     
-* `is_report_success`
+* `enable_profile`
 
     用于设置是否需要查看查询的 profile。默认为 false，即不需要 profile。
     
@@ -226,7 +235,7 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
     
     `fe_host:fe_http_port/query`
     
-    其中会显示最近100条，开启 `is_report_success` 的查询的 profile。
+    其中会显示最近100条，开启 `enable_profile` 的查询的 profile。
     
 * `language`
 
@@ -246,7 +255,34 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
     
 * `lower_case_table_names`
 
-    用于兼容 MySQL 客户端。不可设置。当前 Doris 中的表名默认为大小写敏感。
+    用于控制用户表表名大小写是否敏感。
+
+    值为 0 时，表名大小写敏感。默认为0。
+
+    值为 1 时，表名大小写不敏感，doris在存储和查询时会将表名转换为小写。  
+    优点是在一条语句中可以使用表名的任意大小写形式，下面的sql是正确的：  
+    ```
+    mysql> show tables;  
+    +------------------+
+    | Tables_in_testdb |
+    +------------------+
+    | cost             |
+    +------------------+
+
+    mysql> select * from COST where COst.id < 100 order by cost.id;
+    ```
+    缺点是建表后无法获得建表语句中指定的表名，`show tables` 查看的表名为指定表名的小写。
+
+    值为 2 时，表名大小写不敏感，doris存储建表语句中指定的表名，查询时转换为小写进行比较。
+    优点是`show tables` 查看的表名为建表语句中指定的表名；  
+    缺点是同一语句中只能使用表名的一种大小写形式，例如对`cost` 表使用表名 `COST` 进行查询：
+    ```
+    mysql> select * from COST where COST.id < 100 order by COST.id;
+    ```
+
+    该变量兼容MySQL。需在集群初始化时通过fe.conf 指定 `lower_case_table_names=`进行配置，集群初始化完成后无法通过`set` 语句修改该变量，也无法通过重启、升级集群修改该变量。
+
+    information_schema中的系统视图表名不区分大小写，当`lower_case_table_names`值为 0 时，表现为 2。
 
 * `max_allowed_packet`
 
@@ -303,7 +339,10 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `resource_group`
 
     暂不使用。
-    
+* `send_batch_parallelism`                                                                                                                                                   
+
+   用于设置执行 InsertStmt 操作时发送批处理数据的默认并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。 
+                                                                                                 
 * `sql_mode`
 
     用于指定 SQL 模式，以适应某些 SQL 方言。关于 SQL 模式，可参阅 [这里](./sql-mode.md)。
@@ -369,3 +408,34 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `insert_visible_timeout_ms`
 
     在执行insert语句时，导入动作(查询和插入)完成后，还需要等待事务提交，使数据可见。此参数控制等待数据可见的超时时间，默认为10000，最小为1000。
+    
+* `enable_exchange_node_parallel_merge`
+
+    在一个排序的查询之中，一个上层节点接收下层节点有序数据时，会在exchange node上进行对应的排序来保证最终的数据是有序的。但是单线程进行多路数据归并时，如果数据量过大，会导致exchange node的单点的归并瓶颈。
+
+    Doris在这部分进行了优化处理，如果下层的数据节点过多。exchange node会启动多线程进行并行归并来加速排序过程。该参数默认为False，即表示 exchange node 不采取并行的归并排序，来减少额外的CPU和内存消耗。
+
+* `extract_wide_range_expr`
+
+    用于控制是否开启 「宽泛公因式提取」的优化。取值有两种：true 和 false 。默认情况下开启。
+
+* `enable_fold_constant_by_be`
+
+    用于控制常量折叠的计算方式。默认是 `false`，即在 `FE` 进行计算；若设置为 `true`，则通过 `RPC` 请求经 `BE` 计算。 
+
+* `cpu_resource_limit`
+
+    用于限制一个查询的资源开销。这是一个实验性质的功能。目前的实现是限制一个查询在单个节点上的scan线程数量。限制了scan线程数，从底层返回的数据速度变慢，从而限制了查询整体的计算资源开销。假设设置为 2，则一个查询在单节点上最多使用2个scan线程。
+
+    该参数会覆盖 `parallel_fragment_exec_instance_num` 的效果。即假设 `parallel_fragment_exec_instance_num` 设置为4，而该参数设置为2。则单个节点上的4个执行实例会共享最多2个扫描线程。
+
+    该参数会被 user property 中的 `cpu_resource_limit` 配置覆盖。
+
+    默认 -1，即不限制。
+
+* `disable_join_reorder`
+
+   用于关闭所有系统自动的 join reorder 算法。取值有两种：true 和 false。默认行况下关闭，也就是采用系统自动的 join reorder 算法。设置为 true 后，系统会关闭所有自动排序的算法，采用 SQL 原始的表顺序，执行 join
+
+* `return_object_data_as_binary`
+   用于标识是否在select 结果中返回bitmap/hll 结果。在 select into outfile 语句中，如果导出文件格式为csv 则会将 bimap/hll 数据进行base64编码，如果是parquet 文件格式 将会把数据作为byte array 存储

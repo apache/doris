@@ -17,9 +17,11 @@
 
 #include "runtime/mem_tracker.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 #include <boost/algorithm/string/join.hpp>
+#include <boost/algorithm/string.hpp>
+
 #include <limits>
 #include <memory>
 
@@ -70,37 +72,70 @@ static std::shared_ptr<MemTracker> root_tracker;
 static GoogleOnceType root_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::CreateRootTracker() {
-    root_tracker.reset(new MemTracker(-1, "root"));
+    root_tracker.reset(new MemTracker(nullptr, -1, "Root", nullptr, true, MemTrackerLevel::OVERVIEW));
     root_tracker->Init();
 }
 
-std::shared_ptr<MemTracker> MemTracker::CreateTracker(int64_t byte_limit, const std::string& label,
-                                                      std::shared_ptr<MemTracker> parent,
-                                                      bool log_usage_if_zero) {
-    shared_ptr<MemTracker> real_parent;
+std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, int64_t byte_limit,
+                                                      const std::string& label, const std::shared_ptr<MemTracker>& parent,
+                                                      bool reset_label_name, MemTrackerLevel level) {
+    std::shared_ptr<MemTracker> real_parent;
+    std::string label_name;
+    // if parent is not null, reset label name to query id.
+    // The parent label always: RuntimeState:instance:8ca5a59e3aa84f74-84bb0d0466193736
+    // we just need the last id of it: 8ca5a59e3aa84f74-84bb0d0466193736
+    // to build the new label name of tracker: `label`: 8ca5a59e3aa84f74-84bb0d0466193736
+    // else if parent is null
+    //  just use the root is parent and keep the label_name as label
     if (parent) {
-        real_parent = std::move(parent);
+        real_parent = parent;
+        if (reset_label_name) {
+            std::vector<string> tmp_result;
+            boost::split(tmp_result, parent->label(), boost::is_any_of(":"));
+            label_name = label + ":" + tmp_result[tmp_result.size() - 1];
+        } else {
+            label_name = label;
+        }
     } else {
         real_parent = GetRootTracker();
+        label_name = label;
     }
-    shared_ptr<MemTracker> tracker(
-            new MemTracker(nullptr, byte_limit, label, real_parent, log_usage_if_zero));
+
+    shared_ptr<MemTracker> tracker(new MemTracker(profile, byte_limit, label_name, real_parent, true,
+            level > real_parent->_level ? level : real_parent->_level));
     real_parent->AddChildTracker(tracker);
     tracker->Init();
 
     return tracker;
 }
 
-std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, int64_t byte_limit,
-                                                      const std::string& label,
-                                                      const std::shared_ptr<MemTracker>& parent) {
-    shared_ptr<MemTracker> real_parent;
+std::shared_ptr<MemTracker> MemTracker::CreateTracker(int64_t byte_limit, const std::string& label,
+        std::shared_ptr<MemTracker> parent, bool log_usage_if_zero, bool reset_label_name, MemTrackerLevel level) {
+    std::shared_ptr<MemTracker> real_parent;
+    std::string label_name;
+    // if parent is not null, reset label name to query id.
+    // The parent label always: RuntimeState:instance:8ca5a59e3aa84f74-84bb0d0466193736
+    // we just need the last id of it: 8ca5a59e3aa84f74-84bb0d0466193736
+    // to build the new label name of tracker: `label`: 8ca5a59e3aa84f74-84bb0d0466193736
+    // else if parent is null
+    //  just use the root is parent and keep the label_name as label
     if (parent) {
-        real_parent = std::move(parent);
+        real_parent = parent;
+        if (reset_label_name) {
+            std::vector<string> tmp_result;
+            boost::split(tmp_result, parent->label(), boost::is_any_of(":"));
+            label_name = label + ":" + tmp_result[tmp_result.size() - 1];
+        } else {
+            label_name = label;
+        }
     } else {
         real_parent = GetRootTracker();
+        label_name = label;
     }
-    shared_ptr<MemTracker> tracker(new MemTracker(profile, byte_limit, label, real_parent, true));
+
+    shared_ptr<MemTracker> tracker(
+            new MemTracker(nullptr, byte_limit, label_name, real_parent, log_usage_if_zero,
+                    level > real_parent->_level ? level : real_parent->_level));
     real_parent->AddChildTracker(tracker);
     tracker->Init();
 
@@ -108,16 +143,17 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, i
 }
 
 MemTracker::MemTracker(int64_t byte_limit, const std::string& label)
-        : MemTracker(nullptr, byte_limit, label, std::shared_ptr<MemTracker>(), true) {}
+        : MemTracker(nullptr, byte_limit, label, std::shared_ptr<MemTracker>(), true, MemTrackerLevel::VERBOSE) {}
 
 MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit, const string& label,
-                       const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero)
+                       const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero, MemTrackerLevel level)
         : limit_(byte_limit),
           soft_limit_(CalcSoftLimit(byte_limit)),
           label_(label),
           parent_(parent),
           consumption_metric_(nullptr),
           log_usage_if_zero_(log_usage_if_zero),
+          _level(level),
           num_gcs_metric_(nullptr),
           bytes_freed_by_last_gc_metric_(nullptr),
           bytes_over_limit_metric_(nullptr),
@@ -193,12 +229,11 @@ int64_t MemTracker::GetPoolMemReserved() {
         std::shared_ptr<MemTracker> child = child_weak.lock();
         if (child) {
             int64_t child_limit = child->limit();
-            bool query_exec_finished = child->query_exec_finished_.load() != 0;
-            if (child_limit > 0 && !query_exec_finished) {
+            if (child_limit > 0) {
                 // Make sure we don't overflow if the query limits are set to ridiculous values.
                 mem_reserved += std::min(child_limit, MemInfo::physical_mem());
             } else {
-                DCHECK(query_exec_finished || child_limit == -1)
+                DCHECK(child_limit == -1)
                         << child->LogUsage(UNLIMITED_DEPTH);
                 mem_reserved += child->consumption();
             }
@@ -259,7 +294,7 @@ void MemTracker::ListTrackers(vector<shared_ptr<MemTracker>>* trackers) {
         }
         for (const auto& child_weak : children) {
             shared_ptr<MemTracker> child = child_weak.lock();
-            if (child) {
+            if (child && static_cast<decltype(config::mem_tracker_level)>(child->_level) <= config::mem_tracker_level) {
                 to_process.emplace_back(std::move(child));
             }
         }
@@ -333,16 +368,19 @@ std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
     if (CheckLimitExceeded(MemLimit::HARD)) ss << " memory limit exceeded.";
     if (limit_ > 0) ss << " Limit=" << PrettyPrinter::print(limit_, TUnit::BYTES);
 
-    ReservationTrackerCounters* reservation_counters = reservation_counters_.load();
-    if (reservation_counters != nullptr) {
-        int64_t reservation = reservation_counters->peak_reservation->current_value();
-        ss << " Reservation=" << PrettyPrinter::print(reservation, TUnit::BYTES);
-        if (reservation_counters->reservation_limit != nullptr) {
-            int64_t limit = reservation_counters->reservation_limit->value();
-            ss << " ReservationLimit=" << PrettyPrinter::print(limit, TUnit::BYTES);
-        }
-        ss << " OtherMemory=" << PrettyPrinter::print(curr_consumption - reservation, TUnit::BYTES);
-    }
+    // TODO(zxy): ReservationTrackerCounters is not actually used in the current Doris. 
+    // Printing here ReservationTrackerCounters may cause BE crash when high concurrency.
+    // The memory tracker in Doris will be redesigned in the future.
+    // ReservationTrackerCounters* reservation_counters = reservation_counters_.load();
+    // if (reservation_counters != nullptr) {
+    //     int64_t reservation = reservation_counters->peak_reservation->current_value();
+    //     ss << " Reservation=" << PrettyPrinter::print(reservation, TUnit::BYTES);
+    //     if (reservation_counters->reservation_limit != nullptr) {
+    //         int64_t limit = reservation_counters->reservation_limit->value();
+    //         ss << " ReservationLimit=" << PrettyPrinter::print(limit, TUnit::BYTES);
+    //     }
+    //     ss << " OtherMemory=" << PrettyPrinter::print(curr_consumption - reservation, TUnit::BYTES);
+    // }
     ss << " Total=" << PrettyPrinter::print(curr_consumption, TUnit::BYTES);
     // Peak consumption is not accurate if the metric is lazily updated (i.e.
     // this is a non-root tracker that exists only for reporting purposes).
@@ -401,7 +439,6 @@ std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
 
 std::string MemTracker::LogTopNQueries(int limit) {
     if (limit == 0) return "";
-    if (this->is_query_mem_tracker_) return LogUsage(0);
     priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
                    std::greater<pair<int64_t, string>>>
             min_pq;
@@ -427,19 +464,14 @@ void MemTracker::GetTopNQueries(
     for (const auto& child_weak : children) {
         shared_ptr<MemTracker> child = child_weak.lock();
         if (child) {
-            if (!child->is_query_mem_tracker_) {
-                child->GetTopNQueries(min_pq, limit);
-            } else {
-                min_pq.push(pair<int64_t, string>(child->consumption(), child->LogUsage(0)));
-                if (min_pq.size() > limit) min_pq.pop();
-            }
+            child->GetTopNQueries(min_pq, limit);
         }
     }
 }
 
 MemTracker* MemTracker::GetQueryMemTracker() {
     MemTracker* tracker = this;
-    while (tracker != nullptr && !tracker->is_query_mem_tracker_) {
+    while (tracker != nullptr) {
         tracker = tracker->parent_.get();
     }
     return tracker;
@@ -463,8 +495,9 @@ Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
     const int64_t process_capacity = process_tracker->SpareCapacity(MemLimit::HARD);
     ss << "Memory left in process limit: " << PrettyPrinter::print(process_capacity, TUnit::BYTES)
        << std::endl;
+    Status status = Status::MemoryLimitExceeded(ss.str());
 
-    // Always log the query tracker (if available).
+    // only print the query tracker in be log(if available).
     MemTracker* query_tracker = nullptr;
     if (mtracker != nullptr) {
         query_tracker = mtracker->GetQueryMemTracker();
@@ -486,9 +519,8 @@ Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
         // dumping the process tracker to only two layers.
         ss << process_tracker->LogUsage(PROCESS_MEMTRACKER_LIMITED_DEPTH);
     }
-
-    Status status = Status::MemoryLimitExceeded(ss.str());
-    if (state != nullptr) state->log_error(status.to_string());
+    if (state != nullptr) state->log_error(ss.str());
+    LOG(WARNING) << ss.str();
     return status;
 }
 

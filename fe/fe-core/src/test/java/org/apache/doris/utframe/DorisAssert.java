@@ -22,7 +22,9 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -36,7 +38,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TExplainLevel;
+
+import org.apache.doris.qe.SessionVariable;
 
 import org.apache.commons.lang.StringUtils;
 import org.junit.Assert;
@@ -85,8 +88,25 @@ public class DorisAssert {
     }
 
     public DorisAssert dropTable(String tableName) throws Exception {
+        return dropTable(tableName, false);
+    }
+
+    public DorisAssert dropTable(String tableName, boolean isForce) throws Exception {
         DropTableStmt dropTableStmt =
-                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop table " + tableName + ";", ctx);
+                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop table " + tableName + (isForce ? " force" : "") + ";", ctx);
+        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        return this;
+    }
+
+    public DorisAssert withView(String sql) throws Exception {
+        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        Catalog.getCurrentCatalog().createView(createViewStmt);
+        return this;
+    }
+
+    public DorisAssert dropView(String tableName) throws Exception {
+        DropTableStmt dropTableStmt =
+                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop view " + tableName + ";", ctx);
         Catalog.getCurrentCatalog().dropTable(dropTableStmt);
         return this;
     }
@@ -110,6 +130,10 @@ public class DorisAssert {
         // waiting table state to normal
         Thread.sleep(100);
         return this;
+    }
+
+    public SessionVariable getSessionVariable() {
+        return ctx.getSessionVariable();
     }
 
     private void checkAlterJob() throws InterruptedException {
@@ -169,7 +193,7 @@ public class DorisAssert {
                 }
             }
             Planner planner = stmtExecutor.planner();
-            String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.NORMAL);
+            String explainString = planner.getExplainString(planner.getFragments(), new ExplainOptions(false, false));
             System.out.println(explainString);
             return explainString;
         }

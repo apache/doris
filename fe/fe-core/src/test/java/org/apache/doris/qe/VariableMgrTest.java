@@ -17,9 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -40,6 +37,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class VariableMgrTest {
     private static final Logger LOG = LoggerFactory.getLogger(VariableMgrTest.class);
@@ -85,7 +85,7 @@ public class VariableMgrTest {
         SessionVariable var = VariableMgr.newSessionVariable();
         Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
         Assert.assertEquals(300, var.getQueryTimeoutS());
-        Assert.assertEquals(false, var.isReportSucc());
+        Assert.assertEquals(false, var.enableProfile());
         Assert.assertEquals(0L, var.getSqlMode());
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
@@ -167,6 +167,12 @@ public class VariableMgrTest {
         setVar7.analyze(null);
         VariableMgr.setVar(var, setVar7);
         Assert.assertEquals("-08:00", VariableMgr.newSessionVariable().getTimeZone());
+
+        SetVar setVar8 = new SetVar(SetType.SESSION, "runtime_filter_type", new StringLiteral(
+                RuntimeFilterTypeHelper.encode("BLOOM_FILTER").toString()));
+        setVar8.analyze(null);
+        VariableMgr.setVar(var, setVar8);
+        Assert.assertEquals(2L, var.getRuntimeFilterType());
     }
 
     @Test(expected = UserException.class)

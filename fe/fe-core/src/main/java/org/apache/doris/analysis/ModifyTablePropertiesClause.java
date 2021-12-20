@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -49,9 +49,6 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
-            if (Config.disable_colocate_join) {
-                throw new AnalysisException("Colocate table is disabled by Admin");
-            }
             this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).equalsIgnoreCase("column")) {
@@ -78,11 +75,14 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
         } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            PropertyAnalyzer.analyzeReplicationNum(properties, false);
-        } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            short defaultReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, true);
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, Short.toString(defaultReplicationNum));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+        } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
+                || properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "default");
+            properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;

@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
 #define DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
 
-#include <boost/thread.hpp>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -45,7 +44,7 @@ typedef std::unordered_map<UniqueId, ResultNode*> ResultNodeMap;
 // a doubly linked list class, point to result node
 class ResultNodeList {
 public:
-    ResultNodeList() : _head(NULL), _tail(NULL), _node_count(0) {}
+    ResultNodeList() : _head(nullptr), _tail(nullptr), _node_count(0) {}
     virtual ~ResultNodeList() {}
 
     ResultNode* new_node(const UniqueId& sql_key) { return new ResultNode(sql_key); }
@@ -102,7 +101,7 @@ private:
 
     //At the same time, multithreaded reading
     //Single thread updating and cleaning(only single be, Fe is not affected)
-    mutable boost::shared_mutex _cache_mtx;
+    mutable std::shared_mutex _cache_mtx;
     ResultNodeMap _node_map;
     //List of result nodes corresponding to SqlKey,last recently used at the tail
     ResultNodeList _node_list;

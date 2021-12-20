@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -36,12 +34,12 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 
-import com.google.common.collect.Lists;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -49,6 +47,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class LoadCheckerTest {
     private long dbId;
@@ -83,11 +84,11 @@ public class LoadCheckerTest {
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
         new Expectations() {
             {
-                catalog.getDb(dbId);
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(db.getFullName());
+                catalog.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 
@@ -258,7 +259,7 @@ public class LoadCheckerTest {
         job.setDbId(dbId);
         etlJobs.add(job);
         // set table family load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
         long newVersionHash = 1L;
@@ -334,13 +335,12 @@ public class LoadCheckerTest {
     @Test
     public void testRunQuorumFinishedJobs() throws Exception {
         List<LoadJob> etlJobs = new ArrayList<LoadJob>();
-        List<AsyncDeleteJob> deleteJobs = Lists.newArrayList();
         LoadJob job = new LoadJob(label);
         job.setState(JobState.QUORUM_FINISHED);
         job.setDbId(dbId);
         etlJobs.add(job);
         // set table family load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
         long newVersionHash = 0L;
@@ -373,10 +373,6 @@ public class LoadCheckerTest {
                 load.getLoadJobs(JobState.QUORUM_FINISHED);
                 minTimes = 0;
                 result = etlJobs;
-
-                load.getQuorumFinishedDeleteJobs();
-                minTimes = 0;
-                result = deleteJobs;
 
                 load.updateLoadJobState(job, JobState.FINISHED);
                 minTimes = 0;

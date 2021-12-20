@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_DISK_INFO_H
 #define DORIS_BE_SRC_COMMON_UTIL_DISK_INFO_H
 
-#include <boost/cstdint.hpp>
 #include <map>
 #include <set>
 #include <string>

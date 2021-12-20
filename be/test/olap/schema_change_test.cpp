@@ -37,7 +37,7 @@ namespace doris {
 
 class TestColumn : public testing::Test {
 public:
-    TestColumn() : _column_writer(NULL), _column_reader(NULL), _stream_factory(NULL) {
+    TestColumn() : _column_writer(nullptr), _column_reader(nullptr), _stream_factory(nullptr) {
         _offsets.clear();
         _map_in_streams.clear();
         _present_buffers.clear();
@@ -59,7 +59,7 @@ public:
         _offsets.push_back(0);
         _stream_factory = new (std::nothrow)
                 OutStreamFactory(COMPRESS_LZ4, OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
-        ASSERT_TRUE(_stream_factory != NULL);
+        ASSERT_TRUE(_stream_factory != nullptr);
         config::column_dictionary_key_ratio_threshold = 30;
         config::column_dictionary_key_size_threshold = 1000;
     }
@@ -82,22 +82,22 @@ public:
         _length_buffers.clear();
     }
 
-    void CreateColumnWriter(const TabletSchema& tablet_schema) {
+    void create_columnWriter(const TabletSchema& tablet_schema) {
         _column_writer = ColumnWriter::create(0, tablet_schema, _stream_factory, 1024,
                                               BLOOM_FILTER_DEFAULT_FPP);
-        ASSERT_TRUE(_column_writer != NULL);
+        ASSERT_TRUE(_column_writer != nullptr);
         ASSERT_EQ(_column_writer->init(), OLAP_SUCCESS);
     }
 
-    void CreateColumnReader(const TabletSchema& tablet_schema) {
+    void create_columnReader(const TabletSchema& tablet_schema) {
         UniqueIdEncodingMap encodings;
         encodings[0] = ColumnEncodingMessage();
         encodings[0].set_kind(ColumnEncodingMessage::DIRECT);
         encodings[0].set_dictionary_size(1);
-        CreateColumnReader(tablet_schema, encodings);
+        create_columnReader(tablet_schema, encodings);
     }
 
-    void CreateColumnReader(const TabletSchema& tablet_schema, UniqueIdEncodingMap& encodings) {
+    void create_columnReader(const TabletSchema& tablet_schema, UniqueIdEncodingMap& encodings) {
         UniqueIdToColumnIdMap included;
         included[0] = 0;
         UniqueIdToColumnIdMap segment_included;
@@ -107,7 +107,7 @@ public:
         _column_reader =
                 ColumnReader::create(0, tablet_schema, included, segment_included, encodings);
 
-        ASSERT_TRUE(_column_reader != NULL);
+        ASSERT_TRUE(_column_reader != nullptr);
 
         system("mkdir -p ./ut_dir");
         system("rm ./ut_dir/tmp_file");
@@ -145,7 +145,7 @@ public:
                 ASSERT_TRUE(false);
             }
 
-            ASSERT_TRUE(buffers != NULL);
+            ASSERT_TRUE(buffers != nullptr);
             off.push_back(helper.tell());
             out_stream->write_to_file(&helper, 0);
             length.push_back(out_stream->get_stream_length());
@@ -160,7 +160,7 @@ public:
         SAFE_DELETE(_shared_buffer);
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
                                                    sizeof(StreamHead));
-        ASSERT_TRUE(_shared_buffer != NULL);
+        ASSERT_TRUE(_shared_buffer != nullptr);
 
         for (auto in_stream : _map_in_streams) {
             delete in_stream.second;
@@ -204,7 +204,7 @@ public:
         TabletSchema src_tablet_schema;
         SetTabletSchema("ConvertColumn", type_name, "REPLACE", type_size, false, false,
                         &src_tablet_schema);
-        CreateColumnWriter(src_tablet_schema);
+        create_columnWriter(src_tablet_schema);
 
         RowCursor write_row;
         write_row.init(src_tablet_schema);
@@ -223,7 +223,7 @@ public:
         TabletSchema dst_tablet_schema;
         SetTabletSchema("VarcharColumn", "VARCHAR", "REPLACE", 255, false, false,
                         &dst_tablet_schema);
-        CreateColumnReader(src_tablet_schema);
+        create_columnReader(src_tablet_schema);
         RowCursor read_row;
         read_row.init(dst_tablet_schema);
 
@@ -247,7 +247,7 @@ public:
                                    const std::string& value, OLAPStatus expected_st) {
         TabletSchema tablet_schema;
         SetTabletSchema("VarcharColumn", "VARCHAR", "REPLACE", 255, false, false, &tablet_schema);
-        CreateColumnWriter(tablet_schema);
+        create_columnWriter(tablet_schema);
 
         RowCursor write_row;
         write_row.init(tablet_schema);
@@ -267,7 +267,7 @@ public:
         TabletSchema converted_tablet_schema;
         SetTabletSchema("ConvertColumn", type_name, "REPLACE", type_size, false, false,
                         &converted_tablet_schema);
-        CreateColumnReader(tablet_schema);
+        create_columnReader(tablet_schema);
         RowCursor read_row;
         read_row.init(converted_tablet_schema);
 
@@ -311,7 +311,7 @@ public:
 TEST_F(TestColumn, ConvertFloatToDouble) {
     TabletSchema tablet_schema;
     SetTabletSchema("FloatColumn", "FLOAT", "REPLACE", 4, false, false, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -339,7 +339,7 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     // read data
     TabletSchema convert_tablet_schema;
     SetTabletSchema("DoubleColumn", "DOUBLE", "REPLACE", 4, false, false, &convert_tablet_schema);
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
     _col_vector.reset(new ColumnVector());
@@ -365,7 +365,7 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
 TEST_F(TestColumn, ConvertDatetimeToDate) {
     TabletSchema tablet_schema;
     SetTabletSchema("DatetimeColumn", "DATETIME", "REPLACE", 8, false, false, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -389,7 +389,7 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     // read data
     TabletSchema convert_tablet_schema;
     SetTabletSchema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
 
@@ -409,7 +409,7 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
 TEST_F(TestColumn, ConvertDateToDatetime) {
     TabletSchema tablet_schema;
     SetTabletSchema("DateColumn", "DATE", "REPLACE", 3, false, false, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -434,7 +434,7 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
     TabletSchema convert_tablet_schema;
     SetTabletSchema("DateTimeColumn", "DATETIME", "REPLACE", 8, false, false,
                     &convert_tablet_schema);
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
     _col_vector.reset(new ColumnVector());
@@ -454,7 +454,7 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
 TEST_F(TestColumn, ConvertIntToDate) {
     TabletSchema tablet_schema;
     SetTabletSchema("IntColumn", "INT", "REPLACE", 4, false, false, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -475,7 +475,7 @@ TEST_F(TestColumn, ConvertIntToDate) {
 
     TabletSchema convert_tablet_schema;
     SetTabletSchema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
@@ -496,7 +496,7 @@ TEST_F(TestColumn, ConvertIntToDate) {
 TEST_F(TestColumn, ConvertVarcharToDate) {
     TabletSchema tablet_schema;
     SetTabletSchema("VarcharColumn", "VARCHAR", "REPLACE", 255, false, false, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -524,7 +524,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         helper.close();
         TabletSchema convert_tablet_schema;
         SetTabletSchema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
-        CreateColumnReader(tablet_schema);
+        create_columnReader(tablet_schema);
         RowCursor read_row;
         read_row.init(convert_tablet_schema);
 
@@ -538,7 +538,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
     helper.close();
     TabletSchema convert_tablet_schema;
     SetTabletSchema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
 
@@ -649,7 +649,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar) {
 }
 
 TEST_F(TestColumn, ConvertDecimalToVarchar) {
-    decimal12_t val(456, 789000000);
+    decimal12_t val = {456, 789000000};
     test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000", OLAP_SUCCESS);
 }
 
@@ -709,7 +709,7 @@ TEST_F(TestColumn, ConvertIntToBitmap) {
     TabletSchema tablet_schema;
     CreateTabletSchema(tablet_schema);
     //Base row block
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -790,7 +790,7 @@ TEST_F(TestColumn, ConvertCharToHLL) {
     CreateTabletSchema(tablet_schema);
 
     //Base row block
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -873,7 +873,7 @@ TEST_F(TestColumn, ConvertCharToCount) {
     CreateTabletSchema(tablet_schema);
 
     //Base row block
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
@@ -955,6 +955,7 @@ int main(int argc, char** argv) {
         return -1;
     }
     doris::init_glog("be-test");
+    doris::MemInfo::init();
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();

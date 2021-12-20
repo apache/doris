@@ -27,11 +27,20 @@ import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
 
 import java.io.IOException;
+import java.security.SecureRandom;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -51,13 +60,16 @@ public class EsRestClient {
     private static OkHttpClient networkClient = new OkHttpClient.Builder()
             .readTimeout(10, TimeUnit.SECONDS)
             .build();
+    
+    private static OkHttpClient sslNetworkClient;
 
     private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
     private int currentNodeIndex = 0;
+    private boolean httpSslEnable;
 
-    public EsRestClient(String[] nodes, String authUser, String authPassword) {
+    public EsRestClient(String[] nodes, String authUser, String authPassword, boolean httpSslEnable) {
         this.nodes = nodes;
         this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
@@ -65,6 +77,7 @@ public class EsRestClient {
                     Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
+        this.httpSslEnable = httpSslEnable;
     }
 
     private void selectNextNode() {
@@ -83,7 +96,7 @@ public class EsRestClient {
         }
         Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
-            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
+            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), httpSslEnable);
             if (node.hasHttp()) {
                 nodesMap.put(node.getId(), node);
             }
@@ -141,6 +154,20 @@ public class EsRestClient {
         }
         return EsShardPartitions.findShardPartitions(indexName, searchShards);
     }
+    
+    /**
+     * init ssl networkClient use lazy way
+     **/
+    private synchronized OkHttpClient getOrCreateSslNetworkClient() {
+        if (sslNetworkClient == null) {
+            sslNetworkClient = new OkHttpClient.Builder()
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
+                    .hostnameVerifier(new TrustAllHostnameVerifier())
+                    .build();
+        }
+        return sslNetworkClient;
+    }
 
     /**
      * execute request for specific path，it will try again nodes.length times if it fails
@@ -151,6 +178,12 @@ public class EsRestClient {
     private String execute(String path) throws DorisEsException {
         int retrySize = nodes.length;
         DorisEsException scratchExceptionForThrow = null;
+        OkHttpClient httpClient;
+        if (httpSslEnable) {
+            httpClient = getOrCreateSslNetworkClient();
+        } else {
+            httpClient = networkClient;
+        }
         for (int i = 0; i < retrySize; i++) {
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
@@ -170,7 +203,7 @@ public class EsRestClient {
                 LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             }
             try {
-                response = networkClient.newCall(request).execute();
+                response = httpClient.newCall(request).execute();
                 if (response.isSuccessful()) {
                     return response.body().string();
                 }
@@ -206,5 +239,34 @@ public class EsRestClient {
             throw new DorisEsException(ex.getMessage());
         }
         return (T) (key != null ? map.get(key) : map);
+    }
+
+    /**
+     * support https
+     **/
+    private static class TrustAllCerts implements X509TrustManager {
+        public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+
+        public X509Certificate[] getAcceptedIssuers() {return new X509Certificate[0];}
+    }
+
+    private static class TrustAllHostnameVerifier implements HostnameVerifier {
+        public boolean verify(String hostname, SSLSession session) {
+            return true;
+        }
+    }
+
+    private static SSLSocketFactory createSSLSocketFactory() {
+        SSLSocketFactory ssfFactory;
+        try {
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, new TrustManager[]{new TrustAllCerts()}, new SecureRandom());
+            ssfFactory = sc.getSocketFactory();
+        } catch (Exception e) {
+            throw new DorisEsException("Errors happens when create ssl socket");
+        }
+        return ssfFactory;
     }
 }

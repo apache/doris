@@ -23,7 +23,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/bufferpool/reservation_tracker.h"
-#include "runtime/decimal_value.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_queue_mgr.h"
@@ -36,6 +36,7 @@
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/proto_util.h"
 
 namespace doris {
 namespace stream_load {
@@ -54,8 +55,13 @@ public:
         _env->_load_stream_mgr = new LoadStreamMgr();
         _env->_brpc_stub_cache = new BrpcStubCache();
         _env->_buffer_reservation = new ReservationTracker();
-
+        ThreadPoolBuilder("SendBatchThreadPool")
+                .set_min_threads(1)
+                .set_max_threads(5)
+                .set_max_queue_size(100)
+                .build(&_env->_send_batch_thread_pool);
         config::tablet_writer_open_rpc_timeout_sec = 60;
+        config::max_send_batch_parallelism_per_job = 1;
     }
 
     void TearDown() override {
@@ -334,6 +340,8 @@ public:
 
             if (request->has_row_batch() && _row_desc != nullptr) {
                 auto tracker = std::make_shared<MemTracker>();
+                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+                attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
                 RowBatch batch(*_row_desc, request->row_batch(), tracker.get());
                 for (int i = 0; i < batch.num_rows(); ++i) {
                     LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
@@ -453,7 +461,8 @@ TEST_F(OlapTableSinkTest, normal) {
     ASSERT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: already stopped, skip waiting for close. cancelled/!eos: : 1/1") << st.to_string();
+    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
+            << st.to_string();
 
     // each node has a eof
     ASSERT_EQ(2, service->_eof_counters);
@@ -586,7 +595,8 @@ TEST_F(OlapTableSinkTest, convert) {
     ASSERT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: already stopped, skip waiting for close. cancelled/!eos: : 1/1") << st.to_string();
+    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
+            << st.to_string();
 
     // each node has a eof
     ASSERT_EQ(2, service->_eof_counters);
@@ -934,8 +944,8 @@ TEST_F(OlapTableSinkTest, decimal) {
         memset(tuple, 0, tuple_desc->byte_size());
 
         *reinterpret_cast<int*>(tuple->get_slot(4)) = 12;
-        DecimalValue* dec_val = reinterpret_cast<DecimalValue*>(tuple->get_slot(16));
-        *dec_val = DecimalValue("12.3");
+        DecimalV2Value* dec_val = reinterpret_cast<DecimalV2Value*>(tuple->get_slot(16));
+        *dec_val = DecimalV2Value(std::string("12.3"));
         batch.commit_last_row();
     }
     // 13, 123.123456789
@@ -945,8 +955,8 @@ TEST_F(OlapTableSinkTest, decimal) {
         memset(tuple, 0, tuple_desc->byte_size());
 
         *reinterpret_cast<int*>(tuple->get_slot(4)) = 13;
-        DecimalValue* dec_val = reinterpret_cast<DecimalValue*>(tuple->get_slot(16));
-        *dec_val = DecimalValue("123.123456789");
+        DecimalV2Value* dec_val = reinterpret_cast<DecimalV2Value*>(tuple->get_slot(16));
+        *dec_val = DecimalV2Value(std::string("123.123456789"));
 
         batch.commit_last_row();
     }
@@ -957,8 +967,8 @@ TEST_F(OlapTableSinkTest, decimal) {
         memset(tuple, 0, tuple_desc->byte_size());
 
         *reinterpret_cast<int*>(tuple->get_slot(4)) = 14;
-        DecimalValue* dec_val = reinterpret_cast<DecimalValue*>(tuple->get_slot(16));
-        *dec_val = DecimalValue("123456789123.1234");
+        DecimalV2Value* dec_val = reinterpret_cast<DecimalV2Value*>(tuple->get_slot(16));
+        *dec_val = DecimalV2Value(std::string("123456789123.1234"));
 
         batch.commit_last_row();
     }
@@ -966,7 +976,8 @@ TEST_F(OlapTableSinkTest, decimal) {
     ASSERT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: already stopped, skip waiting for close. cancelled/!eos: : 1/1") << st.to_string();
+    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
+            << st.to_string();
 
     ASSERT_EQ(2, output_set.size());
     ASSERT_TRUE(output_set.count("[(12 12.3)]") > 0);

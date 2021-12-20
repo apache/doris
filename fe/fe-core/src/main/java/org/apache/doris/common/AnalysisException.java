@@ -21,11 +21,17 @@ package org.apache.doris.common;
  * Thrown for errors encountered during analysis of a SQL statement.
  */
 public class AnalysisException extends UserException {
+
     public AnalysisException(String msg, Throwable cause) {
         super(msg, cause);
     }
 
     public AnalysisException(String msg) {
         super(msg);
+    }
+
+    public AnalysisException(String msg, ErrorCode mysqlErrorCode) {
+        super(msg);
+        setMysqlErrorCode(mysqlErrorCode);
     }
 }

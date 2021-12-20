@@ -58,7 +58,7 @@ and you will be able to manage issues and pull request directly through our Gith
 
 5. Readability of the code. If reviewers are not very clear about the logic of the code, then you can ask the contributor to explain the logic. And writing sufficient comments in the code to explain the logic is encouraged.
 
-6. Try to give a clear conclusion at the end of your comments, “approve” or “change request”. If it's a minor issue, you can just leave a comment.
+6. Try to give a clear conclusion at the end of your comments, "approve" or "change request". If it's a minor issue, you can just leave a comment.
 
 7. Recommend to submit a "+1 Comment" rather than a "+1 Approve" to indicate that it looks good to me but I am not sure whether this part of the function is correct. It needs someone else's approve.
 

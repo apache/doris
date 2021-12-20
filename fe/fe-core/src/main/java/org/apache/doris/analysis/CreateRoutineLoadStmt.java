@@ -31,21 +31,20 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.load.routineload.KafkaProgress;
-import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
-import java.util.regex.Pattern;
 
 /*
  Create routine Load statement,  continually load data from a streaming app
@@ -87,6 +86,8 @@ import java.util.regex.Pattern;
           KAFKA
 */
 public class CreateRoutineLoadStmt extends DdlStmt {
+    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
+
     // routine load properties
     public static final String DESIRED_CONCURRENT_NUMBER_PROPERTY = "desired_concurrent_number";
     // max error number in ten thousand records
@@ -111,9 +112,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
     public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
-
+    public static final String KAFKA_ORIGIN_DEFAULT_OFFSETS = "kafka_origin_default_offsets";
+    
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
-    private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
+    public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
+    public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
@@ -130,13 +133,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
-            .build();
-
-    private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(KAFKA_BROKER_LIST_PROPERTY)
-            .add(KAFKA_TOPIC_PROPERTY)
-            .add(KAFKA_PARTITIONS_PROPERTY)
-            .add(KAFKA_OFFSETS_PROPERTY)
+            .add(SEND_BATCH_PARALLELISM)
             .build();
 
     private final LabelName labelName;
@@ -144,7 +141,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private final List<ParseNode> loadPropertyList;
     private final Map<String, String> jobProperties;
     private final String typeName;
-    private final Map<String, String> dataSourceProperties;
+    private final RoutineLoadDataSourceProperties dataSourceProperties;
 
     // the following variables will be initialized after analyze
     // -1 as unset, the default value will set in RoutineLoadJob
@@ -159,35 +156,29 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean strictMode = true;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    private int sendBatchParallelism = 1;
     /**
      * RoutineLoad support json data.
      * Require Params:
      *   1) dataFormat = "json"
      *   2) jsonPaths = "$.XXX.xxx"
      */
-    private String format     = ""; //default is csv.
-    private String jsonPaths  = "";
-    private String jsonRoot   = ""; // MUST be a jsonpath string
+    private String format = ""; //default is csv.
+    private String jsonPaths = "";
+    private String jsonRoot = ""; // MUST be a jsonpath string
     private boolean stripOuterArray = false;
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
 
-    // kafka related properties
-    private String kafkaBrokerList;
-    private String kafkaTopic;
-    // pair<partition id, offset>
-    private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
-
-    // custom kafka property map<key, value>
-    private Map<String, String> customKafkaProperties = Maps.newHashMap();
     private LoadTask.MergeType mergeType;
 
-    public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
-    public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
-    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> { return v >= 5 && v <= 60; };
-    public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v >= 200000; };
-    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
-    public static final Predicate<Long>  EXEC_MEM_LIMIT_PRED = (v) -> { return v >= 0L; };
+    public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
+    public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
+    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 5 && v <= 60;
+    public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
+    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
+    public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
+    public static final Predicate<Long> SEND_BATCH_PARALLELISM_PRED = (v) -> v > 0L;
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
@@ -197,7 +188,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
-        this.dataSourceProperties = dataSourceProperties;
+        this.dataSourceProperties = new RoutineLoadDataSourceProperties(this.typeName, dataSourceProperties, false);
         this.mergeType = mergeType;
     }
 
@@ -245,6 +236,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return execMemLimit;
     }
 
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
+    }
+
     public boolean isStrictMode() {
         return strictMode;
     }
@@ -278,23 +273,27 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     public String getKafkaBrokerList() {
-        return kafkaBrokerList;
+        return this.dataSourceProperties.getKafkaBrokerList();
     }
 
     public String getKafkaTopic() {
-        return kafkaTopic;
+        return this.dataSourceProperties.getKafkaTopic();
     }
 
     public List<Pair<Integer, Long>> getKafkaPartitionOffsets() {
-        return kafkaPartitionOffsets;
+        return this.dataSourceProperties.getKafkaPartitionOffsets();
     }
 
     public Map<String, String> getCustomKafkaProperties() {
-        return customKafkaProperties;
+        return this.dataSourceProperties.getCustomKafkaProperties();
     }
 
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public boolean isOffsetsForTimes() {
+        return this.dataSourceProperties.isOffsetsForTimes();
     }
 
     @Override
@@ -325,14 +324,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new AnalysisException("database: " + dbName + " not found.");
-        }
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new AnalysisException("table: " + dbName + " not found.");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
                 || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
@@ -345,20 +338,23 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     public void checkLoadProperties() throws UserException {
-        ColumnSeparator columnSeparator = null;
+        Separator columnSeparator = null;
+        // TODO(yangzhengguo01): add line delimiter to properties
+        Separator lineDelimiter = null;
         ImportColumnsStmt importColumnsStmt = null;
+        ImportWhereStmt precedingImportWhereStmt = null;
         ImportWhereStmt importWhereStmt = null;
         ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
         if (loadPropertyList != null) {
             for (ParseNode parseNode : loadPropertyList) {
-                if (parseNode instanceof ColumnSeparator) {
+                if (parseNode instanceof Separator) {
                     // check column separator
                     if (columnSeparator != null) {
                         throw new AnalysisException("repeat setting of column separator");
                     }
-                    columnSeparator = (ColumnSeparator) parseNode;
+                    columnSeparator = (Separator) parseNode;
                     columnSeparator.analyze(null);
                 } else if (parseNode instanceof ImportColumnsStmt) {
                     // check columns info
@@ -368,10 +364,18 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     importColumnsStmt = (ImportColumnsStmt) parseNode;
                 } else if (parseNode instanceof ImportWhereStmt) {
                     // check where expr
-                    if (importWhereStmt != null) {
-                        throw new AnalysisException("repeat setting of where predicate");
+                    ImportWhereStmt node = (ImportWhereStmt) parseNode;
+                    if (node.isPreceding()) {
+                        if (precedingImportWhereStmt != null) {
+                            throw new AnalysisException("repeat setting of preceding where predicate");
+                        }
+                        precedingImportWhereStmt = node;
+                    } else {
+                        if (importWhereStmt != null) {
+                            throw new AnalysisException("repeat setting of where predicate");
+                        }
+                        importWhereStmt = node;
                     }
-                    importWhereStmt = (ImportWhereStmt) parseNode;
                 } else if (parseNode instanceof PartitionNames) {
                     // check partition names
                     if (partitionNames != null) {
@@ -394,7 +398,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
+        routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
+                        precedingImportWhereStmt, importWhereStmt,
                         partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
                         importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
@@ -421,16 +426,21 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
                 MAX_BATCH_ROWS_PROPERTY + " should > 200000");
-        
+
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
                 MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
 
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
-                                                      RoutineLoadJob.DEFAULT_STRICT_MODE,
-                                                      LoadStmt.STRICT_MODE + " should be a boolean");
+                RoutineLoadJob.DEFAULT_STRICT_MODE,
+                LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
                 RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
+        
+        sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
+                ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
+                SEND_BATCH_PARALLELISM + " should > 0")).intValue();
+
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
@@ -455,155 +465,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
     }
 
-    private void checkDataSourceProperties() throws AnalysisException {
-        LoadDataSourceType type;
-        try {
-            type = LoadDataSourceType.valueOf(typeName);
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException("routine load job does not support this type " + typeName);
-        }
-        switch (type) {
-            case KAFKA:
-                checkKafkaProperties();
-                break;
-            default:
-                break;
-        }
-    }
-
-    private void checkKafkaProperties() throws AnalysisException {
-        Optional<String> optional = dataSourceProperties.keySet().stream()
-                .filter(entity -> !KAFKA_PROPERTIES_SET.contains(entity))
-                .filter(entity -> !entity.startsWith("property.")).findFirst();
-        if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid kafka custom property");
-        }
-
-        // check broker list
-        kafkaBrokerList = Strings.nullToEmpty(dataSourceProperties.get(KAFKA_BROKER_LIST_PROPERTY)).replaceAll(" ", "");
-        if (Strings.isNullOrEmpty(kafkaBrokerList)) {
-            throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + " is a required property");
-        }
-        String[] kafkaBrokerList = this.kafkaBrokerList.split(",");
-        for (String broker : kafkaBrokerList) {
-            if (!Pattern.matches(ENDPOINT_REGEX, broker)) {
-                throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + ":" + broker
-                                                    + " not match pattern " + ENDPOINT_REGEX);
-            }
-        }
-
-        // check topic
-        kafkaTopic = Strings.nullToEmpty(dataSourceProperties.get(KAFKA_TOPIC_PROPERTY)).replaceAll(" ", "");
-        if (Strings.isNullOrEmpty(kafkaTopic)) {
-            throw new AnalysisException(KAFKA_TOPIC_PROPERTY + " is a required property");
-        }
-
-        // check partitions
-        String kafkaPartitionsString = dataSourceProperties.get(KAFKA_PARTITIONS_PROPERTY);
-        if (kafkaPartitionsString != null) {
-            analyzeKafkaPartitionProperty(kafkaPartitionsString, this.kafkaPartitionOffsets);
-        }
-
-        // check offset
-        String kafkaOffsetsString = dataSourceProperties.get(KAFKA_OFFSETS_PROPERTY);
-        if (kafkaOffsetsString != null) {
-            analyzeKafkaOffsetProperty(kafkaOffsetsString, this.kafkaPartitionOffsets);
-        }
-
-        // check custom kafka property
-        analyzeCustomProperties(this.dataSourceProperties, this.customKafkaProperties);
-    }
-
-    public static void analyzeKafkaPartitionProperty(String kafkaPartitionsString,
-            List<Pair<Integer, Long>> kafkaPartitionOffsets) throws AnalysisException {
-        kafkaPartitionsString = kafkaPartitionsString.replaceAll(" ", "");
-        if (kafkaPartitionsString.isEmpty()) {
-            throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY + " could not be a empty string");
-        }
-        String[] kafkaPartitionsStringList = kafkaPartitionsString.split(",");
-        for (String s : kafkaPartitionsStringList) {
-            try {
-                kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY),
-                        KafkaProgress.OFFSET_END_VAL));
-            } catch (AnalysisException e) {
-                throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY
-                        + " must be a number string with comma-separated");
-            }
-        }
-    }
-
-    public static void analyzeKafkaOffsetProperty(String kafkaOffsetsString,
-            List<Pair<Integer, Long>> kafkaPartitionOffsets) throws AnalysisException {
-        kafkaOffsetsString = kafkaOffsetsString.replaceAll(" ", "");
-        if (kafkaOffsetsString.isEmpty()) {
-            throw new AnalysisException(KAFKA_OFFSETS_PROPERTY + " could not be a empty string");
-        }
-        String[] kafkaOffsetsStringList = kafkaOffsetsString.split(",");
-        if (kafkaOffsetsStringList.length != kafkaPartitionOffsets.size()) {
-            throw new AnalysisException("Partitions number should be equals to offsets number");
-        }
-
-        for (int i = 0; i < kafkaOffsetsStringList.length; i++) {
-            // defined in librdkafka/rdkafkacpp.h
-            // OFFSET_BEGINNING: -2
-            // OFFSET_END: -1
-            try {
-                kafkaPartitionOffsets.get(i).second = getLongValueFromString(kafkaOffsetsStringList[i],
-                        KAFKA_OFFSETS_PROPERTY);
-                if (kafkaPartitionOffsets.get(i).second < 0) {
-                    throw new AnalysisException("Can not specify offset smaller than 0");
-                }
-            } catch (AnalysisException e) {
-                if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
-                    kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_BEGINNING_VAL;
-                } else if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
-                    kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_END_VAL;
-                } else {
-                    throw e;
-                }
-            }
-        }
-    }
-
-    public static void analyzeCustomProperties(Map<String, String> dataSourceProperties,
-            Map<String, String> customKafkaProperties) throws AnalysisException {
-        for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
-            if (dataSourceProperty.getKey().startsWith("property.")) {
-                String propertyKey = dataSourceProperty.getKey();
-                String propertyValue = dataSourceProperty.getValue();
-                String propertyValueArr[] = propertyKey.split("\\.");
-                if (propertyValueArr.length < 2) {
-                    throw new AnalysisException("kafka property value could not be a empty string");
-                }
-                customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
-            }
-            // can be extended in the future which other prefix
-        }
-    }
-
-    private static int getIntegerValueFromString(String valueString, String propertyName) throws AnalysisException {
-        if (valueString.isEmpty()) {
-            throw new AnalysisException(propertyName + " could not be a empty string");
-        }
-        int value;
-        try {
-            value = Integer.valueOf(valueString);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException(propertyName + " must be a integer");
-        }
-        return value;
-    }
-
-    private static long getLongValueFromString(String valueString, String propertyName) throws AnalysisException {
-        if (valueString.isEmpty()) {
-            throw new AnalysisException(propertyName + " could not be a empty string");
-        }
-        long value;
-        try {
-            value = Long.valueOf(valueString);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException(propertyName + " must be a integer: " + valueString);
-        }
-        return value;
+    private void checkDataSourceProperties() throws UserException {
+        this.dataSourceProperties.setTimezone(this.timezone);
+        this.dataSourceProperties.analyze();
     }
 }

@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <string>
@@ -60,12 +61,6 @@ public:
     // No use
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
-    // Called by broker scanners to get_partition_id
-    // If there is no partition information, return -1
-    // Return partition id if we find the partition match this row,
-    // return -1, if there is no such partition.
-    int64_t get_partition_id(const std::vector<ExprContext*>& partition_exprs, TupleRow* row) const;
-
 protected:
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
@@ -89,12 +84,7 @@ private:
 
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range,
-                        const std::vector<ExprContext*>& conjunct_ctxs,
-                        const std::vector<ExprContext*>& partition_expr_ctxs,
-                        ScannerCounter* counter);
-
-    // Find partition id with PartRangeKey
-    int64_t binary_find_partition_id(const PartRangeKey& key) const;
+                        const std::vector<ExprContext*>& conjunct_ctxs, ScannerCounter* counter);
 
     std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
                                                 ScannerCounter* counter);
@@ -123,12 +113,13 @@ private:
 
     int _max_buffered_batches;
 
-    // Partition information
-    std::vector<ExprContext*> _partition_expr_ctxs;
-    std::vector<PartitionInfo*> _partition_infos;
+    // The origin preceding filter exprs.
+    // These exprs will be converted to expr context
+    // in XXXScanner.
+    // Because the row descriptor used for these exprs is `src_row_desc`,
+    // which is initialized in XXXScanner.
+    std::vector<TExpr> _pre_filter_texprs;
 
-    // Profile information
-    //
     RuntimeProfile::Counter* _wait_scanner_timer;
 };
 

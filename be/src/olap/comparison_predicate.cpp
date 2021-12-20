@@ -24,10 +24,10 @@
 
 namespace doris {
 
-#define COMPARISON_PRED_CONSTRUCTOR(CLASS)                    \
-    template <class type>                                     \
-    CLASS<type>::CLASS(uint32_t column_id, const type& value) \
-            : ColumnPredicate(column_id), _value(value) {}
+#define COMPARISON_PRED_CONSTRUCTOR(CLASS)                                   \
+    template <class type>                                                    \
+    CLASS<type>::CLASS(uint32_t column_id, const type& value, bool opposite) \
+            : ColumnPredicate(column_id, opposite), _value(value) {}
 
 COMPARISON_PRED_CONSTRUCTOR(EqualPredicate)
 COMPARISON_PRED_CONSTRUCTOR(NotEqualPredicate)
@@ -36,12 +36,12 @@ COMPARISON_PRED_CONSTRUCTOR(LessEqualPredicate)
 COMPARISON_PRED_CONSTRUCTOR(GreaterPredicate)
 COMPARISON_PRED_CONSTRUCTOR(GreaterEqualPredicate)
 
-#define COMPARISON_PRED_CONSTRUCTOR_STRING(CLASS)                           \
-    template <>                                                             \
-    CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value) \
-            : ColumnPredicate(column_id) {                                  \
-        _value.len = value.len;                                             \
-        _value.ptr = value.ptr;                                             \
+#define COMPARISON_PRED_CONSTRUCTOR_STRING(CLASS)                                          \
+    template <>                                                                            \
+    CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value, bool opposite) \
+            : ColumnPredicate(column_id, opposite) {                                       \
+        _value.len = value.len;                                                            \
+        _value.ptr = value.ptr;                                                            \
     }
 
 COMPARISON_PRED_CONSTRUCTOR_STRING(EqualPredicate)
@@ -119,7 +119,8 @@ COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
                 sel[new_size] = idx;                                                      \
                 const type* cell_value =                                                  \
                         reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
-                new_size += (!block->cell(idx).is_null() && (*cell_value OP _value));     \
+                auto result = (!block->cell(idx).is_null() && (*cell_value OP _value));   \
+                new_size += _opposite ? !result : result;                                 \
             }                                                                             \
         } else {                                                                          \
             for (uint16_t i = 0; i < *size; ++i) {                                        \
@@ -127,7 +128,8 @@ COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
                 sel[new_size] = idx;                                                      \
                 const type* cell_value =                                                  \
                         reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
-                new_size += (*cell_value OP _value);                                      \
+                auto result = (*cell_value OP _value);                                    \
+                new_size += _opposite ? !result : result;                                 \
             }                                                                             \
         }                                                                                 \
         *size = new_size;                                                                 \
@@ -139,6 +141,70 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(LessPredicate, <)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
+
+#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                      \
+    template <class type>                                                                        \
+    void CLASS<type>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
+            const {                                                                              \
+        if (block->is_nullable()) {                                                              \
+            for (uint16_t i = 0; i < size; ++i) {                                                \
+                if (flags[i]) continue;                                                          \
+                uint16_t idx = sel[i];                                                           \
+                const type* cell_value =                                                         \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());              \
+                auto result = (!block->cell(idx).is_null() && (*cell_value OP _value));          \
+                flags[i] |= _opposite ? !result : result;                                        \
+            }                                                                                    \
+        } else {                                                                                 \
+            for (uint16_t i = 0; i < size; ++i) {                                                \
+                if (flags[i]) continue;                                                          \
+                uint16_t idx = sel[i];                                                           \
+                const type* cell_value =                                                         \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());              \
+                auto result = (*cell_value OP _value);                                           \
+                flags[i] |= _opposite ? !result : result;                                        \
+            }                                                                                    \
+        }                                                                                        \
+    }
+
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(EqualPredicate, ==)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(NotEqualPredicate, !=)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(LessPredicate, <)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(LessEqualPredicate, <=)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterPredicate, >)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterEqualPredicate, >=)
+
+#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                      \
+    template <class type>                                                                         \
+    void CLASS<type>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
+            const {                                                                               \
+        if (block->is_nullable()) {                                                               \
+            for (uint16_t i = 0; i < size; ++i) {                                                 \
+                if (!flags[i]) continue;                                                          \
+                uint16_t idx = sel[i];                                                            \
+                const type* cell_value =                                                          \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());               \
+                auto result = (!block->cell(idx).is_null() && (*cell_value OP _value));           \
+                flags[i] &= _opposite ? !result : result;                                         \
+            }                                                                                     \
+        } else {                                                                                  \
+            for (uint16_t i = 0; i < size; ++i) {                                                 \
+                if (!flags[i]) continue;                                                          \
+                uint16_t idx = sel[i];                                                            \
+                const type* cell_value =                                                          \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());               \
+                auto result = (*cell_value OP _value);                                            \
+                flags[i] &= _opposite ? !result : result;                                         \
+            }                                                                                     \
+        }                                                                                         \
+    }
+
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(EqualPredicate, ==)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(NotEqualPredicate, !=)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(LessPredicate, <)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(LessEqualPredicate, <=)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(GreaterPredicate, >)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(GreaterEqualPredicate, >=)
 
 #define BITMAP_COMPARE_EqualPredicate(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
     do {                                                                                         \
@@ -226,7 +292,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
     template <class type>                                                                 \
     Status CLASS<type>::evaluate(const Schema& schema,                                    \
                                  const std::vector<BitmapIndexIterator*>& iterators,      \
-                                 uint32_t num_rows, Roaring* bitmap) const {              \
+                                 uint32_t num_rows, roaring::Roaring* bitmap) const {     \
         BitmapIndexIterator* iterator = iterators[_column_id];                            \
         if (iterator == nullptr) {                                                        \
             return Status::OK();                                                          \
@@ -234,11 +300,11 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         rowid_t ordinal_limit = iterator->bitmap_nums();                                  \
         if (iterator->has_null_bitmap()) {                                                \
             ordinal_limit--;                                                              \
-            Roaring null_bitmap;                                                          \
+            roaring::Roaring null_bitmap;                                                 \
             RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));                    \
             *bitmap -= null_bitmap;                                                       \
         }                                                                                 \
-        Roaring roaring;                                                                  \
+        roaring::Roaring roaring;                                                         \
         bool exact_match;                                                                 \
         Status s = iterator->seek_dictionary(&_value, &exact_match);                      \
         rowid_t seeked_ordinal = iterator->current_ordinal();                             \
@@ -254,19 +320,21 @@ COMPARISON_PRED_BITMAP_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
 
-#define COMPARISON_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                \
-    template CLASS<int8_t>::CLASS(uint32_t column_id, const int8_t& value);           \
-    template CLASS<int16_t>::CLASS(uint32_t column_id, const int16_t& value);         \
-    template CLASS<int32_t>::CLASS(uint32_t column_id, const int32_t& value);         \
-    template CLASS<int64_t>::CLASS(uint32_t column_id, const int64_t& value);         \
-    template CLASS<int128_t>::CLASS(uint32_t column_id, const int128_t& value);       \
-    template CLASS<float>::CLASS(uint32_t column_id, const float& value);             \
-    template CLASS<double>::CLASS(uint32_t column_id, const double& value);           \
-    template CLASS<decimal12_t>::CLASS(uint32_t column_id, const decimal12_t& value); \
-    template CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value); \
-    template CLASS<uint24_t>::CLASS(uint32_t column_id, const uint24_t& value);       \
-    template CLASS<uint64_t>::CLASS(uint32_t column_id, const uint64_t& value);       \
-    template CLASS<bool>::CLASS(uint32_t column_id, const bool& value);
+#define COMPARISON_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                         \
+    template CLASS<int8_t>::CLASS(uint32_t column_id, const int8_t& value, bool opposite);     \
+    template CLASS<int16_t>::CLASS(uint32_t column_id, const int16_t& value, bool opposite);   \
+    template CLASS<int32_t>::CLASS(uint32_t column_id, const int32_t& value, bool opposite);   \
+    template CLASS<int64_t>::CLASS(uint32_t column_id, const int64_t& value, bool opposite);   \
+    template CLASS<int128_t>::CLASS(uint32_t column_id, const int128_t& value, bool opposite); \
+    template CLASS<float>::CLASS(uint32_t column_id, const float& value, bool opposite);       \
+    template CLASS<double>::CLASS(uint32_t column_id, const double& value, bool opposite);     \
+    template CLASS<decimal12_t>::CLASS(uint32_t column_id, const decimal12_t& value,           \
+                                       bool opposite);                                         \
+    template CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value,           \
+                                       bool opposite);                                         \
+    template CLASS<uint24_t>::CLASS(uint32_t column_id, const uint24_t& value, bool opposite); \
+    template CLASS<uint64_t>::CLASS(uint32_t column_id, const uint64_t& value, bool opposite); \
+    template CLASS<bool>::CLASS(uint32_t column_id, const bool& value, bool opposite);
 
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(EqualPredicate)
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(NotEqualPredicate)
@@ -330,40 +398,40 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(GreaterEqualPredicate)
 #define COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(CLASS)                                        \
     template Status CLASS<int8_t>::evaluate(const Schema& schema,                                 \
                                             const std::vector<BitmapIndexIterator*>& iterators,   \
-                                            uint32_t num_rows, Roaring* bitmap) const;            \
+                                            uint32_t num_rows, roaring::Roaring* bitmap) const;   \
     template Status CLASS<int16_t>::evaluate(const Schema& schema,                                \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, Roaring* bitmap) const;           \
+                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
     template Status CLASS<int32_t>::evaluate(const Schema& schema,                                \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, Roaring* bitmap) const;           \
+                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
     template Status CLASS<int64_t>::evaluate(const Schema& schema,                                \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, Roaring* bitmap) const;           \
+                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
     template Status CLASS<int128_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, Roaring* bitmap) const;          \
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
     template Status CLASS<float>::evaluate(const Schema& schema,                                  \
                                            const std::vector<BitmapIndexIterator*>& iterators,    \
-                                           uint32_t num_rows, Roaring* bitmap) const;             \
+                                           uint32_t num_rows, roaring::Roaring* bitmap) const;    \
     template Status CLASS<double>::evaluate(const Schema& schema,                                 \
                                             const std::vector<BitmapIndexIterator*>& iterators,   \
-                                            uint32_t num_rows, Roaring* bitmap) const;            \
+                                            uint32_t num_rows, roaring::Roaring* bitmap) const;   \
     template Status CLASS<decimal12_t>::evaluate(                                                 \
             const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
-            uint32_t num_rows, Roaring* bitmap) const;                                            \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
     template Status CLASS<StringValue>::evaluate(                                                 \
             const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
-            uint32_t num_rows, Roaring* bitmap) const;                                            \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
     template Status CLASS<uint24_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, Roaring* bitmap) const;          \
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
     template Status CLASS<uint64_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, Roaring* bitmap) const;          \
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
     template Status CLASS<bool>::evaluate(const Schema& schema,                                   \
                                           const std::vector<BitmapIndexIterator*>& iterators,     \
-                                          uint32_t num_rows, Roaring* bitmap) const;
+                                          uint32_t num_rows, roaring::Roaring* bitmap) const;
 
 COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(EqualPredicate)
 COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(NotEqualPredicate)

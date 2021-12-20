@@ -18,18 +18,17 @@
 #ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
 
-#include <boost/shared_ptr.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/unordered_map.hpp>
-#include <boost/unordered_set.hpp>
+#include <condition_variable>
 #include <list>
+#include <mutex>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
-#include "gen_cpp/palo_internal_service.pb.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h" // for PlanNodeId
 #include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
@@ -75,7 +74,7 @@ public:
     // single stream.
     // Ownership of the receiver is shared between this DataStream mgr instance and the
     // caller.
-    boost::shared_ptr<DataStreamRecvr> create_recvr(
+    std::shared_ptr<DataStreamRecvr> create_recvr(
             RuntimeState* state, const RowDescriptor& row_desc,
             const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
             int buffer_size, RuntimeProfile* profile, bool is_merging,
@@ -88,22 +87,23 @@ public:
 
 private:
     friend class DataStreamRecvr;
+    friend class DataStreamSender;
 
     // protects all fields below
-    boost::mutex _lock;
+    std::mutex _lock;
 
     // map from hash value of fragment instance id/node id pair to stream receivers;
     // Ownership of the stream revcr is shared between this instance and the caller of
     // create_recvr().
     // we don't want to create a map<pair<TUniqueId, PlanNodeId>, DataStreamRecvr*>,
     // because that requires a bunch of copying of ids for lookup
-    typedef boost::unordered_multimap<uint32_t, boost::shared_ptr<DataStreamRecvr>> StreamMap;
+    typedef std::unordered_multimap<uint32_t, std::shared_ptr<DataStreamRecvr>> StreamMap;
     StreamMap _receiver_map;
 
     // less-than ordering for pair<TUniqueId, PlanNodeId>
     struct ComparisonOp {
         bool operator()(const std::pair<doris::TUniqueId, PlanNodeId>& a,
-                        const std::pair<doris::TUniqueId, PlanNodeId>& b) {
+                        const std::pair<doris::TUniqueId, PlanNodeId>& b) const {
             if (a.first.hi < b.first.hi) {
                 return true;
             } else if (a.first.hi > b.first.hi) {
@@ -122,10 +122,10 @@ private:
     FragmentStreamSet _fragment_stream_set;
 
     // Return the receiver for given fragment_instance_id/node_id,
-    // or NULL if not found. If 'acquire_lock' is false, assumes _lock is already being
+    // or nullptr if not found. If 'acquire_lock' is false, assumes _lock is already being
     // held and won't try to acquire it.
-    boost::shared_ptr<DataStreamRecvr> find_recvr(const TUniqueId& fragment_instance_id,
-                                                  PlanNodeId node_id, bool acquire_lock = true);
+    std::shared_ptr<DataStreamRecvr> find_recvr(const TUniqueId& fragment_instance_id,
+                                                PlanNodeId node_id, bool acquire_lock = true);
 
     // Remove receiver block for fragment_instance_id/node_id from the map.
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);

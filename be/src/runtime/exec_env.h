@@ -20,9 +20,12 @@
 
 #include "common/status.h"
 #include "olap/options.h"
+#include "util/threadpool.h"
 
 namespace doris {
-
+namespace vectorized {
+class VDataStreamMgr;
+}
 class BfdParser;
 class BrokerMgr;
 class BrpcStubCache;
@@ -46,14 +49,12 @@ class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class TestExecEnv;
 class ThreadResourceMgr;
 class TmpFileMgr;
 class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class FileBlockManager;
 class PluginMgr;
 
 class BackendServiceClient;
@@ -110,8 +111,10 @@ public:
     std::shared_ptr<MemTracker> process_mem_tracker() { return _mem_tracker; }
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
-    PriorityThreadPool* thread_pool() { return _thread_pool; }
+    PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
+    ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
+    ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -140,6 +143,9 @@ public:
 
     PluginMgr* plugin_mgr() { return _plugin_mgr; }
 
+    // The root tracker should be set before calling ExecEnv::init();
+    void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -147,6 +153,9 @@ private:
     Status _init_mem_tracker();
     /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
     void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
+
+    void _register_metrics();
+    void _deregister_metrics();
 
 private:
     bool _is_init;
@@ -163,7 +172,21 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
     PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
-    PriorityThreadPool* _thread_pool = nullptr;
+
+    // The following two thread pools are used in different scenarios.
+    // _scan_thread_pool is a priority thread pool.
+    // Scanner threads for common queries will use this thread pool,
+    // and the priority of each scan task is set according to the size of the query.
+
+    // _limited_scan_thread_pool is also the thread pool used for scanner. 
+    // The difference is that it is no longer a priority queue, but according to the concurrency
+    // set by the user to control the number of threads that can be used by a query.
+
+    // TODO(cmy): find a better way to unify these 2 pools.
+    PriorityThreadPool* _scan_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+
+    std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;

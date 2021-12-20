@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -58,6 +59,7 @@ public class BrokerLoadPendingTask extends LoadTask {
     void executeTask() throws UserException {
         LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
         getAllFileStatus();
+        ((BrokerLoadJob) callback).beginTxn();
     }
 
     private void getAllFileStatus() throws UserException {
@@ -120,7 +122,9 @@ public class BrokerLoadPendingTask extends LoadTask {
                     tableTotalFileNum += filteredFileStatuses.size();
                     LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
                             filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
-                            callback.getCallbackId(), BrokerUtil.getAddress(brokerDesc));
+                            callback.getCallbackId(),
+                            brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER ?
+                                    BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
                     groupNum++;
                 }
             }

@@ -86,7 +86,11 @@ public abstract class AlterHandler extends MasterDaemon {
     }
     
     public AlterHandler(String name) {
-        super(name, FeConstants.default_scheduler_interval_millisecond);
+        this(name, FeConstants.default_scheduler_interval_millisecond);
+    }
+
+    public AlterHandler(String name, int scheduler_interval_millisecond) {
+        super(name, scheduler_interval_millisecond);
     }
 
     protected void addAlterJobV2(AlterJobV2 alterJob) {
@@ -302,41 +306,49 @@ public abstract class AlterHandler extends MasterDaemon {
         }
     }
 
-    public void replayInitJob(AlterJob alterJob, Catalog catalog) {
-        Database db = catalog.getDb(alterJob.getDbId());
-        alterJob.replayInitJob(db);
-        // add rollup job
-        addAlterJob(alterJob);
+    public void replayInitJob(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
+        try {
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
+            alterJob.replayInitJob(db);
+        } finally {
+            // add rollup job
+            addAlterJob(alterJob);
+        }
     }
     
-    public void replayFinishing(AlterJob alterJob, Catalog catalog) {
-        Database db = catalog.getDb(alterJob.getDbId());
-        alterJob.replayFinishing(db);
-        alterJob.setState(JobState.FINISHING);
-        // !!! the alter job should add to the cache again, because the alter job is deserialized from journal
-        // it is a different object compared to the cache
-        addAlterJob(alterJob);
+    public void replayFinishing(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
+        try {
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
+            alterJob.replayFinishing(db);
+        } finally {
+            alterJob.setState(JobState.FINISHING);
+            // !!! the alter job should add to the cache again, because the alter job is deserialized from journal
+            // it is a different object compared to the cache
+            addAlterJob(alterJob);
+        }
     }
 
-    public void replayFinish(AlterJob alterJob, Catalog catalog) {
-        Database db = catalog.getDb(alterJob.getDbId());
-        alterJob.replayFinish(db);
-        alterJob.setState(JobState.FINISHED);
-
-        jobDone(alterJob);
+    public void replayFinish(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
+        try {
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
+            alterJob.replayFinish(db);
+        } finally {
+            alterJob.setState(JobState.FINISHED);
+            jobDone(alterJob);
+        }
     }
 
-    public void replayCancel(AlterJob alterJob, Catalog catalog) {
+    public void replayCancel(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
         removeAlterJob(alterJob.getTableId());
         alterJob.setState(JobState.CANCELLED);
-        Database db = catalog.getDb(alterJob.getDbId());
-        if (db != null) {
+        try {
             // we log rollup job cancelled even if db is dropped.
             // so check db != null here
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
             alterJob.replayCancel(db);
+        } finally {
+            addFinishedOrCancelledAlterJob(alterJob);
         }
-
-        addFinishedOrCancelledAlterJob(alterJob);
     }
 
     @Override
@@ -393,24 +405,21 @@ public abstract class AlterHandler extends MasterDaemon {
      * We assume that the specified version is X.
      * Case 1:
      *      After alter table process starts, there is no new load job being submitted. So the new replica
-     *      should be with version (1-0). So we just modify the replica's version to partition's visible version, which is X.
+     *      should be with version (0-1). So we just modify the replica's version to partition's visible version, which is X.
      * Case 2:
      *      After alter table process starts, there are some load job being processed.
      * Case 2.1:
-     *      Only one new load job, and it failed on this replica. so the replica's last failed version should be X + 1
-     *      and version is still 1. We should modify the replica's version to (last failed version - 1)
+     *      None of them succeed on this replica. so the version is still 1. We should modify the replica's version to X.
      * Case 2.2 
      *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
      *      So the replica's version should be larger than X. So we don't need to modify the replica version
      *      because its already looks like normal.
+     * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDb(task.getDbId());
-        if (db == null) {
-            throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
 
-        OlapTable tbl = (OlapTable) db.getTableOrThrowException(task.getTableId(), Table.TableType.OLAP);
+        OlapTable tbl = db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLock();
         try {
             Partition partition = tbl.getPartition(task.getPartitionId());
@@ -427,23 +436,13 @@ public abstract class AlterHandler extends MasterDaemon {
             if (replica == null) {
                 throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
             }
-            
+
             LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
                     task.getSignature(), replica, task.getVersion(), task.getVersionHash());
             boolean versionChanged = false;
-            if (replica.getVersion() > task.getVersion()) {
-                // Case 2.2, do nothing
-            } else {
-                if (replica.getLastFailedVersion() > task.getVersion()) {
-                    // Case 2.1
-                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
-                    versionChanged = true;
-                } else {
-                    // Case 1
-                    Preconditions.checkState(replica.getLastFailedVersion() == -1, replica.getLastFailedVersion());
-                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
-                    versionChanged = true;
-                }
+            if (replica.getVersion() < task.getVersion()) {
+                replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                versionChanged = true;
             }
 
             if (versionChanged) {
@@ -455,7 +454,7 @@ public abstract class AlterHandler extends MasterDaemon {
                         replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
-            
+
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
             tbl.writeUnlock();

@@ -52,6 +52,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
@@ -168,7 +169,15 @@ public class SparkLoadJob extends BulkLoadJob {
      * @throws DdlException
      */
     private void setResourceInfo() throws DdlException {
-        // spark resource
+        if (resourceDesc == null) {
+            // resourceDesc is null means this is a replay thread.
+            // And resourceDesc is not persisted, so it should be null.
+            // sparkResource and brokerDesc are both persisted, so no need to handle them
+            // in replay process.
+            return;
+        }
+
+        // set sparkResource and brokerDesc
         String resourceName = resourceDesc.getName();
         Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
         if (oriResource == null) {
@@ -177,14 +186,14 @@ public class SparkLoadJob extends BulkLoadJob {
         sparkResource = ((SparkResource) oriResource).getCopiedResource();
         sparkResource.update(resourceDesc);
 
-        // broker desc
         Map<String, String> brokerProperties = sparkResource.getBrokerPropertiesWithoutPrefix();
         brokerDesc = new BrokerDesc(sparkResource.getBroker(), brokerProperties);
     }
 
     @Override
     public void beginTxn()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
        transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                                   new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
@@ -322,7 +331,8 @@ public class SparkLoadJob extends BulkLoadJob {
             TUniqueId dummyId = new TUniqueId(0, 0);
             long dummyBackendId = -1L;
             loadStatistic.initLoad(dummyId, Sets.newHashSet(dummyId), Lists.newArrayList(dummyBackendId));
-            loadStatistic.updateLoadProgress(dummyBackendId, dummyId, dummyId, dppResult.scannedRows, true);
+            loadStatistic.updateLoadProgress(dummyBackendId, dummyId, dummyId, dppResult.scannedRows,
+                    dppResult.scannedBytes, true);
 
             Map<String, String> counters = loadingStatus.getCounters();
             counters.put(DPP_NORMAL_ALL, String.valueOf(dppResult.normalRows));
@@ -436,7 +446,7 @@ public class SparkLoadJob extends BulkLoadJob {
                         }
 
                         hasLoadPartitions = true;
-                        int quorumReplicaNum = olapTable.getPartitionInfo().getReplicationNum(partitionId) / 2 + 1;
+                        int quorumReplicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
 
                         List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.ALL);
                         for (MaterializedIndex index : indexes) {
@@ -941,7 +951,7 @@ public class SparkLoadJob extends BulkLoadJob {
         }
 
         private void initTDescriptorTable(DescriptorTable descTable) {
-            descTable.computeMemLayout();
+            descTable.computeStatAndMemLayout();
             tDescriptorTable = descTable.toThrift();
         }
     }

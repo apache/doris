@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -42,12 +42,12 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -82,7 +82,9 @@ public class BrokerFileGroup implements Writable {
     private List<ImportColumnDesc> columnExprList;
     // this is only for hadoop function check
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
-    // filter the data which has been conformed
+    // filter the data from source directly
+    private Expr precedingFilterExpr;
+    // filter the data which has been mapped and transformed
     private Expr whereExpr;
     private Expr deleteCondition;
     private LoadTask.MergeType mergeType;
@@ -100,6 +102,8 @@ public class BrokerFileGroup implements Writable {
     private String jsonPaths = "";
     private String jsonRoot = "";
     private boolean fuzzyParse = true;
+    private boolean readJsonByLine = false;
+    private boolean numAsString = false;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -108,11 +112,29 @@ public class BrokerFileGroup implements Writable {
     // Used for broker table, no need to parse
     public BrokerFileGroup(BrokerTable table) throws AnalysisException {
         this.tableId = table.getId();
-        this.valueSeparator = ColumnSeparator.convertSeparator(table.getColumnSeparator());
-        this.lineDelimiter = table.getLineDelimiter();
+        this.valueSeparator = Separator.convertSeparator(table.getColumnSeparator());
+        this.lineDelimiter = Separator.convertSeparator(table.getLineDelimiter());
         this.isNegative = false;
         this.filePaths = table.getPaths();
         this.fileFormat = table.getFileFormat();
+    }
+
+    // Used for hive table, no need to parse
+    public BrokerFileGroup(HiveTable table,
+                           String columnSeparator,
+                           String lineDelimiter,
+                           String filePath,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           List<ImportColumnDesc> columnExprList) throws AnalysisException {
+        this.tableId = table.getId();
+        this.valueSeparator = Separator.convertSeparator(columnSeparator);
+        this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
+        this.isNegative = false;
+        this.filePaths = Lists.newArrayList(filePath);
+        this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
+        this.columnExprList = columnExprList;
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {
@@ -120,6 +142,7 @@ public class BrokerFileGroup implements Writable {
         this.columnsFromPath = dataDescription.getColumnsFromPath();
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+        this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
         this.whereExpr = dataDescription.getWhereExpr();
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
@@ -130,17 +153,9 @@ public class BrokerFileGroup implements Writable {
     // This will parse the input DataDescription to list for BrokerFileInfo
     public void parse(Database db, DataDescription dataDescription) throws DdlException {
         // tableId
-        Table table = db.getTable(dataDescription.getTableName());
-        if (table == null) {
-            throw new DdlException("Unknown table " + dataDescription.getTableName()
-                    + " in database " + db.getFullName());
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new DdlException("Table " + table.getName() + " is not OlapTable");
-        }
-        OlapTable olapTable = (OlapTable) table;
-        tableId = table.getId();
-        table.readLock();
+        OlapTable olapTable = db.getOlapTableOrDdlException(dataDescription.getTableName());
+        tableId = olapTable.getId();
+        olapTable.readLock();
         try {
             // partitionId
             PartitionNames partitionNames = dataDescription.getPartitionNames();
@@ -149,14 +164,14 @@ public class BrokerFileGroup implements Writable {
                 for (String pName : partitionNames.getPartitionNames()) {
                     Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
                     if (partition == null) {
-                        throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
+                        throw new DdlException("Unknown partition '" + pName + "' in table '" + olapTable.getName() + "'");
                     }
                     partitionIds.add(partition.getId());
                 }
             }
 
             if (olapTable.getState() == OlapTableState.RESTORE) {
-                throw new DdlException("Table [" + table.getName() + "] is under restore");
+                throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
             }
 
             if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
@@ -165,14 +180,14 @@ public class BrokerFileGroup implements Writable {
 
             // check negative for sum aggregate type
             if (dataDescription.isNegative()) {
-                for (Column column : table.getBaseSchema()) {
+                for (Column column : olapTable.getBaseSchema()) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
                         throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
                     }
                 }
             }
         } finally {
-            table.readUnlock();
+            olapTable.readUnlock();
         }
 
         // column
@@ -203,10 +218,7 @@ public class BrokerFileGroup implements Writable {
         if (dataDescription.isLoadFromTable()) {
             String srcTableName = dataDescription.getSrcTableName();
             // src table should be hive table
-            Table srcTable = db.getTable(srcTableName);
-            if (srcTable == null) {
-                throw new DdlException("Unknown table " + srcTableName + " in database " + db.getFullName());
-            }
+            Table srcTable = db.getTableOrDdlException(srcTableName);
             if (!(srcTable instanceof HiveTable)) {
                 throw new DdlException("Source table " + srcTableName + " is not HiveTable");
             }
@@ -233,6 +245,9 @@ public class BrokerFileGroup implements Writable {
             jsonPaths = dataDescription.getJsonPaths();
             jsonRoot = dataDescription.getJsonRoot();
             fuzzyParse = dataDescription.isFuzzyParse();
+            // For broker load, we only support reading json format data line by line, so we set readJsonByLine to true here.
+            readJsonByLine = true;
+            numAsString = dataDescription.isNumAsString();
         }
     }
 
@@ -258,6 +273,10 @@ public class BrokerFileGroup implements Writable {
 
     public List<Long> getPartitionIds() {
         return partitionIds;
+    }
+
+    public Expr getPrecedingFilterExpr() {
+        return precedingFilterExpr;
     }
 
     public Expr getWhereExpr() {
@@ -338,6 +357,22 @@ public class BrokerFileGroup implements Writable {
 
     public void setFuzzyParse(boolean fuzzyParse) {
         this.fuzzyParse = fuzzyParse;
+    }
+
+    public boolean isReadJsonByLine() {
+        return readJsonByLine;
+    }
+
+    public void setReadJsonByLine(boolean readJsonByLine) {
+        this.readJsonByLine = readJsonByLine;
+    }
+
+    public boolean isNumAsString() {
+        return numAsString;
+    }
+
+    public void setNumAsString(boolean numAsString) {
+        this.numAsString = numAsString;
     }
 
     public String getJsonPaths() {

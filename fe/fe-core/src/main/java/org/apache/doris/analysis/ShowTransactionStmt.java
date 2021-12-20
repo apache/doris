@@ -40,7 +40,8 @@ public class ShowTransactionStmt extends ShowStmt {
 
     private String dbName;
     private Expr whereClause;
-    private long txnId;
+    private long txnId = -1;
+    private String label = "";
 
     public ShowTransactionStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
@@ -53,6 +54,10 @@ public class ShowTransactionStmt extends ShowStmt {
 
     public long getTxnId() {
         return txnId;
+    }
+
+    public String getLabel() {
+        return label;
     }
 
     @Override
@@ -99,22 +104,17 @@ public class ShowTransactionStmt extends ShowStmt {
                 break CHECK;
             }
             String leftKey = ((SlotRef) whereClause.getChild(0)).getColumnName();
-            if (!leftKey.equalsIgnoreCase("id")) {
+            if (leftKey.equalsIgnoreCase("id") && (whereClause.getChild(1) instanceof IntLiteral)) {
+                txnId = ((IntLiteral) whereClause.getChild(1)).getLongValue();
+            } else if (leftKey.equalsIgnoreCase("label") && (whereClause.getChild(1) instanceof StringLiteral)) {
+                label = ((StringLiteral) whereClause.getChild(1)).getStringValue();
+            } else {
                 valid = false;
-                break CHECK;
             }
-
-            // right child
-            if (!(whereClause.getChild(1) instanceof IntLiteral)) {
-                valid = false;
-                break CHECK;
-            }
-
-            txnId = ((IntLiteral) whereClause.getChild(1)).getLongValue();
         }
 
         if (!valid) {
-            throw new AnalysisException("Where clause should looks like: id = 123");
+            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label'");
         }
     }
 

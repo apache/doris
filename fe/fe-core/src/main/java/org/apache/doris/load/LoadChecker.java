@@ -32,7 +32,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
-import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.task.AgentBatchTask;
@@ -40,11 +39,8 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.HadoopLoadEtlTask;
 import org.apache.doris.task.HadoopLoadPendingTask;
-import org.apache.doris.task.InsertLoadEtlTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
-import org.apache.doris.task.MiniLoadEtlTask;
-import org.apache.doris.task.MiniLoadPendingTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
@@ -55,11 +51,11 @@ import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -173,11 +169,9 @@ public class LoadChecker extends MasterDaemon {
                     case HADOOP:
                         task = new HadoopLoadPendingTask(job);
                         break;
-                    case MINI:
-                        task = new MiniLoadPendingTask(job);
-                        break;
                     default:
-                        LOG.warn("unknown etl job type. type: {}", etlJobType.name());
+                        LOG.warn("unknown etl job type. type: {}, job id: {}, label: {}, db: {}",
+                                etlJobType.name(), job.getId(), job.getLabel(), job.getDbId());
                         break;
                 }
                 if (task != null) {
@@ -200,12 +194,6 @@ public class LoadChecker extends MasterDaemon {
                 switch (etlJobType) {
                     case HADOOP:
                         task = new HadoopLoadEtlTask(job);
-                        break;
-                    case MINI:
-                        task = new MiniLoadEtlTask(job);
-                        break;
-                    case INSERT:
-                        task = new InsertLoadEtlTask(job);
                         break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
@@ -239,7 +227,7 @@ public class LoadChecker extends MasterDaemon {
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         // get db
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -369,14 +357,14 @@ public class LoadChecker extends MasterDaemon {
 
     private Set<Long> submitPushTasks(LoadJob job, Database db) {
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
-        boolean needDecompress = (job.getEtlJobType() == EtlJobType.HADOOP) ? true : false;
+        boolean needDecompress = job.getEtlJobType() == EtlJobType.HADOOP;
         AgentBatchTask batchTask = new AgentBatchTask();
         Set<Long> jobTotalTablets = new HashSet<Long>();
 
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
                 // if table is dropped during load, the the job is failed
@@ -409,7 +397,7 @@ public class LoadChecker extends MasterDaemon {
                         return null;
                     }
                     
-                    short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
+                    short replicationNum = table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                     // check all indices (base + roll up (not include ROLLUP state index))
                     List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {
@@ -546,25 +534,13 @@ public class LoadChecker extends MasterDaemon {
                 LOG.warn("run quorum job error", e);
             }
         }
-
-        // handle async delete job
-        List<AsyncDeleteJob> quorumFinishedDeleteJobs =
-                Catalog.getCurrentCatalog().getLoadInstance().getQuorumFinishedDeleteJobs();
-        for (AsyncDeleteJob job : quorumFinishedDeleteJobs) {
-            try {
-                LOG.info("run quorum finished delete job. job: {}", job.getJobId());
-                runOneQuorumFinishedDeleteJob(job);
-            } catch (Exception e) {
-                LOG.warn("run quorum delete job error", e);
-            }
-        }
     }
     
     private void runOneQuorumFinishedJob(LoadJob job) {
         // if db is null, cancel load job
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -573,24 +549,6 @@ public class LoadChecker extends MasterDaemon {
         if (load.updateLoadJobState(job, JobState.FINISHED)) {
             load.clearJob(job, JobState.QUORUM_FINISHED);
         }
-    }
-    
-    private void runOneQuorumFinishedDeleteJob(AsyncDeleteJob job) {
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
-        long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            load.removeDeleteJobAndSetState(job);
-            return;
-        }
-
-        // if the delete job is quorum finished, just set it to finished
-        job.clearTasks();
-        job.setState(DeleteState.FINISHED);
-        // log
-        Catalog.getCurrentCatalog().getEditLog().logFinishAsyncDelete(job);
-        load.removeDeleteJobAndSetState(job);
-        LOG.info("delete job {} finished", job.getJobId());
     }
 
     public static boolean checkTimeout(LoadJob job) {

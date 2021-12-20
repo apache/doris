@@ -40,9 +40,10 @@ const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 class CompactionAction : public HttpHandler {
 public:
     CompactionAction(CompactionActionType type)
-            : _type(type),
-              _compaction_mem_tracker(
-                      MemTracker::CreateTracker(-1, "manual compaction mem tracker(unlimited)")) {}
+            : _type(type) {
+              _compaction_mem_tracker = type == RUN_COMPACTION ?
+                  MemTracker::CreateTracker(-1, "ManualCompaction", nullptr, false, false, MemTrackerLevel::TASK) : nullptr;
+    }
 
     virtual ~CompactionAction() {}
 
@@ -64,6 +65,8 @@ private:
 
     /// check param and fetch tablet_id and schema_hash from req
     Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint32_t* schema_hash);
+
+    std::shared_ptr<CumulativeCompactionPolicy> _create_cumulative_compaction_policy();
 
 private:
     CompactionActionType _type;

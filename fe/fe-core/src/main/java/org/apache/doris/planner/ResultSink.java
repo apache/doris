@@ -17,18 +17,11 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.thrift.TResultSink;
-import org.apache.doris.thrift.TResultSinkType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 
 /**
  * Result sink that forwards data to
@@ -37,19 +30,19 @@ import com.google.common.collect.Lists;
  */
 public class ResultSink extends DataSink {
     private final PlanNodeId exchNodeId;
-    private TResultSinkType sinkType;
-    private String brokerName;
-    private TResultFileSinkOptions fileSinkOptions;
 
-    public ResultSink(PlanNodeId exchNodeId, TResultSinkType sinkType) {
+    public ResultSink(PlanNodeId exchNodeId) {
         this.exchNodeId = exchNodeId;
-        this.sinkType = sinkType;
     }
 
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(prefix + "RESULT SINK\n");
+        strBuilder.append(prefix);
+        if (VectorizedUtil.isVectorized()) {
+            strBuilder.append("V");
+        }
+        strBuilder.append("RESULT SINK\n");
         return strBuilder.toString();
     }
 
@@ -57,10 +50,6 @@ public class ResultSink extends DataSink {
     protected TDataSink toThrift() {
         TDataSink result = new TDataSink(TDataSinkType.RESULT_SINK);
         TResultSink tResultSink = new TResultSink();
-        tResultSink.setType(sinkType);
-        if (fileSinkOptions != null) {
-            tResultSink.setFileOptions(fileSinkOptions);
-        }
         result.setResultSink(tResultSink);
         return result;
     }
@@ -73,28 +62,5 @@ public class ResultSink extends DataSink {
     @Override
     public DataPartition getOutputPartition() {
         return null;
-    }
-
-    public boolean isOutputFileSink() {
-        return sinkType == TResultSinkType.FILE;
-    }
-
-    public boolean needBroker() {
-        return !Strings.isNullOrEmpty(brokerName);
-    }
-
-    public String getBrokerName() {
-        return brokerName;
-    }
-
-    public void setOutfileInfo(OutFileClause outFileClause) {
-        sinkType = TResultSinkType.FILE;
-        fileSinkOptions = outFileClause.toSinkOptions();
-        brokerName = outFileClause.getBrokerDesc() == null ? null : outFileClause.getBrokerDesc().getName();
-    }
-
-    public void setBrokerAddr(String ip, int port) {
-        Preconditions.checkNotNull(fileSinkOptions);
-        fileSinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(ip, port)));
     }
 }

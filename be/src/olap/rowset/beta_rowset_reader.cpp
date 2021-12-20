@@ -17,6 +17,8 @@
 
 #include "beta_rowset_reader.h"
 
+#include <utility>
+
 #include "olap/delete_handler.h"
 #include "olap/generic_iterators.h"
 #include "olap/row_block.h"
@@ -28,12 +30,20 @@
 namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                                   const std::shared_ptr<MemTracker>& parent_tracker)
-        : _rowset(std::move(rowset)), _stats(&_owned_stats), _parent_tracker(parent_tracker) {
-    _rowset->aquire();
+                                   std::shared_ptr<MemTracker> parent_tracker)
+        : _context(nullptr),
+          _rowset(std::move(rowset)),
+          _stats(&_owned_stats),
+          _parent_tracker(std::move(parent_tracker)) {
+    _rowset->acquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
+    // If do not init the RowsetReader with a parent_tracker, use the runtime_state instance_mem_tracker
+    if (_parent_tracker == nullptr && read_context->runtime_state != nullptr) {
+        _parent_tracker = read_context->runtime_state->instance_mem_tracker();
+    }
+
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
@@ -59,7 +69,8 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
-                _rowset->end_version(), &read_options.delete_conditions);
+                _rowset->end_version(), &read_options.delete_conditions,
+                read_options.delete_condition_predicates.get());
     }
     if (read_context->predicates != nullptr) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),
@@ -68,26 +79,35 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     // if unique table with rowset [0-x] or [0-1] [2-y] [...],
     // value column predicates can be pushdown on rowset [0-x] or [2-y]
-    if (read_context->value_predicates != nullptr && _rowset->keys_type() == UNIQUE_KEYS &&
+    if (_rowset->keys_type() == UNIQUE_KEYS &&
         (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
-        read_options.column_predicates.insert(read_options.column_predicates.end(),
-                                              read_context->value_predicates->begin(),
-                                              read_context->value_predicates->end());
+        if (read_context->value_predicates != nullptr) {
+            read_options.column_predicates.insert(read_options.column_predicates.end(),
+                                                  read_context->value_predicates->begin(),
+                                                  read_context->value_predicates->end());
+        }
+        if (read_context->all_conditions != nullptr && !read_context->all_conditions->empty()) {
+            read_options.conditions = read_context->all_conditions;
+        }
     }
     read_options.use_page_cache = read_context->use_page_cache;
 
+    // load segments
+    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+            _rowset, &_segment_cache_handle, read_context->reader_type == ReaderType::READER_QUERY));
+
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
-    for (auto& seg_ptr : _rowset->_segments) {
+    for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(schema, read_options, _parent_tracker, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return OLAP_ERR_ROWSET_READER_INIT;
         }
         seg_iterators.push_back(std::move(iter));
     }
-    std::vector<RowwiseIterator*> iterators;
+    std::list<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {
         // transfer ownership of segment iterator to `_iterator`
         iterators.push_back(owned_it.release());
@@ -96,9 +116,9 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-        final_iterator = new_merge_iterator(iterators);
+        final_iterator = new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
     } else {
-        final_iterator = new_union_iterator(iterators);
+        final_iterator = new_union_iterator(iterators, _parent_tracker);
     }
     auto s = final_iterator->init(read_options);
     if (!s.ok()) {
@@ -108,10 +128,11 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(schema, 1024));
+    _input_block.reset(new RowBlockV2(schema, 1024, _parent_tracker));
 
-    // init output block and row
+    // init input/output block and row
     _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
+
     RowBlockInfo output_block_info;
     output_block_info.row_num = 1024;
     output_block_info.null_supported = true;

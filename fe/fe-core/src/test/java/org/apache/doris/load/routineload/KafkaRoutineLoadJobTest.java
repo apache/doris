@@ -17,19 +17,20 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -80,7 +81,7 @@ public class KafkaRoutineLoadJobTest {
 
     private PartitionNames partitionNames;
 
-    private ColumnSeparator columnSeparator = new ColumnSeparator(",");
+    private Separator columnSeparator = new Separator(",");
 
     private ImportSequenceStmt sequenceStmt = new ImportSequenceStmt("source_sequence");
 
@@ -97,7 +98,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testBeNumMin(@Injectable PartitionInfo partitionInfo1,
+    public void testRoutineLoadTaskConcurrentNum(@Injectable PartitionInfo partitionInfo1,
                              @Injectable PartitionInfo partitionInfo2,
                              @Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
@@ -126,13 +127,13 @@ public class KafkaRoutineLoadJobTest {
                 minTimes = 0;
             }
         };
-
+        Config.max_routine_load_task_concurrent_num = 6;
         // 2 partitions, 1 be
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName1, 1L,
                         1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList1);
-        Assert.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
+        Assert.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 3 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
@@ -150,7 +151,7 @@ public class KafkaRoutineLoadJobTest {
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
                 1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList4);
-        Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
+        Assert.assertEquals(6, routineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
 
@@ -241,35 +242,11 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testFromCreateStmtWithErrorTable(@Mocked Catalog catalog,
-                                                 @Injectable Database database) throws LoadException {
-        CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null,
-                partitionNames, null, LoadTask.MergeType.APPEND, null);
-        Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
-
-        new Expectations() {
-            {
-                database.getTable(tableNameString);
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        try {
-            KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
-            Assert.fail();
-        } catch (UserException e) {
-            LOG.info(e.getMessage());
-        }
-    }
-
-    @Test
     public void testFromCreateStmt(@Mocked Catalog catalog,
                                    @Injectable Database database,
             @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, partitionNames, null,
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null, partitionNames, null,
                 LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
         Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
         List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
@@ -279,15 +256,18 @@ public class KafkaRoutineLoadJobTest {
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }
-        Deencapsulation.setField(createRoutineLoadStmt, "kafkaPartitionOffsets", partitionIdToOffset);
-        Deencapsulation.setField(createRoutineLoadStmt, "kafkaBrokerList", serverAddress);
-        Deencapsulation.setField(createRoutineLoadStmt, "kafkaTopic", topicName);
+        RoutineLoadDataSourceProperties dsProperties = new RoutineLoadDataSourceProperties();
+        dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
+        Deencapsulation.setField(dsProperties, "kafkaBrokerList", serverAddress);
+        Deencapsulation.setField(dsProperties, "kafkaTopic", topicName);
+        Deencapsulation.setField(createRoutineLoadStmt, "dataSourceProperties", dsProperties);
+
         long dbId = 1l;
         long tableId = 2L;
 
         new Expectations() {
             {
-                database.getTable(tableNameString);
+                database.getTableNullable(tableNameString);
                 minTimes = 0;
                 result = table;
                 database.getId();

@@ -18,7 +18,9 @@
 #include "exec/orc_scanner.h"
 
 #include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
 #include "exec/local_file_reader.h"
+#include "exec/s3_reader.h"
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -26,6 +28,10 @@
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
+
+#if defined(__x86_64__)
+    #include "exec/hdfs_file_reader.h"
+#endif
 
 // orc include file didn't expose orc::TimezoneError
 // we have to declare it by hand, following is the source code in orc link
@@ -114,8 +120,9 @@ ORCScanner::ORCScanner(RuntimeState* state, RuntimeProfile* profile,
                        const TBrokerScanRangeParams& params,
                        const std::vector<TBrokerRangeDesc>& ranges,
                        const std::vector<TNetworkAddress>& broker_addresses,
+                       const std::vector<TExpr>& pre_filter_texprs,
                        ScannerCounter* counter)
-        : BaseScanner(state, profile, params, counter),
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           // _splittable(params.splittable),
@@ -230,7 +237,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                     case orc::FLOAT:
                     case orc::DOUBLE: {
                         double value = ((orc::DoubleVectorBatch*)cvb)->data[_current_line_of_group];
-                        wbytes = sprintf((char*)tmp_buf, "%f", value);
+                        wbytes = sprintf((char*)tmp_buf, "%.9f", value);
                         str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
@@ -393,10 +400,24 @@ Status ORCScanner::open_next_reader() {
             if (range.__isset.file_size) {
                 file_size = range.file_size;
             }
-            file_reader.reset(new BrokerReader(_state->exec_env(), _broker_addresses,
+            file_reader.reset(new BufferedReader(_profile, new BrokerReader(_state->exec_env(), _broker_addresses,
                                                _params.properties, range.path, range.start_offset,
-                                               file_size));
+                                               file_size)));
             break;
+        }
+        case TFileType::FILE_S3: {
+            file_reader.reset(new BufferedReader(_profile,
+                    new S3Reader(_params.properties, range.path, range.start_offset)));
+            break;
+        }
+        case TFileType::FILE_HDFS: {
+#if defined(__x86_64__)
+            file_reader.reset(new HdfsFileReader(
+                    range.hdfs_params, range.path, range.start_offset));
+            break;
+#else
+            return Status::InternalError("HdfsFileReader do not support on non x86 platform");
+#endif
         }
         default: {
             std::stringstream ss;
@@ -436,6 +457,7 @@ Status ORCScanner::open_next_reader() {
 }
 
 void ORCScanner::close() {
+    BaseScanner::close();
     _batch = nullptr;
     _reader.reset(nullptr);
     _row_reader.reset(nullptr);

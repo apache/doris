@@ -32,6 +32,25 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 > Note:
 > 1. The following approaches are based on highly available deployments. That is, data 3 replicas, FE high availability.
 
+## Preparen
+
+1. Turn off the replica repair and balance operation.
+
+     There will be node restarts during the upgrade process, so unnecessary cluster balancing and replica repair logic may be triggered. You can close it first with the following command:
+
+     ```
+     # Turn off the replica ealance logic. After it is closed, the balancing operation of the ordinary table replica will no longer be triggered.
+     $ mysql-client> admin set frontend config("disable_balance" = "true");
+
+     # Turn off the replica balance logic of the colocation table. After it is closed, the replica redistribution operation of the colocation table will no longer be triggered.
+     $ mysql-client> admin set frontend config("disable_colocate_balance" = "true");
+
+     # Turn off the replica scheduling logic. After shutting down, all generated replica repair and balancing tasks will no longer be scheduled.
+     $ mysql-client> admin set frontend config("disable_tablet_scheduler" = "true");
+     ```
+
+     After the cluster is upgraded, just use the above command to set the corresponding configuration to the original value.
+
 ## Test the correctness of BE upgrade
 
 1. Arbitrarily select a BE node and deploy the latest palo_be binary file.
@@ -40,7 +59,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
 ## Testing FE Metadata Compatibility
 
-0. **Important! Exceptional metadata compatibility is likely to cause data can not be restored!!**
+0. **Important! Exceptional metadata compatibility is likely to cause data cannot be restored!!**
 1. Deploy a test FE process (such as your own local developer) using the new version alone.
 2. Modify the FE configuration file fe.conf for testing and set all ports to **different from online**.
 3. Add configuration in fe.conf: cluster_id=123456
@@ -61,4 +80,4 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
 1. Confirm that the new version of the file is deployed. Restart FE and BE instances one by one.
 2. It is suggested that BE be restarted one by one and FE be restarted one by one. Because Doris usually guarantees backward compatibility between FE and BE, that is, the old version of FE can access the new version of BE. However, the old version of BE may not be supported to access the new version of FE.
-3. It is recommended to restart the next instance after confirming that the previous instance started successfully. Refer to the Installation Deployment Document for the identification of successful instance startup.
+3. It is recommended to restart the next instance after confirming the previous instance started successfully. Refer to the Installation Deployment Document for the identification of successful instance startup.

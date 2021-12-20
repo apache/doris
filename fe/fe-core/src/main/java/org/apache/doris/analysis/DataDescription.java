@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -34,15 +33,9 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.StringReader;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -51,6 +44,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import java.io.StringReader;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 // used to describe data info which is needed to import.
 //
@@ -95,13 +95,14 @@ public class DataDescription {
     private final String tableName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
-    private final ColumnSeparator columnSeparator;
+    private final Separator columnSeparator;
     private final String fileFormat;
     private final boolean isNegative;
     // column names in the path
     private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
+    private final Expr precedingFilterExpr;
     private final Expr whereExpr;
     private final String srcTableName;
     // this only used in multi load, all filePaths is file not dir
@@ -110,13 +111,15 @@ public class DataDescription {
     private List<String> fileFieldNames;
     // Used for mini load
     private TNetworkAddress beAddr;
-    private String lineDelimiter;
+    private Separator lineDelimiter;
     private String columnDef;
     private long backendId;
     private boolean stripOuterArray = false;
     private String jsonPaths = "";
     private String jsonRoot = "";
     private boolean fuzzyParse = false;
+    private boolean readJsonByLine = false;
+    private boolean numAsString = false;
 
     private String sequenceCol;
 
@@ -134,32 +137,35 @@ public class DataDescription {
 
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     private final Expr deleteCondition;
+    private Map<String, String> properties;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
-                           ColumnSeparator columnSeparator,
+                           Separator columnSeparator,
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, LoadTask.MergeType.APPEND, null, null);
+                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
-                           ColumnSeparator columnSeparator,
+                           Separator columnSeparator,
                            String fileFormat,
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
                            Expr deleteCondition,
-                           String sequenceColName) {
+                           String sequenceColName,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -169,11 +175,13 @@ public class DataDescription {
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
         this.srcTableName = null;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
+        this.properties = properties;
     }
 
     // data from table external_hive_table
@@ -184,7 +192,8 @@ public class DataDescription {
                            List<Expr> columnMappingList,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
-                           Expr deleteCondition) {
+                           Expr deleteCondition,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = null;
@@ -194,10 +203,12 @@ public class DataDescription {
         this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = null; // external hive table does not support file filter expr
         this.whereExpr = whereExpr;
         this.srcTableName = srcTableName;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
+        this.properties = properties;
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
@@ -381,6 +392,10 @@ public class DataDescription {
         return partitionNames;
     }
 
+    public Expr getPrecdingFilterExpr() {
+        return precedingFilterExpr;
+    }
+
     public Expr getWhereExpr() {
         return whereExpr;
     }
@@ -419,7 +434,7 @@ public class DataDescription {
         if (columnSeparator == null) {
             return null;
         }
-        return columnSeparator.getColumnSeparator();
+        return columnSeparator.getSeparator();
     }
 
     public boolean isNegative() {
@@ -435,10 +450,13 @@ public class DataDescription {
     }
 
     public String getLineDelimiter() {
-        return lineDelimiter;
+        if (lineDelimiter == null) {
+            return null;
+        }
+        return lineDelimiter.getSeparator();
     }
 
-    public void setLineDelimiter(String lineDelimiter) {
+    public void setLineDelimiter(Separator lineDelimiter) {
         this.lineDelimiter = lineDelimiter;
     }
 
@@ -484,6 +502,14 @@ public class DataDescription {
 
     public void setFuzzyParse(boolean fuzzyParse) {
         this.fuzzyParse = fuzzyParse;
+    }
+
+    public boolean isNumAsString() {
+        return numAsString;
+    }
+
+    public void setNumAsString(boolean numAsString) {
+        this.numAsString = numAsString;
     }
 
     public String getJsonPaths() {
@@ -686,29 +712,18 @@ public class DataDescription {
     }
 
     private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new AnalysisException("Database[" + fullDbName + "] does not exist");
-        }
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new AnalysisException("Unknown table " + tableName
-                    + " in database " + db.getFullName());
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("Table " + table.getName() + " is not OlapTable");
-        }
-        OlapTable olapTable = (OlapTable) table;
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(fullDbName);
+        OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
         // no sequence column in load and table schema
         if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
             return;
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
-            throw new AnalysisException("Table " + table.getName() + " has sequence column, need to specify the sequence column");
+            throw new AnalysisException("Table " + olapTable.getName() + " has sequence column, need to specify the sequence column");
         }
         if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
-            throw new AnalysisException("There is no sequence column in the table " + table.getName());
+            throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());
         }
         // check source sequence column is in parsedColumnExprList or Table base schema
         boolean hasSourceSequenceCol = false;
@@ -729,8 +744,38 @@ public class DataDescription {
             }
         }
         if (!hasSourceSequenceCol) {
-            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + table.getName()
+            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + olapTable.getName()
                     + " or the COLUMNS and SET clause");
+        }
+    }
+
+    private void analyzeProperties() throws AnalysisException {
+        Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        analysisMap.putAll(properties);
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
+            lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
+            lineDelimiter.analyze();
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE)) {
+            fuzzyParse = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE));
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY)) {
+            stripOuterArray = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY));
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONPATHS)) {
+            jsonPaths = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONPATHS);
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONROOT)) {
+            jsonRoot = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONROOT);
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
+            numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
         }
     }
 
@@ -796,6 +841,10 @@ public class DataDescription {
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
+
+        if (properties != null) {
+            analyzeProperties();
+        }
     }
 
     /*

@@ -19,9 +19,8 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/filesystem.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <cstdlib>
+#include <filesystem>
 
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "util/disk_info.h"
@@ -29,7 +28,7 @@
 #include "util/logging.h"
 #include "util/metrics.h"
 
-using boost::filesystem::path;
+using std::filesystem::path;
 using std::string;
 using std::vector;
 using std::set;
@@ -63,7 +62,7 @@ TEST_F(TmpFileMgrTest, TestFileAllocation) {
     TmpFileMgr::File* file;
     Status status = tmp_file_mgr.get_file(tmp_devices[0], id, &file);
     EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(file != NULL);
+    EXPECT_TRUE(file != nullptr);
     // Apply writes of variable sizes and check space was allocated correctly.
     int64_t write_sizes[] = {1, 10, 1024, 4, 1024 * 1024 * 8, 1024 * 1024 * 8, 16, 10};
     int num_write_sizes = sizeof(write_sizes) / sizeof(write_sizes[0]);
@@ -74,12 +73,12 @@ TEST_F(TmpFileMgrTest, TestFileAllocation) {
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(next_offset, offset);
         next_offset = offset + write_sizes[i];
-        EXPECT_EQ(next_offset, boost::filesystem::file_size(file->path()));
+        EXPECT_EQ(next_offset, std::filesystem::file_size(file->path()));
     }
     // Check that cleanup is correct.
     status = file->remove();
     EXPECT_TRUE(status.ok());
-    EXPECT_FALSE(boost::filesystem::exists(file->path()));
+    EXPECT_FALSE(std::filesystem::exists(file->path()));
     // check_metrics(&tmp_file_mgr);
 }
 // Test that we can do initialization with two directories on same device and
@@ -176,7 +175,7 @@ TEST_F(TmpFileMgrTest, TestReportError) {
     // The good device should still be usable.
     TmpFileMgr::File* good_file;
     EXPECT_TRUE(tmp_file_mgr.get_file(devices[good_device], id, &good_file).ok());
-    EXPECT_TRUE(good_file != NULL);
+    EXPECT_TRUE(good_file != nullptr);
     EXPECT_TRUE(good_file->allocate_space(128, &offset).ok());
     // Attempts to allocate new files on bad device should succeed.
     EXPECT_TRUE(tmp_file_mgr.get_file(devices[bad_device], id, &bad_file).ok());

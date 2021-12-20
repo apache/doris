@@ -48,14 +48,14 @@ public class ThriftServer {
     private Set<TNetworkAddress> connects;
 
     public static final String SIMPLE = "SIMPLE";
-    public static final String THREADED = "THREADED";
+    public static final String THREADED_SELECTOR = "THREADED_SELECTOR";
     public static final String THREAD_POOL = "THREAD_POOL";
 
     public enum ThriftServerType {
         // TSimplerServer
         SIMPLE(ThriftServer.SIMPLE),
         // TThreadedSelectorServer
-        THREADED(ThriftServer.THREADED),
+        THREADED_SELECTOR(ThriftServer.THREADED_SELECTOR),
         // TThreadPoolServer
         THREAD_POOL(ThriftServer.THREAD_POOL);
 
@@ -125,7 +125,7 @@ public class ThriftServer {
                 case SIMPLE:
                     createSimpleServer();
                     break;
-                case THREADED:
+                case THREADED_SELECTOR:
                     createThreadedServer();
                     break;
                 default:

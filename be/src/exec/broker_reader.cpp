@@ -81,7 +81,8 @@ Status BrokerReader::open() {
     TBrokerOpenReaderResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                          << ", status=" << status.get_error_msg();
@@ -122,14 +123,14 @@ Status BrokerReader::open() {
 }
 
 //not support
-Status BrokerReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
-    return Status::NotSupported("Not support");
+Status BrokerReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) {
+    return Status::NotSupported("broker reader doesn't support read_one_message interface");
 }
 
-Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
-    DCHECK_NE(*buf_len, 0);
-    RETURN_IF_ERROR(readat(_cur_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf));
-    if (*buf_len == 0) {
+Status BrokerReader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) {
+    DCHECK_NE(buf_len, 0);
+    RETURN_IF_ERROR(readat(_cur_offset, buf_len, bytes_read, buf));
+    if (*bytes_read == 0) {
         *eof = true;
     } else {
         *eof = false;
@@ -148,7 +149,8 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
     TBrokerReadResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                          << ", status=" << status.get_error_msg();
@@ -222,7 +224,8 @@ void BrokerReader::close() {
     TBrokerOperationStatus response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                          << ", status=" << status.get_error_msg();

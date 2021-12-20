@@ -91,7 +91,7 @@ A: ALTER TABLE example_db.my_table set ("colocate_with"="target_table");
 
 Q: 229144; colcoate join?
 
-A: set disable_colocate_join = true; 就可以禁用Colocate Join，查询时就会使用Shuffle Join 和Broadcast Join
+A: set disable_colocate_join = true; 就可以禁用Colocate Join, 查询时就会使用Shuffle Join 和Broadcast Join
 
 ## keyword
 

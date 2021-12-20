@@ -19,12 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rewrite.FEFunction;
+import org.apache.doris.rewrite.FEFunctionList;
 import org.apache.doris.rewrite.FEFunctions;
 
 import com.google.common.base.Joiner;
@@ -74,7 +75,8 @@ public enum ExpressionFunctions {
             // 1. Not UDF
             // 2. Not in NonNullResultWithNullParamFunctions
             // 3. Has null parameter
-            if (!Catalog.getCurrentCatalog().isNonNullResultWithNullParamFunction(fn.getFunctionName().getFunction())
+            if ((fn.getNullableMode() == Function.NullableMode.DEPEND_ON_ARGUMENT
+                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(fn.getFunctionName().getFunction()))
                     && !fn.isUdf()) {
                 for (Expr e : constExpr.getChildren()) {
                     if (e instanceof NullLiteral) {
@@ -83,12 +85,20 @@ public enum ExpressionFunctions {
                 }
             }
 
+            // In some cases, non-deterministic functions should not be rewritten as constants,
+            // such as non-deterministic functions in the create view statement.
+            // eg: create view v1 as select rand();
+            if (Catalog.getCurrentCatalog().isNondeterministicFunction(fn.getFunctionName().getFunction())
+                    && ConnectContext.get() != null && ConnectContext.get().notEvalNondeterministicFunction()) {
+                return constExpr;
+            }
+
             List<ScalarType> argTypes = new ArrayList<>();
             for (Type type : fn.getArgs()) {
                 argTypes.add((ScalarType) type);
             }
             FEFunctionSignature signature = new FEFunctionSignature(fn.functionName(),
-                    argTypes.toArray(new ScalarType[argTypes.size()]), (ScalarType) fn.getReturnType());
+                    argTypes.toArray(new ScalarType[argTypes.size()]), fn.getReturnType());
             FEFunctionInvoker invoker = getFunction(signature);
             if (invoker != null) {
                 try {
@@ -99,13 +109,7 @@ public enum ExpressionFunctions {
                 }
             }
         } else if (constExpr instanceof SysVariableDesc) {
-            try {
-                VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (SysVariableDesc) constExpr);
-                return ((SysVariableDesc) constExpr).getLiteralExpr();
-            } catch (AnalysisException e) {
-                LOG.warn("failed to get session variable value: " + ((SysVariableDesc) constExpr).getName());
-                return constExpr;
-            }
+            return ((SysVariableDesc) constExpr).getLiteralExpr();
         }
         return constExpr;
     }
@@ -141,20 +145,30 @@ public enum ExpressionFunctions {
                 new ImmutableMultimap.Builder<String, FEFunctionInvoker>();
         Class clazz = FEFunctions.class;
         for (Method method : clazz.getDeclaredMethods()) {
-            FEFunction annotation = method.getAnnotation(FEFunction.class);
-            if (annotation != null) {
-                String name = annotation.name();
-                ScalarType returnType = ScalarType.createType(annotation.returnType());
-                List<ScalarType> argTypes = new ArrayList<>();
-                for (String type : annotation.argTypes()) {
-                    argTypes.add(ScalarType.createType(type));
+            FEFunctionList annotationList = method.getAnnotation(FEFunctionList.class);
+            if (annotationList != null) {
+                for (FEFunction f : annotationList.value()) {
+                    registerFEFunction(mapBuilder, method, f);
                 }
-                FEFunctionSignature signature = new FEFunctionSignature(name,
-                        argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
-                mapBuilder.put(name, new FEFunctionInvoker(method, signature));
             }
+            registerFEFunction(mapBuilder, method, method.getAnnotation(FEFunction.class));
         }
         this.functions = mapBuilder.build();
+    }
+
+    private void registerFEFunction(ImmutableMultimap.Builder<String, FEFunctionInvoker> mapBuilder,
+                                    Method method, FEFunction annotation) {
+        if (annotation != null) {
+            String name = annotation.name();
+            Type returnType = Type.fromPrimitiveType(PrimitiveType.valueOf(annotation.returnType()));
+            List<ScalarType> argTypes = new ArrayList<>();
+            for (String type : annotation.argTypes()) {
+                argTypes.add(ScalarType.createType(type));
+            }
+            FEFunctionSignature signature = new FEFunctionSignature(name,
+                    argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
+            mapBuilder.put(name, new FEFunctionInvoker(method, signature));
+        }
     }
 
     public static class FEFunctionInvoker {
@@ -222,7 +236,7 @@ public enum ExpressionFunctions {
                 exprs = new IntLiteral[args.size()];
             } else if (argType.isDateType()) {
                 exprs = new DateLiteral[args.size()];
-            } else if (argType.isDecimal()) {
+            } else if (argType.isDecimalV2()) {
                 exprs = new DecimalLiteral[args.size()];
             } else if (argType.isFloatingPointType()) {
                 exprs = new FloatLiteral[args.size()];
@@ -230,6 +244,12 @@ public enum ExpressionFunctions {
                 exprs = new BoolLiteral[args.size()];
             } else {
                 throw new IllegalArgumentException("Doris doesn't support type:" + argType);
+            }
+        
+            // if args all is NullLiteral
+            long size = args.stream().filter(e -> e instanceof NullLiteral).count();
+            if (args.size() == size) {
+                exprs = new NullLiteral[args.size()];
             }
             args.toArray(exprs);
             return exprs;
@@ -239,9 +259,9 @@ public enum ExpressionFunctions {
     public static class FEFunctionSignature {
         private final String name;
         private final ScalarType[] argTypes;
-        private final ScalarType returnType;
+        private final Type returnType;
 
-        public FEFunctionSignature(String name, ScalarType[] argTypes, ScalarType returnType) {
+        public FEFunctionSignature(String name, ScalarType[] argTypes, Type returnType) {
             this.name = name;
             this.argTypes = argTypes;
             this.returnType = returnType;
@@ -251,7 +271,7 @@ public enum ExpressionFunctions {
             return argTypes;
         }
 
-        public ScalarType getReturnType() {
+        public Type getReturnType() {
             return returnType;
         }
 

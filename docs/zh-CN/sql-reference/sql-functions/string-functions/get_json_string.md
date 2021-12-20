@@ -28,7 +28,7 @@ under the License.
 ## description
 ### Syntax
 
-`VARCHAR get_json_string(VARCHAR json_str, VARCHAR json_path)
+`VARCHAR get_json_string(VARCHAR json_str, VARCHAR json_path)`
 
 
 解析并获取 json 字符串内指定路径的字符串内容。

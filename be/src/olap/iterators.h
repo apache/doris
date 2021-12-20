@@ -21,6 +21,8 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/column_predicate.h"
+#include "olap/block_column_predicate.h"
 
 namespace doris {
 
@@ -67,6 +69,8 @@ public:
 
     // delete conditions used by column index to filter pages
     std::vector<const Conditions*> delete_conditions;
+
+    std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     // TODO(hkp): refactor the column predicate framework
@@ -106,6 +110,9 @@ public:
     // Return the data id such as segment id, used for keep the insert order when do
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
+
+protected:
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 } // namespace doris

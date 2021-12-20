@@ -22,6 +22,7 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 
 namespace doris {
@@ -35,9 +36,11 @@ public:
                  int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
     void to_schema_pb(ColumnPB* column);
+    uint32_t mem_size() const;
 
     inline int32_t unique_id() const { return _unique_id; }
     inline std::string name() const { return _col_name; }
+    inline void set_name(std::string col_name) { _col_name = col_name; }
     inline FieldType type() const { return _type; }
     inline bool is_key() const { return _is_key; }
     inline bool is_nullable() const { return _is_nullable; }
@@ -50,6 +53,7 @@ public:
     std::string referenced_column() const { return _referenced_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
+    inline void set_index_length(size_t index_length) { _index_length = index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
     int precision() const { return _precision; }
     int frac() const { return _frac; }
@@ -114,6 +118,8 @@ public:
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
+    uint32_t mem_size() const;
+
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
@@ -124,6 +130,8 @@ public:
     inline size_t num_short_key_columns() const { return _num_short_key_columns; }
     inline size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
     inline KeysType keys_type() const { return _keys_type; }
+    inline SortType sort_type() const { return _sort_type; }
+    inline size_t sort_col_num() const { return _sort_col_num; }
     inline CompressKind compress_kind() const { return _compress_kind; }
     inline size_t next_column_unique_id() const { return _next_column_unique_id; }
     inline double bloom_filter_fpp() const { return _bf_fpp; }
@@ -143,6 +151,8 @@ private:
 
 private:
     KeysType _keys_type = DUP_KEYS;
+    SortType _sort_type = SortType::LEXICAL;
+    size_t _sort_col_num = 0;
     std::vector<TabletColumn> _cols;
     std::unordered_map<std::string, int32_t> _field_name_to_index;
     size_t _num_columns = 0;

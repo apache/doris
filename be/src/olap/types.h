@@ -26,12 +26,13 @@
 #include <string>
 
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "olap/collection.h"
+#include "gutil/strings/numbers.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h" // for TabletColumn
 #include "olap/uint24.h"
+#include "runtime/collection_value.h"
 #include "runtime/datetime_value.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
@@ -57,6 +58,9 @@ public:
     virtual void copy_object(void* dest, const void* src, MemPool* mem_pool) const = 0;
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
+
+    // use only in zone map to cut data
+    virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
 
     //convert and deep copy value from other type's source
     virtual OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
@@ -99,6 +103,10 @@ public:
 
     inline void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
 
+    inline void direct_copy_may_cut(void* dest, const void* src) const override {
+        _direct_copy_may_cut(dest, src);
+    }
+
     //convert and deep copy value from other type's source
     OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                             MemPool* mem_pool) const override {
@@ -129,6 +137,7 @@ private:
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_copy_object)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
+    void (*_direct_copy_may_cut)(void* dest, const void* src);
     OLAPStatus (*_convert_from)(void* dest, const void* src, const TypeInfo* src_type,
                                 MemPool* mem_pool);
 
@@ -154,33 +163,33 @@ public:
             : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
 
     inline bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const Collection*>(left);
-        auto r_value = reinterpret_cast<const Collection*>(right);
-        if (l_value->length != r_value->length) {
+        auto l_value = reinterpret_cast<const CollectionValue*>(left);
+        auto r_value = reinterpret_cast<const CollectionValue*>(right);
+        if (l_value->length() != r_value->length()) {
             return false;
         }
-        size_t len = l_value->length;
+        size_t len = l_value->length();
 
-        if (!l_value->has_null && !r_value->has_null) {
+        if (!l_value->has_null() && !r_value->has_null()) {
             for (size_t i = 0; i < len; ++i) {
-                if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
-                                            (uint8_t*)(r_value->data) + i * _item_size)) {
+                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
+                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
                     return false;
                 }
             }
         } else {
             for (size_t i = 0; i < len; ++i) {
-                if (l_value->null_signs[i]) {
-                    if (r_value->null_signs[i]) { // both are null
+                if (l_value->is_null_at(i)) {
+                    if (r_value->is_null_at(i)) { // both are null
                         continue;
                     } else { // left is null & right is not null
                         return false;
                     }
-                } else if (r_value->null_signs[i]) { // left is not null & right is null
+                } else if (r_value->is_null_at(i)) { // left is not null & right is null
                     return false;
                 }
-                if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
-                                            (uint8_t*)(r_value->data) + i * _item_size)) {
+                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
+                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
                     return false;
                 }
             }
@@ -189,16 +198,16 @@ public:
     }
 
     inline int cmp(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const Collection*>(left);
-        auto r_value = reinterpret_cast<const Collection*>(right);
-        size_t l_length = l_value->length;
-        size_t r_length = r_value->length;
+        auto l_value = reinterpret_cast<const CollectionValue*>(left);
+        auto r_value = reinterpret_cast<const CollectionValue*>(right);
+        size_t l_length = l_value->length();
+        size_t r_length = r_value->length();
         size_t cur = 0;
 
-        if (!l_value->has_null && !r_value->has_null) {
+        if (!l_value->has_null() && !r_value->has_null()) {
             while (cur < l_length && cur < r_length) {
-                int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
-                                                  (uint8_t*)(r_value->data) + cur * _item_size);
+                int result = _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
+                                                  (uint8_t*)(r_value->data()) + cur * _item_size);
                 if (result != 0) {
                     return result;
                 }
@@ -206,15 +215,16 @@ public:
             }
         } else {
             while (cur < l_length && cur < r_length) {
-                if (l_value->null_signs[cur]) {
-                    if (!r_value->null_signs[cur]) { // left is null & right is not null
+                if (l_value->is_null_at(cur)) {
+                    if (!r_value->is_null_at(cur)) { // left is null & right is not null
                         return -1;
                     }
-                } else if (r_value->null_signs[cur]) { // left is not null & right is null
+                } else if (r_value->is_null_at(cur)) { // left is not null & right is null
                     return 1;
                 } else { // both are not null
-                    int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
-                                                      (uint8_t*)(r_value->data) + cur * _item_size);
+                    int result =
+                            _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
+                                                 (uint8_t*)(r_value->data()) + cur * _item_size);
                     if (result != 0) {
                         return result;
                     }
@@ -233,34 +243,36 @@ public:
     }
 
     inline void shallow_copy(void* dest, const void* src) const override {
-        *reinterpret_cast<Collection*>(dest) = *reinterpret_cast<const Collection*>(src);
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
+        dest_value->shallow_copy(src_value);
     }
 
     inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
-        auto dest_value = reinterpret_cast<Collection*>(dest);
-        auto src_value = reinterpret_cast<const Collection*>(src);
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
-        dest_value->length = src_value->length;
+        dest_value->set_length(src_value->length());
 
-        size_t item_size = src_value->length * _item_size;
-        size_t nulls_size = src_value->has_null ? src_value->length : 0;
-        dest_value->data = mem_pool->allocate(item_size + nulls_size);
-        dest_value->has_null = src_value->has_null;
-        dest_value->null_signs = src_value->has_null
-                                         ? reinterpret_cast<bool*>(dest_value->data) + item_size
-                                         : nullptr;
+        size_t item_size = src_value->length() * _item_size;
+        size_t nulls_size = src_value->has_null() ? src_value->length() : 0;
+        dest_value->set_data(mem_pool->allocate(item_size + nulls_size));
+        dest_value->set_has_null(src_value->has_null());
+        dest_value->set_null_signs(src_value->has_null()
+                                           ? reinterpret_cast<bool*>(dest_value->mutable_data()) +
+                                                     item_size
+                                           : nullptr);
 
         // copy null_signs
-        if (src_value->has_null) {
-            memory_copy(dest_value->null_signs, src_value->null_signs,
-                        sizeof(bool) * src_value->length);
+        if (src_value->has_null()) {
+            dest_value->copy_null_signs(src_value);
         }
 
         // copy item
-        for (uint32_t i = 0; i < src_value->length; ++i) {
+        for (uint32_t i = 0; i < src_value->length(); ++i) {
             if (dest_value->is_null_at(i)) continue;
-            _item_type_info->deep_copy((uint8_t*)(dest_value->data) + i * _item_size,
-                                       (uint8_t*)(src_value->data) + i * _item_size, mem_pool);
+            _item_type_info->deep_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
+                                       (uint8_t*)(src_value->data()) + i * _item_size, mem_pool);
         }
     }
 
@@ -268,24 +280,27 @@ public:
         deep_copy(dest, src, mem_pool);
     }
 
-    // TODO llj: How to ensure sufficient length of item
     inline void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<Collection*>(dest);
-        auto src_value = reinterpret_cast<const Collection*>(src);
-
-        dest_value->length = src_value->length;
-        dest_value->has_null = src_value->has_null;
-        if (src_value->has_null) {
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
+        dest_value->set_length(src_value->length());
+        dest_value->set_has_null(src_value->has_null());
+        if (src_value->has_null()) {
             // direct copy null_signs
-            memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
+            memory_copy(dest_value->mutable_null_signs(), src_value->null_signs(),
+                        src_value->length());
         }
 
         // direct opy item
-        for (uint32_t i = 0; i < src_value->length; ++i) {
+        for (uint32_t i = 0; i < src_value->length(); ++i) {
             if (dest_value->is_null_at(i)) continue;
-            _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size,
-                                         (uint8_t*)(src_value->data) + i * _item_size);
+            _item_type_info->direct_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
+                                         (uint8_t*)(src_value->data()) + i * _item_size);
         }
+    }
+
+    inline void direct_copy_may_cut(void* dest, const void* src) const override {
+        direct_copy(dest, src);
     }
 
     OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
@@ -298,14 +313,14 @@ public:
     }
 
     std::string to_string(const void* src) const override {
-        auto src_value = reinterpret_cast<const Collection*>(src);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
         std::string result = "[";
 
-        for (size_t i = 0; i < src_value->length; ++i) {
+        for (size_t i = 0; i < src_value->length(); ++i) {
             std::string item =
-                    _item_type_info->to_string((uint8_t*)(src_value->data) + i * _item_size);
+                    _item_type_info->to_string((uint8_t*)(src_value->data()) + i * _item_size);
             result += item;
-            if (i != src_value->length - 1) {
+            if (i != src_value->length() - 1) {
                 result += ", ";
             }
         }
@@ -322,20 +337,21 @@ public:
     }
 
     inline uint32_t hash_code(const void* data, uint32_t seed) const override {
-        auto value = reinterpret_cast<const Collection*>(data);
-        uint32_t result = HashUtil::hash(&(value->length), sizeof(size_t), seed);
-        for (size_t i = 0; i < value->length; ++i) {
-            if (value->null_signs[i]) {
+        auto value = reinterpret_cast<const CollectionValue*>(data);
+        auto len = value->length();
+        uint32_t result = HashUtil::hash(&len, sizeof(len), seed);
+        for (size_t i = 0; i < len; ++i) {
+            if (value->is_null_at(i)) {
                 result = seed * result;
             } else {
-                result = seed * result +
-                         _item_type_info->hash_code((uint8_t*)(value->data) + i * _item_size, seed);
+                result = seed * result + _item_type_info->hash_code(
+                                                 (uint8_t*)(value->data()) + i * _item_size, seed);
             }
         }
         return result;
     }
 
-    inline const size_t size() const override { return sizeof(Collection); }
+    inline const size_t size() const override { return sizeof(CollectionValue); }
 
     inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
@@ -350,6 +366,8 @@ extern bool is_scalar_type(FieldType field_type);
 
 extern TypeInfo* get_scalar_type_info(FieldType field_type);
 
+extern TypeInfo* get_collection_type_info(FieldType sub_type);
+
 extern TypeInfo* get_type_info(FieldType field_type);
 
 extern TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
@@ -357,7 +375,7 @@ extern TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
 extern TypeInfo* get_type_info(const TabletColumn* col);
 
 // support following formats when convert varchar to date
-static const std::vector<std::string> DATE_FORMATS{
+static const std::vector<std::string> DATE_FORMATS {
         "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d", "%y/%m/%d",
 };
 
@@ -436,6 +454,10 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
     using CppType = Slice;
 };
 template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_STRING> {
+    using CppType = Slice;
+};
+template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
@@ -445,7 +467,7 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
 };
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
-    using CppType = Collection;
+    using CppType = CollectionValue;
 };
 
 template <FieldType field_type>
@@ -486,6 +508,8 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
+    static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
+
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) {
         return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
@@ -504,15 +528,13 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static std::string to_string(const void* src) {
-        std::stringstream stream;
-        stream << *reinterpret_cast<const CppType*>(src);
-        return stream.str();
+        return std::to_string(*reinterpret_cast<const CppType*>(src));
     }
 
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0;
         if (scan_key.length() > 0) {
-            value = static_cast<CppType>(strtol(scan_key.c_str(), NULL, 10));
+            value = static_cast<CppType>(strtol(scan_key.c_str(), nullptr, 10));
         }
         *reinterpret_cast<CppType*>(buf) = value;
         return OLAP_SUCCESS;
@@ -522,7 +544,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 static void prepare_char_before_convert(const void* src) {
     Slice* slice = const_cast<Slice*>(reinterpret_cast<const Slice*>(src));
     char* buf = slice->data;
-    auto p = slice->size - 1;
+    int64_t p = slice->size - 1;
     while (p >= 0 && buf[p] == '\0') {
         p--;
     }
@@ -573,7 +595,8 @@ struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
 
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR ||
+            src_type->type() == OLAP_FIELD_TYPE_STRING) {
             return arithmetic_convert_from_varchar<CppType>(dest, src);
         } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
             return numeric_convert_from_char<CppType>(dest, src);
@@ -611,7 +634,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
         int128_t value = 0;
 
         const char* value_string = scan_key.c_str();
-        char* end = NULL;
+        char* end = nullptr;
         value = strtol(value_string, &end, 10);
         if (*end != 0) {
             value = 0;
@@ -698,6 +721,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
     static void direct_copy(void* dest, const void* src) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
+
+    static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
+
     static void set_to_max(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = ~((int128_t)(1) << 127);
     }
@@ -802,7 +828,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         tm time_tm;
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d", &time_tm);
 
-        if (NULL != res) {
+        if (nullptr != res) {
             int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 +
                         time_tm.tm_mday;
             *reinterpret_cast<CppType*>(buf) = value;
@@ -845,7 +871,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         }
 
         if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR ||
-            src_type->type() == OLAP_FIELD_TYPE_CHAR) {
+            src_type->type() == OLAP_FIELD_TYPE_CHAR ||
+            src_type->type() == OLAP_FIELD_TYPE_STRING) {
             if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
                 prepare_char_before_convert(src);
             }
@@ -882,7 +909,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
         tm time_tm;
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
 
-        if (NULL != res) {
+        if (nullptr != res) {
             CppType value = ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L +
                              time_tm.tm_mday) *
                                     1000000L +
@@ -948,9 +975,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
     }
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
-        if (value_len > OLAP_STRING_MAX_LENGTH) {
+        if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
             LOG(WARNING) << "the len of value string is too long, len=" << value_len
-                         << ", max_len=" << OLAP_STRING_MAX_LENGTH;
+                         << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
@@ -973,6 +1000,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto slice = reinterpret_cast<const Slice*>(src);
         return slice->to_string();
     }
+
     static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
@@ -999,6 +1027,17 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0, slice->size);
     }
+
+    static void direct_copy_may_cut(void* dest, const void* src) {
+        auto l_slice = reinterpret_cast<Slice*>(dest);
+        auto r_slice = reinterpret_cast<const Slice*>(src);
+
+        auto min_size =
+                MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size : MAX_ZONE_MAP_INDEX_SIZE;
+        memory_copy(l_slice->data, r_slice->data, min_size);
+        l_slice->size = min_size;
+    }
+
     static uint32_t hash_code(const void* data, uint32_t seed) {
         auto slice = reinterpret_cast<const Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
@@ -1007,6 +1046,55 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
 
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+        size_t value_len = scan_key.length();
+        if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
+            LOG(WARNING) << "the len of value string is too long, len=" << value_len
+                         << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        }
+
+        auto slice = reinterpret_cast<Slice*>(buf);
+        memory_copy(slice->data, scan_key.c_str(), value_len);
+        slice->size = value_len;
+        return OLAP_SUCCESS;
+    }
+
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+                                   MemPool* mem_pool) {
+        switch (src_type->type()) {
+        case OLAP_FIELD_TYPE_TINYINT:
+        case OLAP_FIELD_TYPE_SMALLINT:
+        case OLAP_FIELD_TYPE_INT:
+        case OLAP_FIELD_TYPE_BIGINT:
+        case OLAP_FIELD_TYPE_LARGEINT:
+        case OLAP_FIELD_TYPE_FLOAT:
+        case OLAP_FIELD_TYPE_DOUBLE:
+        case OLAP_FIELD_TYPE_DECIMAL: {
+            auto result = src_type->to_string(src);
+            auto slice = reinterpret_cast<Slice*>(dest);
+            slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
+            memcpy(slice->data, result.c_str(), result.size());
+            slice->size = result.size();
+            return OLAP_SUCCESS;
+        }
+        case OLAP_FIELD_TYPE_CHAR:
+            prepare_char_before_convert(src);
+            deep_copy(dest, src, mem_pool);
+            return OLAP_SUCCESS;
+        default:
+            return OLAP_ERR_INVALID_SCHEMA;
+        }
+    }
+
+    static void set_to_min(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_STRING_MAX_LENGTH) {
@@ -1023,24 +1111,30 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
 
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_TINYINT ||
-            src_type->type() == OLAP_FIELD_TYPE_SMALLINT ||
-            src_type->type() == OLAP_FIELD_TYPE_INT || src_type->type() == OLAP_FIELD_TYPE_BIGINT ||
-            src_type->type() == OLAP_FIELD_TYPE_LARGEINT ||
-            src_type->type() == OLAP_FIELD_TYPE_FLOAT ||
-            src_type->type() == OLAP_FIELD_TYPE_DOUBLE ||
-            src_type->type() == OLAP_FIELD_TYPE_DECIMAL) {
+        switch (src_type->type()) {
+        case OLAP_FIELD_TYPE_TINYINT:
+        case OLAP_FIELD_TYPE_SMALLINT:
+        case OLAP_FIELD_TYPE_INT:
+        case OLAP_FIELD_TYPE_BIGINT:
+        case OLAP_FIELD_TYPE_LARGEINT:
+        case OLAP_FIELD_TYPE_FLOAT:
+        case OLAP_FIELD_TYPE_DOUBLE:
+        case OLAP_FIELD_TYPE_DECIMAL: {
             auto result = src_type->to_string(src);
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
             slice->size = result.size();
             return OLAP_SUCCESS;
-        } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
-            prepare_char_before_convert(src);
-            deep_copy(dest, src, mem_pool);
         }
-        return OLAP_ERR_INVALID_SCHEMA;
+        case OLAP_FIELD_TYPE_CHAR:
+            prepare_char_before_convert(src);
+        case OLAP_FIELD_TYPE_VARCHAR:
+            deep_copy(dest, src, mem_pool);
+            return OLAP_SUCCESS;
+        default:
+            return OLAP_ERR_INVALID_SCHEMA;
+        }
     }
 
     static void set_to_min(void* buf) {

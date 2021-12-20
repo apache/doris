@@ -17,9 +17,9 @@
 
 #include "test_util/test_util.h"
 
+#include <common/configbase.h>
 #include <libgen.h>
 #include <linux/limits.h>
-#include <stdlib.h>
 #include <strings.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -63,6 +63,48 @@ std::string GetCurrentRunningDir() {
     exe[r] = 0;
     char* dir = dirname(exe);
     return std::string(dir);
+}
+
+void InitConfig() {
+    std::string conf_file = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!config::init(conf_file.c_str(), false)) {
+        fprintf(stderr, "Init config file failed, path %s\n", conf_file.c_str());
+        exit(-1);
+    }
+}
+
+bool equal_ignore_case(std::string lhs, std::string rhs) {
+    std::transform(lhs.begin(), lhs.end(), lhs.begin(), ::tolower);
+    std::transform(rhs.begin(), rhs.end(), rhs.begin(), ::tolower);
+    return lhs == rhs;
+}
+
+std::mt19937_64 rng_64(std::chrono::steady_clock::now().time_since_epoch().count());
+
+int rand_rng_int(int l, int r) {
+    std::uniform_int_distribution<int> u(l, r);
+    return u(rng_64);
+}
+char rand_rng_char() {
+    return (rand_rng_int(0, 1) ? 'a' : 'A') + rand_rng_int(0, 25);
+}
+std::string rand_rng_string(size_t length) {
+    string s;
+    while (length--) {
+        s += rand_rng_char();
+    }
+    return s;
+}
+std::string rand_rng_by_type(FieldType fieldType) {
+    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+        return rand_rng_string(rand_rng_int(1, 8));
+    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+        return rand_rng_string(rand_rng_int(1, 128));
+    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+        return rand_rng_string(rand_rng_int(1, 100000));
+    } else {
+        return std::to_string(rand_rng_int(1, 1000000));
+    }
 }
 
 } // namespace doris

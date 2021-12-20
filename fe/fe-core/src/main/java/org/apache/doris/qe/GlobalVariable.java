@@ -63,7 +63,7 @@ public final class GlobalVariable {
 
     // A string to be executed by the server for each client that connects
     @VariableMgr.VarAttr(name = INIT_CONNECT, flag = VariableMgr.GLOBAL)
-    private volatile static String initConnect = "";
+    public volatile static String initConnect = "";
 
     // A string to be executed by the server for each client that connects
     @VariableMgr.VarAttr(name = SYSTEM_TIME_ZONE, flag = VariableMgr.READ_ONLY)
@@ -71,10 +71,10 @@ public final class GlobalVariable {
 
     // The amount of memory allocated for caching query results
     @VariableMgr.VarAttr(name = QUERY_CACHE_SIZE, flag = VariableMgr.GLOBAL)
-    private volatile static long queryCacheSize = 1048576;
+    public volatile static long queryCacheSize = 1048576;
 
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE, flag = VariableMgr.GLOBAL)
-    public volatile static String defaultRowsetType = "alpha";
+    public volatile static String defaultRowsetType = "beta";
 
     // add performance schema to support MYSQL JDBC 8.0.16 or later versions.
     @VariableMgr.VarAttr(name = PERFORMANCE_SCHEMA, flag = VariableMgr.READ_ONLY)
@@ -82,17 +82,16 @@ public final class GlobalVariable {
 
     // Don't allow create instance.
     private GlobalVariable() {
-
     }
 
-    public static List<String> getAllGlobalVarNames() {
+    public static List<String> getPersistentGlobalVarNames() {
         List<String> varNames = Lists.newArrayList();
         for (Field field : GlobalVariable.class.getDeclaredFields()) {
             VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
-            if (attr == null || attr.flag() != VariableMgr.GLOBAL) {
-                continue;
+            // Since the flag of lower_case_table_names is READ_ONLY, it is handled separately here.
+            if (attr != null && (attr.flag() == VariableMgr.GLOBAL || attr.name().equals(LOWER_CASE_TABLE_NAMES))) {
+                varNames.add(attr.name());
             }
-            varNames.add(attr.name());
         }
         return varNames;
     }

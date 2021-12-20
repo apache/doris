@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.io;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.TableInfo;
 
 import org.junit.Assert;
@@ -28,7 +29,7 @@ public class DeepCopyTest {
     public void test() {
         TableInfo info = TableInfo.createForTableRename(1, 2, "newTbl");
         TableInfo copied = new TableInfo();
-        boolean res = DeepCopy.copy(info, copied, TableInfo.class);
+        boolean res = DeepCopy.copy(info, copied, TableInfo.class, FeConstants.meta_version);
         Assert.assertTrue(res);
         Assert.assertEquals(1, copied.getDbId());
         Assert.assertEquals(2, copied.getTableId());

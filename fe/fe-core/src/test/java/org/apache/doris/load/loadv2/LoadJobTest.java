@@ -26,6 +26,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
@@ -55,26 +56,6 @@ public class LoadJobTest {
     public static void start() {
         MetricRepo.init();
     }
-
-    @Test
-    public void testGetDbNotExists(@Mocked Catalog catalog) {
-        LoadJob loadJob = new BrokerLoadJob();
-        Deencapsulation.setField(loadJob, "dbId", 1L);
-        new Expectations() {
-            {
-                catalog.getDb(1L);
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        try {
-            loadJob.getDb();
-            Assert.fail();
-        } catch (MetaNotFoundException e) {
-        }
-    }
-
 
     @Test
     public void testSetJobPropertiesWithErrorTimeout() {
@@ -111,7 +92,8 @@ public class LoadJobTest {
     @Test
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked MasterTaskExecutor masterTaskExecutor)
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException, InterruptedException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
@@ -128,9 +110,7 @@ public class LoadJobTest {
         } catch (LoadException e) {
             Assert.fail(e.getMessage());
         }
-        Assert.assertEquals(JobState.LOADING, loadJob.getState());
-        Assert.assertEquals(1, loadJob.getTransactionId());
-
+        Assert.assertEquals(JobState.PENDING, loadJob.getState());
     }
 
     @Test
@@ -187,12 +167,12 @@ public class LoadJobTest {
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
                                           @Injectable LoadTask loadTask1,
-            @Mocked LongCounterMetric longCounterMetric) {
-        
+                                          @Mocked LongCounterMetric longCounterMetric) {
+
         MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.idToTasks.put(1L, loadTask1);
-        
+
         // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
         Catalog catalog = Catalog.getCurrentCatalog();
         GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
@@ -201,7 +181,7 @@ public class LoadJobTest {
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
-        Assert.assertEquals(100, (int)Deencapsulation.getField(loadJob, "progress"));
+        Assert.assertEquals(100, (int) Deencapsulation.getField(loadJob, "progress"));
         Assert.assertEquals(0, loadJob.idToTasks.size());
     }
 }

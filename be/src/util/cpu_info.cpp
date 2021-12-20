@@ -42,7 +42,7 @@
 
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -56,7 +56,7 @@
 
 using boost::algorithm::contains;
 using boost::algorithm::trim;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 using std::max;
 
 DECLARE_bool(abort_on_config_error);
@@ -318,16 +318,16 @@ void CpuInfo::_get_cache_info(long cache_sizes[NUM_CACHE_LEVELS],
 #ifdef __APPLE__
     // On Mac OS X use sysctl() to get the cache sizes
     size_t len = 0;
-    sysctlbyname("hw.cachesize", NULL, &len, NULL, 0);
+    sysctlbyname("hw.cachesize", nullptr, &len, nullptr, 0);
     uint64_t* data = static_cast<uint64_t*>(malloc(len));
-    sysctlbyname("hw.cachesize", data, &len, NULL, 0);
+    sysctlbyname("hw.cachesize", data, &len, nullptr, 0);
     DCHECK(len / sizeof(uint64_t) >= 3);
     for (size_t i = 0; i < NUM_CACHE_LEVELS; ++i) {
         cache_sizes[i] = data[i];
     }
     size_t linesize;
     size_t sizeof_linesize = sizeof(linesize);
-    sysctlbyname("hw.cachelinesize", &linesize, &sizeof_linesize, NULL, 0);
+    sysctlbyname("hw.cachelinesize", &linesize, &sizeof_linesize, nullptr, 0);
     for (size_t i = 0; i < NUM_CACHE_LEVELS; ++i) cache_line_sizes[i] = linesize;
 #else
     // Call sysconf to query for the cache sizes

@@ -34,7 +34,7 @@ SegmentWriter::SegmentWriter(const std::string& file_name, SegmentGroup* segment
           _stream_buffer_size(stream_buffer_size),
           _compress_kind(compress_kind),
           _bloom_filter_fpp(bloom_filter_fpp),
-          _stream_factory(NULL),
+          _stream_factory(nullptr),
           _row_count(0),
           _block_count(0) {}
 
@@ -52,7 +52,7 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     // 创建factory
     _stream_factory = new (std::nothrow) OutStreamFactory(_compress_kind, _stream_buffer_size);
 
-    if (NULL == _stream_factory) {
+    if (nullptr == _stream_factory) {
         OLAP_LOG_WARNING("fail to allocate out stream factory");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -63,7 +63,7 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
                 i, _segment_group->get_tablet_schema(), _stream_factory,
                 _segment_group->get_num_rows_per_row_block(), _bloom_filter_fpp);
 
-        if (NULL == writer) {
+        if (nullptr == writer) {
             OLAP_LOG_WARNING("fail to create writer");
             return OLAP_ERR_MALLOC_ERROR;
         } else {
@@ -191,7 +191,7 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
         }
 
         VLOG_TRACE << "stream id=" << it->first.unique_column_id() << ", type=" << it->first.kind()
-                 << ", length=" << stream->get_stream_length();
+                   << ", length=" << stream->get_stream_length();
     }
 
     file_header->set_index_length(index_length);
@@ -207,12 +207,17 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
     StorageEngine* engine = StorageEngine::instance();
     DataDir* data_dir = nullptr;
     if (engine != nullptr) {
-        boost::filesystem::path tablet_path(_segment_group->rowset_path_prefix());
-        boost::filesystem::path data_dir_path =
+        std::filesystem::path tablet_path = std::string_view(_segment_group->rowset_path_prefix());
+        std::filesystem::path data_dir_path =
                 tablet_path.parent_path().parent_path().parent_path().parent_path();
         std::string data_dir_string = data_dir_path.string();
         data_dir = engine->get_store(data_dir_string);
-        data_dir->add_pending_ids(ROWSET_ID_PREFIX + _segment_group->rowset_id().to_string());
+        if (LIKELY(data_dir != nullptr)) {
+            data_dir->add_pending_ids(ROWSET_ID_PREFIX + _segment_group->rowset_id().to_string());
+        } else {
+            LOG(WARNING) << "data dir not found. [data_dir=" << data_dir_string << "]";
+            return OLAP_ERR_CANNOT_CREATE_DIR;
+        }
     }
     if (OLAP_SUCCESS != (res = file_handle.open_with_mode(_file_name, O_CREAT | O_EXCL | O_WRONLY,
                                                           S_IRUSR | S_IWUSR))) {
@@ -260,7 +265,7 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
         if (!stream->is_suppressed()) {
             checksum = stream->crc32(checksum);
             VLOG_TRACE << "stream id=" << it->first.unique_column_id()
-                     << ", type=" << it->first.kind();
+                       << ", type=" << it->first.kind();
             res = stream->write_to_file(&file_handle, _write_mbytes_per_sec);
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("fail to write stream to file. [res=%d]", res);

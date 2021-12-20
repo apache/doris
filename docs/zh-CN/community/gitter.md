@@ -48,10 +48,6 @@ Doris 和很多其他的开源项目一样，可以使用 Gitter 作为技术交
    
 已经加入聊天室的伙伴别忘记点击右上角的五角星进行收藏，这样会让本聊天室更容易被您自己找到。
 
-更多 gitter 使用技巧，可以参考：
-   
-[http://www.gitter.net.cn/book/gitter/roomsettings-1.html](http://www.gitter.net.cn/book/gitter/roomsettings-1.html)
-
 ## 安装手机客户端
    
 您可以下载 Gitter 的手机客户端，在手机上也随时随地的参与到技术讨论中，下载链接：

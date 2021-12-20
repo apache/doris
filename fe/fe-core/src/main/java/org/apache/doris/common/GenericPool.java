@@ -28,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TFramedTransport;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
@@ -39,12 +40,18 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private GenericKeyedObjectPool<TNetworkAddress, VALUE> pool;
     private String className;
     private int timeoutMs;
+    private boolean isNonBlockingIO;
 
-    public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs) {
+    public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs, boolean isNonBlockingIO) {
         this.className = "org.apache.doris.thrift." + className + "$Client";
         ThriftClientFactory factory = new ThriftClientFactory();
-        pool = new GenericKeyedObjectPool<TNetworkAddress, VALUE>(factory, config);
+        pool = new GenericKeyedObjectPool<>(factory, config);
         this.timeoutMs = timeoutMs;
+        this.isNonBlockingIO = isNonBlockingIO;
+    }
+
+    public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs) {
+        this(className, config, timeoutMs, false);
     }
 
     public boolean reopen(VALUE object, int timeoutMs) {
@@ -53,8 +60,11 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         try {
             object.getOutputProtocol().getTransport().open();
             // transport.open() doesn't set timeout, Maybe the timeoutMs change.
-            TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
-            socket.setTimeout(timeoutMs);
+            // here we cannot set timeoutMs for TFramedTransport, just skip it
+            if (!isNonBlockingIO) {
+                TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+                socket.setTimeout(timeoutMs);
+            }
         } catch (TTransportException e) {
             ok = false;
         }
@@ -87,8 +97,11 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
 
     public VALUE borrowObject(TNetworkAddress address, int timeoutMs) throws Exception {
         VALUE value = pool.borrowObject(address);
-        TSocket socket = (TSocket) (value.getOutputProtocol().getTransport());
-        socket.setTimeout(timeoutMs);
+        // here we cannot set timeoutMs for TFramedTransport, just skip it
+        if (!isNonBlockingIO) {
+            TSocket socket = (TSocket) (value.getOutputProtocol().getTransport());
+            socket.setTimeout(timeoutMs);
+        }
         return value;
     }
 
@@ -124,7 +137,8 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
                 LOG.debug("before create socket hostname={} key.port={} timeoutMs={}",
                         key.hostname, key.port, timeoutMs);
             }
-            TTransport transport = new TSocket(key.hostname, key.port, timeoutMs);
+            TTransport transport = isNonBlockingIO ? new TFramedTransport(new TSocket(key.hostname, key.port, timeoutMs)) :
+                    new TSocket(key.hostname, key.port, timeoutMs);
             transport.open();
             TProtocol protocol = new TBinaryProtocol(transport);
             VALUE client = (VALUE) newInstance(className, protocol);

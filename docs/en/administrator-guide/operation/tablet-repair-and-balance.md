@@ -298,9 +298,9 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 
 2. Table (partition) level status checking
 
-	Users can view the status of a copy of a specified table or partition through the following commands and filter the status through a WHERE statement. If you look at table tbl1, the state on partitions P1 and P2 is a copy of NORMAL:
+	Users can view the status of a copy of a specified table or partition through the following commands and filter the status through a WHERE statement. If you look at table tbl1, the state on partitions P1 and P2 is a copy of OK:
 
-	`ADMIN SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2) WHERE STATUS = "NORMAL";`
+	`ADMIN SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2) WHERE STATUS = "OK";`
 
 	```
 	+----------+-----------+-----------+---------+-------------------+--------------------+------------------+------------+------------+-------+--------+--------+
@@ -313,7 +313,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 	| 29502433 | 44900737  | 10004     | 2       | -1                | -1                 | 1                | -1         | 2          | false | NORMAL | OK     |
 	| 29502433 | 48369135  | 10006     | 2       | -1                | -1                 | 1                | -1         | 2          | false | NORMAL | OK     |
 	+----------+-----------+-----------+---------+-------------------+--------------------+------------------+------------+------------+-------+--------+--------+
-    ```
+   ```
 
 	The status of all copies is shown here. Where `IsBad` is listed as `true`, the copy is damaged. The `Status` column displays other states. Specific status description, you can see help through `HELP ADMIN SHOW REPLICA STATUS`.
 
@@ -329,8 +329,8 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 	| 29502429 | 36885996  | 10002     | 1421156361 | 2       | 0           | -1                | 0                     | -1               | 0                    | N/A           | 784      | 0        | NORMAL | N/A                     | -1           | 	-1               | 2            | -1441285706148429853 | url                  | url                  |
 	| 29502429 | 48100551  | 10007     | 1421156361 | 2       | 0           | -1                | 0                     | -1               | 0                    | N/A           | 784      | 0        | NORMAL | N/A                     | -1           | 	-1               | 2            | -4784691547051455525 | url                  | url                  |
 	+----------+-----------+-----------+------------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+----------+----------+--------+-------------------------+--------------+----------------------+--------------+----------------------+----------------------+----------------------+  
-     ```
-    
+    ```
+   
 	The figure above shows some additional information, including copy size, number of rows, number of versions, where the data path is located.
 
 	> Note: The contents of the `State` column shown here do not represent the health status of the replica, but the status of the replica under certain tasks, such as CLONE, SCHEMA CHANGE, ROLLUP, etc.
@@ -384,7 +384,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 	| 39279319  | 10007     | 2       | 0           | -1                | 0                     | -1               | 0                    | N/A           | -1         | 784      | 0        | NORMAL | false | 2            | 1656508631294397870  |
 	+-----------+-----------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+
     ```
-    
+   
 	The figure above shows all replicas of the corresponding Tablet. The content shown here is the same as `SHOW TABLET FROM tbl1;`. But here you can clearly see the status of all copies of a specific Tablet.
 
 ### Duplicate Scheduling Task
@@ -400,7 +400,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
     | 4203036  | REPAIR | REPLICA_MISSING | PENDING | HIGH     | LOW      | -1    | -1      | -1     | -1       | 0       | 2019-02-21 15:00:20 | 2019-02-24 11:18:41 | 2019-02-24 11:18:41 | N/A      | N/A  | 2           | 0             | 2019-02-21 15:00:43 | 1          | 0                   | 2      | 0                   | unable to find source replica |
     +----------+--------+-----------------+---------+----------+----------+-------+---------+--------+----------+---------+---------------------+---------------------+---------------------+----------+------+-------------+---------------+---------------------+------------+---------------------+--------+---------------------+-------------------------------+
     ```
-    
+   
 	The specific meanings of each column are as follows:
 
 	* TabletId: The ID of the Tablet waiting to be scheduled. A scheduling task is for only one Tablet
@@ -500,7 +500,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 	| /home/disk2/palo | 881.955 GB       | 2.656 TB      | 3.525 TB      | 24.65 % | ONLINE | 4870995507205544622  |
 	| /home/disk5/palo | 694.992 GB       | 2.842 TB      | 3.525 TB      | 19.36 % | ONLINE | 1916696897889786739  |
 	+------------------+------------------+---------------+---------------+---------+--------+----------------------+
-	```
+	 ```
 
 	The disk usage of each data path on the specified BE is shown here.
 
@@ -529,7 +529,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 
 	The following command allows you to view the priority repaired tables or partitions set by the `ADMIN REPAIR TABLE'command.
 
-	`SHOW PROC '/cluster_balance/priority_repair'`;
+	`SHOW PROC '/cluster_balance/priority_repair';`
 
 	Among them, `Remaining TimeMs'indicates that these priority fixes will be automatically removed from the priority fix queue after this time. In order to prevent resources from being occupied due to the failure of priority repair.
 
@@ -537,7 +537,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
 
 We have collected some statistics of Tablet Checker and Tablet Scheduler during their operation, which can be viewed through the following commands:
 
-`SHOW PROC '/cluster_balance/sched_stat'`;
+`SHOW PROC '/cluster_balance/sched_stat';`
 
 ```
 +---------------------------------------------------+-------------+
@@ -571,29 +571,29 @@ We have collected some statistics of Tablet Checker and Tablet Scheduler during 
 
 The meanings of each line are as follows:
 
-* num of tablet check round：Tablet Checker 检查次数
-* cost of tablet check(ms)：Tablet Checker 检查总耗时
-* num of tablet checked in tablet checker：Tablet Checker 检查过的 tablet 数量
-* num of unhealthy tablet checked in tablet checker：Tablet Checker 检查过的不健康的 tablet 数量
-* num of tablet being added to tablet scheduler：被提交到 Tablet Scheduler 中的 tablet 数量
-* num of tablet schedule round：Tablet Scheduler 运行次数
-* cost of tablet schedule(ms)：Tablet Scheduler 运行总耗时
-* num of tablet being scheduled：被调度的 Tablet 总数量
-* num of tablet being scheduled succeeded：被成功调度的 Tablet 总数量
-* num of tablet being scheduled failed：调度失败的 Tablet 总数量
-* num of tablet being scheduled discard：调度失败且被抛弃的 Tablet 总数量
-* num of tablet priority upgraded：优先级上调次数
-* num of tablet priority downgraded：优先级下调次数
+* num of tablet check round: Tablet Checker 检查次数
+* cost of tablet check(ms): Tablet Checker 检查总耗时
+* num of tablet checked in tablet checker: Tablet Checker 检查过的 tablet 数量
+* num of unhealthy tablet checked in tablet checker: Tablet Checker 检查过的不健康的 tablet 数量
+* num of tablet being added to tablet scheduler: 被提交到 Tablet Scheduler 中的 tablet 数量
+* num of tablet schedule round: Tablet Scheduler 运行次数
+* cost of tablet schedule(ms): Tablet Scheduler 运行总耗时
+* num of tablet being scheduled: 被调度的 Tablet 总数量
+* num of tablet being scheduled succeeded: 被成功调度的 Tablet 总数量
+* num of tablet being scheduled failed: 调度失败的 Tablet 总数量
+* num of tablet being scheduled discard: 调度失败且被抛弃的 Tablet 总数量
+* num of tablet priority upgraded: 优先级上调次数
+* num of tablet priority downgraded: 优先级下调次数
 * num of clone task: number of clone tasks generated
-* num of clone task succeeded：clone 任务成功的数量
-* num of clone task failed：clone 任务失败的数量
-* num of clone task timeout：clone 任务超时的数量
+* num of clone task succeeded: clone 任务成功的数量
+* num of clone task failed: clone 任务失败的数量
+* num of clone task timeout: clone 任务超时的数量
 * num of replica missing error: the number of tablets whose status is checked is the missing copy
-* num of replica version missing error：检查的状态为版本缺失的 tablet 的数量（该统计值包括了 num of replica relocating 和 num of replica missing in cluster error）
+* num of replica version missing error: 检查的状态为版本缺失的 tablet 的数量（该统计值包括了 num of replica relocating 和 num of replica missing in cluster error）
 *num of replica relocation *29366;* 24577;*replica relocation tablet *
 * num of replica redundant error: Number of tablets whose checked status is replica redundant
-* num of replica missing in cluster error：检查的状态为不在对应 cluster 的 tablet 的数量
-* num of balance scheduled：均衡调度的次数
+* num of replica missing in cluster error: 检查的状态为不在对应 cluster 的 tablet 的数量
+* num of balance scheduled: 均衡调度的次数
 
 > Note: The above states are only historical accumulative values. We also print these statistics regularly in the FE logs, where the values in parentheses represent the number of changes in each statistical value since the last printing dependence of the statistical information.
 
@@ -683,4 +683,4 @@ The following parameters do not support modification for the time being, just fo
 
 * In some cases, the default replica repair and balancing strategy may cause the network to be full (mostly in the case of gigabit network cards and a large number of disks per BE). At this point, some parameters need to be adjusted to reduce the number of simultaneous balancing and repair tasks.
 
-* Current balancing strategies for copies of Colocate Table do not guarantee that copies of the same Tablet will not be distributed on the BE of the same host. However, the repair strategy of the copy of Colocate Table detects this distribution error and corrects it. However, it may occur that after correction, the balancing strategy regards the replicas as unbalanced and rebalances them. As a result, the Colocate Group can not achieve stability because of the continuous alternation between the two states. In view of this situation, we suggest that when using Colocate attribute, we try to ensure that the cluster is isomorphic, so as to reduce the probability that replicas are distributed on the same host.
+* Current balancing strategies for copies of Colocate Table do not guarantee that copies of the same Tablet will not be distributed on the BE of the same host. However, the repair strategy of the copy of Colocate Table detects this distribution error and corrects it. However, it may occur that after correction, the balancing strategy regards the replicas as unbalanced and rebalances them. As a result, the Colocate Group cannot achieve stability because of the continuous alternation between the two states. In view of this situation, we suggest that when using Colocate attribute, we try to ensure that the cluster is isomorphic, so as to reduce the probability that replicas are distributed on the same host.

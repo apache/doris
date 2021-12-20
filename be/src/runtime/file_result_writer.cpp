@@ -18,28 +18,70 @@
 #include "runtime/file_result_writer.h"
 
 #include "exec/broker_writer.h"
+#include "exec/hdfs_reader_writer.h"
+#include "exec/hdfs_writer.h"
 #include "exec/local_file_writer.h"
 #include "exec/parquet_writer.h"
+#include "exec/s3_writer.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "runtime/buffer_control_block.h"
 #include "runtime/primitive_type.h"
+#include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "util/date_func.h"
+#include "util/file_utils.h"
+#include "util/mysql_row_buffer.h"
 #include "util/types.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
 const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 
+// deprecated
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const std::vector<ExprContext*>& output_expr_ctxs,
-                                   RuntimeProfile* parent_profile)
+                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                                   bool output_object_data)
         : _file_opts(file_opts),
           _output_expr_ctxs(output_expr_ctxs),
-          _parent_profile(parent_profile) {}
+          _parent_profile(parent_profile),
+          _sinker(sinker) {
+    if (_file_opts->is_local_file) {
+        _storage_type = TStorageBackendType::LOCAL;
+    } else {
+        _storage_type = TStorageBackendType::BROKER;
+    }
+    // The new file writer needs to use fragment instance id as part of the file prefix.
+    // But during the upgrade process, the old version of fe will be called to the new version of be,
+    // resulting in no such attribute. So we need a mock here.
+    _fragment_instance_id.hi = 12345678987654321;
+    _fragment_instance_id.lo = 98765432123456789;
+    _output_object_data = output_object_data;
+}
+
+FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
+                                   const TStorageBackendType::type storage_type,
+                                   const TUniqueId fragment_instance_id,
+                                   const std::vector<ExprContext*>& output_expr_ctxs,
+                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                                   RowBatch* output_batch, bool output_object_data)
+        : _file_opts(file_opts),
+          _storage_type(storage_type),
+          _fragment_instance_id(fragment_instance_id),
+          _output_expr_ctxs(output_expr_ctxs),
+          _parent_profile(parent_profile),
+          _sinker(sinker),
+          _output_batch(output_batch) {
+    _output_object_data = output_object_data;
+}
 
 FileResultWriter::~FileResultWriter() {
     _close_file_writer(true);
@@ -48,9 +90,7 @@ FileResultWriter::~FileResultWriter() {
 Status FileResultWriter::init(RuntimeState* state) {
     _state = state;
     _init_profile();
-
-    RETURN_IF_ERROR(_create_file_writer());
-    return Status::OK();
+    return _create_next_file_writer();
 }
 
 void FileResultWriter::_init_profile() {
@@ -63,38 +103,107 @@ void FileResultWriter::_init_profile() {
     _written_data_bytes = ADD_COUNTER(profile, "WrittenDataBytes", TUnit::BYTES);
 }
 
-Status FileResultWriter::_create_file_writer() {
-    std::string file_name = _get_next_file_name();
-    if (_file_opts->is_local_file) {
+Status FileResultWriter::_create_success_file() {
+    std::string file_name;
+    RETURN_IF_ERROR(_get_success_file_name(&file_name));
+    RETURN_IF_ERROR(_create_file_writer(file_name));
+    return _close_file_writer(true, true);
+}
+
+Status FileResultWriter::_get_success_file_name(std::string* file_name) {
+    std::stringstream ss;
+    ss << _file_opts->file_path << _file_opts->success_file_name;
+    *file_name = ss.str();
+    if (_storage_type == TStorageBackendType::LOCAL) {
+        // For local file writer, the file_path is a local dir.
+        // Here we do a simple security verification by checking whether the file exists.
+        // Because the file path is currently arbitrarily specified by the user,
+        // Doris is not responsible for ensuring the correctness of the path.
+        // This is just to prevent overwriting the existing file.
+        if (FileUtils::check_exist(*file_name)) {
+            return Status::InternalError("File already exists: " + *file_name +
+                                         ". Host: " + BackendOptions::get_localhost());
+        }
+    }
+
+    return Status::OK();
+}
+
+Status FileResultWriter::_create_next_file_writer() {
+    std::string file_name;
+    RETURN_IF_ERROR(_get_next_file_name(&file_name));
+    return _create_file_writer(file_name);
+}
+
+Status FileResultWriter::_create_file_writer(const std::string& file_name) {
+    if (_storage_type == TStorageBackendType::LOCAL) {
         _file_writer = new LocalFileWriter(file_name, 0 /* start offset */);
-    } else {
+    } else if (_storage_type == TStorageBackendType::BROKER) {
         _file_writer =
                 new BrokerWriter(_state->exec_env(), _file_opts->broker_addresses,
                                  _file_opts->broker_properties, file_name, 0 /*start offset*/);
+    } else if (_storage_type == TStorageBackendType::S3) {
+        _file_writer = new S3Writer(_file_opts->broker_properties, file_name, 0 /* offset */);
+    } else if (_storage_type == TStorageBackendType::HDFS) {
+        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
+                const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties),
+                file_name, &_file_writer));
     }
     RETURN_IF_ERROR(_file_writer->open());
-
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs);
+        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs,
+                                                   _file_opts->file_properties, _file_opts->schema,
+                                                   _output_object_data);
         break;
     default:
         return Status::InternalError(
                 strings::Substitute("unsupported file format: $0", _file_opts->file_format));
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
-              << ". query id: " << print_id(_state->query_id());
+              << ". query id: " << print_id(_state->query_id())
+              << " format:" << _file_opts->file_format;
     return Status::OK();
 }
 
-// file name format as: my_prefix_0.csv
-std::string FileResultWriter::_get_next_file_name() {
+// file name format as: my_prefix_{fragment_instance_id}_0.csv
+Status FileResultWriter::_get_next_file_name(std::string* file_name) {
     std::stringstream ss;
-    ss << _file_opts->file_path << (_file_idx++) << "." << _file_format_to_name();
-    return ss.str();
+    ss << _file_opts->file_path << print_id(_fragment_instance_id) << "_" << (_file_idx++) << "."
+       << _file_format_to_name();
+    *file_name = ss.str();
+    if (_storage_type == TStorageBackendType::LOCAL) {
+        // For local file writer, the file_path is a local dir.
+        // Here we do a simple security verification by checking whether the file exists.
+        // Because the file path is currently arbitrarily specified by the user,
+        // Doris is not responsible for ensuring the correctness of the path.
+        // This is just to prevent overwriting the existing file.
+        if (FileUtils::check_exist(*file_name)) {
+            return Status::InternalError("File already exists: " + *file_name +
+                                         ". Host: " + BackendOptions::get_localhost());
+        }
+    }
+
+    return Status::OK();
+}
+
+// file url format as:
+// LOCAL: file:///localhost_address/{file_path}{fragment_instance_id}_
+// S3: {file_path}{fragment_instance_id}_
+// BROKER: {file_path}{fragment_instance_id}_
+
+Status FileResultWriter::_get_file_url(std::string* file_url) {
+    std::stringstream ss;
+    if (_storage_type == TStorageBackendType::LOCAL) {
+        ss << "file:///" << BackendOptions::get_localhost();
+    }
+    ss << _file_opts->file_path;
+    ss << print_id(_fragment_instance_id) << "_";
+    *file_url = ss.str();
+    return Status::OK();
 }
 
 std::string FileResultWriter::_file_format_to_name() {
@@ -115,7 +224,7 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
 
     SCOPED_TIMER(_append_row_batch_timer);
     if (_parquet_writer != nullptr) {
-        RETURN_IF_ERROR(_parquet_writer->write(*batch));
+        RETURN_IF_ERROR(_write_parquet_file(*batch));
     } else {
         RETURN_IF_ERROR(_write_csv_file(*batch));
     }
@@ -124,14 +233,19 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
     return Status::OK();
 }
 
+Status FileResultWriter::_write_parquet_file(const RowBatch& batch) {
+    RETURN_IF_ERROR(_parquet_writer->write(batch));
+    // split file if exceed limit
+    return _create_new_file_if_exceed_size();
+}
+
 Status FileResultWriter::_write_csv_file(const RowBatch& batch) {
     int num_rows = batch.num_rows();
     for (int i = 0; i < num_rows; ++i) {
         TupleRow* row = batch.get_row(i);
         RETURN_IF_ERROR(_write_one_row_as_csv(row));
     }
-    _flush_plain_text_outstream(true);
-    return Status::OK();
+    return _flush_plain_text_outstream(true);
 }
 
 // actually, this logic is same as `ExportSink::gen_row_buffer`
@@ -200,9 +314,10 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 break;
             }
             case TYPE_VARCHAR:
-            case TYPE_CHAR: {
+            case TYPE_CHAR:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
-                if (string_val->ptr == NULL) {
+                if (string_val->ptr == nullptr) {
                     if (string_val->len != 0) {
                         _plain_text_outstream << NULL_IN_CSV;
                     }
@@ -211,29 +326,29 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 }
                 break;
             }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val->to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val->to_string();
-                }
-                _plain_text_outstream << decimal_str;
-                break;
-            }
             case TYPE_DECIMALV2: {
                 const DecimalV2Value decimal_val(
                         reinterpret_cast<const PackedInt128*>(item)->value);
                 std::string decimal_str;
                 int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val.to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val.to_string();
-                }
+                decimal_str = decimal_val.to_string(output_scale);
                 _plain_text_outstream << decimal_str;
+                break;
+            }
+            case TYPE_OBJECT:
+            case TYPE_HLL: {
+                if (_output_object_data) {
+                    const StringValue* string_val = (const StringValue*)(item);
+                    if (string_val->ptr == nullptr) {
+                        _plain_text_outstream << NULL_IN_CSV;
+                    } else {
+                        std::string base64_str;
+                        base64_encode(string_val->to_string(), &base64_str);
+                        _plain_text_outstream << base64_str;
+                    }
+                } else {
+                    _plain_text_outstream << NULL_IN_CSV;
+                }
                 break;
             }
             default: {
@@ -271,9 +386,7 @@ Status FileResultWriter::_flush_plain_text_outstream(bool eos) {
     _plain_text_outstream.clear();
 
     // split file if exceed limit
-    RETURN_IF_ERROR(_create_new_file_if_exceed_size());
-
-    return Status::OK();
+    return _create_new_file_if_exceed_size();
 }
 
 Status FileResultWriter::_create_new_file_if_exceed_size() {
@@ -290,24 +403,95 @@ Status FileResultWriter::_create_new_file_if_exceed_size() {
     return Status::OK();
 }
 
-Status FileResultWriter::_close_file_writer(bool done) {
+Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
     if (_parquet_writer != nullptr) {
         _parquet_writer->close();
+        _current_written_bytes = _parquet_writer->written_len();
+        COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         delete _parquet_writer;
         _parquet_writer = nullptr;
-        if (!done) {
-            //TODO(cmy): implement parquet writer later
-        }
+        delete _file_writer;
+        _file_writer = nullptr;
     } else if (_file_writer != nullptr) {
         _file_writer->close();
         delete _file_writer;
         _file_writer = nullptr;
     }
 
+    if (only_close) {
+        return Status::OK();
+    }
+
     if (!done) {
         // not finished, create new file writer for next file
-        RETURN_IF_ERROR(_create_file_writer());
+        RETURN_IF_ERROR(_create_next_file_writer());
+    } else {
+        // All data is written to file, send statistic result
+        if (_file_opts->success_file_name != "") {
+            // write success file, just need to touch an empty file
+            RETURN_IF_ERROR(_create_success_file());
+        }
+        if (_output_batch == nullptr) {
+            RETURN_IF_ERROR(_send_result());
+        } else {
+            RETURN_IF_ERROR(_fill_result_batch());
+        }
     }
+    return Status::OK();
+}
+
+Status FileResultWriter::_send_result() {
+    if (_is_result_sent) {
+        return Status::OK();
+    }
+    _is_result_sent = true;
+
+    // The final stat result include:
+    // FileNumber, TotalRows, FileSize and URL
+    // The type of these field should be conssitent with types defined
+    // in OutFileClause.java of FE.
+    MysqlRowBuffer row_buffer;
+    row_buffer.push_int(_file_idx);                         // file number
+    row_buffer.push_bigint(_written_rows_counter->value()); // total rows
+    row_buffer.push_bigint(_written_data_bytes->value());   // file size
+    std::string file_url;
+    _get_file_url(&file_url);
+    row_buffer.push_string(file_url.c_str(), file_url.length()); // url
+
+    std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
+    result->result_batch.rows.resize(1);
+    result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
+    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
+    return Status::OK();
+}
+
+Status FileResultWriter::_fill_result_batch() {
+    if (_is_result_sent) {
+        return Status::OK();
+    }
+    _is_result_sent = true;
+
+    TupleDescriptor* tuple_desc = _output_batch->row_desc().tuple_descriptors()[0];
+    Tuple* tuple = (Tuple*)_output_batch->tuple_data_pool()->allocate(tuple_desc->byte_size());
+    _output_batch->get_row(_output_batch->add_row())->set_tuple(0, tuple);
+    memset(tuple, 0, tuple_desc->byte_size());
+
+    MemPool* tuple_pool = _output_batch->tuple_data_pool();
+    RawValue::write(&_file_idx, tuple, tuple_desc->slots()[0], tuple_pool);
+    int64_t written_rows = _written_rows_counter->value();
+    RawValue::write(&written_rows, tuple, tuple_desc->slots()[1], tuple_pool);
+    int64_t written_data_bytes = _written_data_bytes->value();
+    RawValue::write(&written_data_bytes, tuple, tuple_desc->slots()[2], tuple_pool);
+
+    StringValue* url_str_val =
+            reinterpret_cast<StringValue*>(tuple->get_slot(tuple_desc->slots()[3]->tuple_offset()));
+    std::string file_url;
+    _get_file_url(&file_url);
+    url_str_val->ptr = (char*)_output_batch->tuple_data_pool()->allocate(file_url.length());
+    url_str_val->len = file_url.length();
+    memcpy(url_str_val->ptr, file_url.c_str(), url_str_val->len);
+
+    _output_batch->commit_last_row();
     return Status::OK();
 }
 
@@ -319,8 +503,7 @@ Status FileResultWriter::close() {
     // so does the profile in RuntimeState.
     COUNTER_SET(_written_rows_counter, _written_rows);
     SCOPED_TIMER(_writer_close_timer);
-    RETURN_IF_ERROR(_close_file_writer(true));
-    return Status::OK();
+    return _close_file_writer(true, false);
 }
 
 } // namespace doris

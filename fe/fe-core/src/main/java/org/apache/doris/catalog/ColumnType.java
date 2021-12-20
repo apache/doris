@@ -49,6 +49,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.INT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.BIGINT.ordinal()] = true;
@@ -56,6 +57,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.BIGINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.LARGEINT.ordinal()] = true;
@@ -63,23 +65,25 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.DATE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.LARGEINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.FLOAT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.FLOAT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.FLOAT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.DOUBLE.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
-
-        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
-        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.CHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DOUBLE.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;
@@ -89,6 +93,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;
@@ -98,9 +103,12 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.CHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
-        schemaChangeMatrix[PrimitiveType.DECIMAL.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATE.ordinal()] = true;
 
@@ -112,33 +120,38 @@ public abstract class ColumnType {
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
-        Preconditions.checkArgument(type.isScalarType(), "only support scalar type serialization");
-        ScalarType scalarType = (ScalarType) type;
-        if (scalarType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
-            Text.writeString(out, PrimitiveType.DECIMAL.name());
-        } else {
+        Preconditions.checkArgument(type.isScalarType() || type.isArrayType(),
+                "only support scalar type and array serialization");
+        if (type.isScalarType()) {
+            ScalarType scalarType = (ScalarType) type;
             Text.writeString(out, scalarType.getPrimitiveType().name());
+            out.writeInt(scalarType.getScalarScale());
+            out.writeInt(scalarType.getScalarPrecision());
+            out.writeInt(scalarType.getLength());
+            // Actually, varcharLimit need not to write here, write true to back compatible
+            out.writeBoolean(true);
+        } else if (type.isArrayType()) {
+            ArrayType arrayType = (ArrayType) type;
+            Text.writeString(out, arrayType.getPrimitiveType().name());
+            write(out, arrayType.getItemType());
         }
-        out.writeInt(scalarType.getScalarScale());
-        out.writeInt(scalarType.getScalarPrecision());
-        out.writeInt(scalarType.getLength());
-        // Actually, varcharLimit need not to write here, write true to back compatible
-        out.writeBoolean(true);
     }
 
     public static Type read(DataInput in) throws IOException {
         PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
-        if (primitiveType == PrimitiveType.DECIMAL) { 
-            primitiveType = PrimitiveType.DECIMALV2;
+        if (primitiveType == PrimitiveType.ARRAY) {
+            Type itermType = read(in);
+            return ArrayType.create(itermType);
+        } else {
+            int scale = in.readInt();
+            int precision = in.readInt();
+            int len = in.readInt();
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
+                // Useless, just for back compatible
+                in.readBoolean();
+            }
+            return ScalarType.createType(primitiveType, len, precision, scale);
         }
-        int scale = in.readInt();
-        int precision = in.readInt();
-        int len = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            // Useless, just for back compatible
-            in.readBoolean();
-        }
-        return ScalarType.createType(primitiveType, len, precision, scale);
     }
 }
 

@@ -20,8 +20,6 @@
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
-//#include "runtime/datetime_value.h"
-
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
@@ -62,21 +60,21 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
     TGetDbsParams db_params;
-    if (NULL != _param->db) {
+    if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             db_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
     } else {
@@ -107,7 +105,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         const std::string* src = &tbl_status.name;
         str_slot->len = src->length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -119,7 +117,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         const std::string* src = &tbl_status.type;
         str_slot->len = src->length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -131,7 +129,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         const std::string* src = &tbl_status.engine;
         str_slot->len = src->length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -143,12 +141,26 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // row_format
     { tuple->set_null(_tuple_desc->slots()[6]->null_indicator_offset()); }
     // rows
-    { tuple->set_null(_tuple_desc->slots()[7]->null_indicator_offset()); }
+    if (tbl_status.__isset.rows) {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.rows;
+    } else {
+        tuple->set_null(_tuple_desc->slots()[7]->null_indicator_offset());
+    }
     // avg_row_length
-    { tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset()); }
+    if (tbl_status.__isset.avg_row_length) {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.avg_row_length;
+    } else {
+        tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
+    }
     // data_length
-    { tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset()); }
-    // max_data_length
+    if (tbl_status.__isset.avg_row_length) {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.data_length;
+    } else {
+        tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
+    } // max_data_length
     { tuple->set_null(_tuple_desc->slots()[10]->null_indicator_offset()); }
     // index_length
     { tuple->set_null(_tuple_desc->slots()[11]->null_indicator_offset()); }
@@ -169,7 +181,17 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         }
     }
     // update_time
-    { tuple->set_null(_tuple_desc->slots()[15]->null_indicator_offset()); }
+    if (tbl_status.__isset.update_time) {
+        int64_t update_time = tbl_status.update_time;
+        if (update_time <= 0) {
+            tuple->set_null(_tuple_desc->slots()[15]->null_indicator_offset());
+        } else {
+            tuple->set_not_null(_tuple_desc->slots()[15]->null_indicator_offset());
+            void* slot = tuple->get_slot(_tuple_desc->slots()[15]->tuple_offset());
+            DateTimeValue* time_slot = reinterpret_cast<DateTimeValue*>(slot);
+            time_slot->from_unixtime(update_time, TimezoneUtils::default_time_zone);
+        }
+    }
     // check_time
     if (tbl_status.__isset.last_check_time) {
         int64_t check_time = tbl_status.last_check_time;
@@ -183,7 +205,19 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         }
     }
     // collation
-    { tuple->set_null(_tuple_desc->slots()[17]->null_indicator_offset()); }
+    if (tbl_status.__isset.collation) {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[17]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string* src = &tbl_status.collation;
+        str_slot->len = src->length();
+        str_slot->ptr = (char*)pool->allocate(str_slot->len);
+        if (nullptr == str_slot->ptr) {
+            return Status::InternalError("Allocate memcpy failed.");
+        }
+        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+    } else {
+        tuple->set_null(_tuple_desc->slots()[17]->null_indicator_offset());
+    }
     // checksum
     { tuple->set_null(_tuple_desc->slots()[18]->null_indicator_offset()); }
     // create_options
@@ -198,7 +232,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             str_slot->ptr = nullptr;
         } else {
             str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            if (NULL == str_slot->ptr) {
+            if (nullptr == str_slot->ptr) {
                 return Status::InternalError("Allocate memcpy failed.");
             }
             memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -211,21 +245,21 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
 Status SchemaTablesScanner::get_new_table() {
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
-    if (NULL != _param->wild) {
+    if (nullptr != _param->wild) {
         table_params.__set_pattern(*(_param->wild));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             table_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             table_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->ip), _param->port, table_params,
                                                         &_table_result));
     } else {
@@ -239,8 +273,8 @@ Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos)
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
     }
     while (_table_index >= _table_result.tables.size()) {
         if (_db_index < _db_result.dbs.size()) {

@@ -42,6 +42,8 @@ class RowCursor;
 class RowBlockV2 {
 public:
     RowBlockV2(const Schema& schema, uint16_t capacity);
+
+    RowBlockV2(const Schema& schema, uint16_t capacity, std::shared_ptr<MemTracker> parent);
     ~RowBlockV2();
 
     // update number of rows contained in this block
@@ -101,6 +103,7 @@ public:
         }
         _delete_state = delete_state;
     }
+    std::string debug_string();
 
 private:
     Schema _schema;

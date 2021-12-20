@@ -218,15 +218,15 @@ public class SchemaChangeJob extends AlterJob {
     }
 
     public void deleteAllTableHistorySchema() {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             LOG.warn("db[{}] does not exist", dbId);
             return;
         }
 
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return;
@@ -315,7 +315,7 @@ public class SchemaChangeJob extends AlterJob {
             return 1;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -323,9 +323,9 @@ public class SchemaChangeJob extends AlterJob {
         }
 
         batchClearAlterTask = new AgentBatchTask();
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return -1;
@@ -378,7 +378,7 @@ public class SchemaChangeJob extends AlterJob {
 
         LOG.info("sending schema change job {}, start txn id: {}", tableId, transactionId);
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             String msg = "db[" + dbId + "] does not exist";
             setMsg(msg);
@@ -386,9 +386,9 @@ public class SchemaChangeJob extends AlterJob {
             return false;
         }
 
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return false;
@@ -402,7 +402,7 @@ public class SchemaChangeJob extends AlterJob {
                 List<AgentTask> tasks = new LinkedList<AgentTask>();
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+                    short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
                     for (Long indexId : this.changedIndexIdToSchema.keySet()) {
                         MaterializedIndex alterIndex = partition.getIndex(indexId);
                         if (alterIndex == null) {
@@ -584,14 +584,10 @@ public class SchemaChangeJob extends AlterJob {
         long replicaId = schemaChangeTask.getReplicaId();
 
         // update replica's info
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("Cannot find db[" + dbId + "]");
-        }
-
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return;
@@ -662,16 +658,16 @@ public class SchemaChangeJob extends AlterJob {
             return 0;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             cancelMsg = String.format("database %d does not exist", dbId);
             LOG.warn(cancelMsg);
             return -1;
         }
 
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return -1;
@@ -683,7 +679,7 @@ public class SchemaChangeJob extends AlterJob {
                 boolean hasUnfinishedPartition = false;
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
-                    short expectReplicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                    short expectReplicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                     boolean hasUnfinishedIndex = false;
                     for (long indexId : this.changedIndexIdToSchema.keySet()) {
                         MaterializedIndex materializedIndex = partition.getIndex(indexId);
@@ -880,16 +876,16 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void finishJob() {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             cancelMsg = String.format("database %d does not exist", dbId);
             LOG.warn(cancelMsg);
             return;
         }
 
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return;
@@ -919,7 +915,13 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void replayInitJob(Database db) {
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay init schema change job failed", e);
+            return;
+        }
         olapTable.writeLock();
         try {
             // change the state of table/partition and replica, then add object to related List and Set
@@ -961,7 +963,13 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void replayFinishing(Database db) {
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay finishing schema change job failed", e);
+            return;
+        }
         olapTable.writeLock();
         try {
             // set the status to normal
@@ -1042,14 +1050,18 @@ public class SchemaChangeJob extends AlterJob {
             replayFinishing(db);
         }
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable != null) {
-            olapTable.writeLock();
-            try {
-                olapTable.setState(OlapTableState.NORMAL);
-            } finally {
-                olapTable.writeUnlock();
-            }
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay finish schema change job failed", e);
+            return;
+        }
+        olapTable.writeLock();
+        try {
+            olapTable.setState(OlapTableState.NORMAL);
+        } finally {
+            olapTable.writeUnlock();
         }
         LOG.info("replay finish schema change job: {}", tableId);
     }
@@ -1057,8 +1069,11 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public void replayCancel(Database db) {
         // restore partition's state
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay cancel schema change job failed", e);
             return;
         }
         olapTable.writeLock();

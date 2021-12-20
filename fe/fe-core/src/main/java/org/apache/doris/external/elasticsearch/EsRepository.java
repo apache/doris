@@ -59,7 +59,7 @@ public class EsRepository extends MasterDaemon {
         }
         esTables.put(esTable.getId(), esTable);
         esClients.put(esTable.getId(),
-                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd()));
+                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(), esTable.isHttpSslEnabled()));
         LOG.info("register a new table [{}] to sync list", esTable);
     }
 
@@ -91,7 +91,10 @@ public class EsRepository extends MasterDaemon {
         }
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
         for (Long dbId : dbIds) {
-            Database database = Catalog.getCurrentCatalog().getDb(dbId);
+            Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            if (database == null) {
+                continue;
+            }
 
             List<Table> tables = database.getTables();
             for (Table table : tables) {

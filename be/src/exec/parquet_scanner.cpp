@@ -22,6 +22,7 @@
 #include "exec/decompressor.h"
 #include "exec/local_file_reader.h"
 #include "exec/parquet_reader.h"
+#include "exec/s3_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "exprs/expr.h"
@@ -31,6 +32,17 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
+#include "exec/parquet_reader.h"
+#include "exprs/expr.h"
+#include "exec/text_converter.h"
+#include "exec/text_converter.hpp"
+#include "exec/local_file_reader.h"
+#include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
+#include "exec/decompressor.h"
+#include "exec/parquet_reader.h"
+
+#include "exec/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -38,8 +50,9 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
+                               const std::vector<TExpr>& pre_filter_texprs,
                                ScannerCounter* counter)
-        : BaseScanner(state, profile, params, counter),
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           // _splittable(params.splittable),
@@ -115,15 +128,26 @@ Status ParquetScanner::open_next_reader() {
             file_reader.reset(new LocalFileReader(range.path, range.start_offset));
             break;
         }
+        case TFileType::FILE_HDFS: {
+            FileReader* reader;
+            RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, range.start_offset, &reader));
+            file_reader.reset(reader);
+            break;
+        }
         case TFileType::FILE_BROKER: {
             int64_t file_size = 0;
             // for compatibility
             if (range.__isset.file_size) {
                 file_size = range.file_size;
             }
-            file_reader.reset(new BufferedReader(
+            file_reader.reset(new BufferedReader(_profile,
                     new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
                                      range.path, range.start_offset, file_size)));
+            break;
+        }
+        case TFileType::FILE_S3: {
+            file_reader.reset(new BufferedReader(_profile,
+                    new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }
 #if 0
@@ -172,6 +196,7 @@ Status ParquetScanner::open_next_reader() {
 }
 
 void ParquetScanner::close() {
+    BaseScanner::close();
     if (_cur_file_reader != nullptr) {
         if (_stream_load_pipe != nullptr) {
             _stream_load_pipe.reset();

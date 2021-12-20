@@ -23,7 +23,6 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
@@ -86,20 +85,16 @@ public class MasterOpExecutor {
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
         params.setDb(ctx.getDatabase());
-        params.setSqlMode(ctx.getSessionVariable().getSqlMode());
         params.setResourceInfo(ctx.toResourceCtx());
         params.setUserIp(ctx.getRemoteIP());
-        params.setTimeZone(ctx.getSessionVariable().getTimeZone());
         params.setStmtId(ctx.getStmtId());
-        params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        params.setInsertVisibleTimeoutMs(ctx.getSessionVariable().getInsertVisibleTimeoutMs());
 
-        TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
-        queryOptions.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
-        queryOptions.setLoadMemLimit(ctx.getSessionVariable().getLoadMemLimit());
-        params.setQueryOptions(queryOptions);
+        // query options
+        params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
+        // session variables
+        params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
+
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }

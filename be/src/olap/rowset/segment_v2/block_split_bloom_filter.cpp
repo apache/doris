@@ -22,38 +22,38 @@
 namespace doris {
 namespace segment_v2 {
 
-const uint32_t BlockSplitBloomFilter::SALT[8] = {0x47b6137b, 0x44974d91, 0x8824ad5b, 0xa2b7289d,
-                                                 0x705495c7, 0x2df1424b, 0x9efc4947, 0x5c6bfb31};
-
 void BlockSplitBloomFilter::add_hash(uint64_t hash) {
     // most significant 32 bit mod block size as block index(BTW:block size is
     // power of 2)
     DCHECK(_num_bytes >= BYTES_PER_BLOCK);
-    uint32_t block_size = _num_bytes / BYTES_PER_BLOCK;
-    uint32_t block_index = (uint32_t)(hash >> 32) & (block_size - 1);
-    uint32_t key = (uint32_t)hash;
+    const uint32_t bucket_index =
+            static_cast<uint32_t>(hash >> 32) & (_num_bytes / BYTES_PER_BLOCK - 1);
+    uint32_t key = static_cast<uint32_t>(hash);
+    uint32_t* bitset32 = reinterpret_cast<uint32_t*>(_data);
 
-    // Calculate masks for bucket.
-    uint32_t masks[8];
-    _set_masks(key, masks);
-    uint32_t* block_offset = (uint32_t*)(_data + BYTES_PER_BLOCK * block_index);
-    for (int i = 0; i < BITS_SET_PER_BLOCK; ++i) {
-        *(block_offset + i) |= masks[i];
+    // Calculate mask for bucket.
+    BlockMask block_mask;
+    _set_masks(key, block_mask);
+
+    for (int i = 0; i < BITS_SET_PER_BLOCK; i++) {
+        bitset32[bucket_index * BITS_SET_PER_BLOCK + i] |= block_mask.item[i];
     }
 }
 
 bool BlockSplitBloomFilter::test_hash(uint64_t hash) const {
     // most significant 32 bit mod block size as block index(BTW:block size is
     // power of 2)
-    uint32_t block_size = _num_bytes / BYTES_PER_BLOCK;
-    uint32_t block_index = (uint32_t)(hash >> 32) & (block_size - 1);
-    uint32_t key = (uint32_t)hash;
+    const uint32_t bucket_index =
+            static_cast<uint32_t>((hash >> 32) & (_num_bytes / BYTES_PER_BLOCK - 1));
+    uint32_t key = static_cast<uint32_t>(hash);
+    uint32_t* bitset32 = reinterpret_cast<uint32_t*>(_data);
+
     // Calculate masks for bucket.
-    uint32_t masks[BITS_SET_PER_BLOCK];
-    _set_masks(key, masks);
-    uint32_t* block_offset = (uint32_t*)(_data + BYTES_PER_BLOCK * block_index);
+    BlockMask block_mask;
+    _set_masks(key, block_mask);
+
     for (int i = 0; i < BITS_SET_PER_BLOCK; ++i) {
-        if ((*(block_offset + i) & masks[i]) == 0) {
+        if (0 == (bitset32[BITS_SET_PER_BLOCK * bucket_index + i] & block_mask.item[i])) {
             return false;
         }
     }

@@ -37,6 +37,8 @@ public:
 
     OLAPStatus get(const int column_family_index, const std::string& key, std::string* value);
 
+    bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
+
     OLAPStatus put(const int column_family_index, const std::string& key, const std::string& value);
 
     OLAPStatus remove(const int column_family_index, const std::string& key);

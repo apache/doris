@@ -25,7 +25,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include <boost/foreach.hpp>
 #include <sstream>
 
 namespace doris {
@@ -73,7 +72,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
 
     struct addrinfo* addr_info;
 
-    if (getaddrinfo(name.c_str(), NULL, &hints, &addr_info) != 0) {
+    if (getaddrinfo(name.c_str(), nullptr, &hints, &addr_info) != 0) {
         std::stringstream ss;
         ss << "Could not find IPv4 address for: " << name;
         return Status::InternalError(ss.str());
@@ -81,12 +80,12 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
 
     addrinfo* it = addr_info;
 
-    while (it != NULL) {
+    while (it != nullptr) {
         char addr_buf[64];
         const char* result =
                 inet_ntop(AF_INET, &((sockaddr_in*)it->ai_addr)->sin_addr, addr_buf, 64);
 
-        if (result == NULL) {
+        if (result == nullptr) {
             std::stringstream ss;
             ss << "Could not convert IPv4 address for: " << name;
             freeaddrinfo(addr_info);
@@ -102,7 +101,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
 }
 
 bool find_first_non_localhost(const std::vector<std::string>& addresses, std::string* addr) {
-    BOOST_FOREACH (const std::string& candidate, addresses) {
+    for (const std::string& candidate : addresses) {
         if (candidate != LOCALHOST) {
             *addr = candidate;
             return true;

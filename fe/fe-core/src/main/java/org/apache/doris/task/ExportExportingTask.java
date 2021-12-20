@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -134,7 +135,10 @@ public class ExportExportingTask extends MasterTask {
                         DebugUtil.printId(coord.getQueryId()), job.getId(), progress);
             }
 
-            coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(job.getStartTimeMs()));
+            RuntimeProfile queryProfile = coord.getQueryProfile();
+            if (queryProfile != null) {
+                queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(job.getStartTimeMs()));
+            }
             coord.endProfile();
             fragmentProfiles.add(coord.getQueryProfile());
         }
@@ -145,15 +149,17 @@ public class ExportExportingTask extends MasterTask {
             return;
         }
 
-        // move tmp file to final destination
-        Status mvStatus = moveTmpFiles();
-        if (!mvStatus.ok()) {
-            String failMsg = "move tmp file to final destination fail.";
-            failMsg += mvStatus.getErrorMsg();
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            LOG.warn("move tmp file to final destination fail. job:{}", job);
-            registerProfile();
-            return;
+        if (job.getBrokerDesc().getStorageType() == StorageBackend.StorageType.BROKER) {
+            // move tmp file to final destination
+            Status mvStatus = moveTmpFiles();
+            if (!mvStatus.ok()) {
+                String failMsg = "move tmp file to final destination fail.";
+                failMsg += mvStatus.getErrorMsg();
+                job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+                LOG.warn("move tmp file to final destination fail. job:{}", job);
+                registerProfile();
+                return;
+            }
         }
 
         // release snapshot
@@ -240,13 +246,14 @@ public class ExportExportingTask extends MasterTask {
         isCancelled = true;
         this.failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
         cancelType = ExportFailMsg.CancelType.TIMEOUT;
+        String failMsg = "export exporting job timeout.";
+        job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
         LOG.warn("export exporting job timeout. job: {}", job);
     }
 
     private void initProfile() {
-        profile = new RuntimeProfile("Query");
-        RuntimeProfile summaryProfile = new RuntimeProfile("Query");
-        summaryProfile = new RuntimeProfile("Summary");
+        profile = new RuntimeProfile("ExportJob");
+        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(job.getId()));
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));
 
@@ -255,9 +262,9 @@ public class ExportExportingTask extends MasterTask {
         summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
         summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
 
-        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
+        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Export");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString("Doris Version", Version.DORIS_BUILD_VERSION);
+        summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, "xxx");
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());

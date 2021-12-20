@@ -58,7 +58,7 @@ public class ExportPendingTask extends MasterTask {
         }
 
         long dbId = job.getDbId();
-        db = Catalog.getCurrentCatalog().getDb(dbId);
+        db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, "database does not exist");
             return;
@@ -106,7 +106,7 @@ public class ExportPendingTask extends MasterTask {
                     return Status.CANCELLED;
                 }
                 long backendId = backend.getId();
-                if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
+                if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                     return Status.CANCELLED;
                 }
                 TSnapshotRequest snapshotRequest = new TSnapshotRequest();

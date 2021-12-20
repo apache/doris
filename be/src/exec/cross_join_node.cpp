@@ -60,7 +60,7 @@ Status CrossJoinNode::construct_build_side(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
         // TODO(zhaochun):
         // RETURN_IF_ERROR(state->CheckQueryState());
-        bool eos = true;
+        bool eos = false;
         RETURN_IF_ERROR(child(1)->get_next(state, batch, &eos));
 
         // to prevent use too many memory

@@ -66,37 +66,7 @@ public class IntLiteral extends LiteralExpr {
 
     public IntLiteral(long longValue, Type type) throws AnalysisException {
         super();
-        boolean valid = true;
-        switch (type.getPrimitiveType()) {
-            case TINYINT:
-                if (longValue < TINY_INT_MIN || longValue > TINY_INT_MAX) {
-                    valid = false;
-                }
-                break;
-            case SMALLINT:
-                if (longValue < SMALL_INT_MIN || longValue > SMALL_INT_MAX) {
-                    valid = false;
-                }
-                break;
-            case INT:
-                if (longValue < INT_MIN || longValue > INT_MAX) {
-                    valid = false;
-                }
-                break;
-            case BIGINT:
-                if (longValue < BIG_INT_MIN) {
-                    valid = false;
-                }
-                // no need to check upper bound
-                break;
-            default:
-                valid = false;
-                break;
-        }
-
-        if (!valid) {
-            throw new AnalysisException("Number out of range[" + value + "]. type: " + type);
-        }
+        checkValueValid(longValue, type);
 
         this.value = longValue;
         this.type = type;
@@ -107,11 +77,28 @@ public class IntLiteral extends LiteralExpr {
         super();
         long longValue = -1L;
         try {
-            longValue = Long.valueOf(value);
+            longValue = Long.parseLong(value);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid number format: " + value);
         }
+        checkValueValid(longValue, type);
 
+        this.value = longValue;
+        this.type = type;
+        analysisDone();
+    }
+
+    protected IntLiteral(IntLiteral other) {
+        super(other);
+        value = other.value;
+    }
+
+    @Override
+    public void checkValueValid() throws AnalysisException {
+        checkValueValid(value, type);
+    }
+
+    private void checkValueValid(long longValue, Type type) throws AnalysisException {
         boolean valid = true;
         switch (type.getPrimitiveType()) {
             case TINYINT:
@@ -139,19 +126,9 @@ public class IntLiteral extends LiteralExpr {
                 valid = false;
                 break;
         }
-
         if (!valid) {
-            throw new AnalysisException("Number out of range[" + value + "]. type: " + type);
+            throw new AnalysisException("Number out of range[" + longValue + "]. type: " + type);
         }
-
-        this.value = longValue;
-        this.type = type;
-        analysisDone();
-    }
-
-    protected IntLiteral(IntLiteral other) {
-        super(other);
-        value = other.value;
     }
 
     @Override
@@ -307,7 +284,7 @@ public class IntLiteral extends LiteralExpr {
             }
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(new Double(value), targetType);
-        } else if (targetType.isDecimal() || targetType.isDecimalV2()) {
+        } else if (targetType.isDecimalV2()) {
             return new DecimalLiteral(new BigDecimal(value));
         }
         return this;

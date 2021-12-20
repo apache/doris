@@ -152,10 +152,10 @@ AgentStatus AgentUtils::rsync_from_remote(const string& remote_host, const strin
     cmd_stream << " " << remote_host << ":" << remote_file_path << " " << local_file_path;
     LOG(INFO) << "rsync cmd: " << cmd_stream.str();
 
-    FILE* fp = NULL;
+    FILE* fp = nullptr;
     fp = popen(cmd_stream.str().c_str(), "r");
 
-    if (fp == NULL) {
+    if (fp == nullptr) {
         return DORIS_ERROR;
     }
 
@@ -226,7 +226,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
 
     // Execute command.
     FILE* fp = popen(cmd.c_str(), "r");
-    if (fp == NULL) {
+    if (fp == nullptr) {
         std::stringstream err_stream;
         err_stream << "popen failed. " << strerror(errno) << ", with errno: " << errno << ".\n";
         *errmsg = err_stream.str();
@@ -235,7 +235,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
 
     // Get command output.
     char result[1024] = {'\0'};
-    while (fgets(result, sizeof(result), fp) != NULL) {
+    while (fgets(result, sizeof(result), fp) != nullptr) {
         *errmsg += result;
     }
 

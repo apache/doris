@@ -18,6 +18,7 @@
 #include "olap/row_block2.h"
 
 #include <sstream>
+#include <utility>
 
 #include "gutil/strings/substitute.h"
 #include "olap/row_cursor.h"
@@ -27,10 +28,13 @@ using strings::Substitute;
 namespace doris {
 
 RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
+        : RowBlockV2(schema, capacity, nullptr) {}
+
+RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity, std::shared_ptr<MemTracker> parent)
         : _schema(schema),
           _capacity(capacity),
           _column_vector_batches(_schema.num_columns()),
-          _tracker(new MemTracker(-1, "RowBlockV2")),
+          _tracker(MemTracker::CreateTracker(-1, "RowBlockV2", std::move(parent))),
           _pool(new MemPool(_tracker.get())),
           _selection_vector(nullptr) {
     for (auto cid : _schema.column_ids()) {
@@ -104,5 +108,14 @@ std::string RowBlockRow::debug_string() const {
     ss << "]";
     return ss.str();
 }
-
+std::string RowBlockV2::debug_string() {
+    std::stringstream ss;
+    for (int i = 0; i < num_rows(); ++i) {
+        ss << row(i).debug_string();
+        if (i != num_rows() - 1) {
+            ss << "\n";
+        }
+    }
+    return ss.str();
+}
 } // namespace doris

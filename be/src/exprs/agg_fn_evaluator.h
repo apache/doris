@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
 #define DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
 
-#include <boost/scoped_array.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <string>
 #include <vector>
 
@@ -98,7 +96,7 @@ public:
         return _agg_op == AggregationOp::COUNT && _input_exprs_ctxs.empty();
     }
     bool is_builtin() const { return _function_type == TFunctionBinaryType::BUILTIN; }
-    bool supports_serialize() const { return _serialize_fn != NULL; }
+    bool supports_serialize() const { return _serialize_fn != nullptr; }
 
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
@@ -126,7 +124,7 @@ public:
     // In the non-spilling case, this node would normally not merge.
     void merge(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst);
     void serialize(FunctionContext* agg_fn_ctx, Tuple* dst);
-    void finalize(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst);
+    void finalize(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst, bool add_null = false);
 
     // TODO: implement codegen path. These functions would return IR functions with
     // the same signature as the interpreted ones above.
@@ -141,10 +139,7 @@ public:
     static const size_t BIGINT_SIZE = sizeof(int64_t);
     static const size_t FLOAT_SIZE = sizeof(float);
     static const size_t DOUBLE_SIZE = sizeof(double);
-    static const size_t DECIMAL_SIZE = sizeof(DecimalValue);
     static const size_t DECIMALV2_SIZE = sizeof(DecimalV2Value);
-    static const size_t TIME_DURATION_SIZE = sizeof(boost::posix_time::time_duration);
-    static const size_t DATE_SIZE = sizeof(boost::gregorian::date);
     static const size_t LARGEINT_SIZE = sizeof(__int128);
     // DATETIME VAL has two part: packet_time is 8 byte, and type is 4 byte
     // MySQL packet time : int64_t packed_time;
@@ -170,7 +165,7 @@ public:
                           Tuple* dst);
     static void finalize(const std::vector<AggFnEvaluator*>& evaluators,
                          const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* src,
-                         Tuple* dst);
+                         Tuple* dst, bool add_null = false);
     static void init(const std::vector<AggFnEvaluator*>& evaluators,
                      const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* dst);
     static void serialize(const std::vector<AggFnEvaluator*>& evaluators,
@@ -187,10 +182,10 @@ private:
     const bool _is_merge;
     /// Indicates which functions must be loaded.
     const bool _is_analytic_fn;
-    boost::scoped_ptr<HybridMap> _hybrid_map;
+    std::unique_ptr<HybridMap> _hybrid_map;
     bool _is_multi_distinct;
     std::vector<ExprContext*> _input_exprs_ctxs;
-    boost::scoped_array<char> _string_buffer; //for count distinct
+    std::unique_ptr<char[]> _string_buffer;   //for count distinct
     int _string_buffer_len;                   //for count distinct
     std::shared_ptr<MemTracker> _mem_tracker; // saved c'tor param
 
@@ -213,7 +208,7 @@ private:
     // Context to run the aggregate functions.
     // TODO: this and _pool make this not thread safe but they are easy to duplicate
     // per thread.
-    // boost::scoped_ptr<doris_udf::FunctionContext> _ctx;
+    // std::unique_ptr<doris_udf::FunctionContext> _ctx;
 
     // Created to a subclass of AnyVal for type(). We use this to convert values
     // from the UDA interface to the Expr interface.
@@ -263,7 +258,8 @@ private:
     // taking TupleRow to the UDA signature taking AnvVals.
     // void serialize_or_finalize(FunctionContext* agg_fn_ctx, const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn);
     void serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* src,
-                               const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn);
+                               const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn,
+                               bool add_null = false);
 
     // Writes the result in src into dst pointed to by _output_slot_desc
     void set_output_slot(const doris_udf::AnyVal* src, const SlotDescriptor* dst_slot_desc,
@@ -274,17 +270,17 @@ private:
 
 inline void AggFnEvaluator::add(doris_udf::FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst) {
     agg_fn_ctx->impl()->increment_num_updates();
-    update(agg_fn_ctx, row, dst, _is_merge ? _merge_fn : _update_fn, NULL);
+    update(agg_fn_ctx, row, dst, _is_merge ? _merge_fn : _update_fn, nullptr);
 }
 inline void AggFnEvaluator::remove(doris_udf::FunctionContext* agg_fn_ctx, TupleRow* row,
                                    Tuple* dst) {
     agg_fn_ctx->impl()->increment_num_removes();
-    update(agg_fn_ctx, row, dst, _remove_fn, NULL);
+    update(agg_fn_ctx, row, dst, _remove_fn, nullptr);
 }
 
-inline void AggFnEvaluator::finalize(doris_udf::FunctionContext* agg_fn_ctx, Tuple* src,
-                                     Tuple* dst) {
-    serialize_or_finalize(agg_fn_ctx, src, _output_slot_desc, dst, _finalize_fn);
+inline void AggFnEvaluator::finalize(doris_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst,
+                                     bool add_null) {
+    serialize_or_finalize(agg_fn_ctx, src, _output_slot_desc, dst, _finalize_fn, add_null);
 }
 inline void AggFnEvaluator::get_value(doris_udf::FunctionContext* agg_fn_ctx, Tuple* src,
                                       Tuple* dst) {
@@ -338,11 +334,11 @@ inline void AggFnEvaluator::get_value(const std::vector<AggFnEvaluator*>& evalua
 }
 inline void AggFnEvaluator::finalize(const std::vector<AggFnEvaluator*>& evaluators,
                                      const std::vector<doris_udf::FunctionContext*>& fn_ctxs,
-                                     Tuple* src, Tuple* dst) {
+                                     Tuple* src, Tuple* dst, bool add_null) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {
-        evaluators[i]->finalize(fn_ctxs[i], src, dst);
+        evaluators[i]->finalize(fn_ctxs[i], src, dst, add_null);
     }
 }
 

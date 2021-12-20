@@ -37,12 +37,12 @@ namespace {
 
 template <typename CppType>
 struct BitmapIndexTraits {
-    using MemoryIndexType = std::map<CppType, Roaring>;
+    using MemoryIndexType = std::map<CppType, roaring::Roaring>;
 };
 
 template <>
 struct BitmapIndexTraits<Slice> {
-    using MemoryIndexType = std::map<Slice, Roaring, Slice::Comparator>;
+    using MemoryIndexType = std::map<Slice, roaring::Roaring, Slice::Comparator>;
 };
 
 // Builder for bitmap index. Bitmap index is comprised of two parts
@@ -91,7 +91,7 @@ public:
             // new value, copy value and insert new key->bitmap pair
             CppType new_value;
             _typeinfo->deep_copy(&new_value, &value, &_pool);
-            _mem_index.insert({new_value, Roaring::bitmapOf(1, _rid)});
+            _mem_index.insert({new_value, roaring::Roaring::bitmapOf(1, _rid)});
             it = _mem_index.find(new_value);
         }
         _reverted_index_size += it->second.getSizeInBytes(false) - old_size;
@@ -125,7 +125,7 @@ public:
             RETURN_IF_ERROR(dict_column_writer.finish(meta->mutable_dict_column()));
         }
         { // write bitmaps
-            std::vector<Roaring*> bitmaps;
+            std::vector<roaring::Roaring*> bitmaps;
             for (auto& it : _mem_index) {
                 bitmaps.push_back(&(it.second));
             }
@@ -183,7 +183,7 @@ private:
     uint64_t _reverted_index_size;
     rowid_t _rid = 0;
     // row id list for null value
-    Roaring _null_bitmap;
+    roaring::Roaring _null_bitmap;
     // unique value to its row id list
     MemoryIndexType _mem_index;
     std::shared_ptr<MemTracker> _tracker;
@@ -216,6 +216,9 @@ Status BitmapIndexWriter::create(const TypeInfo* typeinfo,
         break;
     case OLAP_FIELD_TYPE_VARCHAR:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_STRING:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_STRING>(typeinfo));
         break;
     case OLAP_FIELD_TYPE_DATE:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(typeinfo));

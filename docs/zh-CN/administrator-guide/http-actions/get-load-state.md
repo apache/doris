@@ -36,7 +36,7 @@ under the License.
         该命令用于查看一个Label对应的事务状态
 
     RETURN VALUES
-        执行完毕后，会以Json格式返回这次导入的相关内容。当前包括一下字段
+        执行完毕后，会以Json格式返回这次导入的相关内容。当前包括以下字段
         Label：本次导入的 label，如果没有指定，则为一个 uuid。
         Status：此命令是否成功执行，Success表示成功执行
         Message： 具体的执行信息

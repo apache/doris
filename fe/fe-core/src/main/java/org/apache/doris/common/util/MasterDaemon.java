@@ -23,8 +23,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /*
- * MasterDaemon is a kind of thread only master FE will start.
- * And it will wait master FE to be ready before running.
+ * MasterDaemon is a kind of thread that will wait Catalog to be ready before running.
+ * And it can run in all types of FE.
  */
 public class MasterDaemon extends Daemon {
     private static final Logger LOG = LogManager.getLogger(MasterDaemon.class);

@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
 #include <set>
+#include <utility>
 
 #include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
@@ -42,7 +43,7 @@ namespace segment_v2 {
 //   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
-    explicit BitmapRangeIterator(const Roaring& bitmap)
+    explicit BitmapRangeIterator(const roaring::Roaring& bitmap)
             : _last_val(0), _buf(new uint32_t[256]), _buf_pos(0), _buf_size(0), _eof(false) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
         _read_next_batch();
@@ -74,14 +75,14 @@ public:
 
 private:
     void _read_next_batch() {
-        uint32_t n = roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
+        uint32_t n = roaring::api::roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
         _buf_pos = 0;
         _buf_size = n;
         _eof = n == 0;
     }
 
     static const uint32_t kBatchSize = 256;
-    roaring_uint32_iterator_t _iter;
+    roaring::api::roaring_uint32_iterator_t _iter;
     uint32_t _last_val;
     uint32_t* _buf = nullptr;
     uint32_t _buf_pos;
@@ -89,14 +90,18 @@ private:
     bool _eof;
 };
 
-SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema)
+SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema,
+                                 std::shared_ptr<MemTracker> parent)
         : _segment(std::move(segment)),
           _schema(schema),
           _column_iterators(_schema.num_columns(), nullptr),
           _bitmap_index_iterators(_schema.num_columns(), nullptr),
           _cur_rowid(0),
           _lazy_materialization_read(false),
-          _inited(false) {}
+          _inited(false) {
+    // use for count the mem use of ColumnIterator
+    _mem_tracker = MemTracker::CreateTracker(-1, "SegmentIterator", std::move(parent), false);
+}
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
@@ -123,7 +128,10 @@ Status SegmentIterator::_init() {
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
-    RETURN_IF_ERROR(_get_row_ranges_by_keys());
+    // z-order can not use prefix index
+    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+        RETURN_IF_ERROR(_get_row_ranges_by_keys());
+    }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     _init_lazy_materialization();
     _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
@@ -173,27 +181,30 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     if (key_range.lower_key != nullptr) {
         for (auto cid : key_range.lower_key->schema()->column_ids()) {
             column_set.emplace(cid);
-            key_fields.emplace_back(key_range.lower_key->schema()->column(cid));
+            key_fields.emplace_back(key_range.lower_key->column_schema(cid));
         }
     }
     if (key_range.upper_key != nullptr) {
         for (auto cid : key_range.upper_key->schema()->column_ids()) {
             if (column_set.count(cid) == 0) {
-                key_fields.emplace_back(key_range.upper_key->schema()->column(cid));
+                key_fields.emplace_back(key_range.upper_key->column_schema(cid));
                 column_set.emplace(cid);
             }
         }
     }
     _seek_schema.reset(new Schema(key_fields, key_fields.size()));
-    _seek_block.reset(new RowBlockV2(*_seek_schema, 1));
+    _seek_block.reset(new RowBlockV2(*_seek_schema, 1, _mem_tracker));
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(
+                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.rblock = _rblock.get();
+            iter_opts.mem_tracker =
+                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -228,6 +239,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             cids.insert(column_condition.first);
         }
     }
+
     // first filter data by bloom filter index
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
@@ -317,11 +329,14 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(
+                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
+            iter_opts.mem_tracker =
+                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -433,6 +448,8 @@ void SegmentIterator::_init_lazy_materialization() {
         for (auto predicate : _col_predicates) {
             predicate_columns.insert(predicate->column_id());
         }
+        _opts.delete_condition_predicates.get()->get_all_column_ids(predicate_columns);
+
         // when all return columns have predicates, disable lazy materialization to avoid its overhead
         if (_schema.column_ids().size() > predicate_columns.size()) {
             _lazy_materialization_read = true;
@@ -462,7 +479,6 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, R
         ColumnBlockView dst(&column_block, row_offset);
         size_t rows_read = nrows;
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, &dst));
-        block->set_delete_state(column_block.delete_state());
         DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();
@@ -518,21 +534,30 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     _opts.stats->raw_rows_read += nrows_read;
     _opts.stats->blocks_load += 1;
 
-    // phase 2: run vectorization evaluation on remaining predicates to prune rows.
+    // phase 2: run vectorized evaluation on remaining predicates to prune rows.
     // block's selection vector will be set to indicate which rows have passed predicates.
     // TODO(hkp): optimize column predicate to check column block once for one column
-    if (!_col_predicates.empty()) {
+    if (!_col_predicates.empty() || _opts.delete_condition_predicates.get() != nullptr) {
         // init selection position index
         uint16_t selected_size = block->selected_size();
         uint16_t original_size = selected_size;
+
         SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
         for (auto column_predicate : _col_predicates) {
-            auto column_block = block->column_block(column_predicate->column_id());
+            auto column_id = column_predicate->column_id();
+            auto column_block = block->column_block(column_id);
             column_predicate->evaluate(&column_block, block->selection_vector(), &selected_size);
         }
+        _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
+
+        // set original_size again to check delete condition predicates
+        // filter how many data
+        original_size = selected_size;
+        _opts.delete_condition_predicates->evaluate(block, &selected_size);
+        _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
+
         block->set_selected_size(selected_size);
         block->set_num_rows(selected_size);
-        _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
     }
 
     // phase 3: read non-predicate columns of rows that have passed predicates

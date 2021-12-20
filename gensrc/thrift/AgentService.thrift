@@ -35,6 +35,7 @@ struct TColumn {
     7: optional bool is_bloom_filter_column
     8: optional Exprs.TExpr define_expr
     9: optional bool visible = true
+    10: optional list<TColumn> children_column
 }
 
 struct TTabletSchema {
@@ -48,6 +49,8 @@ struct TTabletSchema {
     8: optional bool is_in_memory
     9: optional i32 delete_sign_idx = -1
     10: optional i32 sequence_col_idx = -1
+    11: optional Types.TSortType sort_type
+    12: optional i32 sort_col_num
 }
 
 // this enum stands for different storage format in src_backends
@@ -186,6 +189,8 @@ struct TUploadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+
 }
 
 struct TDownloadReq {
@@ -193,6 +198,7 @@ struct TDownloadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
 }
 
 struct TSnapshotRequest {
@@ -204,6 +210,7 @@ struct TSnapshotRequest {
     6: optional list<Types.TVersion> missing_version
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
+    // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
 }

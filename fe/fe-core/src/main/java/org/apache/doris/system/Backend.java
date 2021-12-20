@@ -21,17 +21,21 @@ import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +53,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class Backend implements Writable {
 
+    // Represent a meaningless IP
+    public static final String DUMMY_IP = "0.0.0.0";
+
     public enum BackendState {
         using, /* backend is belong to a cluster*/
         offline,
@@ -57,28 +64,43 @@ public class Backend implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(Backend.class);
 
+    @SerializedName("id")
     private long id;
+    @SerializedName("host")
     private String host;
     private String version;
 
+    @SerializedName("heartbeatPort")
     private int heartbeatPort; // heartbeat
+    @SerializedName("bePort")
     private volatile int bePort; // be
+    @SerializedName("httpPort")
     private volatile int httpPort; // web service
+    @SerializedName("beRpcPort")
     private volatile int beRpcPort; // be rpc port
+    @SerializedName("brpcPort")
     private volatile int brpcPort = -1;
 
+    @SerializedName("lastUpdateMs")
     private volatile long lastUpdateMs;
+    @SerializedName("lastStartTime")
     private volatile long lastStartTime;
+    @SerializedName("isAlive")
     private AtomicBoolean isAlive;
 
+    @SerializedName("isDecommissioned")
     private AtomicBoolean isDecommissioned;
+    @SerializedName("decommissionType")
     private volatile int decommissionType;
+    @SerializedName("ownerClusterName")
     private volatile String ownerClusterName;
     // to index the state in some cluster
+    @SerializedName("backendState")
     private volatile int backendState;
     // private BackendState backendState;
 
     // rootPath -> DiskInfo
+    @SerializedName("disksRef")
     private volatile ImmutableMap<String, DiskInfo> disksRef;
 
     private String heartbeatErrMsg = "";
@@ -93,7 +115,10 @@ public class Backend implements Writable {
     private volatile long tabletMaxCompactionScore = 0;
 
     // additional backendStatus information for BE, display in JSON format
+    @SerializedName("backendStatus")
     private BackendStatus backendStatus = new BackendStatus();
+    @SerializedName("tag")
+    private Tag tag = Tag.DEFAULT_BACKEND_TAG;
 
     public Backend() {
         this.host = "";
@@ -110,7 +135,6 @@ public class Backend implements Writable {
 
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
-        
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
     }
 
@@ -168,6 +192,24 @@ public class Backend implements Writable {
 
     public String getHeartbeatErrMsg() {
         return heartbeatErrMsg;
+    }
+
+    public long getLastStreamLoadTime() { return this.backendStatus.lastStreamLoadTime; }
+
+    public void setLastStreamLoadTime(long lastStreamLoadTime) {
+        this.backendStatus.lastStreamLoadTime = lastStreamLoadTime;
+    }
+
+    public boolean isQueryDisabled() { return backendStatus.isQueryDisabled; }
+
+    public void setQueryDisabled(boolean isQueryDisabled) {
+        this.backendStatus.isQueryDisabled = isQueryDisabled;
+    }
+
+    public boolean isLoadDisabled() {return backendStatus.isLoadDisabled; }
+
+    public void setLoadDisabled(boolean isLoadDisabled) {
+        this.backendStatus.isLoadDisabled = isLoadDisabled;
     }
 
     // for test only
@@ -255,8 +297,16 @@ public class Backend implements Writable {
         return this.isDecommissioned.get();
     }
 
-    public boolean isAvailable() {
-        return this.isAlive.get() && !this.isDecommissioned.get();
+    public boolean isQueryAvailable() {
+        return isAlive() && !isQueryDisabled();
+    }
+
+    public boolean isScheduleAvailable() {
+        return isAlive() && !isDecommissioned();
+    }
+
+    public boolean isLoadAvailable() {
+        return isAlive() && !isLoadDisabled();
     }
 
     public void setDisks(ImmutableMap<String, DiskInfo> disks) {
@@ -301,6 +351,10 @@ public class Backend implements Writable {
 
     public boolean hasPathHash() {
         return disksRef.values().stream().allMatch(DiskInfo::hasPathHash);
+    }
+
+    public boolean hasSpecifiedStorageMedium(TStorageMedium storageMedium) {
+        return disksRef.values().stream().anyMatch(d -> d.isStorageMediumMatch(storageMedium));
     }
 
     public long getTotalCapacityB() {
@@ -475,39 +529,24 @@ public class Backend implements Writable {
     }
 
     public static Backend read(DataInput in) throws IOException {
-        Backend backend = new Backend();
-        backend.readFields(in);
-        return backend;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
+            Backend backend = new Backend();
+            backend.readFields(in);
+            return backend;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Backend.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        Text.writeString(out, host);
-        out.writeInt(heartbeatPort);
-        out.writeInt(bePort);
-        out.writeInt(httpPort);
-        out.writeInt(beRpcPort);
-        out.writeBoolean(isAlive.get());
-        out.writeBoolean(isDecommissioned.get());
-        out.writeLong(lastUpdateMs);
-        out.writeLong(lastStartTime);
-
-        ImmutableMap<String, DiskInfo> disks = disksRef;
-        out.writeInt(disks.size());
-        for (Map.Entry<String, DiskInfo> entry : disks.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        Text.writeString(out, ownerClusterName);
-        out.writeInt(backendState);
-        out.writeInt(decommissionType);
-
-        out.writeInt(brpcPort);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         id = in.readLong();
         host = Text.readString(in);
         heartbeatPort = in.readInt();
@@ -619,17 +658,17 @@ public class Backend implements Writable {
                 this.version = hbResponse.getVersion();
             }
 
-            if (this.bePort != hbResponse.getBePort()) {
+            if (this.bePort != hbResponse.getBePort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
                 this.bePort = hbResponse.getBePort();
             }
 
-            if (this.httpPort != hbResponse.getHttpPort()) {
+            if (this.httpPort != hbResponse.getHttpPort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
                 this.httpPort = hbResponse.getHttpPort();
             }
 
-            if (this.brpcPort != hbResponse.getBrpcPort()) {
+            if (this.brpcPort != hbResponse.getBrpcPort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
                 this.brpcPort = hbResponse.getBrpcPort();
             }
@@ -648,7 +687,7 @@ public class Backend implements Writable {
         } else {
             if (isAlive.compareAndSet(true, false)) {
                 isChanged = true;
-                LOG.info("{} is dead,", this.toString());
+                LOG.warn("{} is dead,", this.toString());
             }
 
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
@@ -683,7 +722,22 @@ public class Backend implements Writable {
      */
     public class BackendStatus {
         // this will be output as json, so not using FeConstants.null_string;
-        public String lastSuccessReportTabletsTime = "N/A";
+        public volatile String lastSuccessReportTabletsTime = "N/A";
+        @SerializedName("lastStreamLoadTime")
+        // the last time when the stream load status was reported by backend
+        public volatile long lastStreamLoadTime = -1;
+        @SerializedName("isQueryDisabled")
+        public volatile boolean isQueryDisabled = false;
+        @SerializedName("isLoadDisabled")
+        public volatile boolean isLoadDisabled = false;
+    }
+
+    public void setTag(Tag tag) {
+        this.tag = tag;
+    }
+
+    public Tag getTag() {
+        return tag;
     }
 }
 

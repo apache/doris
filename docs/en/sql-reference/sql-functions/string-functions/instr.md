@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INSTR (VARCHAR STR, VARCHAR substrate)'
+`INSTR (VARCHAR STR, VARCHAR substrate)`
 
 
 Returns the location where substr first appeared in str (counting from 1). If substr does not appear in str, return 0.

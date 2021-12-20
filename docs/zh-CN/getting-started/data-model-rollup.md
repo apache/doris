@@ -76,9 +76,9 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
     `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
     `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
-    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间"
 )
-AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
+AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `address` VARCHAR(500) COMMENT "用户地址",
     `register_time` DATETIME COMMENT "用户注册时间"
 )
-UNIQUE KEY(`user_id`, `user_name`)
+UNIQUE KEY(`user_id`, `username`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
@@ -293,7 +293,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `address` VARCHAR(500) REPLACE COMMENT "用户地址",
     `register_time` DATETIME REPLACE COMMENT "用户注册时间"
 )
-AGGREGATE KEY(`user_id`, `user_name`)
+AGGREGATE KEY(`user_id`, `username`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
@@ -341,7 +341,7 @@ ROLLUP 在多维分析中是“上卷”的意思，即将数据按某种指定�
 
 ### 基本概念
 
-在 Doris 中，我们将用户通过建表语句创建出来的表成为 Base 表（Base Table）。Base 表中保存着按用户建表语句指定的方式存储的基础数据。
+在 Doris 中，我们将用户通过建表语句创建出来的表称为 Base 表（Base Table）。Base 表中保存着按用户建表语句指定的方式存储的基础数据。
 
 在 Base 表之上，我们可以创建任意多个 ROLLUP 表。这些 ROLLUP 的数据是基于 Base 表产生的，并且在物理上是**独立存储**的。
 
@@ -421,11 +421,11 @@ Doris 会自动命中这个 ROLLUP     表，从而只需扫描极少的数据�
 
 |city|age|cost|max\_dwell\_time|min\_dwell\_time|
 |---|---|---|---|---|
-|北京|20|0|30|10|2|
-|北京|30|1|2|22|22|
-|上海|20|1|200|5|5|
-|广州|32|0|30|11|11|
-|深圳|35|0|111|6|3|
+|北京|20|35|10|2|
+|北京|30|2|22|22|
+|上海|20|200|5|5|
+|广州|32|30|11|11|
+|深圳|35|111|6|3|
 
 当我们进行如下这些查询时:
 
@@ -517,7 +517,7 @@ Base 表结构如下：
 * ROLLUP 最根本的作用是提高某些查询的查询效率（无论是通过聚合来减少数据量，还是修改列顺序以匹配前缀索引）。因此 ROLLUP 的含义已经超出了 “上卷” 的范围。这也是为什么我们在源代码中，将其命名为 Materialized Index（物化索引）的原因。
 * ROLLUP 是附属于 Base 表的，可以看做是 Base 表的一种辅助数据结构。用户可以在 Base 表的基础上，创建或删除 ROLLUP，但是不能在查询中显式的指定查询某 ROLLUP。是否命中 ROLLUP 完全由 Doris 系统自动决定。
 * ROLLUP 的数据是独立物理存储的。因此，创建的 ROLLUP 越多，占用的磁盘空间也就越大。同时对导入速度也会有影响（导入的ETL阶段会自动产生所有 ROLLUP 的数据），但是不会降低查询效率（只会更好）。
-* ROLLUP 的数据更新与 Base 表示完全同步的。用户无需关心这个问题。
+* ROLLUP 的数据更新与 Base 表是完全同步的。用户无需关心这个问题。
 * ROLLUP 中列的聚合方式，与 Base 表完全相同。在创建 ROLLUP 无需指定，也不能修改。
 * 查询能否命中 ROLLUP 的一个必要条件（非充分条件）是，查询所涉及的**所有列**（包括 select list 和 where 中的查询条件列等）都存在于该 ROLLUP 的列中。否则，查询只能命中 Base 表。
 * 某些类型的查询（如 count(*)）在任何条件下，都无法命中 ROLLUP。具体参见接下来的 **聚合模型的局限性** 一节。

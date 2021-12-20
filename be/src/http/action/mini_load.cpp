@@ -314,6 +314,16 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req,
     } else {
         (*params)[HTTP_FUZZY_PARSE] = "false";
     }
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            (*params)[HTTP_READ_JSON_BY_LINE] = "true";
+        } else {
+            (*params)[HTTP_READ_JSON_BY_LINE] = "false";
+        }
+    } else {
+        (*params)[HTTP_READ_JSON_BY_LINE] = "false";
+    }
+
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         (*params)[HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL] =
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL);
@@ -483,8 +493,6 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
         LOG(INFO) << ss.str();
         return false;
     }
-    MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(true);
-    req->set_handler_ctx(mini_load_ctx);
     return true;
 }
 
@@ -618,7 +626,7 @@ void MiniLoadAction::free_handler_ctx(void* param) {
             if (streaming_ctx->body_sink != nullptr) {
                 LOG(WARNING) << "cancel stream load " << streaming_ctx->id.to_string()
                              << " because sender failed";
-                streaming_ctx->body_sink->cancel();
+                streaming_ctx->body_sink->cancel("sender failed");
             }
             if (streaming_ctx->unref()) {
                 delete streaming_ctx;
@@ -927,7 +935,7 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel();
+            ctx->body_sink->cancel(ctx->status.get_error_msg());
         }
     }
 

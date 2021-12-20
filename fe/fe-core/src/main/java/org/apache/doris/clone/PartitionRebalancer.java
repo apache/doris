@@ -17,18 +17,22 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Ordering;
-import com.google.common.collect.TreeMultimap;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
+import com.google.common.collect.Table;
+import com.google.common.collect.TreeMultimap;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -67,8 +71,9 @@ public class PartitionRebalancer extends Rebalancer {
 
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium) {
-        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterName, medium);
+            ClusterLoadStatistic clusterStat, TStorageMedium medium) {
+        String clusterName = clusterStat.getClusterName();
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterName, clusterStat.getTag(), medium);
         Preconditions.checkNotNull(movesInProgress, "clusterStat is got from statisticMap, movesCacheMap should have the same entry");
 
         // Iterating through Cache.asMap().values() does not reset access time for the entries you retrieve.
@@ -143,7 +148,9 @@ public class PartitionRebalancer extends Rebalancer {
             TabletMeta tabletMeta = tabletCandidates.get(pickedTabletId);
             TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
                     tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
-                    tabletMeta.getIndexId(), pickedTabletId, System.currentTimeMillis());
+                    tabletMeta.getIndexId(), pickedTabletId, null /* replica alloc is not used for balance*/,
+                    System.currentTimeMillis());
+            tabletCtx.setTag(clusterStat.getTag());
             // Balance task's priority is always LOW
             tabletCtx.setOrigPriority(TabletSchedCtx.Priority.LOW);
             alternativeTablets.add(tabletCtx);
@@ -218,7 +225,7 @@ public class PartitionRebalancer extends Rebalancer {
     @Override
     protected void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, TabletScheduler.PathSlot> backendsWorkingSlots)
             throws SchedException {
-        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getCluster(), tabletCtx.getStorageMedium());
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getCluster(), tabletCtx.getTag(), tabletCtx.getStorageMedium());
         Preconditions.checkNotNull(movesInProgress, "clusterStat is got from statisticMap, movesInProgressMap should have the same entry");
 
         try {
@@ -240,7 +247,7 @@ public class PartitionRebalancer extends Rebalancer {
             }
 
             // Choose a path in destination
-            ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster());
+            ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
             Preconditions.checkNotNull(clusterStat, "cluster does not exist: " + tabletCtx.getCluster());
             BackendLoadStatistic beStat = clusterStat.getBackendLoadStatistic(move.toBe);
             Preconditions.checkNotNull(beStat);
@@ -272,19 +279,17 @@ public class PartitionRebalancer extends Rebalancer {
     // So we can't do skew check.
     // Just do some basic checks, e.g. server available.
     private void checkMoveValidation(TabletMove move) throws IllegalStateException {
-        boolean fromAvailable = infoService.checkBackendAvailable(move.fromBe);
-        boolean toAvailable = infoService.checkBackendAvailable(move.toBe);
+        boolean fromAvailable = infoService.checkBackendScheduleAvailable(move.fromBe);
+        boolean toAvailable = infoService.checkBackendScheduleAvailable(move.toBe);
         Preconditions.checkState(fromAvailable && toAvailable, move + "'s bes are not all available: from " + fromAvailable + ", to " + toAvailable);
         // To be improved
     }
 
     @Override
     public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
-        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getCluster(), tabletCtx.getStorageMedium());
-
         // We don't invalidate the cached move here, cuz the redundant repair progress is just started.
         // The move should be invalidated by TTL or Algo.CheckMoveCompleted()
-        Pair<TabletMove, Long> pair = movesInProgress.get().getIfPresent(tabletCtx.getTabletId());
+        Pair<TabletMove, Long> pair = movesCacheMap.getTabletMove(tabletCtx);
         if (pair != null) {
             Preconditions.checkState(pair.second != -1L);
             return pair.second;
@@ -294,7 +299,7 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     @Override
-    public void updateLoadStatistic(Map<String, ClusterLoadStatistic> statisticMap) {
+    public void updateLoadStatistic(Table<String, Tag, ClusterLoadStatistic> statisticMap) {
         super.updateLoadStatistic(statisticMap);
         movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // Perform cache maintenance

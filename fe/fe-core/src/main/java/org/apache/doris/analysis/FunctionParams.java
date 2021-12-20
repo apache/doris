@@ -17,15 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
-
-import org.apache.doris.common.io.Writable;
-
-import com.google.common.collect.Lists;
 
 /**
  * Return value of the grammar production that parses function
@@ -111,8 +111,10 @@ public class FunctionParams implements Writable {
     @Override
     public int hashCode() {
         int result = 31 * Boolean.hashCode(isStar) + Boolean.hashCode(isDistinct);
-        for (Expr expr : exprs) {
-            result = 31 * result + Objects.hashCode(expr);
+        if (exprs != null) {
+            for (Expr expr : exprs) {
+                result = 31 * result + Objects.hashCode(expr);
+            }
         }
         return result;
     }

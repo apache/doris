@@ -40,7 +40,7 @@ public class CancelStreamLoad extends RestBaseAction {
     public static void registerAction(ActionController controller)
             throws IllegalArgException {
         CancelStreamLoad action = new CancelStreamLoad(controller);
-        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/{" + LABEL_KEY + "}/_cancel", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_cancel", action);
     }
 
     @Override
@@ -70,10 +70,7 @@ public class CancelStreamLoad extends RestBaseAction {
         // FIXME(cmy)
         // checkWritePriv(authInfo.fullUserName, fullDbName);
 
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("unknown database, database=" + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
 
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), label, "user cancel");

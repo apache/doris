@@ -22,9 +22,7 @@
 #include <sstream>
 
 #include "common/object_pool.h"
-#include "exprs/expr.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/descriptors.pb.h"
 
 namespace doris {
@@ -179,14 +177,14 @@ std::string ODBCTableDescriptor::debug_string() const {
 
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
         : _id(tdesc.id),
-          _table_desc(NULL),
+          _table_desc(nullptr),
           _byte_size(tdesc.byteSize),
           _num_null_bytes(tdesc.numNullBytes),
           _num_materialized_slots(0),
           _slots(),
           _has_varlen_slots(false) {
     if (false == tdesc.__isset.numNullSlots) {
-        //be compatible for existing tables with no NULL value
+        //be compatible for existing tables with no nullptr value
         _num_null_slots = 0;
     } else {
         _num_null_slots = tdesc.numNullSlots;
@@ -195,14 +193,14 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
 
 TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc)
         : _id(pdesc.id()),
-          _table_desc(NULL),
+          _table_desc(nullptr),
           _byte_size(pdesc.byte_size()),
           _num_null_bytes(pdesc.num_null_bytes()),
           _num_materialized_slots(0),
           _slots(),
           _has_varlen_slots(false) {
     if (!pdesc.has_num_null_slots()) {
-        //be compatible for existing tables with no NULL value
+        //be compatible for existing tables with no nullptr value
         _num_null_slots = 0;
     } else {
         _num_null_slots = pdesc.num_null_slots();
@@ -217,6 +215,9 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
 
         if (slot->type().is_string_type()) {
             _string_slots.push_back(slot);
+            _has_varlen_slots = true;
+        } else if (slot->type().is_collection_type()) {
+            _collection_slots.push_back(slot);
             _has_varlen_slots = true;
         } else {
             _no_string_slots.push_back(slot);
@@ -256,7 +257,7 @@ void TupleDescriptor::to_protobuf(PTupleDescriptor* ptuple) const {
 std::string TupleDescriptor::debug_string() const {
     std::stringstream out;
     out << "Tuple(id=" << _id << " size=" << _byte_size;
-    if (_table_desc != NULL) {
+    if (_table_desc != nullptr) {
         //out << " " << _table_desc->debug_string();
     }
 
@@ -279,13 +280,15 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
         : _tuple_idx_nullable_map(nullable_tuples) {
     DCHECK(nullable_tuples.size() == row_tuples.size());
     DCHECK_GT(row_tuples.size(), 0);
+    _num_materialized_slots = 0;
     _num_null_slots = 0;
 
     for (int i = 0; i < row_tuples.size(); ++i) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuples[i]);
+        _num_materialized_slots += tupleDesc->num_materialized_slots();
         _num_null_slots += tupleDesc->num_null_slots();
         _tuple_desc_map.push_back(tupleDesc);
-        DCHECK(_tuple_desc_map.back() != NULL);
+        DCHECK(_tuple_desc_map.back() != nullptr);
     }
     _num_null_bytes = (_num_null_slots + 7) / 8;
 
@@ -458,6 +461,19 @@ std::string RowDescriptor::debug_string() const {
     return ss.str();
 }
 
+int RowDescriptor::get_column_id(int slot_id) const {
+    int column_id_counter = 0;
+    for (const auto tuple_desc : _tuple_desc_map) {
+        for (const auto slot : tuple_desc->slots()) {
+            if (slot->id() == slot_id) {
+                return column_id_counter;
+            }
+            column_id_counter++;
+        }
+    }
+    return -1;
+}
+
 Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tbl,
                              DescriptorTbl** tbl) {
     *tbl = pool->add(new DescriptorTbl());
@@ -465,7 +481,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
     // deserialize table descriptors first, they are being referenced by tuple descriptors
     for (size_t i = 0; i < thrift_tbl.tableDescriptors.size(); ++i) {
         const TTableDescriptor& tdesc = thrift_tbl.tableDescriptors[i];
-        TableDescriptor* desc = NULL;
+        TableDescriptor* desc = nullptr;
 
         switch (tdesc.tableType) {
         case TTableType::MYSQL_TABLE:
@@ -503,7 +519,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         // fix up table pointer
         if (tdesc.__isset.tableId) {
             desc->_table_desc = (*tbl)->get_table_descriptor(tdesc.tableId);
-            DCHECK(desc->_table_desc != NULL);
+            DCHECK(desc->_table_desc != nullptr);
         }
 
         (*tbl)->_tuple_desc_map[tdesc.id] = desc;
@@ -520,7 +536,6 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         if (entry == (*tbl)->_tuple_desc_map.end()) {
             return Status::InternalError("unknown tid in slot descriptor msg");
         }
-
         entry->second->add_slot(slot_d);
     }
 
@@ -532,7 +547,7 @@ TableDescriptor* DescriptorTbl::get_table_descriptor(TableId id) const {
     TableDescriptorMap::const_iterator i = _tbl_desc_map.find(id);
 
     if (i == _tbl_desc_map.end()) {
-        return NULL;
+        return nullptr;
     } else {
         return i->second;
     }
@@ -543,7 +558,7 @@ TupleDescriptor* DescriptorTbl::get_tuple_descriptor(TupleId id) const {
     TupleDescriptorMap::const_iterator i = _tuple_desc_map.find(id);
 
     if (i == _tuple_desc_map.end()) {
-        return NULL;
+        return nullptr;
     } else {
         return i->second;
     }
@@ -554,7 +569,7 @@ SlotDescriptor* DescriptorTbl::get_slot_descriptor(SlotId id) const {
     SlotDescriptorMap::const_iterator i = _slot_desc_map.find(id);
 
     if (i == _slot_desc_map.end()) {
-        return NULL;
+        return nullptr;
     } else {
         return i->second;
     }

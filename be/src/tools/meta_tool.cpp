@@ -17,7 +17,8 @@
 
 #include <gflags/gflags.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <sstream>
@@ -43,7 +44,7 @@
 #include "util/crc32c.h"
 #include "util/file_utils.h"
 
-using boost::filesystem::path;
+using std::filesystem::path;
 using doris::DataDir;
 using doris::OLAP_SUCCESS;
 using doris::OlapMeta;

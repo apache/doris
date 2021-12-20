@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_UTIL_UID_UTIL_H
 #define DORIS_BE_SRC_UTIL_UID_UTIL_H
 
-#include <boost/functional/hash.hpp>
 #include <ostream>
 #include <string>
 
@@ -145,8 +144,8 @@ struct UniqueId {
 // This function must be called 'hash_value' to be picked up by boost.
 inline std::size_t hash_value(const doris::TUniqueId& id) {
     std::size_t seed = 0;
-    boost::hash_combine(seed, id.lo);
-    boost::hash_combine(seed, id.hi);
+    HashUtil::hash_combine(seed, id.lo);
+    HashUtil::hash_combine(seed, id.hi);
     return seed;
 }
 

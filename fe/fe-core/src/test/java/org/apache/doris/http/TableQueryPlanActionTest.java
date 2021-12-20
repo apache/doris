@@ -80,6 +80,46 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
     }
 
     @Test
+    public void testNoSqlFailure() throws IOException {
+        RequestBody body = RequestBody.create(JSON, "{}");
+        Request request = new Request.Builder()
+                .post(body)
+                .addHeader("Authorization", rootAuth)
+                .url(URI + PATH_URI)
+                .build();
+        Response response = networkClient.newCall(request).execute();
+        String respStr = response.body().string();
+        System.out.println(respStr);
+        Assert.assertNotNull(respStr);
+        expectThrowsNoException(() -> new JSONObject(respStr));
+        JSONObject jsonObject = new JSONObject(respStr);
+        Assert.assertEquals(400, jsonObject.getInt("status"));
+        String exception = jsonObject.getString("exception");
+        Assert.assertNotNull(exception);
+        Assert.assertEquals("POST body must contains [sql] root object", exception);
+    }
+
+    @Test
+    public void testEmptySqlFailure() throws IOException {
+        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \"\" }");
+        Request request = new Request.Builder()
+                .post(body)
+                .addHeader("Authorization", rootAuth)
+                .url(URI + PATH_URI)
+                .build();
+        Response response = networkClient.newCall(request).execute();
+        String respStr = response.body().string();
+        System.out.println(respStr);
+        Assert.assertNotNull(respStr);
+        expectThrowsNoException(() -> new JSONObject(respStr));
+        JSONObject jsonObject = new JSONObject(respStr);
+        Assert.assertEquals(400, jsonObject.getInt("status"));
+        String exception = jsonObject.getString("exception");
+        Assert.assertNotNull(exception);
+        Assert.assertEquals("POST body must contains [sql] root object", exception);
+    }
+
+    @Test
     public void testInconsistentResource() throws IOException {
         RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + 1 + " \" }");
         Request request = new Request.Builder()
@@ -133,7 +173,6 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         JSONObject jsonObject = new JSONObject(respStr);
         Assert.assertEquals(403, jsonObject.getInt("status"));
         String exception = jsonObject.getString("exception");
-        Assert.assertNotNull(exception);
-        Assert.assertTrue(exception.startsWith("only support OlapTable currently"));
+        Assert.assertTrue(exception.contains("table type is not OLAP"));
     }
 }

@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT DAYOFYEAR (DATETIME date)'
+`INT DAYOFYEAR (DATETIME date)`
 
 
 The date of acquisition is the date of the corresponding year.

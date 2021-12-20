@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/collection_value.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
@@ -43,12 +44,18 @@ public:
     explicit Field() = default;
     explicit Field(const TabletColumn& column)
             : _type_info(get_type_info(&column)),
+              _length(column.length()),
               _key_coder(get_key_coder(column.type())),
               _name(column.name()),
               _index_size(column.index_length()),
-              _is_nullable(column.is_nullable()),
-              _agg_info(get_aggregate_info(column.aggregation(), column.type())),
-              _length(column.length()) {}
+              _is_nullable(column.is_nullable()) {
+        if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
+            _agg_info = get_aggregate_info(column.aggregation(), column.type(),
+                                           column.get_sub_column(0).type());
+        } else {
+            _agg_info = get_aggregate_info(column.aggregation(), column.type());
+        }
+    }
 
     virtual ~Field() = default;
 
@@ -59,7 +66,12 @@ public:
     inline const std::string& name() const { return _name; }
 
     virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
-    inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
+    virtual inline void set_to_zone_map_max(char* buf) const { set_to_max(buf); }
+
+    virtual inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
+    virtual inline void set_to_zone_map_min(char* buf) const { set_to_min(buf); }
+
+    void set_long_text_buf(char** buf) { _long_text_buf = buf; }
 
     // This function allocate memory from pool, other than allocate_memory
     // reserve memory from continuous memory.
@@ -67,8 +79,20 @@ public:
         return (char*)pool->allocate(_type_info->size());
     }
 
+    virtual inline char* allocate_zone_map_value(MemPool* pool) const {
+        return allocate_value(pool);
+    }
+
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src,
                            MemPool* mem_pool = nullptr) const {
+        if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr) {
+            auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
+            auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+            if (dst_slice->size < src_slice->size) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
+                dst_slice->data = *_long_text_buf;
+            }
+        }
         _agg_info->update(dest, src, mem_pool);
     }
 
@@ -96,6 +120,8 @@ public:
 
     virtual size_t get_variable_len() const { return 0; }
 
+    virtual void modify_zone_map_index(char*) const {};
+
     virtual Field* clone() const {
         auto* local = new Field();
         this->clone(local);
@@ -117,7 +143,7 @@ public:
         }
     }
 
-    // Only compare column content, without considering NULL condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,
@@ -126,9 +152,9 @@ public:
 
     // Compare two types of cell.
     // This function differs compare in that this function compare cell which
-    // will consider the condition which cell may be NULL. While compare only
-    // compare column content without considering NULL condition.
-    // Only compare column content, without considering NULL condition.
+    // will consider the condition which cell may be nullptr. While compare only
+    // compare column content without considering nullptr condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,
@@ -158,6 +184,15 @@ public:
         dst->set_is_null(is_null);
         if (is_null) {
             return;
+        }
+        if (type() == OLAP_FIELD_TYPE_STRING) {
+            auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+            auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+            if (dst_slice->size < src_slice->size) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
+                dst_slice->data = *_long_text_buf;
+                dst_slice->size = src_slice->size;
+            }
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
     }
@@ -212,6 +247,14 @@ public:
     // used by init scan key stored in string format
     // value_string should end with '\0'
     inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
+        if (type() == OLAP_FIELD_TYPE_STRING) {
+            auto slice = reinterpret_cast<Slice*>(buf);
+            if (slice->size < value_string.size()) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
+                slice->data = *_long_text_buf;
+                slice->size = value_string.size();
+            }
+        }
         return _type_info->from_string(buf, value_string);
     }
 
@@ -257,20 +300,18 @@ public:
     }
     Field* get_sub_field(int i) { return _sub_fields[i].get(); }
 
-private:
-    // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
-    const TypeInfo* _type_info;
-    const KeyCoder* _key_coder;
-    std::string _name;
-    uint16_t _index_size;
-    bool _is_nullable;
-    std::vector<std::unique_ptr<Field>> _sub_fields;
-
 protected:
+    const TypeInfo* _type_info;
     const AggregateInfo* _agg_info;
     // 长度，单位为字节
     // 除字符串外，其它类型都是确定的
     uint32_t _length;
+    // Since the length of the STRING type cannot be determined,
+    // only dynamic memory can be used. Mempool cannot realize realloc.
+    // The schema information is shared globally. Therefore,
+    // dynamic memory can only be managed in thread local mode.
+    // The memory will be created and released in rowcursor.
+    char** _long_text_buf = nullptr;
 
     char* allocate_string_value(MemPool* pool) const {
         char* type_value = (char*)pool->allocate(sizeof(Slice));
@@ -292,6 +333,14 @@ protected:
             other->add_sub_field(std::unique_ptr<Field>(item));
         }
     }
+
+private:
+    // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
+    const KeyCoder* _key_coder;
+    std::string _name;
+    uint16_t _index_size;
+    bool _is_nullable;
+    std::vector<std::unique_ptr<Field>> _sub_fields;
 };
 
 template <typename LhsCellType, typename RhsCellType>
@@ -305,15 +354,15 @@ int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
     }
 
     int32_t res = 0;
-    if (type() == OLAP_FIELD_TYPE_VARCHAR) {
+    if (type() == OLAP_FIELD_TYPE_VARCHAR || type() == OLAP_FIELD_TYPE_STRING) {
         const Slice* l_slice = reinterpret_cast<const Slice*>(lhs.cell_ptr());
         const Slice* r_slice = reinterpret_cast<const Slice*>(rhs.cell_ptr());
-
-        if (r_slice->size + OLAP_STRING_MAX_BYTES > _index_size ||
-            l_slice->size + OLAP_STRING_MAX_BYTES > _index_size) {
+        uint32_t max_bytes =
+                type() == OLAP_FIELD_TYPE_VARCHAR ? OLAP_VARCHAR_MAX_BYTES : OLAP_STRING_MAX_BYTES;
+        if (r_slice->size + max_bytes > _index_size || l_slice->size + max_bytes > _index_size) {
             // 如果field的实际长度比short key长，则仅比较前缀，确保相同short key的所有block都被扫描，
             // 否则，可以直接比较short key和field
-            int compare_size = _index_size - OLAP_STRING_MAX_BYTES;
+            int compare_size = _index_size - max_bytes;
             // l_slice size and r_slice size may be less than compare_size
             // so calculate the min of the three size as new compare_size
             compare_size = std::min(std::min(compare_size, (int)l_slice->size), (int)r_slice->size);
@@ -322,7 +371,7 @@ int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
             // Only the fixed length of prefix index should be compared.
             // If r_slice->size > l_slice->size, ignore the extra parts directly.
             res = strncmp(l_slice->data, r_slice->data, compare_size);
-            if (res == 0 && compare_size != (_index_size - OLAP_STRING_MAX_BYTES)) {
+            if (res == 0 && compare_size != (_index_size - max_bytes)) {
                 if (l_slice->size < r_slice->size) {
                     res = -1;
                 } else if (l_slice->size > r_slice->size) {
@@ -353,6 +402,16 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
         // 先清零，再拷贝
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        size_t copy_size = slice->size < _index_size - OLAP_VARCHAR_MAX_BYTES
+                                   ? slice->size
+                                   : _index_size - OLAP_VARCHAR_MAX_BYTES;
+        *reinterpret_cast<VarcharLengthType*>(dst->mutable_cell_ptr()) = copy_size;
+        memory_copy((char*)dst->mutable_cell_ptr() + OLAP_VARCHAR_MAX_BYTES, slice->data,
+                    copy_size);
+    } else if (type() == OLAP_FIELD_TYPE_STRING) {
+        // 先清零，再拷贝
+        memset(dst->mutable_cell_ptr(), 0, _index_size);
+        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES
                                    ? slice->size
                                    : _index_size - OLAP_STRING_MAX_BYTES;
@@ -376,6 +435,30 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
     }
     return _type_info->hash_code(cell.cell_ptr(), seed);
 }
+
+class ArrayField : public Field {
+public:
+    explicit ArrayField(const TabletColumn& column) : Field(column) {}
+
+    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                 ObjectPool* agg_pool) const override {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            return;
+        }
+        _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+    }
+
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto array_v = (CollectionValue*)cell_ptr;
+        array_v->set_null_signs(reinterpret_cast<bool*>(variable_ptr + sizeof(CollectionValue)));
+        array_v->set_data(variable_ptr + sizeof(CollectionValue) +
+                          OLAP_ARRAY_MAX_BYTES / sizeof(char*));
+        return variable_ptr + _length;
+    }
+
+    size_t get_variable_len() const override { return _length; }
+};
 
 class CharField : public Field {
 public:
@@ -423,6 +506,35 @@ public:
         slice->size = _length;
         memset(slice->data, 0xFF, slice->size);
     }
+
+    // To prevent zone map cost too many memory, if varchar length
+    // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
+    // `MAX_ZONE_MAP_INDEX_SIZE` of memory
+    char* allocate_zone_map_value(MemPool* pool) const override {
+        char* type_value = (char*)pool->allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length : MAX_ZONE_MAP_INDEX_SIZE;
+        slice->data = (char*)pool->allocate(slice->size);
+        return type_value;
+    }
+
+    // only varchar filed need modify zone map index when zone map max_value
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
+    }
+
+    void set_to_zone_map_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        int length = _length < MAX_ZONE_MAP_INDEX_SIZE ? _length : MAX_ZONE_MAP_INDEX_SIZE;
+        slice->size = length;
+        memset(slice->data, 0xFF, slice->size);
+    }
 };
 
 class VarcharField : public Field {
@@ -430,13 +542,13 @@ public:
     explicit VarcharField() : Field() {}
     explicit VarcharField(const TabletColumn& column) : Field(column) {}
 
-    size_t get_variable_len() const override { return _length - OLAP_STRING_MAX_BYTES; }
+    size_t get_variable_len() const override { return _length - OLAP_VARCHAR_MAX_BYTES; }
 
-    // minus OLAP_STRING_MAX_BYTES here just for being compatible with old storage format
+    // minus OLAP_VARCHAR_MAX_BYTES here just for being compatible with old storage format
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
         slice->data = variable_ptr;
-        slice->size = _length - OLAP_STRING_MAX_BYTES;
+        slice->size = _length - OLAP_VARCHAR_MAX_BYTES;
         variable_ptr += slice->size;
         return variable_ptr;
     }
@@ -451,10 +563,90 @@ public:
         return Field::allocate_string_value(pool);
     }
 
+    // To prevent zone map cost too many memory, if varchar length
+    // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
+    // `MAX_ZONE_MAP_INDEX_SIZE` of memory
+    char* allocate_zone_map_value(MemPool* pool) const override {
+        char* type_value = (char*)pool->allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length : MAX_ZONE_MAP_INDEX_SIZE;
+        slice->data = (char*)pool->allocate(slice->size);
+        return type_value;
+    }
+
+    // only varchar/string filed need modify zone map index when zone map max_value
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
+    }
+
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
-        slice->size = _length - OLAP_STRING_MAX_BYTES;
+        slice->size = _length - OLAP_VARCHAR_MAX_BYTES;
         memset(slice->data, 0xFF, slice->size);
+    }
+    void set_to_zone_map_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        int length = _length < MAX_ZONE_MAP_INDEX_SIZE ? _length : MAX_ZONE_MAP_INDEX_SIZE;
+
+        slice->size = length - OLAP_VARCHAR_MAX_BYTES;
+        memset(slice->data, 0xFF, slice->size);
+    }
+};
+class StringField : public Field {
+public:
+    explicit StringField() : Field() {}
+    explicit StringField(const TabletColumn& column) : Field(column) {}
+
+    // minus OLAP_VARCHAR_MAX_BYTES here just for being compatible with old storage format
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        return variable_ptr;
+    }
+
+    StringField* clone() const override {
+        auto* local = new StringField();
+        Field::clone(local);
+        return local;
+    }
+
+    char* allocate_value(MemPool* pool) const override {
+        return Field::allocate_string_value(pool);
+    }
+
+    char* allocate_zone_map_value(MemPool* pool) const override {
+        char* type_value = (char*)pool->allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = MAX_ZONE_MAP_INDEX_SIZE;
+        slice->data = (char*)pool->allocate(slice->size);
+        return type_value;
+    }
+    void set_to_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        memset(slice->data, 0xFF, slice->size);
+    }
+    // only varchar/string filed need modify zone map index when zone map max_value
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
+    }
+
+    void set_to_zone_map_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        memset(slice->data, 0xFF, slice->size);
+    }
+    void set_to_zone_map_min(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        memset(slice->data, 0x00, slice->size);
     }
 };
 
@@ -516,9 +708,11 @@ public:
                 return new CharField(column);
             case OLAP_FIELD_TYPE_VARCHAR:
                 return new VarcharField(column);
+            case OLAP_FIELD_TYPE_STRING:
+                return new StringField(column);
             case OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
-                auto* local = new Field(column);
+                auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
@@ -540,9 +734,11 @@ public:
                 return new CharField(column);
             case OLAP_FIELD_TYPE_VARCHAR:
                 return new VarcharField(column);
+            case OLAP_FIELD_TYPE_STRING:
+                return new StringField(column);
             case OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
-                auto* local = new Field(column);
+                auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }

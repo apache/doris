@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
 #define DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
 
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
 #include <deque>
 #include <list>
+#include <mutex>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -53,7 +53,8 @@ struct GetResultBatchCtx {
 
     void on_failure(const Status& status);
     void on_close(int64_t packet_seq, QueryStatistics* statistics = nullptr);
-    void on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos = false);
+    void on_data(const std::unique_ptr<TFetchDataResult>& t_result, int64_t packet_seq,
+                 bool eos = false);
 };
 
 // buffer used for result customer and producer
@@ -63,7 +64,7 @@ public:
     ~BufferControlBlock();
 
     Status init();
-    Status add_batch(TFetchDataResult* result);
+    Status add_batch(std::unique_ptr<TFetchDataResult>& result);
 
     // get result from batch, use timeout?
     Status get_batch(TFetchDataResult* result);
@@ -91,8 +92,15 @@ public:
         }
     }
 
+    void update_max_peak_memory_bytes() {
+        if (_query_statistics.get() != nullptr) {
+            int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();
+            _query_statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
+        }
+    }
+
 private:
-    typedef std::list<TFetchDataResult*> ResultQueue;
+    typedef std::list<std::unique_ptr<TFetchDataResult>> ResultQueue;
 
     // result's query id
     TUniqueId _fragment_id;
@@ -106,11 +114,11 @@ private:
     // blocking queue for batch
     ResultQueue _batch_queue;
     // protects all subsequent data in this block
-    boost::mutex _lock;
+    std::mutex _lock;
     // signal arrival of new batch or the eos/cancelled condition
-    boost::condition_variable _data_arrival;
+    std::condition_variable _data_arrival;
     // signal removal of data by stream consumer
-    boost::condition_variable _data_removal;
+    std::condition_variable _data_removal;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 

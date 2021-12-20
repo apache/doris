@@ -41,6 +41,9 @@ public:
     virtual ~WrapperField() {
         delete _rep;
         delete[] _owned_buf;
+        if (_long_text_buf) {
+            delete _long_text_buf;
+        }
     }
 
     // 将内部的value转成string输出
@@ -103,6 +106,7 @@ private:
     bool _is_string_type;
     char* _field_buf = nullptr;
     char* _owned_buf = nullptr;
+    char* _long_text_buf = nullptr;
 
     //include fixed and variable length and null bytes
     size_t _length;

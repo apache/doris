@@ -19,6 +19,7 @@ package org.apache.doris.spark.rdd
 
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent._
+import java.util.concurrent.locks.{Condition, Lock, ReentrantLock}
 
 import scala.collection.JavaConversions._
 import scala.util.Try
@@ -43,14 +44,17 @@ import scala.util.control.Breaks
  * @param settings request configuration
  */
 class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
-  protected val logger = Logger.getLogger(classOf[ScalaValueReader])
+  private val logger = Logger.getLogger(classOf[ScalaValueReader])
 
   protected val client = new BackendClient(new Routing(partition.getBeAddress), settings)
+  protected val clientLock =
+    if (deserializeArrowToRowBatchAsync) new ReentrantLock()
+    else new NoOpLock
   protected var offset = 0
   protected var eos: AtomicBoolean = new AtomicBoolean(false)
   protected var rowBatch: RowBatch = _
   // flag indicate if support deserialize Arrow to RowBatch asynchronously
-  protected var deserializeArrowToRowBatchAsync: Boolean = Try {
+  protected lazy val deserializeArrowToRowBatchAsync: Boolean = Try {
     settings.getProperty(DORIS_DESERIALIZE_ARROW_ASYNC, DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT.toString).toBoolean
   } getOrElse {
     logger.warn(ErrorMessages.PARSE_BOOL_FAILED_MESSAGE, DORIS_DESERIALIZE_ARROW_ASYNC, settings.getProperty(DORIS_DESERIALIZE_ARROW_ASYNC))
@@ -103,9 +107,9 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
       DORIS_EXEC_MEM_LIMIT_DEFAULT
     }
 
-    params.setBatch_size(batchSize)
-    params.setQuery_timeout(queryDorisTimeout)
-    params.setMem_limit(execMemLimit)
+    params.setBatchSize(batchSize)
+    params.setQueryTimeout(queryDorisTimeout)
+    params.setMemLimit(execMemLimit)
     params.setUser(settings.getProperty(DORIS_REQUEST_AUTH_USER, ""))
     params.setPasswd(settings.getProperty(DORIS_REQUEST_AUTH_PASSWORD, ""))
 
@@ -113,28 +117,28 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         s"cluster: ${params.getCluster}, " +
         s"database: ${params.getDatabase}, " +
         s"table: ${params.getTable}, " +
-        s"tabletId: ${params.getTablet_ids}, " +
+        s"tabletId: ${params.getTabletIds}, " +
         s"batch size: $batchSize, " +
         s"query timeout: $queryDorisTimeout, " +
         s"execution memory limit: $execMemLimit, " +
         s"user: ${params.getUser}, " +
-        s"query plan: ${params.opaqued_query_plan}")
+        s"query plan: ${params.getOpaquedQueryPlan}")
 
     params
   }
 
-  protected val openResult: TScanOpenResult = client.openScanner(openParams)
-  protected val contextId: String = openResult.getContext_id
+  protected val openResult: TScanOpenResult = lockClient(_.openScanner(openParams))
+  protected val contextId: String = openResult.getContextId
   protected val schema: Schema =
-    SchemaUtils.convertToSchema(openResult.getSelected_columns)
+    SchemaUtils.convertToSchema(openResult.getSelectedColumns)
 
   protected val asyncThread: Thread = new Thread {
     override def run {
       val nextBatchParams = new TScanNextBatchParams
-      nextBatchParams.setContext_id(contextId)
+      nextBatchParams.setContextId(contextId)
       while (!eos.get) {
         nextBatchParams.setOffset(offset)
-        val nextResult = client.getNext(nextBatchParams)
+        val nextResult = lockClient(_.getNext(nextBatchParams))
         eos.set(nextResult.isEos)
         if (!eos.get) {
           val rowBatch = new RowBatch(nextResult, schema)
@@ -190,9 +194,9 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
           rowBatch.close
         }
         val nextBatchParams = new TScanNextBatchParams
-        nextBatchParams.setContext_id(contextId)
+        nextBatchParams.setContextId(contextId)
         nextBatchParams.setOffset(offset)
-        val nextResult = client.getNext(nextBatchParams)
+        val nextResult = lockClient(_.getNext(nextBatchParams))
         eos.set(nextResult.isEos)
         if (!eos.get) {
           rowBatch = new RowBatch(nextResult, schema)
@@ -217,7 +221,32 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
 
   def close(): Unit = {
     val closeParams = new TScanCloseParams
-    closeParams.context_id = contextId
-    client.closeScanner(closeParams)
+    closeParams.setContextId(contextId)
+    lockClient(_.closeScanner(closeParams))
+  }
+
+  private def lockClient[T](action: BackendClient => T): T = {
+    clientLock.lock()
+    try {
+      action(client)
+    } finally {
+      clientLock.unlock()
+    }
+  }
+
+  private class NoOpLock extends Lock {
+    override def lock(): Unit = {}
+
+    override def lockInterruptibly(): Unit = {}
+
+    override def tryLock(): Boolean = true
+
+    override def tryLock(time: Long, unit: TimeUnit): Boolean = true
+
+    override def unlock(): Unit = {}
+
+    override def newCondition(): Condition = {
+      throw new UnsupportedOperationException("NoOpLock can't provide a condition")
+    }
   }
 }

@@ -39,11 +39,13 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     std::map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
+
     for (auto& p_slot_desc : pschema.slot_descs()) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
         slots_map.emplace(slot_desc->col_name(), slot_desc);
     }
+
     for (auto& p_index : pschema.indexes()) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
@@ -78,6 +80,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _tuple_desc->add_slot(slot_desc);
         slots_map.emplace(slot_desc->col_name(), slot_desc);
     }
+
     for (auto& t_index : tschema.indexes) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
@@ -122,10 +125,20 @@ std::string OlapTableSchemaParam::debug_string() const {
 
 std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const {
     std::stringstream ss;
-    ss << "(id=" << id << ",start_key=" << Tuple::to_string(start_key, *tuple_desc)
-       << ",end_key=" << Tuple::to_string(end_key, *tuple_desc) << ",num_buckets=" << num_buckets
-       << ",indexes=[";
+    std::stringstream in_keys_ss;
     int idx = 0;
+    in_keys_ss << "[";
+    for (auto in_key : in_keys) {
+        if (idx++ > 0) {
+            in_keys_ss << ",";
+        }
+        in_keys_ss << Tuple::to_string(in_key, *tuple_desc);
+    }
+    in_keys_ss << "]";
+    ss << "(id=" << id << ",start_key=" << Tuple::to_string(start_key, *tuple_desc)
+       << ",end_key=" << Tuple::to_string(end_key, *tuple_desc) << ",in_key=" << in_keys_ss.str()
+       << ",num_buckets=" << num_buckets << ",indexes=[";
+    idx = 0;
     for (auto& index : indexes) {
         if (idx++ > 0) {
             ss << ",";
@@ -211,6 +224,12 @@ Status OlapTablePartitionParam::init() {
         } else if (t_part.__isset.end_keys) {
             RETURN_IF_ERROR(_create_partition_keys(t_part.end_keys, &part->end_key));
         }
+        if (t_part.__isset.in_keys) {
+            part->in_keys.resize(t_part.in_keys.size());
+            for (int j = 0; j < t_part.in_keys.size(); j++) {
+                RETURN_IF_ERROR(_create_partition_keys(t_part.in_keys[j], &part->in_keys[j]));
+            }
+        }
 
         part->num_buckets = t_part.num_buckets;
         auto num_indexes = _schema->indexes().size();
@@ -237,14 +256,26 @@ Status OlapTablePartitionParam::init() {
             }
         }
         _partitions.emplace_back(part);
-        _partitions_map->emplace(part->end_key, part);
+        if (t_part.__isset.in_keys) {
+            for (auto in_key : part->in_keys) {
+                _partitions_map->emplace(in_key, part);
+            }
+        } else {
+            _partitions_map->emplace(part->end_key, part);
+        }
     }
     return Status::OK();
 }
 
 bool OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition** partition,
                                           uint32_t* dist_hashes) const {
-    auto it = _partitions_map->upper_bound(tuple);
+    const TOlapTablePartition& t_part = _t_param.partitions[0];
+    std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>::iterator it;
+    if (t_part.__isset.in_keys) {
+        it = _partitions_map->find(tuple);
+    } else {
+        it = _partitions_map->upper_bound(tuple);
+    }
     if (it == _partitions_map->end()) {
         return false;
     }
@@ -312,6 +343,28 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
         memcpy(slot, &val, sizeof(val));
         break;
     }
+    case TExprNodeType::STRING_LITERAL: {
+        int len = t_expr.string_literal.value.size();
+        const char* str_val = t_expr.string_literal.value.c_str();
+
+        // CHAR is a fixed-length string and needs to use the length in the slot definition,
+        // VARVHAR is a variable-length string and needs to use the length of the string itself
+        // padding 0 to CHAR field
+        if (TYPE_CHAR == slot_desc->type().type && len < slot_desc->type().len) {
+            auto new_ptr = (char*)_mem_pool->allocate(slot_desc->type().len);
+            memset(new_ptr, 0, slot_desc->type().len);
+            memcpy(new_ptr, str_val, len);
+
+            str_val = new_ptr;
+            len = slot_desc->type().len;
+        }
+        *reinterpret_cast<StringValue*>(slot) = StringValue(const_cast<char*>(str_val), len);
+        break;
+    }
+    case TExprNodeType::BOOL_LITERAL: {
+        *reinterpret_cast<bool*>(slot) = t_expr.bool_literal.value;
+        break;
+    }
     default: {
         std::stringstream ss;
         ss << "unsupported partition column node type, type=" << t_expr.node_type;
@@ -345,7 +398,7 @@ uint32_t OlapTablePartitionParam::_compute_dist_hash(Tuple* key) const {
         if (slot != nullptr) {
             hash_val = RawValue::zlib_crc32(slot, slot_desc->type(), hash_val);
         } else {
-            //NULL is treat as 0 when hash
+            //nullptr is treat as 0 when hash
             static const int INT_VALUE = 0;
             static const TypeDescriptor INT_TYPE(TYPE_INT);
             hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);

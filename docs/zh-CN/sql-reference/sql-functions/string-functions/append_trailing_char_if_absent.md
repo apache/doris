@@ -32,8 +32,8 @@ under the License.
 
 `VARCHAR append_trailing_char_if_absent(VARCHAR str, VARCHAR trailing_char)`
 
-如果's'字符串非空并且末尾不包含'c'字符，则将'c'字符附加到末尾。
-trailing_char只包含一个字符，如果包含多个字符，将返回NULL
+如果 str 字符串非空并且末尾不包含 trailing_char 字符，则将 trailing_char 字符附加到末尾。
+trailing_char 只能包含一个字符，如果包含多个字符，将返回NULL
 
 ## example
 

@@ -21,7 +21,6 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
@@ -51,16 +50,15 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new EqDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new EqStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
             return new EqDateTimeValPred(node);
-        case TPrimitiveType::DECIMAL:
-            return new EqDecimalValPred(node);
         case TPrimitiveType::DECIMALV2:
             return new EqDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::NE: {
@@ -83,16 +81,15 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new NeDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new NeStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
             return new NeDateTimeValPred(node);
-        case TPrimitiveType::DECIMAL:
-            return new NeDecimalValPred(node);
         case TPrimitiveType::DECIMALV2:
             return new NeDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::LT: {
@@ -115,16 +112,15 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new LtDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new LtStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
             return new LtDateTimeValPred(node);
-        case TPrimitiveType::DECIMAL:
-            return new LtDecimalValPred(node);
         case TPrimitiveType::DECIMALV2:
             return new LtDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::LE: {
@@ -147,16 +143,15 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new LeDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new LeStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
             return new LeDateTimeValPred(node);
-        case TPrimitiveType::DECIMAL:
-            return new LeDecimalValPred(node);
         case TPrimitiveType::DECIMALV2:
             return new LeDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::GT: {
@@ -179,16 +174,15 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new GtDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new GtStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
             return new GtDateTimeValPred(node);
-        case TPrimitiveType::DECIMAL:
-            return new GtDecimalValPred(node);
         case TPrimitiveType::DECIMALV2:
             return new GtDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::GE: {
@@ -211,16 +205,15 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new GeDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new GeStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
             return new GeDateTimeValPred(node);
-        case TPrimitiveType::DECIMAL:
-            return new GeDecimalValPred(node);
         case TPrimitiveType::DECIMALV2:
             return new GeDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     case TExprOpcode::EQ_FOR_NULL: {
@@ -243,22 +236,21 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new EqForNullDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new EqForNullStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
             return new EqForNullDateTimeValPred(node);
-        case TPrimitiveType::DECIMAL:
-            return new EqForNullDecimalValPred(node);
         case TPrimitiveType::DECIMALV2:
             return new EqForNullDecimalV2ValPred(node);
         default:
-            return NULL;
+            return nullptr;
         }
     }
     default:
-        return NULL;
+        return nullptr;
     }
-    return NULL;
+    return nullptr;
 }
 
 std::string BinaryPredicate::debug_string() const {
@@ -330,7 +322,6 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
     COMPLICATE_BINARY_PRED_FN(Gt##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, >)  \
     COMPLICATE_BINARY_PRED_FN(Ge##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, >=)
 
-COMPLICATE_BINARY_PRED_FNS(DecimalVal, get_decimal_val, DecimalValue, from_decimal_val)
 COMPLICATE_BINARY_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value, from_decimal_val)
 
 #define DATETIME_BINARY_PRED_FN(CLASS, OP, LLVM_PRED)                    \
@@ -441,7 +432,6 @@ BINARY_PRED_FOR_NULL_FLOAT_FNS(DoubleVal, get_double_val);
 #define COMPLICATE_BINARY_FOR_NULL_PRED_FNS(TYPE, FN, DORIS_TYPE, FROM_FUNC) \
     COMPLICATE_BINARY_FOR_NULL_PRED_FN(EqForNull##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, ==)
 
-COMPLICATE_BINARY_FOR_NULL_PRED_FNS(DecimalVal, get_decimal_val, DecimalValue, from_decimal_val)
 COMPLICATE_BINARY_FOR_NULL_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value,
                                     from_decimal_val)
 

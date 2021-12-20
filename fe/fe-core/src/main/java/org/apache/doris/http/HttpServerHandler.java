@@ -93,7 +93,7 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        cause.printStackTrace();
+        LOG.warn("Handle http from " + ctx.channel().remoteAddress() + " caught exception", cause);
         ctx.close();
     }
     

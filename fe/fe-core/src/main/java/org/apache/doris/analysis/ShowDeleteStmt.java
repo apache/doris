@@ -58,7 +58,7 @@ public class ShowDeleteStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : DeleteInfoProcDir.TITLE_NAMES_FOR_USER) {
+        for (String title : DeleteInfoProcDir.TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
@@ -80,4 +80,8 @@ public class ShowDeleteStmt extends ShowStmt {
         return toSql();
     }
 
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }

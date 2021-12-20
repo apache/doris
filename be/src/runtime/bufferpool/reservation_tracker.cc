@@ -187,7 +187,9 @@ bool ReservationTracker::TryConsumeFromMemTracker(int64_t reservation_increase) 
     if (GetParentMemTracker() == nullptr) {
         // At the topmost link, which may be a MemTracker with a limit, we need to use
         // TryConsume() to check the limit.
-        return mem_tracker_->TryConsume(reservation_increase);
+        Status st = mem_tracker_->TryConsume(reservation_increase);
+        WARN_IF_ERROR(st, "TryConsumeFromMemTracker failed");
+        return st.ok();
     } else {
         // For lower links, there shouldn't be a limit to enforce, so we just need to
         // update the consumption of the linked MemTracker since the reservation is

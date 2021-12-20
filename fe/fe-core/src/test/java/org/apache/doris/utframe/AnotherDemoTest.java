@@ -17,34 +17,22 @@
 
 package org.apache.doris.utframe;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
-import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
-import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -52,9 +40,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /*
@@ -82,54 +68,12 @@ public class AnotherDemoTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.default_scheduler_interval_millisecond = 10;
-        // get DORIS_HOME
-        String dorisHome = System.getenv("DORIS_HOME");
-        if (Strings.isNullOrEmpty(dorisHome)) {
-            dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
-        }
-
-        getPorts();
-
-        // start fe in "DORIS_HOME/fe/mocked/"
-        MockedFrontend frontend = MockedFrontend.getInstance();
-        Map<String, String> feConfMap = Maps.newHashMap();
-        // set additional fe config
-        feConfMap.put("http_port", String.valueOf(fe_http_port));
-        feConfMap.put("rpc_port", String.valueOf(fe_rpc_port));
-        feConfMap.put("query_port", String.valueOf(fe_query_port));
-        feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
-        feConfMap.put("tablet_create_timeout_second", "10");
-        frontend.init(dorisHome + "/" + runningDir, feConfMap);
-        frontend.start(new String[0]);
-
-        // start be
-        MockedBackend backend = MockedBackendFactory.createBackend("127.0.0.1",
-                be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
-                new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
-        backend.setFeAddress(new TNetworkAddress("127.0.0.1", frontend.getRpcPort()));
-        backend.start();
-
-        // add be
-        Backend be = new Backend(10001, backend.getHost(), backend.getHeartbeatPort());
-        Map<String, DiskInfo> disks = Maps.newHashMap();
-        DiskInfo diskInfo1 = new DiskInfo("/path1");
-        diskInfo1.setTotalCapacityB(1000000);
-        diskInfo1.setAvailableCapacityB(500000);
-        diskInfo1.setDataUsedCapacityB(480000);
-        disks.put(diskInfo1.getRootPath(), diskInfo1);
-        be.setDisks(ImmutableMap.copyOf(disks));
-        be.setAlive(true);
-        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        Catalog.getCurrentSystemInfo().addBackend(be);
-
-        // sleep to wait first heartbeat
-        Thread.sleep(6000);
+        UtFrameUtils.createDorisCluster(runningDir, 1);
     }
 
     @AfterClass
     public static void TearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDirBase);
+        UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     // generate all port from valid ports
@@ -159,9 +103,8 @@ public class AnotherDemoTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // 4. get and test the created db and table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
-        Assert.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:db1");
+        OlapTable tbl = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
             Assert.assertNotNull(tbl);

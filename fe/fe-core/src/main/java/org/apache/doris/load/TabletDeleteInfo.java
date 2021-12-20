@@ -17,18 +17,25 @@
 
 package org.apache.doris.load;
 
-import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Replica;
+
+import com.google.common.collect.Sets;
 
 import java.util.Set;
 
 public class TabletDeleteInfo {
+    private long partitionId;
     private long tabletId;
     private Set<Replica> finishedReplicas;
 
-    public TabletDeleteInfo(long tabletId) {
+    public TabletDeleteInfo(long partitionId, long tabletId) {
+        this.partitionId = partitionId;
         this.tabletId = tabletId;
         this.finishedReplicas = Sets.newConcurrentHashSet();
+    }
+
+    public long getPartitionId() {
+        return partitionId;
     }
 
     public long getTabletId() {

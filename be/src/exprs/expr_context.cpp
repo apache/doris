@@ -35,7 +35,7 @@
 namespace doris {
 
 ExprContext::ExprContext(Expr* root)
-        : _fn_contexts_ptr(NULL),
+        : _fn_contexts_ptr(nullptr),
           _root(root),
           _is_clone(false),
           _prepared(false),
@@ -53,7 +53,7 @@ ExprContext::~ExprContext() {
 Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                             const std::shared_ptr<MemTracker>& tracker) {
     DCHECK(tracker != nullptr) << std::endl << get_stack_trace();
-    DCHECK(_pool.get() == NULL);
+    DCHECK(_pool.get() == nullptr);
     _prepared = true;
     // TODO: use param tracker to replace instance_mem_tracker, be careful about tracker's life cycle
     // _pool.reset(new MemPool(new MemTracker(-1)));
@@ -91,8 +91,8 @@ void ExprContext::close(RuntimeState* state) {
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         _fn_contexts[i]->impl()->close();
     }
-    // _pool can be NULL if Prepare() was never called
-    if (_pool != NULL) {
+    // _pool can be nullptr if Prepare() was never called
+    if (_pool != nullptr) {
         _pool->free_all();
     }
     _closed = true;
@@ -111,7 +111,7 @@ int ExprContext::register_func(RuntimeState* state,
 Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
     DCHECK(_prepared);
     DCHECK(_opened);
-    DCHECK(*new_ctx == NULL);
+    DCHECK(*new_ctx == nullptr);
 
     *new_ctx = state->obj_pool()->add(new ExprContext(_root));
     (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
@@ -130,7 +130,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
 Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root) {
     DCHECK(_prepared);
     DCHECK(_opened);
-    DCHECK(*new_ctx == NULL);
+    DCHECK(*new_ctx == nullptr);
 
     *new_ctx = state->obj_pool()->add(new ExprContext(root));
     (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
@@ -165,92 +165,6 @@ void ExprContext::free_local_allocations(const std::vector<FunctionContext*>& fn
     }
 }
 
-void ExprContext::get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val) {
-#if 0
-    void* value = get_value(row);
-    if (as_ascii) {
-        RawValue::print_value(value, _root->_type, _root->_output_scale, &col_val->string_val);
-        col_val->__isset.string_val = true;
-        return;
-    }
-    if (value == NULL) {
-        return;
-    }
-
-    StringValue* string_val = NULL;
-    std::string tmp;
-    switch (_root->_type.type) {
-    case TYPE_BOOLEAN:
-        col_val->__set_bool_val(*reinterpret_cast<bool*>(value));
-        break;
-    case TYPE_TINYINT:
-        col_val->__set_byte_val(*reinterpret_cast<int8_t*>(value));
-        break;
-    case TYPE_SMALLINT:
-        col_val->__set_short_val(*reinterpret_cast<int16_t*>(value));
-        break;
-    case TYPE_INT:
-        col_val->__set_int_val(*reinterpret_cast<int32_t*>(value));
-        break;
-    case TYPE_BIGINT:
-        col_val->__set_long_val(*reinterpret_cast<int64_t*>(value));
-        break;
-    case TYPE_FLOAT:
-        col_val->__set_double_val(*reinterpret_cast<float*>(value));
-        break;
-    case TYPE_DOUBLE:
-        col_val->__set_double_val(*reinterpret_cast<double*>(value));
-        break;
-#if 0
-    case TYPE_DECIMAL:
-        switch (_root->_type.GetByteSize()) {
-        case 4:
-            col_val->string_val =
-                reinterpret_cast<Decimal4Value*>(value)->ToString(_root->_type);
-            break;
-        case 8:
-            col_val->string_val =
-                reinterpret_cast<Decimal8Value*>(value)->ToString(_root->_type);
-            break;
-        case 16:
-            col_val->string_val =
-                reinterpret_cast<Decimal16Value*>(value)->ToString(_root->_type);
-            break;
-        default:
-            DCHECK(false) << "Bad Type: " << _root->_type;
-        }
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_VARCHAR:
-        string_val = reinterpret_cast<StringValue*>(value);
-        tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
-        col_val->string_val.swap(tmp);
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_CHAR:
-        tmp.assign(StringValue::CharSlotToPtr(value, _root->_type), _root->_type.len);
-        col_val->string_val.swap(tmp);
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_TIMESTAMP:
-        RawValue::print_value(
-            value, _root->_type, _root->_output_scale_, &col_val->string_val);
-        col_val->__isset.string_val = true;
-        break;
-#endif
-    default:
-        DCHECK(false) << "bad get_value() type: " << _root->_type;
-    }
-#endif
-}
-
-void* ExprContext::get_value(TupleRow* row) {
-    if (_root->is_slotref()) {
-        return SlotRef::get_value(_root, row);
-    }
-    return get_value(_root, row);
-}
-
 bool ExprContext::is_nullable() {
     if (_root->is_slotref()) {
         return SlotRef::is_nullable(_root);
@@ -261,12 +175,12 @@ bool ExprContext::is_nullable() {
 void* ExprContext::get_value(Expr* e, TupleRow* row) {
     switch (e->_type.type) {
     case TYPE_NULL: {
-        return NULL;
+        return nullptr;
     }
     case TYPE_BOOLEAN: {
         doris_udf::BooleanVal v = e->get_boolean_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.bool_val = v.val;
         return &_result.bool_val;
@@ -274,7 +188,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_TINYINT: {
         doris_udf::TinyIntVal v = e->get_tiny_int_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.tinyint_val = v.val;
         return &_result.tinyint_val;
@@ -282,7 +196,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_SMALLINT: {
         doris_udf::SmallIntVal v = e->get_small_int_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.smallint_val = v.val;
         return &_result.smallint_val;
@@ -290,7 +204,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_INT: {
         doris_udf::IntVal v = e->get_int_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.int_val = v.val;
         return &_result.int_val;
@@ -298,7 +212,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_BIGINT: {
         doris_udf::BigIntVal v = e->get_big_int_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.bigint_val = v.val;
         return &_result.bigint_val;
@@ -306,7 +220,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_LARGEINT: {
         doris_udf::LargeIntVal v = e->get_large_int_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.large_int_val = v.val;
         return &_result.large_int_val;
@@ -314,7 +228,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_FLOAT: {
         doris_udf::FloatVal v = e->get_float_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.float_val = v.val;
         return &_result.float_val;
@@ -323,7 +237,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_DOUBLE: {
         doris_udf::DoubleVal v = e->get_double_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.double_val = v.val;
         return &_result.double_val;
@@ -331,7 +245,8 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_STRING: {
         doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
             return nullptr;
@@ -344,7 +259,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_CHAR: {
         doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
         _result.string_val.len = v.len;
@@ -359,40 +274,31 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_DATETIME: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.datetime_val = DateTimeValue::from_datetime_val(v);
         return &_result.datetime_val;
     }
-    case TYPE_DECIMAL: {
-        DecimalVal v = e->get_decimal_val(this, row);
-        if (v.is_null) {
-            return NULL;
-        }
-        _result.decimal_val = DecimalValue::from_decimal_val(v);
-        return &_result.decimal_val;
-    }
     case TYPE_DECIMALV2: {
         DecimalV2Val v = e->get_decimalv2_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
         return &_result.decimalv2_val;
     }
-#if 0
-    case TYPE_ARRAY:
-    case TYPE_MAP: {
-        doris_udf::ArrayVal v = e->GetArrayVal(this, row);
-        if (v.is_null) return NULL;
-        _result.array_val.ptr = v.ptr;
-        _result.array_val.num_tuples = v.num_tuples;
+    case TYPE_ARRAY: {
+        doris_udf::CollectionVal v = e->get_array_val(this, row);
+        if (v.is_null) {
+            return nullptr;
+        }
+
+        _result.array_val = CollectionValue::from_collection_val(v);
         return &_result.array_val;
     }
-#endif
     default:
         DCHECK(false) << "Type not implemented: " << e->_type;
-        return NULL;
+        return nullptr;
     }
 }
 
@@ -453,10 +359,6 @@ DateTimeVal ExprContext::get_datetime_val(TupleRow* row) {
     return _root->get_datetime_val(this, row);
 }
 
-DecimalVal ExprContext::get_decimal_val(TupleRow* row) {
-    return _root->get_decimal_val(this, row);
-}
-
 DecimalV2Val ExprContext::get_decimalv2_val(TupleRow* row) {
     return _root->get_decimalv2_val(this, row);
 }
@@ -474,7 +376,7 @@ Status ExprContext::get_const_value(RuntimeState* state, Expr& expr, AnyVal** co
     const TypeDescriptor& result_type = expr.type();
     ObjectPool* obj_pool = state->obj_pool();
     *const_val = create_any_val(obj_pool, result_type);
-    if (*const_val == NULL) {
+    if (*const_val == nullptr) {
         return Status::InternalError("Could not create any val");
     }
 

@@ -54,7 +54,7 @@ ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
 1. 将表 B 重名为表 A。
 2. 将表 A 重名为表 B。
 
-如果 `swap` 为 `true`，则操作如下：
+如果 `swap` 为 `false`，则操作如下：
 
 1. 删除表 A。
 2. 将表 B 重名为表 A。

@@ -21,10 +21,8 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
@@ -152,6 +150,12 @@ public class AgentTaskQueue {
         return res;
     }
 
+    public static synchronized List<AgentTask> getTask(long dbId, TTaskType type) {
+        Map<Long, Map<Long, AgentTask>> taskMap = tasks.column(type);
+        Map<Long, AgentTask> signatureMap = taskMap == null ? null : taskMap.get(dbId);
+        return signatureMap == null ? new ArrayList<>() : new ArrayList<>(signatureMap.values());
+    }
+
     public static synchronized List<AgentTask> getDiffTasks(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
         List<AgentTask> diffTasks = new ArrayList<AgentTask>();
         if (!tasks.containsRow(backendId)) {
@@ -215,19 +219,6 @@ public class AgentTaskQueue {
 
     public static synchronized int getTaskNum() {
         return taskNum;
-    }
-
-    public static synchronized Multimap<Long, Long> getTabletIdsByType(TTaskType type) {
-        Multimap<Long, Long> tabletIds = HashMultimap.create();
-        Map<Long, Map<Long, AgentTask>> taskMap = tasks.column(type);
-        if (taskMap != null) {
-            for (Map<Long, AgentTask> signatureMap : taskMap.values()) {
-                for (AgentTask task : signatureMap.values()) {
-                    tabletIds.put(task.getDbId(), task.getTabletId());
-                }
-            }
-        }
-        return tabletIds;
     }
 
     public static synchronized int getTaskNum(long backendId, TTaskType type, boolean isFailed) {

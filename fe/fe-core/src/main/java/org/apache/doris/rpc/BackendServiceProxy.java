@@ -18,105 +18,97 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.JdkUtils;
-import org.apache.doris.proto.PCacheResponse;
-import org.apache.doris.proto.PCancelPlanFragmentRequest;
-import org.apache.doris.proto.PCancelPlanFragmentResult;
-import org.apache.doris.proto.PClearCacheRequest;
-import org.apache.doris.proto.PExecPlanFragmentResult;
-import org.apache.doris.proto.PFetchCacheRequest;
-import org.apache.doris.proto.PFetchCacheResult;
-import org.apache.doris.proto.PFetchDataResult;
-import org.apache.doris.proto.PPlanFragmentCancelReason;
-import org.apache.doris.proto.PProxyRequest;
-import org.apache.doris.proto.PProxyResult;
-import org.apache.doris.proto.PTriggerProfileReportResult;
-import org.apache.doris.proto.PUniqueId;
-import org.apache.doris.proto.PUpdateCacheRequest;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.Maps;
+import com.google.protobuf.ByteString;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TCompactProtocol;
 
-import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
-import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
-import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
-import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
-import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
-import com.google.common.collect.Maps;
-
+import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.concurrent.Future;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class BackendServiceProxy {
     private static final Logger LOG = LogManager.getLogger(BackendServiceProxy.class);
-
-    private RpcClient rpcClient;
-    // TODO(zc): use TNetworkAddress,
-    private Map<TNetworkAddress, PBackendService> serviceMap;
-
-    private static BackendServiceProxy INSTANCE;
-
-    static {
-        int javaRuntimeVersion = JdkUtils.getJavaVersionAsInteger(System.getProperty("java.version"));
-        JDKCompilerHelper.setCompiler(new JdkCompiler(JdkCompiler.class.getClassLoader(), String.valueOf(javaRuntimeVersion)));
-    }
+    // use exclusive lock to make sure only one thread can add or remove client from serviceMap.
+    // use concurrent map to allow access serviceMap in multi thread.
+    private ReentrantLock lock = new ReentrantLock();
+    private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
 
     public BackendServiceProxy() {
-        final RpcClientOptions rpcOptions = new RpcClientOptions();
-        rpcOptions.setMaxWait(Config.brpc_idle_wait_max_time);
-        rpcOptions.setThreadPoolSize(Config.brpc_number_of_concurrent_requests_processed);
-        rpcClient = new RpcClient(rpcOptions);
-        serviceMap = Maps.newHashMap();
+        serviceMap = Maps.newConcurrentMap();
+    }
+
+    private static class SingletonHolder {
+        private static final BackendServiceProxy INSTANCE = new BackendServiceProxy();
     }
 
     public static BackendServiceProxy getInstance() {
-        if (INSTANCE == null) {
-            INSTANCE = new BackendServiceProxy();
-        }
-        return INSTANCE;
+        return SingletonHolder.INSTANCE;
     }
 
-    private synchronized PBackendService getProxy(TNetworkAddress address) {
-        PBackendService service = serviceMap.get(address);
+    public void removeProxy(TNetworkAddress address) {
+        LOG.warn("begin to remove proxy: {}", address);
+        BackendServiceClient service;
+        lock.lock();
+        try {
+            service = serviceMap.remove(address);
+        } finally {
+            lock.unlock();
+        }
+
+        if (service != null) {
+            service.shutdown();
+        }
+    }
+
+    private BackendServiceClient getProxy(TNetworkAddress address) {
+        BackendServiceClient service = serviceMap.get(address);
         if (service != null) {
             return service;
         }
-        ProtobufRpcProxy<PBackendService> proxy = new ProtobufRpcProxy(rpcClient, PBackendService.class);
-        proxy.setHost(address.getHostname());
-        proxy.setPort(address.getPort());
-        service = proxy.proxy();
-        serviceMap.put(address, service);
-        return service;
+
+        // not exist, create one and return.
+        lock.lock();
+        try {
+            service = serviceMap.get(address);
+            if (service == null) {
+                service = new BackendServiceClient(address);
+                serviceMap.put(address, service);
+            }
+            return service;
+        } finally {
+            lock.unlock();
+        }
     }
 
-    public Future<PExecPlanFragmentResult> execPlanFragmentAsync(
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             TNetworkAddress address, TExecPlanFragmentParams tRequest)
             throws TException, RpcException {
-        final PExecPlanFragmentRequest pRequest = new PExecPlanFragmentRequest();
-        pRequest.setRequest(tRequest);
+        InternalService.PExecPlanFragmentRequest.Builder builder = InternalService.PExecPlanFragmentRequest.newBuilder();
+        if (Config.use_compact_thrift_rpc) {
+            builder.setRequest(ByteString.copyFrom(new TSerializer(new TCompactProtocol.Factory()).serialize(tRequest)));
+            builder.setCompact(true);
+        } else {
+            builder.setRequest(ByteString.copyFrom(new TSerializer().serialize(tRequest))).build();
+            builder.setCompact(false);
+        }
+
+        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
         try {
-            final PBackendService service = getProxy(address);
-            return service.execPlanFragmentAsync(pRequest);
-        } catch (NoSuchElementException e) {
-            try {
-                // retry
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException interruptedException) {
-                    // do nothing
-                }
-                final PBackendService service = getProxy(address);
-                return service.execPlanFragmentAsync(pRequest);
-            } catch (NoSuchElementException noSuchElementException) {
-                LOG.warn("Execute plan fragment retry failed, address={}:{}",
-                        address.getHostname(), address.getPort(), noSuchElementException);
-                throw new RpcException(address.hostname, e.getMessage());
-            }
+            final BackendServiceClient client = getProxy(address);
+            return client.execPlanFragmentAsync(pRequest);
         } catch (Throwable e) {
             LOG.warn("Execute plan fragment catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -124,32 +116,17 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PCancelPlanFragmentResult> cancelPlanFragmentAsync(
-            TNetworkAddress address, TUniqueId finstId, PPlanFragmentCancelReason cancelReason) throws RpcException {
-        final PCancelPlanFragmentRequest pRequest = new PCancelPlanFragmentRequest();
-        PUniqueId uid = new PUniqueId();
-        uid.hi = finstId.hi;
-        uid.lo = finstId.lo;
-        pRequest.finst_id = uid;
-        pRequest.cancel_reason = cancelReason;
+    public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
+            TNetworkAddress address, TUniqueId finstId, InternalService.PPlanFragmentCancelReason cancelReason)
+            throws RpcException {
+        final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
+                .newBuilder()
+                .setFinstId(
+                        Types.PUniqueId.newBuilder().setHi(finstId.hi).setLo(finstId.lo).build())
+                .setCancelReason(cancelReason).build();
         try {
-            final PBackendService service = getProxy(address);
-            return service.cancelPlanFragmentAsync(pRequest);
-        } catch (NoSuchElementException e) {
-            // retry
-            try {
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException interruptedException) {
-                    // do nothing
-                }
-                final PBackendService service = getProxy(address);
-                return service.cancelPlanFragmentAsync(pRequest);
-            } catch (NoSuchElementException noSuchElementException) {
-                LOG.warn("Cancel plan fragment retry failed, address={}:{}",
-                        address.getHostname(), address.getPort(), noSuchElementException);
-                throw new RpcException(address.hostname, e.getMessage());
-            }
+            final BackendServiceClient client = getProxy(address);
+            return client.cancelPlanFragmentAsync(pRequest);
         } catch (Throwable e) {
             LOG.warn("Cancel plan fragment catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -157,11 +134,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PFetchDataResult> fetchDataAsync(
-            TNetworkAddress address, PFetchDataRequest request) throws RpcException {
+    public Future<InternalService.PFetchDataResult> fetchDataAsync(
+            TNetworkAddress address, InternalService.PFetchDataRequest request) throws RpcException {
         try {
-            PBackendService service = getProxy(address);
-            return service.fetchDataAsync(request);
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchDataAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -169,11 +146,23 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PCacheResponse> updateCache(
-            TNetworkAddress address, PUpdateCacheRequest request) throws RpcException{
+    public InternalService.PFetchDataResult fetchDataSync(
+            TNetworkAddress address, InternalService.PFetchDataRequest request) throws RpcException {
         try {
-            PBackendService service = getProxy(address);
-            return service.updateCache(request);
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchDataSync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PCacheResponse> updateCache(
+            TNetworkAddress address, InternalService.PUpdateCacheRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.updateCache(request);
         } catch (Throwable e) {
             LOG.warn("update cache catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -181,11 +170,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PFetchCacheResult> fetchCache(
-            TNetworkAddress address, PFetchCacheRequest request) throws RpcException {
+    public Future<InternalService.PFetchCacheResult> fetchCache(
+            TNetworkAddress address, InternalService.PFetchCacheRequest request) throws RpcException {
         try {
-            PBackendService service = getProxy(address);
-            return service.fetchCache(request);
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchCache(request);
         } catch (Throwable e) {
             LOG.warn("fetch cache catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -193,11 +182,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PCacheResponse> clearCache(
-            TNetworkAddress address, PClearCacheRequest request) throws RpcException {
+    public Future<InternalService.PCacheResponse> clearCache(
+            TNetworkAddress address, InternalService.PClearCacheRequest request) throws RpcException {
         try {
-            PBackendService service = getProxy(address);
-            return service.clearCache(request);
+            final BackendServiceClient client = getProxy(address);
+            return client.clearCache(request);
         } catch (Throwable e) {
             LOG.warn("clear cache catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -205,26 +194,69 @@ public class BackendServiceProxy {
         }
     }
 
-
-    public Future<PTriggerProfileReportResult> triggerProfileReportAsync(
-            TNetworkAddress address, PTriggerProfileReportRequest request) throws RpcException {
+    public Future<InternalService.PProxyResult> getInfo(
+            TNetworkAddress address, InternalService.PProxyRequest request) throws RpcException {
         try {
-            final PBackendService service = getProxy(address);
-            return service.triggerProfileReport(request);
+            final BackendServiceClient client = getProxy(address);
+            return client.getInfo(request);
         } catch (Throwable e) {
-            LOG.warn("fetch data catch a exception, address={}:{}",
-                    address.getHostname(), address.getPort(), e);
+            LOG.warn("failed to get info, address={}:{}", address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
 
-    public Future<PProxyResult> getInfo(
-            TNetworkAddress address, PProxyRequest request) throws RpcException {
+    public Future<InternalService.PSendDataResult> sendData(
+            TNetworkAddress address, Types.PUniqueId fragmentInstanceId, List<InternalService.PDataRow> data)
+            throws RpcException {
+
+        final InternalService.PSendDataRequest.Builder pRequest = InternalService.PSendDataRequest.newBuilder();
+        pRequest.setFragmentInstanceId(fragmentInstanceId);
+        pRequest.addAllData(data);
         try {
-            final PBackendService service = getProxy(address);
-            return service.getInfo(request);
+            final BackendServiceClient client = getProxy(address);
+            return client.sendData(pRequest.build());
         } catch (Throwable e) {
-            LOG.warn("failed to get info, address={}:{}", address.getHostname(), address.getPort(), e);
+            LOG.warn("failed to send data, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+            throws RpcException {
+        final InternalService.PRollbackRequest pRequest = InternalService.PRollbackRequest.newBuilder()
+                .setFragmentInstanceId(fragmentInstanceId).build();
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.rollback(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to rollback, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PCommitResult> commit(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+            throws RpcException {
+        final InternalService.PCommitRequest pRequest = InternalService.PCommitRequest.newBuilder()
+                .setFragmentInstanceId(fragmentInstanceId).build();
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.commit(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to commit, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PConstantExprResult> foldConstantExpr(
+            TNetworkAddress address, TFoldConstantParams tParams) throws RpcException, TException {
+        final InternalService.PConstantExprRequest pRequest = InternalService.PConstantExprRequest.newBuilder()
+                .setRequest(ByteString.copyFrom(new TSerializer().serialize(tParams))).build();
+
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.foldConstantExpr(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to fold constant expr, address={}:{}", address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
     }

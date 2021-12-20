@@ -19,6 +19,7 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/datetime_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
@@ -59,6 +60,29 @@ bool TimestampFunctions::check_format(const StringVal& format, DateTimeValue& t)
 
     report_bad_format(&format);
     return false;
+}
+
+std::string TimestampFunctions::convert_format(const std::string& format) {
+    switch (format.size()) {
+    case 8:
+        if (strncmp(format.c_str(), "yyyyMMdd", 8) == 0) {
+            return std::string("%Y%m%d");
+        }
+        break;
+    case 10:
+        if (strncmp(format.c_str(), "yyyy-MM-dd", 10) == 0) {
+            return std::string("%Y-%m-%d");
+        }
+        break;
+    case 19:
+        if (strncmp(format.c_str(), "yyyy-MM-dd HH:mm:ss", 19) == 0) {
+            return std::string("%Y-%m-%d %H:%i:%s");
+        }
+        break;
+    default:
+        break;
+    }
+    return format;
 }
 
 StringVal TimestampFunctions::convert_format(FunctionContext* ctx, const StringVal& format) {
@@ -158,6 +182,38 @@ IntVal TimestampFunctions::week_of_year(FunctionContext* context, const DateTime
     return IntVal::null();
 }
 
+IntVal TimestampFunctions::year_week(FunctionContext* context, const DateTimeVal& ts_val) {
+    return year_week(context, ts_val, doris_udf::IntVal {0});
+}
+
+IntVal TimestampFunctions::year_week(FunctionContext* context, const DateTimeVal& ts_val,
+                                     const doris_udf::IntVal& mode) {
+    if (ts_val.is_null) {
+        return IntVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    if (ts_value.is_valid_date()) {
+        return ts_value.year_week(mysql_week_mode(mode.val));
+    }
+    return IntVal::null();
+}
+
+IntVal TimestampFunctions::week(FunctionContext* context, const DateTimeVal& ts_val) {
+    return week(context, ts_val, doris_udf::IntVal {0});
+}
+
+IntVal TimestampFunctions::week(FunctionContext* context, const DateTimeVal& ts_val,
+                                const doris_udf::IntVal& mode) {
+    if (ts_val.is_null) {
+        return IntVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    if (ts_value.is_valid_date()) {
+        return {ts_value.week(mysql_week_mode(mode.val))};
+    }
+    return IntVal::null();
+}
+
 IntVal TimestampFunctions::hour(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
@@ -180,6 +236,19 @@ IntVal TimestampFunctions::second(FunctionContext* context, const DateTimeVal& t
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     return IntVal(ts_value.second());
+}
+
+DateTimeVal TimestampFunctions::make_date(FunctionContext* ctx, const IntVal& year,
+                                          const IntVal& count) {
+    if (count.val > 0) {
+        // year-1-1
+        DateTimeValue ts_value {year.val * 10000000000 + 101000000};
+        ts_value.set_type(TIME_DATE);
+        DateTimeVal ts_val;
+        ts_value.to_datetime_val(&ts_val);
+        return timestamp_time_op<DAY>(ctx, ts_val, {count.val - 1}, true);
+    }
+    return DateTimeVal::null();
 }
 
 DateTimeVal TimestampFunctions::to_date(FunctionContext* ctx, const DateTimeVal& ts_val) {
@@ -234,7 +303,7 @@ StringVal TimestampFunctions::month_name(FunctionContext* ctx, const DateTimeVal
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     const char* name = ts_value.month_name();
-    if (name == NULL) {
+    if (name == nullptr) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, name);
@@ -246,7 +315,7 @@ StringVal TimestampFunctions::day_name(FunctionContext* ctx, const DateTimeVal& 
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     const char* name = ts_value.day_name();
-    if (name == NULL) {
+    if (name == nullptr) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, name);
@@ -395,61 +464,7 @@ BigIntVal TimestampFunctions::timestamp_diff(FunctionContext* ctx, const DateTim
     DateTimeValue ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     DateTimeValue ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
 
-    switch (unit) {
-    case YEAR: {
-        int year = (ts_value2.year() - ts_value1.year());
-        if (year > 0) {
-            year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) < 0;
-        } else if (year < 0) {
-            year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) > 0;
-        }
-        return year;
-    }
-    case MONTH: {
-        int month = (ts_value2.year() - ts_value1.year()) * 12 +
-                    (ts_value2.month() - ts_value1.month());
-        if (month > 0) {
-            month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
-        } else if (month < 0) {
-            month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
-        }
-        return month;
-    }
-    case WEEK: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        if (day > 0) {
-            day -= ts_value2.time_part_diff(ts_value1) < 0;
-        } else if (day < 0) {
-            day += ts_value2.time_part_diff(ts_value1) > 0;
-        }
-        return day / 7;
-    }
-    case DAY: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        if (day > 0) {
-            day -= ts_value2.time_part_diff(ts_value1) < 0;
-        } else if (day < 0) {
-            day += ts_value2.time_part_diff(ts_value1) > 0;
-        }
-        return day;
-    }
-    case HOUR: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t hour = second / 60 / 60;
-        return hour;
-    }
-    case MINUTE: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t minute = second / 60;
-        return minute;
-    }
-    case SECOND: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        return second;
-    }
-    default:
-        return BigIntVal::null();
-    }
+    return DateTimeValue::datetime_diff<unit>(ts_value1, ts_value2);
 }
 
 void TimestampFunctions::format_prepare(doris_udf::FunctionContext* context,
@@ -532,10 +547,10 @@ DateTimeVal from_olap_datetime(uint64_t datetime) {
 static const DateTimeVal FIRST_DAY = from_olap_datetime(19700101000000);
 static const DateTimeVal FIRST_SUNDAY = from_olap_datetime(19700104000000);
 
-#define TIME_ROUND(UNIT, unit, ORIGIN)                                    \
-    _TR_4(FLOOR, floor, UNIT, unit)                                       \
-    _TR_4(CEIL, ceil, UNIT, unit) _TR_5(FLOOR, floor, UNIT, unit, ORIGIN) \
-            _TR_5(CEIL, ceil, UNIT, unit, ORIGIN)
+#define TIME_ROUND(UNIT, unit, ORIGIN) \
+    _TR_4(FLOOR, floor, UNIT, unit)    \
+    _TR_4(CEIL, ceil, UNIT, unit)      \
+    _TR_5(FLOOR, floor, UNIT, unit, ORIGIN) _TR_5(CEIL, ceil, UNIT, unit, ORIGIN)
 
 TIME_ROUND(YEAR, year, FIRST_DAY)
 TIME_ROUND(MONTH, month, FIRST_DAY)

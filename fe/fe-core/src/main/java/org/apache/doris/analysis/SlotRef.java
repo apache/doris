@@ -123,6 +123,43 @@ public class SlotRef extends Expr {
         this.desc = desc;
     }
 
+    public boolean columnEqual(Expr srcExpr) {
+        Preconditions.checkState(srcExpr instanceof SlotRef);
+        SlotRef srcSlotRef = (SlotRef) srcExpr;
+        if (desc != null && srcSlotRef.desc != null) {
+            return desc.getId().equals(srcSlotRef.desc.getId());
+        }
+        TableName srcTableName = srcSlotRef.tblName;
+        if (srcTableName == null && srcSlotRef.desc != null) {
+            srcTableName = srcSlotRef.getTableName();
+        }
+        TableName thisTableName = tblName;
+        if (thisTableName == null && desc != null) {
+            thisTableName = getTableName();
+        }
+        if ((thisTableName == null) != (srcTableName == null)) {
+            return false;
+        }
+        if (thisTableName != null && !thisTableName.equals(srcTableName)) {
+            return false;
+        }
+        String srcColumnName = srcSlotRef.getColumnName();
+        if (srcColumnName == null && srcSlotRef.desc != null && srcSlotRef.getDesc().getColumn() != null) {
+            srcColumnName = srcSlotRef.desc.getColumn().getName();
+        }
+        String thisColumnName = getColumnName();
+        if (thisColumnName == null && desc != null && desc.getColumn() != null) {
+            thisColumnName = desc.getColumn().getName();
+        }
+        if ((thisColumnName == null) != (srcColumnName == null)) {
+            return false;
+        }
+        if (thisColumnName != null && !thisColumnName.toLowerCase().equals(srcColumnName.toLowerCase())) {
+            return false;
+        }
+        return true;
+    }
+
     @Override
     public void vectorizedAnalyze(Analyzer analyzer) {
         computeOutputColumn(analyzer);
@@ -207,6 +244,10 @@ public class SlotRef extends Expr {
         return tblName;
     }
 
+    public TableName getOriginTableName() {
+        return tblName;
+    }
+
     @Override
     public String toColumnLabel() {
         // return tblName == null ? col : tblName.getTbl() + "." + col;
@@ -276,6 +317,23 @@ public class SlotRef extends Expr {
     public boolean isBound(SlotId slotId) {
         Preconditions.checkState(isAnalyzed);
         return desc.getId().equals(slotId);
+    }
+
+    @Override
+    public void getSlotRefsBoundByTupleIds(List<TupleId> tupleIds, Set<SlotRef> boundSlotRefs) {
+        if (desc == null) {
+            return;
+        }
+        if (tupleIds.contains(desc.getParent().getId())) {
+            boundSlotRefs.add(this);
+            return;
+        }
+        if (desc.getSourceExprs() == null) {
+            return;
+        }
+        for (Expr sourceExpr : desc.getSourceExprs()) {
+            sourceExpr.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
+        }
     }
 
     @Override
@@ -363,5 +421,11 @@ public class SlotRef extends Expr {
         SlotRef slotRef = new SlotRef();
         slotRef.readFields(in);
         return slotRef;
+    }
+
+    @Override
+    public boolean isNullable() {
+        Preconditions.checkNotNull(desc);
+        return desc.getIsNullable();
     }
 }

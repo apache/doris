@@ -100,8 +100,9 @@ public:
 
     ~Schema();
 
-    const std::vector<Field*>& columns() const { return _cols; }
     const Field* column(ColumnId cid) const { return _cols[cid]; }
+
+    Field* mutable_column(ColumnId cid) const { return _cols[cid]; }
 
     size_t num_key_columns() const { return _num_key_columns; }
     size_t schema_size() const { return _schema_size; }

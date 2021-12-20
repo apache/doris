@@ -22,7 +22,6 @@
 #include <sys/time.h>
 
 #include <algorithm>
-#include <boost/thread.hpp>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -31,11 +30,12 @@
 #include <list>
 #include <map>
 #include <shared_mutex>
+#include <thread>
 
 namespace doris {
 
-typedef boost::shared_lock<boost::shared_mutex> CacheReadLock;
-typedef boost::unique_lock<boost::shared_mutex> CacheWriteLock;
+typedef std::shared_lock<std::shared_mutex> CacheReadLock;
+typedef std::unique_lock<std::shared_mutex> CacheWriteLock;
 
 //#ifndef PARTITION_CACHE_DEV
 //#define PARTITION_CACHE_DEV
@@ -51,7 +51,7 @@ struct CacheStat {
 
     inline long cache_time_second() {
         struct timeval tv;
-        gettimeofday(&tv, NULL);
+        gettimeofday(&tv, nullptr);
         return tv.tv_sec;
     }
 

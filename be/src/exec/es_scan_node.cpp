@@ -51,7 +51,11 @@ const std::string ERROR_MEM_LIMIT_EXCEEDED =
         "$1 bytes for $2.";
 
 EsScanNode::EsScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ScanNode(pool, tnode, descs), _tuple_id(tnode.es_scan_node.tuple_id), _scan_range_idx(0) {
+        : ScanNode(pool, tnode, descs),
+          _tuple_id(tnode.es_scan_node.tuple_id),
+          _tuple_desc(nullptr),
+          _env(nullptr),
+          _scan_range_idx(0) {
     if (tnode.es_scan_node.__isset.properties) {
         _properties = tnode.es_scan_node.properties;
     }
@@ -217,7 +221,7 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
 
     // convert
     VLOG_CRITICAL << "begin to convert: scan_range_idx=" << _scan_range_idx
-            << ", num_rows=" << result.rows.num_rows;
+                  << ", num_rows=" << result.rows.num_rows;
     std::vector<TExtColumnData>& cols = result.rows.cols;
     // indexes of the next non-null value in the row batch, per column.
     std::vector<int> cols_next_val_idx(_tuple_desc->slots().size(), 0);
@@ -420,7 +424,8 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
 
         TExtLiteral literal;
         if (!to_ext_literal(context, expr, &literal)) {
-            VLOG_CRITICAL << "get disjuncts fail: can't get literal, node_type=" << expr->node_type();
+            VLOG_CRITICAL << "get disjuncts fail: can't get literal, node_type="
+                          << expr->node_type();
             return false;
         }
 
@@ -446,7 +451,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         TExtLiteral literal;
         if (!to_ext_literal(context, conjunct->get_child(1), &literal)) {
             VLOG_CRITICAL << "get disjuncts fail: can't get literal, node_type="
-                    << conjunct->get_child(1)->node_type();
+                          << conjunct->get_child(1)->node_type();
             return false;
         }
 
@@ -466,7 +471,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         }
         TExtInPredicate ext_in_predicate;
         std::vector<TExtLiteral> in_pred_values;
-        InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
+        InPredicate* pred = static_cast<InPredicate*>(conjunct);
         ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
             return false;
@@ -497,7 +502,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
             if (!to_ext_literal(slot_desc->type().type, const_cast<void*>(iter->get_value()),
                                 &literal)) {
                 VLOG_CRITICAL << "get disjuncts fail: can't get literal, node_type="
-                        << slot_desc->type().type;
+                              << slot_desc->type().type;
                 return false;
             }
             in_pred_values.push_back(literal);
@@ -523,7 +528,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         return true;
     } else {
         VLOG_CRITICAL << "get disjuncts fail: node type is " << conjunct->node_type()
-                << ", should be BINARY_PRED or COMPOUND_PRED";
+                      << ", should be BINARY_PRED or COMPOUND_PRED";
         return false;
     }
 }
@@ -558,7 +563,7 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
-        return to_ext_literal(expr->type().type, context->get_value(expr, NULL), literal);
+        return to_ext_literal(expr->type().type, context->get_value(expr, nullptr), literal);
     default:
         return false;
     }
@@ -606,11 +611,9 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
 
     case TYPE_LARGEINT: {
         node_type = (TExprNodeType::LARGE_INT_LITERAL);
-        char buf[48];
-        int len = 48;
-        char* v = LargeIntValue::to_string(*reinterpret_cast<__int128*>(value), buf, &len);
         TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(v);
+        large_int_literal.__set_value(
+                LargeIntValue::to_string(*reinterpret_cast<__int128*>(value)));
         literal->__set_large_int_literal(large_int_literal);
         break;
     }
@@ -630,14 +633,6 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
         break;
     }
 
-    case TYPE_DECIMAL: {
-        node_type = (TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(reinterpret_cast<DecimalValue*>(value)->to_string());
-        literal->__set_decimal_literal(decimal_literal);
-        break;
-    }
-
     case TYPE_DATE:
     case TYPE_DATETIME: {
         node_type = (TExprNodeType::DATE_LITERAL);
@@ -651,7 +646,8 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
     }
 
     case TYPE_CHAR:
-    case TYPE_VARCHAR: {
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
         node_type = (TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
         string_literal.__set_value((reinterpret_cast<StringValue*>(value))->debug_string());
@@ -768,17 +764,18 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         int val_idx = cols_next_val_idx[i]++;
         switch (slot_desc->type().type) {
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             if (val_idx >= col.string_vals.size()) {
                 return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
             }
             const string& val = col.string_vals[val_idx];
             size_t val_size = val.size();
             char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
-            if (UNLIKELY(buffer == NULL)) {
+            if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
+                return tuple_pool->mem_tracker()->MemLimitExceeded(nullptr, details, val_size);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;
@@ -854,15 +851,6 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
                         strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
             }
             reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-            break;
-        }
-        case TYPE_DECIMAL: {
-            if (val_idx >= col.binary_vals.size()) {
-                return Status::InternalError(
-                        strings::Substitute(ERROR_INVALID_COL_DATA, "DECIMAL"));
-            }
-            const string& val = col.binary_vals[val_idx];
-            *reinterpret_cast<DecimalValue*>(slot) = *reinterpret_cast<const DecimalValue*>(&val);
             break;
         }
         default:

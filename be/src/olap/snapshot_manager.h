@@ -45,11 +45,12 @@ namespace doris {
 class SnapshotManager {
 public:
     ~SnapshotManager() {}
-    // @brief 创建snapshot
-    // @param tablet_id [in] 原表的id
-    // @param schema_hash [in] 原表的schema，与tablet_id参数合起来唯一确定一张表
-    // @param snapshot_path [out] 新生成的snapshot的路径
-    OLAPStatus make_snapshot(const TSnapshotRequest& request, std::string* snapshot_path);
+
+    /// Create a snapshot
+    /// snapshot_path: out param, the dir of snapshot
+    /// allow_incremental_clone: out param, true if it is an incremental clone
+    OLAPStatus make_snapshot(const TSnapshotRequest& request, std::string* snapshot_path,
+                             bool* allow_incremental_clone);
 
     std::string get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
                                           const std::string& location) const;
@@ -78,7 +79,7 @@ private:
 
     OLAPStatus _create_snapshot_files(const TabletSharedPtr& ref_tablet,
                                       const TSnapshotRequest& request, std::string* snapshot_path,
-                                      int32_t snapshot_version);
+                                      bool* allow_incremental_clone);
 
     OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
                                      std::string* snapshot_id_path);
@@ -89,7 +90,7 @@ private:
 
     OLAPStatus _convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
                                               const vector<RowsetMetaSharedPtr>& rowset_metas,
-                                              const std::string& dst_path, bool is_incremental);
+                                              const std::string& dst_path);
 
 private:
     static SnapshotManager* _s_instance;

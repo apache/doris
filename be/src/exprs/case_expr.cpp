@@ -18,6 +18,7 @@
 #include "exprs/case_expr.h"
 
 #include "exprs/anyval_util.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/runtime_state.h"
 
@@ -109,10 +110,8 @@ void CaseExpr::get_child_val(int child_idx, ExprContext* ctx, TupleRow* row, Any
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         *reinterpret_cast<StringVal*>(dst) = _children[child_idx]->get_string_val(ctx, row);
-        break;
-    case TYPE_DECIMAL:
-        *reinterpret_cast<DecimalVal*>(dst) = _children[child_idx]->get_decimal_val(ctx, row);
         break;
     case TYPE_DECIMALV2:
         *reinterpret_cast<DecimalV2Val*>(dst) = _children[child_idx]->get_decimalv2_val(ctx, row);
@@ -156,11 +155,9 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         return AnyValUtil::equals(type, *reinterpret_cast<const StringVal*>(v1),
                                   *reinterpret_cast<const StringVal*>(v2));
-    case TYPE_DECIMAL:
-        return AnyValUtil::equals(type, *reinterpret_cast<const DecimalVal*>(v1),
-                                  *reinterpret_cast<const DecimalVal*>(v2));
     case TYPE_DECIMALV2:
         return AnyValUtil::equals(type, *reinterpret_cast<const DecimalV2Val*>(v1),
                                   *reinterpret_cast<const DecimalV2Val*>(v2));
@@ -178,8 +175,8 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
         FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);                 \
         CaseExprState* state = reinterpret_cast<CaseExprState*>(                      \
                 fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL));           \
-        DCHECK(state->case_val != NULL);                                              \
-        DCHECK(state->when_val != NULL);                                              \
+        DCHECK(state->case_val != nullptr);                                           \
+        DCHECK(state->when_val != nullptr);                                           \
         int num_children = _children.size();                                          \
         if (has_case_expr()) {                                                        \
             /* All case and when exprs return the same type */                        \
@@ -225,7 +222,6 @@ CASE_COMPUTE_FN_WRAPPER(FloatVal, float_val)
 CASE_COMPUTE_FN_WRAPPER(DoubleVal, double_val)
 CASE_COMPUTE_FN_WRAPPER(StringVal, string_val)
 CASE_COMPUTE_FN_WRAPPER(DateTimeVal, datetime_val)
-CASE_COMPUTE_FN_WRAPPER(DecimalVal, decimal_val)
 CASE_COMPUTE_FN_WRAPPER(DecimalV2Val, decimalv2_val)
 
 } // namespace doris

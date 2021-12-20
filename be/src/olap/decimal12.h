@@ -27,17 +27,6 @@ namespace doris {
 
 // the sign of integer must be same as fraction
 struct decimal12_t {
-    decimal12_t() : integer(0), fraction(0) {}
-    decimal12_t(int64_t int_part, int32_t frac_part) {
-        integer = int_part;
-        fraction = frac_part;
-    }
-
-    decimal12_t(const decimal12_t& value) {
-        integer = value.integer;
-        fraction = value.fraction;
-    }
-
     decimal12_t& operator+=(const decimal12_t& value) {
         fraction += value.fraction;
         integer += value.integer;
@@ -59,13 +48,6 @@ struct decimal12_t {
 
         //OLAP_LOG_WARNING("agg: int=%ld, frac=%d", integer, fraction);
         //_set_flag();
-        return *this;
-    }
-
-    // call field::copy
-    decimal12_t& operator=(const decimal12_t& value) {
-        integer = value.integer;
-        fraction = value.fraction;
         return *this;
     }
 
@@ -113,7 +95,7 @@ struct decimal12_t {
         const char* value_string = str.c_str();
         const char* sign = strchr(value_string, '-');
 
-        if (sign != NULL) {
+        if (sign != nullptr) {
             if (sign != value_string) {
                 return OLAP_ERR_INPUT_PARAMETER_ERROR;
             } else {
@@ -122,8 +104,8 @@ struct decimal12_t {
         }
 
         const char* sepr = strchr(value_string, '.');
-        if ((sepr != NULL && sepr - value_string > MAX_INT_DIGITS_NUM) ||
-            (sepr == NULL && strlen(value_string) > MAX_INT_DIGITS_NUM)) {
+        if ((sepr != nullptr && sepr - value_string > MAX_INT_DIGITS_NUM) ||
+            (sepr == nullptr && strlen(value_string) > MAX_INT_DIGITS_NUM)) {
             integer = 999999999999999999;
             fraction = 999999999;
         } else {
@@ -134,13 +116,13 @@ struct decimal12_t {
                 sscanf(value_string, "%18ld.%9d", &integer, &fraction);
             }
 
-            int32_t frac_len =
-                    (NULL != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1) : MAX_FRAC_DIGITS_NUM;
+            int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1)
+                                                 : MAX_FRAC_DIGITS_NUM;
             frac_len = frac_len > 0 ? frac_len : 0;
             fraction *= g_power_table[frac_len];
         }
 
-        if (sign != NULL) {
+        if (sign != nullptr) {
             fraction = -fraction;
             integer = -integer;
         }
@@ -155,6 +137,8 @@ struct decimal12_t {
     int64_t integer;
     int32_t fraction;
 } __attribute__((packed));
+
+static_assert(std::is_trivial<decimal12_t>::value, "decimal12_t should be a POD type");
 
 inline std::ostream& operator<<(std::ostream& os, const decimal12_t& val) {
     os << val.to_string();

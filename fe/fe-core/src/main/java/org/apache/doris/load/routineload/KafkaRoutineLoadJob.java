@@ -22,15 +22,12 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -40,13 +37,11 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -55,13 +50,19 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.UUID;
 
 /**
@@ -72,6 +73,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
+    public static final String PROP_GROUP_ID = "group.id";
 
     private String brokerList;
     private String topic;
@@ -80,10 +82,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // current kafka partitions is the actually partition which will be fetched
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
     // optional, user want to set default offset when new partition add or offset not set.
+    // kafkaDefaultOffSet has two formats, one is the time format, eg: "2021-10-10 11:00:00",
+    // the other is string value, including OFFSET_END and OFFSET_BEGINNING.
+    // We should check it by calling isOffsetForTimes() method before use it.
     private String kafkaDefaultOffSet = "";
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
     private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
+
+    // The latest offset of each partition fetched from kafka server.
+    // Will be updated periodically by calling hasMoreDataToConsume()
+    private Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newConcurrentMap();
+
+    // The kafka partition fetch from kafka server.
+    // Will be updated periodically by calling updateKafkaPartitions();
+    private List<Integer> newCurrentKafkaPartition = Lists.newArrayList();
 
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
@@ -108,6 +121,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public Map<String, String> getConvertedCustomProperties() {
         return convertedCustomProperties;
+    }
+
+    private boolean isOffsetForTimes() {
+        long offset = TimeUtils.timeStringToLong(this.kafkaDefaultOffSet);
+        return offset != -1;
+    }
+
+    private long convertedDefaultOffsetToTimestamp() {
+        TimeZone timeZone = TimeUtils.getOrSystemTimeZone(getTimezone());
+        return TimeUtils.timeStringToLong(this.kafkaDefaultOffSet, timeZone);
     }
 
     @Override
@@ -142,7 +165,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 convertedCustomProperties.put(entry.getKey(), entry.getValue());
             }
         }
-        if (convertedCustomProperties.containsKey(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)) {
+
+        // This is mainly for compatibility. In the previous version, we directly obtained the value of the
+        // KAFKA_DEFAULT_OFFSETS attribute. In the new version, we support date time as the value of KAFKA_DEFAULT_OFFSETS,
+        // and this attribute will be converted into a timestamp during the analyzing phase, thus losing some information.
+        // So we use KAFKA_ORIGIN_DEFAULT_OFFSETS to store the original datetime formatted KAFKA_DEFAULT_OFFSETS value
+        if (convertedCustomProperties.containsKey(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS)) {
+            kafkaDefaultOffSet = convertedCustomProperties.remove(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS);
+        } else if (convertedCustomProperties.containsKey(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)) {
             kafkaDefaultOffSet = convertedCustomProperties.remove(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS);
         }
     }
@@ -156,12 +186,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<Integer, Long> taskKafkaProgress = Maps.newHashMap();
-                    for (int j = 0; j < currentKafkaPartitions.size(); j++) {
-                        if (j % currentConcurrentTaskNum == i) {
-                            int kafkaPartition = currentKafkaPartitions.get(j);
-                            taskKafkaProgress.put(kafkaPartition,
-                                    ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
-                        }
+                    for (int j = i; j < currentKafkaPartitions.size(); j = j + currentConcurrentTaskNum) {
+                        int kafkaPartition = currentKafkaPartitions.get(j);
+                        taskKafkaProgress.put(kafkaPartition,
+                                ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
                             maxBatchIntervalS * 2 * 1000, taskKafkaProgress);
@@ -183,19 +211,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
+    public int calculateCurrentConcurrentTaskNum() {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
-        int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = currentKafkaPartitions.size();
         if (desireTaskConcurrentNum == 0) {
             desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
 
         LOG.debug("current concurrent task number is min"
-                        + "(partition num: {}, desire task concurrent num: {}, alive be num: {}, config: {})",
-                partitionNum, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
-        currentTaskConcurrentNum = Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)),
-                Config.max_routine_load_task_concurrent_num);
+                        + "(partition num: {}, desire task concurrent num: {} config: {})",
+                partitionNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
+        currentTaskConcurrentNum = Math.min(partitionNum, Math.min(desireTaskConcurrentNum,
+                Config.max_routine_load_task_concurrent_num));
         return currentTaskConcurrentNum;
     }
 
@@ -254,8 +281,36 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void unprotectUpdateProgress() {
+    protected void unprotectUpdateProgress() throws UserException {
         updateNewPartitionProgress();
+    }
+
+    @Override
+    protected void preCheckNeedSchedule() throws UserException {
+        // If user does not specify kafka partition,
+        // We will fetch partition from kafka server periodically
+        if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
+            if (customKafkaPartitions == null && !customKafkaPartitions.isEmpty()) {
+                return;
+            }
+            updateKafkaPartitions();
+        }
+    }
+
+    private void updateKafkaPartitions() throws UserException {
+        try {
+            this.newCurrentKafkaPartition = getAllKafkaPartitions();
+        } catch (Exception e) {
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                    .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
+                    .build(), e);
+            if (this.state == JobState.NEED_SCHEDULE) {
+                unprotectUpdateState(JobState.PAUSED,
+                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
+                                "Job failed to fetch all current partition with error " + e.getMessage()),
+                        false /* not replay */);
+            }
+        }
     }
 
     // if customKafkaPartition is not null, then return false immediately
@@ -271,24 +326,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 currentKafkaPartitions = customKafkaPartitions;
                 return false;
             } else {
-                List<Integer> newCurrentKafkaPartition;
-                try {
-                    newCurrentKafkaPartition = getAllKafkaPartitions();
-                } catch (Exception e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                            .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
-                            .build(), e);
-                    if (this.state == JobState.NEED_SCHEDULE) {
-                        unprotectUpdateState(JobState.PAUSED,
-                                new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
-                                        "Job failed to fetch all current partition with error " + e.getMessage()),
-                                false /* not replay */);
-                    }
-                    return false;
-                }
-                if (currentKafkaPartitions.containsAll(newCurrentKafkaPartition)) {
-                    if (currentKafkaPartitions.size() > newCurrentKafkaPartition.size()) {
-                        currentKafkaPartitions = newCurrentKafkaPartition;
+                // the newCurrentKafkaPartition should be already updated in preCheckNeedScheduler()
+                Preconditions.checkNotNull(this.newCurrentKafkaPartition);
+                if (currentKafkaPartitions.containsAll(this.newCurrentKafkaPartition)) {
+                    if (currentKafkaPartitions.size() > this.newCurrentKafkaPartition.size()) {
+                        currentKafkaPartitions = this.newCurrentKafkaPartition;
                         if (LOG.isDebugEnabled()) {
                             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                                     .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
@@ -300,7 +342,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                         return false;
                     }
                 } else {
-                    currentKafkaPartitions = newCurrentKafkaPartition;
+                    currentKafkaPartitions = this.newCurrentKafkaPartition;
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                                 .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
@@ -319,17 +361,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected String getStatistic() {
-        Map<String, Object> summary = Maps.newHashMap();
-        summary.put("totalRows", Long.valueOf(totalRows));
-        summary.put("loadedRows", Long.valueOf(totalRows - errorRows - unselectedRows));
-        summary.put("errorRows", Long.valueOf(errorRows));
-        summary.put("unselectedRows", Long.valueOf(unselectedRows));
-        summary.put("receivedBytes", Long.valueOf(receivedBytes));
-        summary.put("taskExecuteTimeMs", Long.valueOf(totalTaskExcutionTimeMs));
-        summary.put("receivedBytesRate", Long.valueOf(receivedBytes / totalTaskExcutionTimeMs * 1000));
-        summary.put("loadRowsRate", Long.valueOf((totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000));
-        summary.put("committedTaskNum", Long.valueOf(committedTaskNum));
-        summary.put("abortedTaskNum", Long.valueOf(abortedTaskNum));
+        Map<String, Object> summary = this.jobStatistic.summary();
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(summary);
     }
@@ -341,14 +373,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDBName());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBName());
-        }
-
-        checkMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
-        Table table = db.getTable(stmt.getTableName());
-        long tableId = table.getId();
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDBName());
+        OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
+        checkMeta(olapTable, stmt.getRoutineLoadDesc());
+        long tableId = olapTable.getId();
 
         // init kafka routine load job
         long id = Catalog.getCurrentCatalog().getNextId();
@@ -389,14 +417,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void updateNewPartitionProgress() {
+    private void updateNewPartitionProgress() throws LoadException {
         // update the progress of new partitions
         for (Integer kafkaPartition : currentKafkaPartitions) {
             if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
                 // if offset is not assigned, start from OFFSET_END
                 long beginOffSet = KafkaProgress.OFFSET_END_VAL;
                 if (!kafkaDefaultOffSet.isEmpty()) {
-                    if (kafkaDefaultOffSet.equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
+                    if (isOffsetForTimes()) {
+                        // get offset by time
+                        List<Pair<Integer, Long>> offsets = Lists.newArrayList();
+                        offsets.add(Pair.create(kafkaPartition, convertedDefaultOffsetToTimestamp()));
+                        offsets = KafkaUtil.getOffsetsForTimes(this.brokerList, this.topic, convertedCustomProperties, offsets);
+                        Preconditions.checkState(offsets.size() == 1);
+                        beginOffSet = offsets.get(0).second;
+                    } else if (kafkaDefaultOffSet.equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
                         beginOffSet = KafkaProgress.OFFSET_BEGINNING_VAL;
                     } else if (kafkaDefaultOffSet.equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
                         beginOffSet = KafkaProgress.OFFSET_END_VAL;
@@ -420,15 +455,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super.setOptional(stmt);
 
         if (!stmt.getKafkaPartitionOffsets().isEmpty()) {
-            setCustomKafkaPartitions(stmt.getKafkaPartitionOffsets());
+            setCustomKafkaPartitions(stmt);
         }
         if (!stmt.getCustomKafkaProperties().isEmpty()) {
             setCustomKafkaProperties(stmt.getCustomKafkaProperties());
         }
+        // set group id if not specified
+        if (!this.customProperties.containsKey(PROP_GROUP_ID)) {
+            this.customProperties.put(PROP_GROUP_ID, name + "_" + UUID.randomUUID().toString());
+        }
     }
 
     // this is a unprotected method which is called in the initialization function
-    private void setCustomKafkaPartitions(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws LoadException {
+    private void setCustomKafkaPartitions(CreateRoutineLoadStmt stmt) throws LoadException {
+        List<Pair<Integer, Long>> kafkaPartitionOffsets = stmt.getKafkaPartitionOffsets();
+        boolean isForTimes = stmt.isOffsetsForTimes();
+        if (isForTimes) {
+            // the offset is set by date time, we need to get the real offset by time
+            kafkaPartitionOffsets = KafkaUtil.getOffsetsForTimes(stmt.getKafkaBrokerList(), stmt.getKafkaTopic(),
+                    convertedCustomProperties, stmt.getKafkaPartitionOffsets());
+        }
+
         for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
             this.customKafkaPartitions.add(partitionOffset.first);
             ((KafkaProgress) progress).addPartitionOffset(partitionOffset);
@@ -455,6 +502,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(customProperties);
+    }
+
+    @Override
+    protected Map<String, String> getDataSourceProperties() {
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("kafka_broker_list", brokerList);
+        dataSourceProperties.put("kafka_topic", topic);
+        return dataSourceProperties;
+    }
+
+    @Override
+    protected Map<String, String> getCustomProperties() {
+        Map<String, String> ret = new HashMap<>();
+        customProperties.forEach((k, v) -> ret.put("property." + k, v));
+        return ret;
     }
 
     @Override
@@ -497,9 +559,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException {
+    public void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException {
         Map<String, String> jobProperties = stmt.getAnalyzedJobProperties();
         RoutineLoadDataSourceProperties dataSourceProperties = stmt.getDataSourceProperties();
+        if (dataSourceProperties.isOffsetsForTimes()) {
+            // if the partition offset is set by timestamp, convert it to real offset
+            convertTimestampToOffset(dataSourceProperties);
+        }
 
         writeLock();
         try {
@@ -515,6 +581,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } finally {
             writeUnlock();
         }
+    }
+
+    private void convertTimestampToOffset(RoutineLoadDataSourceProperties dataSourceProperties) throws UserException {
+        List<Pair<Integer, Long>> partitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
+        if (partitionOffsets.isEmpty()) {
+            return;
+        }
+        List<Pair<Integer, Long>> newOffsets = KafkaUtil.getOffsetsForTimes(brokerList, topic,
+                convertedCustomProperties, partitionOffsets);
+        dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
@@ -535,15 +611,23 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
         }
 
+        if (!customKafkaProperties.isEmpty()) {
+            this.customProperties.putAll(customKafkaProperties);
+            convertCustomProperties(true);
+        }
+
         if (!jobProperties.isEmpty()) {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
             modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
         }
 
-        if (!customKafkaProperties.isEmpty()) {
-            this.customProperties.putAll(customKafkaProperties);
-            convertCustomProperties(true);
+        // modify broker list and topic
+        if (!Strings.isNullOrEmpty(dataSourceProperties.getKafkaBrokerList())) {
+            this.brokerList = dataSourceProperties.getKafkaBrokerList();
+        }
+        if (!Strings.isNullOrEmpty(dataSourceProperties.getKafkaTopic())) {
+            this.topic = dataSourceProperties.getKafkaTopic();
         }
 
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
@@ -558,5 +642,57 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);
         }
+    }
+
+    // check if given partitions has more data to consume.
+    // 'partitionIdToOffset' to the offset to be consumed.
+    public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) {
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
+                    && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
+                // "entry.getValue()" is the offset to be consumed.
+                // "cachedPartitionWithLatestOffsets.get(entry.getKey())" is the "next" offset of this partition.
+                // (because librdkafa's query_watermark_offsets() will return the next offset.
+                //  For example, there 4 msg in partition with offset 0,1,2,3,
+                //  query_watermark_offsets() will return 4.)
+                LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                        partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+                return true;
+            }
+        }
+
+        try {
+            // all offsets to be consumed are newer than offsets in cachedPartitionWithLatestOffsets,
+            // maybe the cached offset is out-of-date, fetch from kafka server again
+            List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
+                    getTopic(), getConvertedCustomProperties(), Lists.newArrayList(partitionIdToOffset.keySet()));
+            for (Pair<Integer, Long> pair : tmp) {
+                cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to get latest partition offset. {}", e.getMessage(), e);
+            return false;
+        }
+
+        // check again
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
+                    && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
+                LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                        partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+                return true;
+            }
+        }
+
+        LOG.debug("no more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+        return false;
+    }
+
+    @Override
+    protected String getLag() {
+        Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
+        Gson gson = new Gson();
+        return gson.toJson(partitionIdToOffsetLag);
     }
 }

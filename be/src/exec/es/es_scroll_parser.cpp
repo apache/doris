@@ -201,7 +201,7 @@ ScrollParser::~ScrollParser() {}
 Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
     // rely on `_size !=0 ` to determine whether scroll ends
     _size = 0;
-    _document_node.Parse(scroll_result.c_str());
+    _document_node.Parse(scroll_result.c_str(), scroll_result.length());
     if (_document_node.HasParseError()) {
         std::stringstream ss;
         ss << "Parsing json error, json is: " << scroll_result;
@@ -287,14 +287,14 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             }
             tuple->set_not_null(slot_desc->null_indicator_offset());
             void* slot = tuple->get_slot(slot_desc->tuple_offset());
-            // obj[FIELD_ID] must not be NULL
+            // obj[FIELD_ID] must not be nullptr
             std::string _id = obj[FIELD_ID].GetString();
             size_t len = _id.length();
             char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(len));
-            if (UNLIKELY(buffer == NULL)) {
+            if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED,
                                                           "MaterializeNextRow", len, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, len);
+                return tuple_pool->mem_tracker()->MemLimitExceeded(nullptr, details, len);
             }
             memcpy(buffer, _id.data(), len);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;
@@ -319,9 +319,16 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
 
         void* slot = tuple->get_slot(slot_desc->tuple_offset());
         PrimitiveType type = slot_desc->type().type;
+
+        // when the column value is null, the subsequent type casting will report an error
+        if (col.IsNull()) {
+            slot = nullptr;
+            continue;
+        }
         switch (type) {
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
             // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
             // this may be a tricky, but we can workaround this issue
@@ -342,10 +349,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             }
             size_t val_size = val.length();
             char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
-            if (UNLIKELY(buffer == NULL)) {
+            if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
+                return tuple_pool->mem_tracker()->MemLimitExceeded(nullptr, details, val_size);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;

@@ -27,7 +27,7 @@ under the License.
 
 # Guidelines for Basic Use
 
-Doris uses MySQL protocol to communicate. Users can connect to Doris cluster through MySQL client or MySQL JDBC. When selecting the MySQL client version, it is recommended to use the version after 5.1, because user names of more than 16 characters can not be supported before 5.1. This paper takes MySQL client as an example to show users the basic usage of Doris through a complete process.
+Doris uses MySQL protocol to communicate. Users can connect to Doris cluster through MySQL client or MySQL JDBC. When selecting the MySQL client version, it is recommended to use the version after 5.1, because user names of more than 16 characters cannot be supported before 5.1. This paper takes MySQL client as an example to show users the basic usage of Doris through a complete process.
 
 ## 1 Create Users
 
@@ -249,7 +249,7 @@ Streaming import transfers data to Doris via HTTP protocol. It can import local 
 Example 1: With "table1_20170707" as Label, import table1 tables using the local file table1_data.
 
 ```
-curl --location-trusted -u test:test -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
+curl --location-trusted -u test:test_passwd -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
 ```
 
 > 1. FE_HOST is the IP of any FE node and 8030 is http_port in fe.conf.
@@ -338,7 +338,7 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 |      5 |        3 | 'helen'  |    3 |
 |      3 |        2 | 'tom'    |    2 |
 +--------+----------+----------+------+
-5 rows in set (0.01 sec)
+3 rows in set (0.01 sec)
 
 MySQL> SELECT * FROM table1 ORDER BY citycode;
 +--------+----------+----------+------+

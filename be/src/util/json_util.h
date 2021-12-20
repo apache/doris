@@ -25,7 +25,6 @@
 
 #include "common/status.h"
 #include "util/pretty_printer.h"
-#include "util/template_util.h"
 
 namespace doris {
 
@@ -35,9 +34,9 @@ namespace doris {
 /// 'value' (e.g. conversion to MB etc). Otherwise the value is directly copied into
 /// 'out_val'.
 template <typename T>
-ENABLE_IF_NOT_ARITHMETIC(T, void)
-ToJsonValue(const T& value, const TUnit::type unit, rapidjson::Document* document,
-            rapidjson::Value* out_val) {
+typename std::enable_if<!std::is_arithmetic<T>::value, void>::type ToJsonValue(
+        const T& value, const TUnit::type unit, rapidjson::Document* document,
+        rapidjson::Value* out_val) {
     *out_val = value;
 }
 
@@ -50,9 +49,9 @@ void ToJsonValue<std::string>(const std::string& value, const TUnit::type unit,
 /// Does pretty-printing if 'value' is numeric, and type is not NONE, otherwise constructs
 /// a json object containing 'value' as a literal.
 template <typename T>
-ENABLE_IF_ARITHMETIC(T, void)
-ToJsonValue(const T& value, const TUnit::type unit, rapidjson::Document* document,
-            rapidjson::Value* out_val) {
+typename boost::enable_if_c<boost::is_arithmetic<T>::value, void>::type ToJsonValue(
+        const T& value, const TUnit::type unit, rapidjson::Document* document,
+        rapidjson::Value* out_val) {
     if (unit != TUnit::NONE) {
         const std::string& s = PrettyPrinter::print(value, unit);
         ToJsonValue(s, unit, document, out_val);

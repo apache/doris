@@ -18,19 +18,19 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
 #define DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
 
+#include <fmt/format.h>
 #include <sql.h>
 
 #include <boost/format.hpp>
-#include <boost/ptr_container/ptr_vector.hpp>
 #include <cstdlib>
 #include <string>
 #include <vector>
 
-#include "exprs/expr_context.h"
-#include "runtime/row_batch.h"
 #include "common/status.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
 
 namespace doris {
 
@@ -47,7 +47,7 @@ struct ODBCConnectorParam {
 
 // Because the DataBinding have the mem alloc, so
 // this class should not be copyable
-struct DataBinding : public boost::noncopyable {
+struct DataBinding {
     SQLSMALLINT target_type;
     SQLINTEGER buffer_length;
     SQLLEN strlen_or_ind;
@@ -56,12 +56,14 @@ struct DataBinding : public boost::noncopyable {
     DataBinding() = default;
 
     ~DataBinding() { free(target_value_ptr); }
+    DataBinding(const DataBinding&) = delete;
+    DataBinding& operator=(const DataBinding&) = delete;
 };
 
 // ODBC Connector for scan data from ODBC
 class ODBCConnector {
 public:
-    ODBCConnector(const ODBCConnectorParam& param);
+    explicit ODBCConnector(const ODBCConnectorParam& param);
     ~ODBCConnector();
 
     Status open();
@@ -70,17 +72,19 @@ public:
     Status get_next_row(bool* eos);
 
     // write for ODBC table
-    Status init_to_write();
-    Status append(const std::string& table_name, RowBatch* batch);
+    Status init_to_write(RuntimeProfile* profile);
+    Status append(const std::string& table_name, RowBatch* batch, uint32_t start_send_row,
+                  uint32_t* num_row_sent);
 
     // use in ODBC transaction
     Status begin_trans();  // should be call after connect and before query or init_to_write
     Status abort_trans();  // should be call after transaction abort
     Status finish_trans(); // should be call after transaction commit
 
-    const DataBinding& get_column_data(int i) const { return _columns_data.at(i); }
+    const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
+
 private:
-    Status insert_row(const string& table_name, TupleRow* row);
+    void _init_profile(RuntimeProfile*);
 
     static Status error_status(const std::string& prefix, const std::string& error_msg);
 
@@ -94,10 +98,18 @@ private:
 
     // only use in write
     const std::vector<ExprContext*> _output_expr_ctxs;
+    fmt::memory_buffer _insert_stmt_buffer;
+
+    // profile use in write
+    // tuple convert timer, child timer of _append_row_batch_timer
+    RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
+    // file write timer, child timer of _append_row_batch_timer
+    RuntimeProfile::Counter* _result_send_timer = nullptr;
+    // number of sent rows
+    RuntimeProfile::Counter* _sent_rows_counter = nullptr;
 
     bool _is_open;
     bool _is_in_transaction;
-
 
     SQLSMALLINT _field_num;
     uint64_t _row_count;
@@ -106,7 +118,7 @@ private:
     SQLHDBC _dbc;
     SQLHSTMT _stmt;
 
-    boost::ptr_vector<DataBinding> _columns_data;
+    std::vector<std::unique_ptr<DataBinding>> _columns_data;
 };
 
 } // namespace doris

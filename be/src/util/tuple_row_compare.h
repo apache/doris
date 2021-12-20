@@ -20,6 +20,7 @@
 
 #include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
@@ -93,13 +94,13 @@ public:
             void* rhs_value = _key_expr_ctxs_rhs[i]->get_value(rhs);
 
             // The sort order of NULLs is independent of asc/desc.
-            if (lhs_value == NULL && rhs_value == NULL) {
+            if (lhs_value == nullptr && rhs_value == nullptr) {
                 continue;
             }
-            if (lhs_value == NULL && rhs_value != NULL) {
+            if (lhs_value == nullptr && rhs_value != nullptr) {
                 return _nulls_first[i];
             }
-            if (lhs_value != NULL && rhs_value == NULL) {
+            if (lhs_value != nullptr && rhs_value == nullptr) {
                 return -_nulls_first[i];
             }
 

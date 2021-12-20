@@ -17,15 +17,17 @@
 
 package org.apache.doris.planner;
 
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.UtFrameUtils;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -46,7 +48,7 @@ public class PlannerTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
@@ -55,6 +57,16 @@ public class PlannerTest {
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        createTblStmtStr = "create table db1.tbl2(k1 int, k2 int sum) "
+                + "AGGREGATE KEY(k1) partition by range(k1) () distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        createTblStmtStr = "create table db1.tbl3 (k1 date, k2 varchar(128) NULL, k3 varchar(5000) NULL) "
+                + "DUPLICATE KEY(k1, k2, k3) distributed by hash(k1) buckets 1 properties ('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
@@ -73,7 +85,7 @@ public class PlannerTest {
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
-        String plan1 = planner1.getExplainString(fragments1, TExplainLevel.NORMAL);
+        String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "UNION"));
         String sql2 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
                 + "union distinct\n"
@@ -98,7 +110,7 @@ public class PlannerTest {
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
         List<PlanFragment> fragments2 = planner2.getFragments();
-        String plan2 = planner2.getExplainString(fragments2, TExplainLevel.NORMAL);
+        String plan2 = planner2.getExplainString(fragments2, new ExplainOptions(false, false));
         Assert.assertEquals(4, StringUtils.countMatches(plan2, "UNION"));
 
         // intersect
@@ -114,7 +126,7 @@ public class PlannerTest {
         stmtExecutor3.execute();
         Planner planner3 = stmtExecutor3.planner();
         List<PlanFragment> fragments3 = planner3.getFragments();
-        String plan3 = planner3.getExplainString(fragments3, TExplainLevel.NORMAL);
+        String plan3 = planner3.getExplainString(fragments3, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan3, "INTERSECT"));
         String sql4 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
                 + "intersect distinct\n"
@@ -140,7 +152,7 @@ public class PlannerTest {
         stmtExecutor4.execute();
         Planner planner4 = stmtExecutor4.planner();
         List<PlanFragment> fragments4 = planner4.getFragments();
-        String plan4 = planner4.getExplainString(fragments4, TExplainLevel.NORMAL);
+        String plan4 = planner4.getExplainString(fragments4, new ExplainOptions(false, false));
         Assert.assertEquals(3, StringUtils.countMatches(plan4, "INTERSECT"));
 
         // except
@@ -156,7 +168,7 @@ public class PlannerTest {
         stmtExecutor5.execute();
         Planner planner5 = stmtExecutor5.planner();
         List<PlanFragment> fragments5 = planner5.getFragments();
-        String plan5 = planner5.getExplainString(fragments5, TExplainLevel.NORMAL);
+        String plan5 = planner5.getExplainString(fragments5, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan5, "EXCEPT"));
 
         String sql6 = "select * from db1.tbl1 where k1='a' and k4=1\n"
@@ -171,7 +183,7 @@ public class PlannerTest {
         stmtExecutor6.execute();
         Planner planner6 = stmtExecutor6.planner();
         List<PlanFragment> fragments6 = planner6.getFragments();
-        String plan6 = planner6.getExplainString(fragments6, TExplainLevel.NORMAL);
+        String plan6 = planner6.getExplainString(fragments6, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan6, "EXCEPT"));
 
         String sql7 = "select * from db1.tbl1 where k1='a' and k4=1\n"
@@ -186,7 +198,7 @@ public class PlannerTest {
         stmtExecutor7.execute();
         Planner planner7 = stmtExecutor7.planner();
         List<PlanFragment> fragments7 = planner7.getFragments();
-        String plan7 = planner7.getExplainString(fragments7, TExplainLevel.NORMAL);
+        String plan7 = planner7.getExplainString(fragments7, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan7, "EXCEPT"));
 
         // mixed
@@ -202,7 +214,7 @@ public class PlannerTest {
         stmtExecutor8.execute();
         Planner planner8 = stmtExecutor8.planner();
         List<PlanFragment> fragments8 = planner8.getFragments();
-        String plan8 = planner8.getExplainString(fragments8, TExplainLevel.NORMAL);
+        String plan8 = planner8.getExplainString(fragments8, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan8, "UNION"));
         Assert.assertEquals(1, StringUtils.countMatches(plan8, "INTERSECT"));
         Assert.assertEquals(1, StringUtils.countMatches(plan8, "EXCEPT"));
@@ -231,7 +243,7 @@ public class PlannerTest {
         stmtExecutor9.execute();
         Planner planner9 = stmtExecutor9.planner();
         List<PlanFragment> fragments9 = planner9.getFragments();
-        String plan9 = planner9.getExplainString(fragments9, TExplainLevel.NORMAL);
+        String plan9 = planner9.getExplainString(fragments9, new ExplainOptions(false, false));
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "UNION"));
         Assert.assertEquals(3, StringUtils.countMatches(plan9, "INTERSECT"));
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "EXCEPT"));
@@ -245,6 +257,28 @@ public class PlannerTest {
                 .getPlanRoot().getChild(0) instanceof AggregationNode);
         Assert.assertTrue(fragments10.get(0).getPlanRoot()
                 .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
+
+        String sql11 = "SELECT a.x FROM\n" +
+                "(SELECT '01' x) a \n" +
+                "INNER JOIN\n" +
+                "(SELECT '01' x UNION all SELECT '02') b";
+        StmtExecutor stmtExecutor11 = new StmtExecutor(ctx, sql11);
+        stmtExecutor11.execute();
+        Planner planner11 = stmtExecutor11.planner();
+        SetOperationNode setNode11 = (SetOperationNode)(planner11.getFragments().get(1).getPlanRoot());
+        Assert.assertEquals(2, setNode11.getMaterializedConstExprLists_().size());
+
+        String sql12 = "SELECT a.x \n" +
+                "FROM (SELECT '01' x) a \n" +
+                "INNER JOIN \n" +
+                "(SELECT k1 from db1.tbl1 \n" +
+                "UNION all \n" +
+                "SELECT k1 from db1.tbl1) b;";
+        StmtExecutor stmtExecutor12 = new StmtExecutor(ctx, sql12);
+        stmtExecutor12.execute();
+        Planner planner12 = stmtExecutor12.planner();
+        SetOperationNode setNode12 = (SetOperationNode)(planner12.getFragments().get(1).getPlanRoot());
+        Assert.assertEquals(2, setNode12.getMaterializedResultExprLists_().size());
     }
 
     @Test
@@ -310,7 +344,7 @@ public class PlannerTest {
     }
 
     @Test
-    public void testWithStmtSoltIsAllowNull() throws Exception {
+    public void testWithStmtSlotIsAllowNull() throws Exception {
         // union
         String sql1 = "with a as (select NULL as user_id ), " +
                 "b as ( select '543' as user_id) " +
@@ -320,8 +354,44 @@ public class PlannerTest {
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
-        String plan1 = planner1.getExplainString(fragments1, TExplainLevel.VERBOSE);
-        Assert.assertEquals(3, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
+        String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(true, false));
+        Assert.assertEquals(2, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
     }
+
+    @Test
+    public void testAccessingVisibleColumnWithoutPartition() throws Exception {
+        String sql = "select count(k1) from db1.tbl2";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        stmtExecutor.execute();
+        Assert.assertNotNull(stmtExecutor.planner());
+    }
+
+    @Test
+    public void testAnalyticSortNodeLeftJoin() throws Exception {
+        String sql = "SELECT a.k1, a.k3, SUM(COUNT(t.k2)) OVER (PARTITION BY a.k3 ORDER BY a.k1) AS c\n" +
+                "FROM ( SELECT k1, k3 FROM db1.tbl3) a\n" +
+                "LEFT JOIN (SELECT 1 AS line, k1, k2, k3 FROM db1.tbl3) t\n" +
+                "ON t.k1 = a.k1 AND t.k3 = a.k3\n" +
+                "GROUP BY a.k1, a.k3";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        stmtExecutor.execute();
+        Assert.assertNotNull(stmtExecutor.planner());
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        Assert.assertTrue(fragments.size() > 0);
+        PlanNode node = fragments.get(0).getPlanRoot().getChild(0);
+        Assert.assertTrue(node.getChildren().size() > 0);
+        Assert.assertTrue(node instanceof SortNode);
+        SortNode sortNode = (SortNode) node;
+        List<Expr> tupleExprs = sortNode.resolvedTupleExprs;
+        List<Expr> sortTupleExprs = sortNode.getSortInfo().getSortTupleSlotExprs();
+        for (Expr expr : tupleExprs) {
+            expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
+        }
+        for (Expr expr : sortTupleExprs) {
+            expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
+        }
+    }
+
 
 }

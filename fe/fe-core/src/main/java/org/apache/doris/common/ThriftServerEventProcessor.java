@@ -58,15 +58,14 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
         // param input is class org.apache.thrift.protocol.TBinaryProtocol
         TSocket tSocket = null;
         TTransport transport = input.getTransport();
-
         switch (thriftServer.getType()) {
-            case THREADED:
+            case THREADED_SELECTOR:
                 // class org.apache.thrift.transport.TFramedTransport
                 Preconditions.checkState(transport instanceof TFramedTransport);
-                TFramedTransport framedTransport = (TFramedTransport) transport;
                 // NOTE: we need patch code in TNonblockingServer, we don't use for now.
-                //  see https://issues.apache.org/jira/browse/THRIFT-1053
-                break;
+                //  see https://issues.apache.org/jira/browse/THRI FT-1053
+                LOG.debug("TFramedTransport cannot create thrift context. server type: {}", thriftServer.getType());
+                return null;
             case SIMPLE:
             case THREAD_POOL:
                 // org.apache.thrift.transport.TSocket
@@ -93,7 +92,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
 
         thriftServer.addConnect(clientAddress);
 
-        LOG.debug("create thrift context. client: {}", clientAddress);
+        LOG.debug("create thrift context. client: {}, server type: {}", clientAddress, thriftServer.getType());
         return new ThriftServerContext(clientAddress);
     }
 
@@ -108,7 +107,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
         TNetworkAddress clientAddress = thriftServerContext.getClient();
         connectionContext.remove();
         thriftServer.removeConnect(clientAddress);
-        LOG.debug("delete thrift context. client: {}", clientAddress);
+        LOG.debug("delete thrift context. client: {}, server type: {}", clientAddress, thriftServer.getType());
     }
 
     @Override

@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
 
+#include "runtime/collection_value.h"
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_value.h"
 #include "runtime/string_value.hpp"
@@ -44,8 +44,8 @@ struct ExprValue {
     std::string string_data;
     StringValue string_val;
     DateTimeValue datetime_val;
-    DecimalValue decimal_val;
     DecimalV2Value decimalv2_val;
+    CollectionValue array_val;
 
     ExprValue()
             : bool_val(false),
@@ -57,10 +57,10 @@ struct ExprValue {
               float_val(0.0),
               double_val(0.0),
               string_data(),
-              string_val(NULL, 0),
+              string_val(nullptr, 0),
               datetime_val(),
-              decimal_val(),
-              decimalv2_val() {}
+              decimalv2_val(0),
+              array_val() {}
 
     ExprValue(bool v) : bool_val(v) {}
     ExprValue(int8_t v) : tinyint_val(v) {}
@@ -70,7 +70,7 @@ struct ExprValue {
     ExprValue(__int128 value) : large_int_val(value) {}
     ExprValue(float v) : float_val(v) {}
     ExprValue(double v) : double_val(v) {}
-    ExprValue(int64_t i, int32_t f) : decimal_val(i, f), decimalv2_val(i, f) {}
+    ExprValue(int64_t i, int32_t f) : decimalv2_val(i, f) {}
 
     // c'tor for string values
     ExprValue(const std::string& str)
@@ -100,7 +100,7 @@ struct ExprValue {
     void* set_to_zero(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = false;
@@ -134,17 +134,13 @@ struct ExprValue {
             double_val = 0;
             return &double_val;
 
-        case TYPE_DECIMAL:
-            decimal_val.set_to_zero();
-            return &decimal_val;
-
         case TYPE_DECIMALV2:
             decimalv2_val.set_to_zero();
             return &decimalv2_val;
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -152,7 +148,7 @@ struct ExprValue {
     void* set_to_min(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = false;
@@ -179,16 +175,12 @@ struct ExprValue {
             return &large_int_val;
 
         case TYPE_FLOAT:
-            float_val = std::numeric_limits<float>::min();
+            float_val = std::numeric_limits<float>::lowest();
             return &float_val;
 
         case TYPE_DOUBLE:
-            double_val = std::numeric_limits<double>::min();
+            double_val = std::numeric_limits<double>::lowest();
             return &double_val;
-
-        case TYPE_DECIMAL:
-            decimal_val = DecimalValue::get_min_decimal();
-            return &decimal_val;
 
         case TYPE_DECIMALV2:
             decimalv2_val = DecimalV2Value::get_min_decimal();
@@ -196,7 +188,7 @@ struct ExprValue {
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -204,7 +196,7 @@ struct ExprValue {
     void* set_to_max(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = true;
@@ -238,17 +230,13 @@ struct ExprValue {
             double_val = std::numeric_limits<double>::max();
             return &double_val;
 
-        case TYPE_DECIMAL:
-            decimal_val = DecimalValue::get_max_decimal();
-            return &decimal_val;
-
         case TYPE_DECIMALV2:
             decimalv2_val = DecimalV2Value::get_max_decimal();
             return &decimalv2_val;
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 };

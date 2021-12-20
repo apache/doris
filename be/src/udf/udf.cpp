@@ -24,7 +24,6 @@
 
 #include "common/logging.h"
 #include "olap/hll.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 
 // Be careful what this includes since this needs to be linked into the UDF's
@@ -82,8 +81,8 @@ FunctionContextImpl::FunctionContextImpl(doris_udf::FunctionContext* parent)
           _num_updates(0),
           _num_removes(0),
           _context(parent),
-          _pool(NULL),
-          _state(NULL),
+          _pool(nullptr),
+          _state(nullptr),
           _debug(false),
           _version(doris_udf::FunctionContext::V2_0),
           _num_warnings(0),
@@ -109,7 +108,7 @@ void FunctionContextImpl::close() {
     }
 
     free(_varargs_buffer);
-    _varargs_buffer = NULL;
+    _varargs_buffer = nullptr;
 
     _closed = true;
 }
@@ -176,10 +175,6 @@ doris_udf::FunctionContext* FunctionContextImpl::create_context(
     ctx->_impl->_intermediate_type = intermediate_type;
     ctx->_impl->_return_type = return_type;
     ctx->_impl->_arg_types = arg_types;
-    // UDFs may manipulate DecimalVal arguments via SIMD instructions such as 'movaps'
-    // that require 16-byte memory alignment.
-    // ctx->_impl->_varargs_buffer =
-    //     reinterpret_cast<uint8_t*>(aligned_malloc(varargs_buffer_size, 16));
     ctx->_impl->_varargs_buffer = reinterpret_cast<uint8_t*>(malloc(varargs_buffer_size));
     ctx->_impl->_varargs_buffer_size = varargs_buffer_size;
     ctx->_impl->_debug = debug;
@@ -204,8 +199,8 @@ static const int MAX_WARNINGS = 1000;
 FunctionContext* FunctionContext::create_test_context() {
     FunctionContext* context = new FunctionContext();
     context->impl()->_debug = true;
-    context->impl()->_state = NULL;
-    context->impl()->_pool = new doris::FreePool(NULL);
+    context->impl()->_state = nullptr;
+    context->impl()->_pool = new doris::FreePool(nullptr);
     return context;
 }
 
@@ -225,8 +220,8 @@ FunctionContext::DorisVersion FunctionContext::version() const {
 }
 
 const char* FunctionContext::user() const {
-    if (_impl->_state == NULL) {
-        return NULL;
+    if (_impl->_state == nullptr) {
+        return nullptr;
     }
 
     return _impl->_state->user().c_str();
@@ -274,7 +269,7 @@ uint8_t* FunctionContext::reallocate(uint8_t* ptr, int byte_size) {
 }
 
 void FunctionContext::free(uint8_t* buffer) {
-    if (buffer == NULL) {
+    if (buffer == nullptr) {
         return;
     }
 
@@ -343,7 +338,7 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     std::stringstream ss;
     ss << "UDF WARNING: " << warning_msg;
 
-    if (_impl->_state != NULL) {
+    if (_impl->_state != nullptr) {
         return _impl->_state->log_error(ss.str());
     } else {
         std::cerr << ss.str() << std::endl;
@@ -374,7 +369,7 @@ bool StringVal::resize(FunctionContext* ctx, int64_t new_len) {
     return false;
 }
 
-StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len) {
+StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len) {
     StringVal result(ctx, len);
     if (!result.is_null) {
         memcpy(result.ptr, buf, len);
@@ -387,13 +382,13 @@ StringVal StringVal::create_temp_string_val(FunctionContext* ctx, int64_t len) {
     return StringVal((uint8_t*)ctx->impl()->string_result().c_str(), len);
 }
 
-void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len) {
+void StringVal::append(FunctionContext* ctx, const uint8_t* buf, int64_t buf_len) {
     if (UNLIKELY(len + buf_len > StringVal::MAX_LENGTH)) {
         ctx->set_error(
                 "Concatenated string length larger than allowed limit of "
                 "1 GB character data.");
         ctx->free(ptr);
-        ptr = NULL;
+        ptr = nullptr;
         len = 0;
         is_null = true;
     } else {
@@ -403,14 +398,14 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len)
     }
 }
 
-void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
-                       const uint8_t* buf2, size_t buf2_len) {
+void StringVal::append(FunctionContext* ctx, const uint8_t* buf, int64_t buf_len,
+                       const uint8_t* buf2, int64_t buf2_len) {
     if (UNLIKELY(len + buf_len + buf2_len > StringVal::MAX_LENGTH)) {
         ctx->set_error(
                 "Concatenated string length larger than allowed limit of "
                 "1 GB character data.");
         ctx->free(ptr);
-        ptr = NULL;
+        ptr = nullptr;
         len = 0;
         is_null = true;
     } else {
@@ -421,24 +416,9 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
     }
 }
 
-bool DecimalVal::operator==(const DecimalVal& other) const {
-    if (is_null && other.is_null) {
-        return true;
-    }
-
-    if (is_null || other.is_null) {
-        return false;
-    }
-
-    // TODO(lingbin): implement DecimalVal's own cmp method
-    doris::DecimalValue value1 = doris::DecimalValue::from_decimal_val(*this);
-    doris::DecimalValue value2 = doris::DecimalValue::from_decimal_val(other);
-    return value1 == value2;
-}
-
 const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _impl->_arg_types.size()) {
-        return NULL;
+        return nullptr;
     }
     return &_impl->_arg_types[arg_idx];
 }
@@ -487,7 +467,7 @@ void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
                 sparse_map = resolver.get_sparse_map();
         for (std::map<doris::HllSetResolver::SparseIndexType,
                       doris::HllSetResolver::SparseValueType>::iterator iter = sparse_map.begin();
-             iter != sparse_map.end(); iter++) {
+             iter != sparse_map.end(); ++iter) {
             pdata[iter->first] = std::max(pdata[iter->first], (uint8_t)iter->second);
         }
     } else if (resolver.get_hll_data_type() == doris::HLL_DATA_FULL) {

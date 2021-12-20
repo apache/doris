@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -34,16 +35,19 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TStorageFormat;
@@ -51,16 +55,17 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
-
-import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.thrift.TSortType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -194,6 +199,12 @@ public class OlapTable extends Table {
                 && tableProperty.getDynamicPartitionProperty().isExist();
     }
 
+    public boolean isZOrderSort() {
+        return tableProperty != null
+                && tableProperty.getDataSortInfo() != null
+                && tableProperty.getDataSortInfo().getSortType() == TSortType.ZORDER;
+    }
+
     public void setBaseIndexId(long baseIndexId) {
         this.baseIndexId = baseIndexId;
     }
@@ -281,7 +292,7 @@ public class OlapTable extends Table {
             indexName = getIndexNameById(indexId);
             Preconditions.checkState(indexName != null);
         }
-        // Nullable when meta is less then VERSION_74
+        // Nullable when meta is less than VERSION_74
         if (keysType == null) {
             keysType = this.keysType;
         }
@@ -371,8 +382,9 @@ public class OlapTable extends Table {
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
-        Partition partition = idToPartition.values().stream().findFirst().get();
-        return partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        Optional<Partition> partition = idToPartition.values().stream().findFirst();
+        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
+                : Collections.emptyList();
     }
 
     public Column getVisibleColumn(String columnName) {
@@ -384,6 +396,17 @@ public class OlapTable extends Table {
             }
         }
         return null;
+    }
+
+    @Override
+    public long getUpdateTime() {
+        long updateTime = tempPartitions.getUpdateTime();
+        for (Partition p : idToPartition.values()) {
+            if (p.getVisibleVersionTime() > updateTime) {
+                updateTime = p.getVisibleVersionTime();
+            }
+        }
+        return updateTime;
     }
 
     // this is only for schema change.
@@ -399,7 +422,7 @@ public class OlapTable extends Table {
         }
     }
 
-    public Status resetIdsForRestore(Catalog catalog, Database db, int restoreReplicationNum) {
+    public Status resetIdsForRestore(Catalog catalog, Database db, ReplicaAllocation restoreReplicaAlloc) {
         // table id
         id = catalog.getNextId();
 
@@ -427,29 +450,17 @@ public class OlapTable extends Table {
         }
 
         // reset partition info and idToPartition map
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 long newPartId = catalog.getNextId();
-                rangePartitionInfo.idToDataProperty.put(newPartId,
-                                                        rangePartitionInfo.idToDataProperty.remove(entry.getValue()));
-                rangePartitionInfo.idToReplicationNum.remove(entry.getValue());
-                rangePartitionInfo.idToReplicationNum.put(newPartId,
-                                                          (short) restoreReplicationNum);
-                rangePartitionInfo.getIdToRange(false).put(newPartId,
-                        rangePartitionInfo.getIdToRange(false).remove(entry.getValue()));
-
-                rangePartitionInfo.idToInMemory.put(newPartId, rangePartitionInfo.idToInMemory.remove(entry.getValue()));
+                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, false);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
             // Single partitioned
             long newPartId = catalog.getNextId();
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
-                partitionInfo.idToReplicationNum.remove(entry.getValue());
-                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
-                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
+                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, true);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }
@@ -457,6 +468,8 @@ public class OlapTable extends Table {
         // for each partition, reset rollup index map
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             Partition partition = entry.getValue();
+            // entry.getKey() is the new partition id, use it to get the restore specified replica allocation
+            ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(entry.getKey());
             for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
                 MaterializedIndex idx = partition.getIndex(entry2.getKey());
                 long newIdxId = indexNameToId.get(entry2.getValue());
@@ -477,19 +490,19 @@ public class OlapTable extends Table {
                     idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                     // replicas
-                    List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(partitionInfo.getReplicationNum(entry.getKey()),
-                                                                                          true, true,
-                                                                                          db.getClusterName());
-                    if (beIds == null) {
-                        return new Status(ErrCode.COMMON_ERROR, "failed to find "
-                                + partitionInfo.getReplicationNum(entry.getKey())
-                                + " different hosts to create table: " + name);
-                    }
-                    for (Long beId : beIds) {
-                        long newReplicaId = catalog.getNextId();
-                        Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                partition.getVisibleVersion(), partition.getVisibleVersionHash(), schemaHash);
-                        newTablet.addReplica(replica, true /* is restore */);
+                    try {
+                        Map<Tag, List<Long>> tag2beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(
+                                replicaAlloc, db.getClusterName(), null);
+                        for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
+                            for (Long beId : entry3.getValue()) {
+                                long newReplicaId = catalog.getNextId();
+                                Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                        partition.getVisibleVersion(), partition.getVisibleVersionHash(), schemaHash);
+                                newTablet.addReplica(replica, true /* is restore */);
+                            }
+                        }
+                    } catch (DdlException e) {
+                        return new Status(ErrCode.COMMON_ERROR, e.getMessage());
                     }
                 }
             }
@@ -666,78 +679,114 @@ public class OlapTable extends Table {
         nameToPartition.put(partition.getName(), partition);
     }
 
-    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+    // This is a private methid.
+    // Call public "dropPartitionAndReserveTablet" and "dropPartition"
+    private Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
+        // 1. If "isForceDrop" is false, the partition will be added to the Catalog Recyle bin, and all tablets of this
+        //    partition will not be deleted.
+        // 2. If "ifForceDrop" is true, the partition will be dropped the immediately, but whether to drop the tablets
+        //    of this partition depends on "reserveTablets"
+        //    If "reserveTablets" is true, the tablets of this partition will not to deleted.
+        //    Otherwise, the tablets of this partition will be deleted immediately.
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
 
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            
+            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE ||
+                    partitionInfo.getType() == PartitionType.LIST);
+
             if (!isForceDrop) {
                 // recycle partition
-                Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
-                                          rangePartitionInfo.getRange(partition.getId()),
-                                          rangePartitionInfo.getDataProperty(partition.getId()),
-                                          rangePartitionInfo.getReplicationNum(partition.getId()),
-                                          rangePartitionInfo.getIsInMemory(partition.getId()));
+                if (partitionInfo.getType() == PartitionType.RANGE) {
+                    Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                            partitionInfo.getItem(partition.getId()).getItems(),
+                            new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                            partitionInfo.getDataProperty(partition.getId()),
+                            partitionInfo.getReplicaAllocation(partition.getId()),
+                            partitionInfo.getIsInMemory(partition.getId()));
+
+                } else if (partitionInfo.getType() == PartitionType.LIST) {
+                    // construct a dummy range
+                    List<Column> dummyColumns = new ArrayList<>();
+                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                    PartitionKey dummyKey = null;
+                    try {
+                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                    } catch (AnalysisException e) {
+                        e.printStackTrace();
+                    }
+                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+
+                    Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                            dummyRange,
+                            partitionInfo.getItem(partition.getId()),
+                            partitionInfo.getDataProperty(partition.getId()),
+                            partitionInfo.getReplicaAllocation(partition.getId()),
+                            partitionInfo.getIsInMemory(partition.getId()));
+                }
+            } else if (!reserveTablets) {
+                Catalog.getCurrentCatalog().onErasePartition(partition);
             }
 
             // drop partition info
-            rangePartitionInfo.dropPartition(partition.getId());
+            partitionInfo.dropPartition(partition.getId());
         }
         return partition;
     }
 
-    public Partition dropPartitionForBackup(String partitionName) {
-        return dropPartition(-1, partitionName, true);
+    public Partition dropPartitionAndReserveTablet(String partitionName) {
+        return dropPartition(-1, partitionName, true, true);
+    }
+
+    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+        return dropPartition(dbId, partitionName, isForceDrop, !isForceDrop);
     }
 
     /*
      * A table may contain both formal and temporary partitions.
      * There are several methods to get the partition of a table.
      * Typically divided into two categories:
-     * 
+     *
      * 1. Get partition by id
      * 2. Get partition by name
-     * 
+     *
      * According to different requirements, the caller may want to obtain
      * a formal partition or a temporary partition. These methods are
      * described below in order to obtain the partition by using the correct method.
-     * 
+     *
      * 1. Get by name
-     * 
+     *
      * This type of request usually comes from a user with partition names. Such as
      * `select * from tbl partition(p1);`.
      * This type of request has clear information to indicate whether to obtain a
      * formal or temporary partition.
      * Therefore, we need to get the partition through this method:
-     * 
+     *
      * `getPartition(String partitionName, boolean isTemp)`
-     * 
+     *
      * To avoid modifying too much code, we leave the `getPartition(String
      * partitionName)`, which is same as:
-     * 
+     *
      * `getPartition(partitionName, false)`
-     * 
+     *
      * 2. Get by id
-     * 
+     *
      * This type of request usually means that the previous step has obtained
      * certain partition ids in some way,
      * so we only need to get the corresponding partition through this method:
-     * 
+     *
      * `getPartition(long partitionId)`.
-     * 
+     *
      * This method will try to get both formal partitions and temporary partitions.
-     * 
+     *
      * 3. Get all partition instances
-     * 
+     *
      * Depending on the requirements, the caller may want to obtain all formal
      * partitions,
      * all temporary partitions, or all partitions. Therefore we provide 3 methods,
      * the caller chooses according to needs.
-     * 
+     *
      * `getPartitions()`
      * `getTempPartitions()`
      * `getAllPartitions()`
@@ -788,6 +837,10 @@ public class OlapTable extends Table {
     // get all partitions' name except the temp partitions
     public Set<String> getPartitionNames() {
         return Sets.newHashSet(nameToPartition.keySet());
+    }
+
+    public List<Long> getPartitionIds() {
+        return getPartitions().stream().map(entity -> entity.getId()).collect(Collectors.toList());
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -860,6 +913,10 @@ public class OlapTable extends Table {
         this.indexes.setIndexes(indexes);
     }
 
+    public boolean isColocateTable() {
+        return colocateGroup != null;
+    }
+
     public String getColocateGroup() {
         return colocateGroup;
     }
@@ -884,12 +941,37 @@ public class OlapTable extends Table {
         return tTableDescriptor;
     }
 
+    @Override
     public long getRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
         }
         return rowCount;
+    }
+
+    @Override
+    public long getAvgRowLength() {
+        long rowCount = 0;
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            rowCount += entry.getValue().getBaseIndex().getRowCount();
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    @Override
+    public long getDataLength() {
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        return dataSize;
     }
 
     @Override
@@ -976,6 +1058,7 @@ public class OlapTable extends Table {
         }
         return false;
     }
+
 
     @Override
     public void write(DataOutput out) throws IOException {
@@ -1113,7 +1196,9 @@ public class OlapTable extends Table {
             partitionInfo = SinglePartitionInfo.read(in);
         } else if (partType == PartitionType.RANGE) {
             partitionInfo = RangePartitionInfo.read(in);
-        } else {
+        } else if (partType == PartitionType.LIST) {
+            partitionInfo = ListPartitionInfo.read(in);
+        }else {
             throw new IOException("invalid partition type: " + partType);
         }
 
@@ -1177,16 +1262,15 @@ public class OlapTable extends Table {
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_77) {
                 RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
                 if (tempRangeInfo != null) {
-                    for (long partitionId : tempRangeInfo.getIdToRange(false).keySet()) {
-                        ((RangePartitionInfo) this.partitionInfo).addPartition(partitionId, true,
-                                tempRangeInfo.getRange(partitionId), tempRangeInfo.getDataProperty(partitionId),
-                                tempRangeInfo.getReplicationNum(partitionId), tempRangeInfo.getIsInMemory(partitionId));
+                    for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
+                        this.partitionInfo.addPartition(partitionId, true,
+                                tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
+                                tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId));
                     }
                 }
                 tempPartitions.unsetPartitionInfo();
             }
         }
-
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
@@ -1201,34 +1285,37 @@ public class OlapTable extends Table {
         return table instanceof OlapTable;
     }
 
-    public OlapTable selectiveCopy(Collection<String> reservedPartitions, boolean resetState, IndexExtState extState) {
+    public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
         OlapTable copied = new OlapTable();
-        if (!DeepCopy.copy(this, copied, OlapTable.class)) {
+        if (!DeepCopy.copy(this, copied, OlapTable.class, FeConstants.meta_version)) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }
-        
-        if (resetState) {
-            // remove shadow index from copied table
-            List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+
+        // remove shadow index from copied table
+        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+        for (MaterializedIndex deleteIndex : shadowIndex) {
+            LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
+            copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+        }
+        copied.setState(OlapTableState.NORMAL);
+        for (Partition partition : copied.getPartitions()) {
+            // remove shadow index from partition
             for (MaterializedIndex deleteIndex : shadowIndex) {
-                LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
-                copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+                partition.deleteRollupIndex(deleteIndex.getId());
             }
-            copied.setState(OlapTableState.NORMAL);
-            for (Partition partition : copied.getPartitions()) {
-                // remove shadow index from partition
-                for (MaterializedIndex deleteIndex : shadowIndex) {
-                    partition.deleteRollupIndex(deleteIndex.getId());
-                }
-                partition.setState(PartitionState.NORMAL);
+            partition.setState(PartitionState.NORMAL);
+            if (isForBackup) {
+                // set storage medium to HDD for backup job, because we want that the backuped table
+                // can be able to restored to another Doris cluster without SSD disk.
+                // But for other operation such as truncate table, keep the origin storage medium.
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
-                for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
-                    idx.setState(IndexState.NORMAL);
-                    for (Tablet tablet : idx.getTablets()) {
-                        for (Replica replica : tablet.getReplicas()) {
-                            replica.setState(ReplicaState.NORMAL);
-                        }
+            }
+            for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
+                idx.setState(IndexState.NORMAL);
+                for (Tablet tablet : idx.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.setState(ReplicaState.NORMAL);
                     }
                 }
             }
@@ -1238,13 +1325,13 @@ public class OlapTable extends Table {
             // reserve all
             return copied;
         }
-        
+
         Set<String> partNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         partNames.addAll(copied.getPartitionNames());
-        
+
         for (String partName : partNames) {
             if (!reservedPartitions.contains(partName)) {
-                copied.dropPartitionForBackup(partName);
+                copied.dropPartitionAndReserveTablet(partName);
             }
         }
         
@@ -1265,18 +1352,18 @@ public class OlapTable extends Table {
         nameToPartition.put(newPartition.getName(), newPartition);
 
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
-        short replicationNum = partitionInfo.getReplicationNum(oldPartition.getId());
+        ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(oldPartition.getId());
         boolean isInMemory = partitionInfo.getIsInMemory(oldPartition.getId());
 
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
-            rangePartitionInfo.dropPartition(oldPartition.getId());
-            rangePartitionInfo.addPartition(newPartition.getId(), false, range, dataProperty,
-                    replicationNum, isInMemory);
+        if (partitionInfo.getType() == PartitionType.RANGE
+                || partitionInfo.getType() == PartitionType.LIST) {
+            PartitionItem item = partitionInfo.getItem(oldPartition.getId());
+            partitionInfo.dropPartition(oldPartition.getId());
+            partitionInfo.addPartition(newPartition.getId(), false, item, dataProperty,
+                    replicaAlloc, isInMemory);
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
-            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicationNum, isInMemory);
+            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicaAlloc, isInMemory);
         }
 
         return oldPartition;
@@ -1321,7 +1408,7 @@ public class OlapTable extends Table {
         for (Partition partition : idToPartition.values()) {
             long visibleVersion = partition.getVisibleVersion();
             long visibleVersionHash = partition.getVisibleVersionHash();
-            short replicationNum = partitionInfo.getReplicationNum(partition.getId());
+            ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : mIndex.getTablets()) {
                     if (tabletScheduler.containsTablet(tablet.getId())) {
@@ -1331,7 +1418,7 @@ public class OlapTable extends Table {
                     }
 
                     Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
-                            infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum,
+                            infoService, clusterName, visibleVersion, visibleVersionHash, replicaAlloc,
                             aliveBeIdsInCluster);
                     if (statusPair.first != TabletStatus.HEALTHY) {
                         LOG.info("table {} is not stable because tablet {} status is {}. replicas: {}",
@@ -1345,20 +1432,45 @@ public class OlapTable extends Table {
     }
 
     // arbitrarily choose a partition, and get the buckets backends sequence from base index.
-    public List<List<Long>> getArbitraryTabletBucketsSeq() throws DdlException {
-        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
+    public Map<Tag, List<List<Long>>> getArbitraryTabletBucketsSeq() throws DdlException {
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
         for (Partition partition : idToPartition.values()) {
-            short replicationNum = partitionInfo.getReplicationNum(partition.getId());
+            ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
+            short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
             MaterializedIndex baseIdx = partition.getBaseIndex();
             for (Long tabletId : baseIdx.getTabletIdsInOrder()) {
                 Tablet tablet = baseIdx.getTablet(tabletId);
                 List<Long> replicaBackendIds = tablet.getNormalReplicaBackendIds();
-                if (replicaBackendIds.size() < replicationNum) {
+                if (replicaBackendIds.size() != totalReplicaNum) {
                     // this should not happen, but in case, throw an exception to terminate this process
                     throw new DdlException("Normal replica number of tablet " + tabletId + " is: "
-                            + replicaBackendIds.size() + ", which is less than expected: " + replicationNum);
+                            + replicaBackendIds.size() + ", but expected: " + totalReplicaNum);
                 }
-                backendsPerBucketSeq.add(replicaBackendIds.subList(0, replicationNum));
+
+                // check tag
+                Map<Tag, Short> currentReplicaAlloc = Maps.newHashMap();
+                Map<Tag, List<Long>> tag2beIds = Maps.newHashMap();
+                for (long beId : replicaBackendIds) {
+                    Backend be = infoService.getBackend(beId);
+                    if (be == null) {
+                        continue;
+                    }
+                    short num = currentReplicaAlloc.getOrDefault(be.getTag(), (short) 0);
+                    currentReplicaAlloc.put(be.getTag(), (short) (num + 1));
+                    List<Long> beIds = tag2beIds.getOrDefault(be.getTag(), Lists.newArrayList());
+                    beIds.add(beId);
+                    tag2beIds.put(be.getTag(), beIds);
+                }
+                if (!currentReplicaAlloc.equals(replicaAlloc.getAllocMap())) {
+                    throw new DdlException("The relica allocation is " + currentReplicaAlloc.toString()
+                            + ", but expected: " + replicaAlloc.toCreateStmt());
+                }
+
+                for (Map.Entry<Tag, List<Long>> entry : tag2beIds.entrySet()) {
+                    backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());
+                    backendsPerBucketSeq.get(entry.getKey()).add(entry.getValue());
+                }
             }
             break;
         }
@@ -1435,24 +1547,23 @@ public class OlapTable extends Table {
         return hasChanged;
     }
 
-    public void setReplicationNum(Short replicationNum) {
+    public void setReplicationAllocation(ReplicaAllocation replicaAlloc) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
-        tableProperty.buildReplicationNum();
+        tableProperty.setReplicaAlloc(replicaAlloc);
     }
 
-    public Short getDefaultReplicationNum() {
+    public ReplicaAllocation getDefaultReplicaAllocation() {
         if (tableProperty != null) {
-            return tableProperty.getReplicationNum();
+            return tableProperty.getReplicaAllocation();
         }
-        return FeConstants.default_replication_num;
+        return ReplicaAllocation.DEFAULT_ALLOCATION;
     }
 
     public Boolean isInMemory() {
         if (tableProperty != null) {
-            return tableProperty.IsInMemory();
+            return tableProperty.isInMemory();
         }
         return false;
     }
@@ -1463,6 +1574,14 @@ public class OlapTable extends Table {
         }
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY, Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
+    }
+
+    public void setDataSortInfo(DataSortInfo dataSortInfo) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyDataSortInfoProperties(dataSortInfo);
+        tableProperty.buildDataSortInfo();
     }
 
     // return true if partition with given name already exist, both in partitions and temp partitions.
@@ -1513,48 +1632,14 @@ public class OlapTable extends Table {
      */
     public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
             boolean strictRange, boolean useTempPartitionName) throws DdlException {
-        RangePartitionInfo rangeInfo = (RangePartitionInfo) partitionInfo;
-
-        if (strictRange) {
-            // check if range of partitions and temp partitions are exactly same
-            List<Range<PartitionKey>> rangeList = Lists.newArrayList();
-            List<Range<PartitionKey>> tempRangeList = Lists.newArrayList();
-            for (String partName : partitionNames) {
-                Partition partition = nameToPartition.get(partName);
-                Preconditions.checkNotNull(partition);
-                rangeList.add(rangeInfo.getRange(partition.getId()));
-            }
-
-            for (String partName : tempPartitionNames) {
-                Partition partition = tempPartitions.getPartition(partName);
-                Preconditions.checkNotNull(partition);
-                tempRangeList.add(rangeInfo.getRange(partition.getId()));
-            }
-            RangeUtils.checkRangeListsMatch(rangeList, tempRangeList);
-        } else {
-            // check after replacing, whether the range will conflict
-            Set<Long> replacePartitionIds = Sets.newHashSet();
-            for (String partName : partitionNames) {
-                Partition partition = nameToPartition.get(partName);
-                Preconditions.checkNotNull(partition);
-                replacePartitionIds.add(partition.getId());
-            }
-            List<Range<PartitionKey>> replacePartitionRanges = Lists.newArrayList();
-            for (String partName : tempPartitionNames) {
-                Partition partition = tempPartitions.getPartition(partName);
-                Preconditions.checkNotNull(partition);
-                replacePartitionRanges.add(rangeInfo.getRange(partition.getId()));
-            }
-            List<Range<PartitionKey>> sortedRangeList = rangeInfo.getRangeList(replacePartitionIds, false);
-            RangeUtils.checkRangeConflict(sortedRangeList, replacePartitionRanges);
-        }
+        // check partition items
+        checkPartition(partitionNames, tempPartitionNames, strictRange);
         
         // begin to replace
         // 1. drop old partitions
-        List<Partition> droppedPartitions = Lists.newArrayList();
         for (String partitionName : partitionNames) {
-            Partition partition = dropPartition(-1, partitionName, true);
-            droppedPartitions.add(partition);
+            // This will also drop all tablets of the partition from TabletInvertedIndex
+            dropPartition(-1, partitionName, true);
         }
 
         // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
@@ -1565,16 +1650,7 @@ public class OlapTable extends Table {
             // drop
             tempPartitions.dropPartition(partitionName, false);
             // move the range from idToTempRange to idToRange
-            rangeInfo.moveRangeFromTempToFormal(partition.getId());
-        }
-
-        // 3. delete old partition's tablets in inverted index
-        for (Partition partition : droppedPartitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
-                }
-            }
+            partitionInfo.moveFromTempToFormal(partition.getId());
         }
 
         // change the name so that after replacing, the partition name remain unchanged
@@ -1582,6 +1658,44 @@ public class OlapTable extends Table {
             for (int i = 0; i < tempPartitionNames.size(); i++) {
                 renamePartition(tempPartitionNames.get(i), partitionNames.get(i));
             }
+        }
+    }
+
+    private void checkPartition(List<String> partitionNames, List<String> tempPartitionNames,
+                                boolean strictRange) throws DdlException {
+        if (strictRange) {
+            List<PartitionItem> list = Lists.newArrayList();
+            List<PartitionItem> tempList = Lists.newArrayList();
+            for (String partName : partitionNames) {
+                Partition partition = nameToPartition.get(partName);
+                Preconditions.checkNotNull(partition);
+                list.add(partitionInfo.getItem(partition.getId()));
+            }
+            for (String partName : tempPartitionNames) {
+                Partition partition = tempPartitions.getPartition(partName);
+                Preconditions.checkNotNull(partition);
+                tempList.add(partitionInfo.getItem(partition.getId()));
+            }
+            partitionInfo.checkPartitionItemListsMatch(list, tempList);
+        } else {
+            // check after replacing, whether the range will conflict
+            Set<Long> replacePartitionIds = Sets.newHashSet();
+            for (String partName : partitionNames) {
+                Partition partition = nameToPartition.get(partName);
+                Preconditions.checkNotNull(partition);
+                replacePartitionIds.add(partition.getId());
+            }
+            // get all items except for partitions in "replacePartitionIds"
+            List<PartitionItem> currentItemList = partitionInfo.getItemList(replacePartitionIds, false);
+
+            List<PartitionItem> replacePartitionItems = Lists.newArrayList();
+            for (String partName : tempPartitionNames) {
+                Partition partition = tempPartitions.getPartition(partName);
+                Preconditions.checkNotNull(partition);
+                replacePartitionItems.add(partitionInfo.getItem(partition.getId()));
+            }
+
+            partitionInfo.checkPartitionItemListsConflict(currentItemList, replacePartitionItems);
         }
     }
 
@@ -1613,6 +1727,13 @@ public class OlapTable extends Table {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    public DataSortInfo getDataSortInfo() {
+        if (tableProperty == null) {
+            return new DataSortInfo(TSortType.LEXICAL, this.getKeysNum());
+        }
+        return tableProperty.getDataSortInfo();
     }
 
     // For non partitioned table:
@@ -1649,5 +1770,31 @@ public class OlapTable extends Table {
             return hashColumns.containsAll(distributeColumns);
         }
         return false;
+    }
+
+    // for ut
+    public void checkReplicaAllocation() throws UserException {
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        for (Partition partition : getPartitions()) {
+            ReplicaAllocation replicaAlloc = getPartitionInfo().getReplicaAllocation(partition.getId());
+            Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : mIndex.getTablets()) {
+                    Map<Tag, Short> curMap = Maps.newHashMap();
+                    for (Replica replica : tablet.getReplicas()) {
+                        Backend be = infoService.getBackend(replica.getBackendId());
+                        if (be == null) {
+                            continue;
+                        }
+                        short num = curMap.getOrDefault(be.getTag(), (short) 0);
+                        curMap.put(be.getTag(), (short) (num + 1));
+                    }
+                    if (!curMap.equals(allocMap)) {
+                        throw new UserException("replica allocation of tablet " + tablet.getId() + " is not expected"
+                                + ", expected: " + allocMap.toString() + ", actual: " + curMap.toString());
+                    }
+                }
+            }
+        }
     }
 }

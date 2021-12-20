@@ -17,14 +17,14 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataInputStream;
@@ -38,21 +38,24 @@ import java.util.List;
 import java.util.Map;
 
 public class BackupMeta implements Writable {
-    private static final Logger LOG = LogManager.getLogger(BackupMeta.class);
 
     // tbl name -> tbl
     private Map<String, Table> tblNameMap = Maps.newHashMap();
     // tbl id -> tbl
     private Map<Long, Table> tblIdMap = Maps.newHashMap();
+    // resource name -> resource
+    private Map<String, Resource> resourceNameMap = Maps.newHashMap();
 
     private BackupMeta() {
-
     }
 
-    public BackupMeta(List<Table> tables) {
+    public BackupMeta(List<Table> tables, List<Resource> resources) {
         for (Table table : tables) {
             tblNameMap.put(table.getName(), table);
             tblIdMap.put(table.getId(), table);
+        }
+        for (Resource resource : resources) {
+            resourceNameMap.put(resource.getName(), resource);
         }
     }
 
@@ -60,8 +63,16 @@ public class BackupMeta implements Writable {
         return tblNameMap;
     }
 
+    public Map<String, Resource> getResourceNameMap() {
+        return resourceNameMap;
+    }
+
     public Table getTable(String tblName) {
         return tblNameMap.get(tblName);
+    }
+
+    public Resource getResource(String resourceName) {
+        return resourceNameMap.get(resourceName);
     }
 
     public Table getTable(Long tblId) {
@@ -108,6 +119,10 @@ public class BackupMeta implements Writable {
         for (Table table : tblNameMap.values()) {
             table.write(out);
         }
+        out.writeInt(resourceNameMap.size());
+        for (Resource resource : resourceNameMap.values()) {
+            resource.write(out);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -116,6 +131,14 @@ public class BackupMeta implements Writable {
             Table tbl = Table.read(in);
             tblNameMap.put(tbl.getName(), tbl);
             tblIdMap.put(tbl.getId(), tbl);
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
+            return;
+        }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            Resource resource = Resource.read(in);
+            resourceNameMap.put(resource.getName(), resource);
         }
     }
 }

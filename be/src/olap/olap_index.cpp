@@ -47,7 +47,7 @@ MemIndex::~MemIndex() {
     _num_entries = 0;
     for (vector<SegmentMetaInfo>::iterator it = _meta.begin(); it != _meta.end(); ++it) {
         free(it->buffer.data);
-        it->buffer.data = NULL;
+        it->buffer.data = nullptr;
         it->buffer.length = 0;
     }
 }
@@ -60,7 +60,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     uint32_t adler_checksum = 0;
     uint32_t num_entries = 0;
 
-    if (file == NULL) {
+    if (file == nullptr) {
         res = OLAP_ERR_INPUT_PARAMETER_ERROR;
         LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         return res;
@@ -127,7 +127,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     _num_entries = meta.range.last;
     _meta.push_back(meta);
 
-    (current_num_rows_per_row_block == NULL ||
+    (current_num_rows_per_row_block == nullptr ||
      (*current_num_rows_per_row_block = meta.file_header.message().num_rows_per_block()));
 
     if (OLAP_UNLIKELY(num_entries == 0)) {
@@ -197,6 +197,36 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
                 /*
                  * Varchar is null_byte|length|content in OlapIndex storage
                  * Varchar is in nullbyte|length|ptr in memory
+                 * We need copy three part: nullbyte|length|content
+                 * 1. copy null byte
+                 * 2. copy length and content into addrs pointed by ptr
+                 */
+
+                // 1. copy null_byte
+                memory_copy(mem_ptr, storage_ptr, null_byte);
+
+                // 2. copy length and content
+                bool is_null = *reinterpret_cast<bool*>(mem_ptr);
+                if (!is_null) {
+                    size_t storage_field_bytes =
+                            *reinterpret_cast<VarcharLengthType*>(storage_ptr + null_byte);
+                    Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
+                    char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
+                    memory_copy(data, storage_ptr + sizeof(VarcharLengthType) + null_byte,
+                                storage_field_bytes);
+                    slice->data = data;
+                    slice->size = storage_field_bytes;
+                }
+
+                mem_ptr += mem_row_bytes;
+                storage_ptr += storage_row_bytes;
+            }
+        } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+            mem_field_offset += sizeof(Slice) + 1;
+            for (size_t j = 0; j < num_entries; ++j) {
+                /*
+                 * string is null_byte|length|content in OlapIndex storage
+                 * string is in nullbyte|length|ptr in memory
                  * We need copy three part: nullbyte|length|content
                  * 1. copy null byte
                  * 2. copy length and content into addrs pointed by ptr
@@ -288,7 +318,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
 OLAPStatus MemIndex::init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
                           std::vector<TabletColumn>* short_key_columns) {
     if (short_key_columns == nullptr) {
-        LOG(WARNING) << "fail to init MemIndex, NULL short key columns.";
+        LOG(WARNING) << "fail to init MemIndex, nullptr short key columns.";
         return OLAP_ERR_INDEX_LOAD_ERROR;
     }
 
@@ -359,7 +389,8 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
 
         offset.offset = *it;
         VLOG_NOTICE << "show real offset iterator value. off=" << *it;
-        VLOG_NOTICE << "show result offset. seg_off=" << offset.segment << ", off=" << offset.offset;
+        VLOG_NOTICE << "show result offset. seg_off=" << offset.segment
+                    << ", off=" << offset.offset;
     } catch (...) {
         OLAP_LOG_WARNING("fail to compare value in memindex. [cursor='%s' find_last=%d]",
                          k.to_string().c_str(), find_last);

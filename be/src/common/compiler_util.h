@@ -42,7 +42,12 @@
 /// not a command. This should be used sparingly for cases when either the function
 /// needs to be inlined for a specific reason or the compiler's heuristics make a bad
 /// decision, e.g. not inlining a small function on a hot path.
+#ifdef ALWAYS_INLINE
+#undef ALWAYS_INLINE
+#endif
 #define ALWAYS_INLINE __attribute__((always_inline))
+#define NO_INLINE __attribute__((__noinline__))
+#define MAY_ALIAS __attribute__((__may_alias__))
 
 #define ALIGN_CACHE_LINE __attribute__((aligned(CACHE_LINE_SIZE)))
 

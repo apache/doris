@@ -46,6 +46,12 @@ public class InformationFunction extends Expr {
         return strValue;
     }
 
+    public String getIntValue() {
+        return String.valueOf(intValue);
+    }
+
+    public String getFuncType() {return funcType; }
+
     @Override
     public Expr clone() {
         return new InformationFunction(this);
@@ -78,5 +84,31 @@ public class InformationFunction extends Expr {
     @Override
     public String toSqlImpl() {
         return funcType + "()";
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+
+        if (!(obj instanceof InformationFunction)) {
+            return false;
+        }
+
+        if (!funcType.equals(((InformationFunction) obj).getFuncType())) {
+            return false;
+        }
+
+        if (type.equals(Type.VARCHAR)) {
+            if (!strValue.equals(((InformationFunction) obj).getStrValue())) {
+                return false;
+            }
+        } else if (type.equals(Type.BIGINT)) {
+            if (intValue != Integer.parseInt(((InformationFunction) obj).getIntValue())) {
+                return false;
+            }
+        }
+        return true;
     }
 }

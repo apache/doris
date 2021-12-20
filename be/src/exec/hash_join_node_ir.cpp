@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/utils.h"
 #include "exec/hash_join_node.h"
 #include "exec/hash_table.hpp"
+#include "exprs/expr_context.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple_row.h"
 
 namespace doris {
 
@@ -97,7 +101,7 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
         // Handle left outer-join and left semi-join
         if ((!_matched_probe && _match_all_probe) ||
             ((!_matched_probe && _join_op == TJoinOp::LEFT_ANTI_JOIN))) {
-            create_output_row(out_row, _current_probe_row, NULL);
+            create_output_row(out_row, _current_probe_row, nullptr);
             _matched_probe = true;
 
             if (ExecNode::eval_conjuncts(conjunct_ctxs, num_conjunct_ctxs, out_row)) {
@@ -118,7 +122,10 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
             if (UNLIKELY(_probe_batch_pos == probe_rows)) {
                 goto end;
             }
-
+            if (++_probe_counter % RELEASE_CONTEXT_COUNTER == 0) {
+                ExprContext::free_local_allocations(_probe_expr_ctxs);
+                ExprContext::free_local_allocations(_build_expr_ctxs);
+            }
             _current_probe_row = probe_batch->get_row(_probe_batch_pos++);
             _hash_tbl_iterator = _hash_tbl->find(_current_probe_row);
             _matched_probe = false;
@@ -137,17 +144,29 @@ end:
 
 // when build table has too many duplicated rows, the collisions will be very serious,
 // so in some case will don't need to store duplicated value in hash table, we can build an unique one
-void HashJoinNode::process_build_batch(RowBatch* build_batch) {
+Status HashJoinNode::process_build_batch(RuntimeState* state, RowBatch* build_batch) {
     // insert build row into our hash table
     if (_build_unique) {
         for (int i = 0; i < build_batch->num_rows(); ++i) {
-            _hash_tbl->insert_unique(build_batch->get_row(i));
+            // _hash_tbl->insert_unique(build_batch->get_row(i));
+            TupleRow* tuple_row = nullptr;
+            if (_hash_tbl->emplace_key(build_batch->get_row(i), &tuple_row)) {
+                build_batch->get_row(i)->deep_copy(tuple_row,
+                                                   child(1)->row_desc().tuple_descriptors(),
+                                                   _build_pool.get(), false);
+            }
         }
+        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
     } else {
+        // take ownership of tuple data of build_batch
+        _build_pool->acquire_data(build_batch->tuple_data_pool(), false);
+        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
+
         for (int i = 0; i < build_batch->num_rows(); ++i) {
             _hash_tbl->insert(build_batch->get_row(i));
         }
     }
+    return Status::OK();
 }
 
 } // namespace doris
