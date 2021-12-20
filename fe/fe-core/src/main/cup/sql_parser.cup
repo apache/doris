@@ -3080,6 +3080,10 @@ cancel_param ::=
     {:
         RESULT = new CancelBackupStmt(db, true);
     :}
+    | KW_EXPORT KW_ON table_name:tbl_name
+    {:
+        RESULT = new CancelExportStmt(tbl_name);
+    :}
     ;
 
 // Delete stmt
