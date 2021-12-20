@@ -43,7 +43,7 @@ under the License.
 
 创建 dockerfile
 
-VSCode 中使用 Ctrl-D 替换掉所有的
+VSCode 中使用 Ctrl-d 替换掉所有的
 
 - <!!! your user !!!>
 - <!!! your user password !!!>
@@ -135,7 +135,7 @@ sh build.sh
 
 ## 运行
 
-手动创建 `meta_dir` 元数据存放位置, 默认值为 ${DORIS_HOME}/doris-meta
+手动创建 `meta_dir` 元数据存放位置, 默认值为 `${DORIS_HOME}/doris-meta`
 
 ```bash
 mkdir meta_dir
