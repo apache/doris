@@ -122,7 +122,6 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
         // the last column in partition Key
         if (columnIdx == partitionColumns.size()) {
             try {
-                RangeMap<PartitionKey, Long> subRangeMap = rangeMap.subRangeMap(Range.closed(minKey, maxKey));
                 return Lists.newArrayList(rangeMap.subRangeMap(Range.closed(minKey, maxKey))
                     .asMapOfRanges().values());
             } catch (IllegalArgumentException e) {

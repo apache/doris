@@ -138,7 +138,8 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
                         // Find PartitionKey ranges according to filtered UniqueIds.
                         Map<Range<PartitionKey>, UniqueId> filteredPartitionRange =
                             filtered.asMapOfRanges().values()
-                                .stream().flatMap(List::stream)
+                                .stream()
+                                .flatMap(List::stream)
                                 .collect(Collectors.toMap(
                                     uidToPartitionRange::get, Function.identity()));
                         return doPruneMultiple(columnToFilters, filteredPartitionRange,

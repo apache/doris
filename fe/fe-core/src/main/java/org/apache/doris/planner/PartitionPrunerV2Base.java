@@ -89,7 +89,7 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
      * Let's say we have two partition columns k1, k2:
      * For partition [(1, 5), (1, 10)), the range for k2 is [5, 10).
      * For partition [(1, 5), (2, 10)), the range for k2 is (-∞, +∞).
-     * For partition [(1, 10), (2, 5)], the range for k2 is (-∞, 5) union [10, +∞).
+     * For partition [(1, 10), (2, 5)), the range for k2 is (-∞, 5) union [10, +∞).
      *
      * We could try to compute the range bound of every column in multiple columns partition and
      * unify the logic like pruning multiple list columns partition for multiple range ones.
