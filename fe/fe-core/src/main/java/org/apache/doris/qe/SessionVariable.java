@@ -167,6 +167,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
+    public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -394,6 +396,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
     public boolean sqlQuoteShowCreate = true;
+
+    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    private boolean returnObjectDataAsBinary = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -822,6 +827,14 @@ public class SessionVariable implements Serializable, Writable {
         return disableJoinReorder;
     }
 
+    public boolean isReturnObjectDataAsBinary() {
+        return returnObjectDataAsBinary;
+    }
+
+    public void setReturnObjectDataAsBinary(boolean returnObjectDataAsBinary) {
+        this.returnObjectDataAsBinary = returnObjectDataAsBinary;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
@@ -838,6 +851,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
+        tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);

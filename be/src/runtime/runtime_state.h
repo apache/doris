@@ -311,10 +311,6 @@ public:
         _num_bytes_load_total.fetch_add(bytes_load);
     }
 
-    void set_update_num_bytes_load_total(int64_t bytes_load) {
-        _num_bytes_load_total.store(bytes_load);
-    }
-
     void update_num_rows_load_filtered(int64_t num_rows) {
         _num_rows_load_filtered.fetch_add(num_rows);
     }
@@ -350,6 +346,10 @@ public:
     int32_t runtime_filter_max_in_num() { return _query_options.runtime_filter_max_in_num; }
 
     bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
+
+    bool return_object_data_as_binary() const {
+        return _query_options.return_object_data_as_binary;
+    }
 
     bool enable_exchange_node_parallel_merge() const {
         return _query_options.enable_enable_exchange_node_parallel_merge;

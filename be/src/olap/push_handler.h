@@ -214,7 +214,7 @@ private:
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;
     // Not used, just for placeholding
-    std::vector<ExprContext*> _pre_filter_ctxs;
+    std::vector<TExpr> _pre_filter_texprs;
 };
 
 } // namespace doris

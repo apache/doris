@@ -775,7 +775,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 ### max_query_retry_time
 
-默认值：2
+默认值：1
 
 是否可以动态配置：true
 
@@ -1566,7 +1566,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 例如。
       schema：k1(int), v1(decimal), v2(varchar(2000))
-      那么一行的内存布局长度为：8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
+      那么一行的内存布局长度为：4(int) + 16(decimal) + 2000(varchar) = 2020 (Bytes)
 
 查看所有类型的内存布局长度，在 mysql-client 中运行 `help create table`。
 
@@ -2102,3 +2102,14 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否为 Master FE 节点独有的配置项：false
 
 如果设置为true，将关闭副本修复和均衡逻辑。
+
+### force_drop_redundant_replica
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为true，系统会在副本调度逻辑中，立即删除冗余副本。这可能导致部分正在对对应副本写入的导入作业失败，但是会加速副本的均衡和修复速度。
+当集群中有大量等待被均衡或修复的副本时，可以尝试设置此参数，以牺牲部分导入成功率为代价，加速副本的均衡和修复。

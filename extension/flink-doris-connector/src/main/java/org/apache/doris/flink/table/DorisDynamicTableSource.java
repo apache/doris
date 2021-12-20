@@ -72,7 +72,7 @@ public final class DorisDynamicTableSource implements ScanTableSource, LookupTab
         try {
             dorisPartitions = RestService.findPartitions(options, readOptions, LOG);
         } catch (DorisException e) {
-            throw new RuntimeException("can not fetch partitions");
+            throw new RuntimeException("Failed fetch doris partitions");
         }
         DorisRowDataInputFormat.Builder builder = DorisRowDataInputFormat.builder()
                 .setFenodes(options.getFenodes())

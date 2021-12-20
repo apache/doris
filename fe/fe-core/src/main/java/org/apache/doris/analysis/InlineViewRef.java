@@ -223,6 +223,9 @@ public class InlineViewRef extends TableRef {
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
 
+        // anlayzeLateralViewRefs
+        analyzeLateralViewRef(analyzer);
+
         // Now do the remaining join analysis
         analyzeJoin(analyzer);
     }

@@ -1043,7 +1043,7 @@ public class Config extends ConfigBase {
      * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
-    public static int max_query_retry_time = 2;
+    public static int max_query_retry_time = 1;
 
     /**
      * The tryLock timeout configuration of catalog lock.
@@ -1544,4 +1544,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_tablet_scheduler = false;
+
+    /*
+     * When doing clone or repair tablet task, there may be replica is REDUNDANT state, which
+     * should be dropped later. But there are be loading task on these replicas, so the default strategy
+     * is to wait until the loading task finished before dropping them.
+     * But the default strategy may takes very long time to handle these redundant replicas.
+     * So we can set this config to true to not wait any loading task.
+     * Set this config to true may cause loading task failed, but will speed up the process of tablet balance and repair.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_force_drop_redundant_replica = false;
 }

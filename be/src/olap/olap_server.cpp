@@ -203,7 +203,7 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
 }
 
-void StorageEngine::_check_cumulative_compaction_config() {
+void StorageEngine::check_cumulative_compaction_config() {
     int64_t size_based_promotion_size = config::cumulative_size_based_promotion_size_mbytes;
     int64_t size_based_promotion_min_size = config::cumulative_size_based_promotion_min_size_mbytes;
     int64_t size_based_compaction_lower_bound_size =
@@ -435,7 +435,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         _cumulative_compaction_policy->name() != current_policy) {
         if (current_policy == CUMULATIVE_SIZE_BASED_POLICY) {
             // check size_based cumulative compaction config
-            _check_cumulative_compaction_config();
+            check_cumulative_compaction_config();
         }
         _cumulative_compaction_policy =
                 CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(

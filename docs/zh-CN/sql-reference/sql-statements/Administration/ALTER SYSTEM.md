@@ -78,6 +78,8 @@ under the License.
         7) 修改 BE 节点属性目前支持以下属性：
 
             1. tag.location：资源标签
+            2. disable_query: 查询禁用属性
+            3. disable_load: 导入禁用属性
         
 ## example
 
@@ -124,7 +126,15 @@ under the License.
     9. 修改 BE 的资源标签
 
         ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
+    
+    10. 修改 BE 的查询禁用属性
         
+        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
+        
+    11. 修改 BE 的导入禁用属性
+       
+        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true"); 
+       
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE
 

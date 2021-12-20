@@ -1161,8 +1161,8 @@ public class ShowExecutor {
         if (be == null) {
             throw new AnalysisException(host + ":" + port + " is not a valid backend");
         }
-        if (!be.isAvailable()) {
-            throw new AnalysisException("Backend " + host + ":" + port + " is not available");
+        if (!be.isAlive()) {
+            throw new AnalysisException("Backend " + host + ":" + port + " is not alive");
         }
 
         if (!url.getPath().equals("/api/_load_error_log")) {
@@ -2017,13 +2017,13 @@ public class ShowExecutor {
 
     private void handleAdminShowDataSkew() throws AnalysisException {
         AdminShowDataSkewStmt showStmt = (AdminShowDataSkewStmt) stmt;
-        List<List<String>> results;
         try {
-            results = MetadataViewer.getDataSkew(showStmt);
+            List<List<String>> results = MetadataViewer.getDataSkew(showStmt);
+            resultSet = new ShowResultSet(showStmt.getMetaData(), results);
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+
     }
 
     private void handleShowTableStats() throws AnalysisException {

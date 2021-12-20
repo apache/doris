@@ -269,3 +269,51 @@ By specifying the storage medium properties of the path, we can use Doris's hot 
 It should be noted that Doris does not automatically perceive the actual storage medium type of the disk where the storage path is located. This type needs to be explicitly indicated by the user in the path configuration. For example, the path "/path/to/data1.SSD" means that this path is an SSD storage medium. And "data1.SSD" is the actual directory name. Doris determines the storage medium type based on the ".SSD" suffix behind the directory name, not the actual storage medium type. In other words, the user can specify any path as the SSD storage medium, and Doris only recognizes the directory suffix and will not judge whether the storage medium matches. If you do not write the suffix, the default is HDD.
 
 In other words, ".HDD" and ".SSD" are only used to identify the "relative" "low speed" and "high speed" of the storage directory, not the actual storage medium type. Therefore, if the storage path on the BE node has no difference in media, there is no need to fill in the suffix.
+
+### Q19. `Lost connection to MySQL server at'reading initial communication packet', system error: 0`
+
+If the following problems occur when using the MySQL client to connect to Doris, this is usually caused by the difference between the jdk version used when compiling FE and the jdk version used when running FE.
+Note that when using docker image to compile, the default JDK version is openjdk 11, you can switch to openjdk 8 by command (see the compilation document for details).
+
+### Q20. -214 error
+
+When performing operations such as load and query, you may encounter the following errors:
+
+```
+failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0fa7579928c85a0, res=-214, backend=192.168.100.10
+```
+
+A -214 error means that the data version of the corresponding tablet is missing. For example, the above error indicates that the data version of the replica of tablet 63416 on the BE of 192.168.100.10 is missing. (There may be other similar error codes, which can be checked and repaired in the following ways).
+
+Normally, if your data has multiple replicas, the system will automatically repair these problematic replicas. You can troubleshoot through the following steps:
+
+First, use the `show tablet 63416` statement and execute the `show proc xxx` statement in the result to view the status of each replica of the corresponding tablet. Usually we need to care about the data in the `Version` column.
+
+Under normal circumstances, the Version of multiple replicas of a tablet should be the same. And it is the same as the VisibleVersion of the corresponding partition.
+
+You can use `show partitions from tblx` to view the corresponding partition version (the partition corresponding to the tablet can be obtained in the `show tablet` statement.)
+
+At the same time, you can also visit the URL in the CompactionStatus column of the `show proc` statement (just open it in the browser) to view more specific version information, to check which version is missing.
+
+If there is no automatic repair for a long time, you need to use the `show proc "/cluster_balance"` statement to view the tablet repair and scheduling tasks currently being performed by the system. It may be because there are a large number of tablets waiting to be scheduled, which leads to a long repair time. You can follow the records in `pending_tablets` and `running_tablets`.
+
+Furthermore, you can use the `admin repair` statement to specify the priority to repair a table or partition. For details, please refer to `help admin repair`;
+
+If it still cannot be repaired, then in the case of multiple replicas, we use the `admin set replica status` command to force the replica to go offline. For details, please refer to the example of `help admin set replica status` to set the status of the replica to bad. (After set to bad, the replica will not be accessed again. And will be automatically repaired later. But before the operation, you should make sure that the other replicas are normal)
+
+### Q21. Not connected to 192.168.100.1:8060 yet, server_id=384
+
+We may encounter this error when loading or querying. If you go to the corresponding BE log to check, you may also find similar errors.
+
+This is an RPC error, and there are usually two possibilities: 1. The corresponding BE node is down. 2. rpc congestion or other errors.
+
+If the BE node is down, you need to check the specific reason for the downtime. Only the problem of rpc congestion is discussed here.
+
+One situation is OVERCROWDED, which means that a large amount of unsent data at the rpc client exceeds the threshold. BE has two parameters related to it:
+
+1. `brpc_socket_max_unwritten_bytes`: The default is 64MB. If the unwritten data exceeds this value, an error will be reported. You can modify this value appropriately to avoid OVERCROWDED errors. (But this cures the symptoms rather than the root cause, essentially congestion still occurs).
+2. `tablet_writer_ignore_eovercrowded`: The default is false. If set to true, Doris will ignore OVERCROWDED errors during the load process. This parameter is mainly used to avoid load failure and improve the stability of load.
+
+The second is that the packet size of rpc exceeds `max_body_size`. This problem may occur if the query contains a very large String type or a Bitmap type. It can be circumvented by modifying the following BE parameters:
+
+1. `brpc_max_body_size`: The default is 200MB, if necessary, it can be modified to 3GB (in bytes).

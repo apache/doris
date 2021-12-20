@@ -19,12 +19,12 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TTableFunctionNode;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -41,7 +42,7 @@ import java.util.stream.Collectors;
 public class TableFunctionNode extends PlanNode {
 
     private List<LateralViewRef> lateralViewRefs;
-    private List<FunctionCallExpr> fnCallExprList;
+    private ArrayList<Expr> fnCallExprList;
     private List<TupleId> lateralViewTupleIds;
 
     // The output slot ids of TableFunctionNode
@@ -81,11 +82,19 @@ public class TableFunctionNode extends PlanNode {
      * Query: select k1 from table a lateral view explode_split(v1, ",") t1 as c1;
      * The outputSlots: [k1, c1]
      */
-    public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) {
+    public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) throws AnalysisException {
+        // TODO(ml): Support project calculations that include aggregation and sorting in select stmt
+        if ((selectStmt.hasAggInfo() || selectStmt.getSortInfo() != null || selectStmt.hasAnalyticInfo())
+                && selectStmt.hasInlineView()) {
+            // The query must be rewritten like TableFunctionPlanTest.aggColumnInOuterQuery()
+            throw new AnalysisException("Please treat the query containing the lateral view as a inline view"
+                    + "and extract your aggregation/sort/window functions to the outer query."
+                    + "For example select sum(a) from (select a from table lateral view xxx) tmp1");
+        }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
-        List<Expr> resultExprs = selectStmt.getResultExprs();
-        for (Expr resultExpr : resultExprs) {
+        List<Expr> baseTblResultExprs = selectStmt.getBaseTblResultExprs();
+        for (Expr resultExpr : baseTblResultExprs) {
             // find all slotRef bound by tupleIds in resultExpr
             resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
         }
@@ -103,7 +112,20 @@ public class TableFunctionNode extends PlanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        fnCallExprList = lateralViewRefs.stream().map(e -> e.getFnExpr()).collect(Collectors.toList());
+        fnCallExprList = new ArrayList<>(lateralViewRefs.stream().map(e -> e.getFnExpr()).collect(Collectors.toList()));
+        /*
+        When the expression of the lateral view involves the column of the subquery,
+        the column needs to be rewritten as the real column in the subquery through childrenSmap.
+        Example:
+          select e1 from (select a from t1) tmp1 lateral view explode_split(a, ",") tmp2 as e1
+          Slot 'a' is originally linked to tuple 'tmp1'. <tmp1.a>
+          But tmp1 is just a virtual and unreal inline view tuple.
+          So we need to push down 'a' and hang it on the real tuple 't1'. <t1.a>
+         */
+        outputSmap = getCombinedChildSmap();
+        fnCallExprList = Expr.substituteList(fnCallExprList, outputSmap, analyzer, false);
+        // end
+
         computeStats(analyzer);
     }
 
@@ -118,8 +140,8 @@ public class TableFunctionNode extends PlanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
         output.append(prefix + "table function: ");
-        for (FunctionCallExpr fnExpr : fnCallExprList) {
-            output.append(fnExpr.toSqlImpl() + " ");
+        for (Expr fnExpr : fnCallExprList) {
+            output.append(fnExpr.toSql() + " ");
         }
         output.append("\n");
 
@@ -132,12 +154,6 @@ public class TableFunctionNode extends PlanNode {
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
-
-        output.append(prefix + "tuple id: ");
-        for (TupleId tupleId : tupleIds) {
-            output.append(tupleId.asInt() + " ");
-        }
-        output.append("\n");
 
         output.append(prefix + "output slot id: ");
         for (SlotId slotId : outputSlotIds) {

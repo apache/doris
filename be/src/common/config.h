@@ -475,7 +475,7 @@ CONF_Bool(enable_metric_calculator, "true");
 CONF_mInt32(max_consumer_num_per_group, "3");
 
 // the size of thread pool for routine load task.
-// this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
+// this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 CONF_Int32(routine_load_thread_pool_size, "10");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
@@ -529,6 +529,9 @@ CONF_String(default_rowset_type, "BETA");
 CONF_Int64(brpc_max_body_size, "209715200");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
 CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
+// Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
+// through brpc, this will be faster and avoid the error of Request length overflow.
+CONF_mBool(transfer_data_by_brpc_attachment, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager

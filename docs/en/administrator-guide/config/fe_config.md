@@ -787,7 +787,7 @@ The tryLock timeout configuration of catalog lock.  Normally it does not need to
 
 ### max_query_retry_time
 
-Default：2
+Default：1
 
 IsMutable：true
 
@@ -1554,7 +1554,7 @@ MasterOnly：true
 Maximal memory layout length of a row. default is 100 KB. In BE, the maximal size of a RowBlock is 100MB(Configure as max_unpacked_row_block_size in be.conf). And each RowBlock contains 1024 rows. So the maximal size of a row is approximately 100 KB.
      eg.
      schema: k1(int), v1(decimal), v2(varchar(2000))
-     then the memory layout length of a row is: 8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
+     then the memory layout length of a row is: 4(int) + 16(decimal) + 2000(varchar) = 2020 (Bytes)
      See memory layout length of all types, run 'help create table' in mysql-client.
      If you want to increase this number to support more columns in a row, you also need to increase the
      max_unpacked_row_block_size in be.conf. But the performance impact is unknown.
@@ -2082,3 +2082,14 @@ Default: true
 
 Whether to use compressed format to send query plan structure. After it is turned on, the size of the query plan structure can be reduced by about 50%, thereby avoiding some "send fragment timeout" errors.
 However, in some high-concurrency small query scenarios, the concurrency may be reduced by about 10%.
+
+### force_drop_redundant_replica
+
+Default: false
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+If set to true, the system will immediately drop redundant replicas in the tablet scheduling logic. This may cause some load jobs that are writing to the corresponding replica to fail, but it will speed up the balance and repair speed of the tablet.
+When there are a large number of replicas waiting to be balanced or repaired in the cluster, you can try to set this config to speed up the balance and repair of replicas at the expense of partial load success rate.

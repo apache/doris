@@ -213,6 +213,7 @@ module.exports = [
       "variables",
       "update",
       "multi-tenant",
+      "orthogonal-bitmap-manual",
     ],
     sidebarDepth: 1,
   },
@@ -244,13 +245,6 @@ module.exports = [
         children: [
           "contribute-udf",
           "user-defined-function",
-          {
-            title: "用户贡献的 UDF",
-            directoryPath: "contrib/",
-            children:[
-                "udaf-orthogonal-bitmap-manual",
-            ],
-          },
         ],
       },
     ],
@@ -435,12 +429,24 @@ module.exports = [
               "bitmap_xor",
               "to_bitmap",
               "bitmap_max",
+              "orthogonal_bitmap_intersect",
+              "orthogonal_bitmap_intersect_count",
+              "orthogonal_bitmap_union_count",
             ],
           },
           {
             title: "Hash函数",
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
+          },
+          {
+            title: "table functions",
+            directoryPath: "table-functions/",
+            children: [
+              "explode-bitmap",
+              "explode-split",
+              "explode-json-array"
+            ],
           },
           "window-function",
           "cast",
@@ -591,6 +597,7 @@ module.exports = [
               "alter-routine-load",
               "insert",
               "UPDATE",
+              "lateral-view",
             ],
           },
           {
@@ -625,6 +632,13 @@ module.exports = [
     ],
   },
   {
+    title: "Doris用户",
+    directoryPath: "case-user/",
+    children: [
+        "case-user",
+    ],
+  },
+  {
     title: "开发者手册",
     directoryPath: "developer-guide/",
     children: [
@@ -636,8 +650,8 @@ module.exports = [
         "java-format-code",
         "cpp-format-code",
         "How-to-Share-blogs",
-	"commit-format-specification",
-		"minidump"
+        "minidump",
+        "bitmap-hll-file-format",
     ],
   },
   {
@@ -657,6 +671,7 @@ module.exports = [
       "feedback",
       "how-to-contribute",
       "committer-guide",
+      "commit-format-specification",
       "pull-request",
       "release-process",
       "verify-apache-release",

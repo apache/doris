@@ -24,6 +24,7 @@
 #include "olap/olap_define.h"
 #include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
+#include "util/tuple_row_zorder_compare.h"
 
 namespace doris {
 
@@ -53,16 +54,17 @@ public:
     int64_t flush_size() const { return _flush_size; }
 
 private:
-    class RowCursorComparator {
+    class RowCursorComparator: public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
-        int operator()(const char* left, const char* right) const;
+        virtual int operator()(const char* left, const char* right) const;
 
     private:
         const Schema* _schema;
     };
 
-    typedef SkipList<char*, RowCursorComparator> Table;
+private:
+    typedef SkipList<char*, RowComparator> Table;
     typedef Table::key_type TableKey;
 
 public:
@@ -95,7 +97,7 @@ private:
     const std::vector<SlotDescriptor*>* _slot_descs;
     KeysType _keys_type;
 
-    RowCursorComparator _row_comparator;
+    std::shared_ptr<RowComparator> _row_comparator;
     std::shared_ptr<MemTracker> _mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList

@@ -843,6 +843,10 @@ OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
                                           read_params.version.second, this);
     _tablet->release_header_lock();
 
+    // Only BASE_COMPACTION need set filter_delete = true
+    // other reader type:
+    // QUERY will filter the row in query layer to keep right result use where clause.
+    // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
     if (read_params.reader_type == READER_BASE_COMPACTION) {
         _filter_delete = true;
     }

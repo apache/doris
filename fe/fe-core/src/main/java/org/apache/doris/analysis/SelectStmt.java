@@ -564,6 +564,15 @@ public class SelectStmt extends QueryStmt {
         return result;
     }
 
+    public boolean hasInlineView() {
+        for (TableRef ref : fromClause_) {
+            if (ref instanceof InlineViewRef) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public List<TupleId> collectTupleIds() {
         List<TupleId> result = Lists.newArrayList();
@@ -697,7 +706,7 @@ public class SelectStmt extends QueryStmt {
         for (TableRef tableRef : fromClause_.getTableRefs()) {
             if (tableRef.lateralViewRefs != null) {
                 for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
-                    lateralViewRef.materializeRequiredSlots();
+                    lateralViewRef.materializeRequiredSlots(baseTblSmap, analyzer);
                 }
             }
         }

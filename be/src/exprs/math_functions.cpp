@@ -26,10 +26,9 @@
 
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/tuple_row.h"
 #include "util/string_parser.hpp"
+#include "util/simd/vstring_function.h"
 
 namespace doris {
 
@@ -351,14 +350,10 @@ StringVal MathFunctions::hex_string(FunctionContext* ctx, const StringVal& s) {
     if (s.is_null) {
         return StringVal::null();
     }
-    std::stringstream ss;
-    ss << std::hex << std::uppercase << std::setfill('0');
-    for (int i = 0; i < s.len; ++i) {
-        // setw is not sticky. std::stringstream only converts integral values,
-        // so a cast to int is required, but only convert the least significant byte to hex.
-        ss << std::setw(2) << (static_cast<int32_t>(s.ptr[i]) & 0xFF);
-    }
-    return AnyValUtil::from_string_temp(ctx, ss.str());
+
+    StringVal result = StringVal::create_temp_string_val(ctx, s.len * 2);
+    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char *>(result.ptr));
+    return result;
 }
 
 StringVal MathFunctions::unhex(FunctionContext* ctx, const StringVal& s) {

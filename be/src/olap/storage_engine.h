@@ -188,6 +188,9 @@ public:
     std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
     std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
 
+    // check cumulative compaction config
+    void check_cumulative_compaction_config();
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -217,9 +220,6 @@ private:
     // All these xxx_callback() functions are for Background threads
     // unused rowset monitor thread
     void _unused_rowset_monitor_thread_callback();
-
-    // check cumulative compaction config
-    void _check_cumulative_compaction_config();
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();

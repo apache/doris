@@ -84,11 +84,9 @@ private:
 
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range,
-                        const std::vector<ExprContext*>& pre_filter_ctxs,
                         const std::vector<ExprContext*>& conjunct_ctxs, ScannerCounter* counter);
 
     std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
-                                                const std::vector<ExprContext*>& pre_filter_ctxs,
                                                 ScannerCounter* counter);
 
 private:
@@ -115,7 +113,12 @@ private:
 
     int _max_buffered_batches;
 
-    std::vector<ExprContext*> _pre_filter_ctxs;
+    // The origin preceding filter exprs.
+    // These exprs will be converted to expr context
+    // in XXXScanner.
+    // Because the row descriptor used for these exprs is `src_row_desc`,
+    // which is initialized in XXXScanner.
+    std::vector<TExpr> _pre_filter_texprs;
 
     RuntimeProfile::Counter* _wait_scanner_timer;
 };

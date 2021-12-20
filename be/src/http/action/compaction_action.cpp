@@ -216,6 +216,13 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 
 OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                                                           const std::string& compaction_type) {
+    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
+            _create_cumulative_compaction_policy();
+    if (tablet->get_cumulative_compaction_policy() == nullptr ||
+        tablet->get_cumulative_compaction_policy()->name() != cumulative_compaction_policy->name()) {
+        tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
+    }
+
     OLAPStatus status = OLAP_SUCCESS;
     if (compaction_type == PARAM_COMPACTION_BASE) {
         std::string tracker_label = "CompactionAction:BaseCompaction:" + std::to_string(syscall(__NR_gettid));
@@ -274,5 +281,21 @@ void CompactionAction::handle(HttpRequest* req) {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
     }
+}
+
+std::shared_ptr<CumulativeCompactionPolicy> CompactionAction::_create_cumulative_compaction_policy() {
+    std::string current_policy = "";
+    {
+        std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
+        current_policy = config::cumulative_compaction_policy;
+    }
+    boost::to_upper(current_policy);
+
+    if (current_policy == CUMULATIVE_SIZE_BASED_POLICY) {
+        // check size_based cumulative compaction config
+        StorageEngine::instance()->check_cumulative_compaction_config();
+    }
+
+    return CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(current_policy);
 }
 } // end namespace doris

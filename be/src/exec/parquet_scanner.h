@@ -52,7 +52,7 @@ public:
                    const TBrokerScanRangeParams& params,
                    const std::vector<TBrokerRangeDesc>& ranges,
                    const std::vector<TNetworkAddress>& broker_addresses,
-                   const std::vector<ExprContext*>& pre_filter_ctxs,
+                   const std::vector<TExpr>& pre_filter_texprs,
                    ScannerCounter* counter);
 
     ~ParquetScanner();

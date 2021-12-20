@@ -756,6 +756,95 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public static final String BITMAP_COUNT = "bitmap_count";
     public static final String INTERSECT_COUNT = "intersect_count";
     public static final String BITMAP_INTERSECT = "bitmap_intersect";
+    public static final String ORTHOGONAL_BITMAP_INTERSECT = "orthogonal_bitmap_intersect";
+    public static final String ORTHOGONAL_BITMAP_INTERSECT_COUNT = "orthogonal_bitmap_intersect_count";
+    public static final String ORTHOGONAL_BITMAP_UNION_COUNT = "orthogonal_bitmap_union_count";
+
+    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIaN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIsN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.INT,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIiN9doris_udf6IntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIlN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIfN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initIdN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.CHAR,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                    .put(Type.VARCHAR,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                    .put(Type.STRING,
+                            "_ZN5doris15BitmapFunctions32orthogonal_bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                    .build();
+
+    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_SERIALIZE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIaEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.SMALLINT,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIsEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.INT,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIiEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.BIGINT,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIlEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.FLOAT,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIfEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.DOUBLE,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeIdEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.CHAR,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
+                    .put(Type.VARCHAR,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
+                    .put(Type.STRING,
+                            "_ZN5doris15BitmapFunctions37orthogonal_bitmap_intersect_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
+                    .build();
+    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_COUNT_INIT_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIaN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIsN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.INT,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIiN9doris_udf6IntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIlN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIfN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initIdN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.CHAR,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                    .put(Type.VARCHAR,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                    .put(Type.STRING,
+                            "_ZN5doris15BitmapFunctions38orthogonal_bitmap_intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                    .build();
+    private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_COUNT_SERIALIZE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIaEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.SMALLINT,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIsEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.INT,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIiEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.BIGINT,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIlEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.FLOAT,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIfEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.DOUBLE,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeIdEEN9doris_udf9StringValEPNS2_15FunctionContextERKS3_")
+                    .put(Type.CHAR,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
+                    .put(Type.VARCHAR,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
+                    .put(Type.STRING,
+                            "_ZN5doris15BitmapFunctions43orthogonal_bitmap_intersect_count_serializeINS_11StringValueEEEN9doris_udf9StringValEPNS3_15FunctionContextERKS4_")
+                    .build();
 
     private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -1713,6 +1802,36 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     null, false, true, false, true));
         }
 
+        Type[] types = {Type.SMALLINT, Type.TINYINT, Type.INT, Type.BIGINT, Type.FLOAT, Type.DOUBLE, Type.CHAR,
+                Type.VARCHAR, Type.STRING};
+        for (Type t : types) {
+            addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_INTERSECT,
+                    Lists.newArrayList(Type.BITMAP, t,t),
+                    Type.BITMAP,
+                    Type.VARCHAR,
+                    true,
+                    ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL.get(t),
+                    BITMAP_INTERSECT_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    ORTHOGONAL_BITMAP_INTERSECT_SERIALIZE_SYMBOL.get(t),
+                    "",
+                    "",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+            addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_INTERSECT_COUNT,
+                    Lists.newArrayList(Type.BITMAP, t,t),
+                    Type.BIGINT,
+                    Type.VARCHAR,
+                    true,
+                    ORTHOGONAL_BITMAP_INTERSECT_COUNT_INIT_SYMBOL.get(t),
+                    BITMAP_INTERSECT_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris15BitmapFunctions29orthogonal_bitmap_count_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    ORTHOGONAL_BITMAP_INTERSECT_COUNT_SERIALIZE_SYMBOL.get(t),
+                    "",
+                    "",
+                    "_ZN5doris15BitmapFunctions32orthogonal_bitmap_count_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+        }
         // bitmap
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(Type.BITMAP),
                 Type.BITMAP,
@@ -1758,7 +1877,18 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 null,
                 "",
                 true, true, true, true));
-        
+
+        addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_UNION_COUNT, Lists.newArrayList(Type.BITMAP),
+                Type.BIGINT,
+                Type.VARCHAR,
+                "_ZN5doris15BitmapFunctions34orthogonal_bitmap_union_count_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions29orthogonal_bitmap_count_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions33orthogonal_bitmap_count_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null,
+                null,
+                "_ZN5doris15BitmapFunctions32orthogonal_bitmap_count_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, true, true));
         // TODO(ml): supply function symbol
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_INTERSECT, Lists.newArrayList(Type.BITMAP),
                 Type.BITMAP, Type.VARCHAR,
@@ -2010,19 +2140,51 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
         return builtinFunctions;
     }
 
-
     public static final String EXPLODE_SPLIT = "explode_split";
+    public static final String EXPLODE_BITMAP = "explode_bitmap";
+    public static final String EXPLODE_JSON_ARRAY_INT = "explode_json_array_int";
+    public static final String EXPLODE_JSON_ARRAY_DOUBLE = "explode_json_array_double";
+    public static final String EXPLODE_JSON_ARRAY_STRING = "explode_json_array_string";
 
     private void initTableFunction() {
-        // init explode_split function
-        ArrayList<Type> argsType = Lists.newArrayList();
-        argsType.add(Type.VARCHAR);
-        argsType.add(Type.VARCHAR);
-        Function explodeSplit = ScalarFunction.createBuiltin(
-                EXPLODE_SPLIT, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT, argsType, false,
-                "", "", "", true);
         List<Function> explodeSplits = Lists.newArrayList();
-        explodeSplits.add(explodeSplit);
+        explodeSplits.add(ScalarFunction.createBuiltin(
+                EXPLODE_SPLIT, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR, Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions13explode_splitEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
+                null, null, true));
         tableFunctions.put(EXPLODE_SPLIT, explodeSplits);
+
+        List<Function> explodeBitmaps = Lists.newArrayList();
+        explodeBitmaps.add(ScalarFunction.createBuiltin(
+                EXPLODE_BITMAP, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.BITMAP), false,
+                "_ZN5doris19DummyTableFunctions14explode_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_BITMAP, explodeBitmaps);
+
+        List<Function> explodeJsonArrayInts = Lists.newArrayList();
+        explodeJsonArrayInts.add(ScalarFunction.createBuiltin(
+                EXPLODE_JSON_ARRAY_INT, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions22explode_json_array_intEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_JSON_ARRAY_INT, explodeJsonArrayInts);
+
+        List<Function> explodeJsonArrayDoubles = Lists.newArrayList();
+        explodeJsonArrayDoubles.add(ScalarFunction.createBuiltin(
+                EXPLODE_JSON_ARRAY_DOUBLE, Type.DOUBLE, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions25explode_json_array_doubleEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_JSON_ARRAY_DOUBLE, explodeJsonArrayDoubles);
+
+        List<Function> explodeJsonArrayStrings = Lists.newArrayList();
+        explodeJsonArrayStrings.add(ScalarFunction.createBuiltin(
+                EXPLODE_JSON_ARRAY_STRING, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions25explode_json_array_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_JSON_ARRAY_STRING, explodeJsonArrayStrings);
     }
 }
