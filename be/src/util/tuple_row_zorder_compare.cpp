@@ -159,7 +159,7 @@ namespace doris {
 
     template<typename U, typename T>
     U inline TupleRowZOrderComparator::get_shared_float_representation(const void *val, U mask) const {
-        uint64_t tmp;
+        int64_t tmp;
         T floating_value = *reinterpret_cast<const T *>(val);
         memcpy(&tmp, &floating_value, sizeof(T));
         if (UNLIKELY(std::isnan(floating_value))) return 0;
