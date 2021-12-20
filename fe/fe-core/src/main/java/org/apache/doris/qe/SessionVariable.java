@@ -157,8 +157,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
 
-    public static final String PRUNE_EMPTY_PARTITION = "prune_empty_partition";
-
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
@@ -370,9 +368,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARTITION_PRUNE_ALGORITHM_VERSION, needForward = true)
     public int partitionPruneAlgorithmVersion = 1;
-
-    @VariableMgr.VarAttr(name = PRUNE_EMPTY_PARTITION, needForward = true)
-    public boolean pruneEmptyPartition = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
     private String runtimeFilterMode = "GLOBAL";
@@ -816,10 +811,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getPartitionPruneAlgorithmVersion() {
         return partitionPruneAlgorithmVersion;
-    }
-
-    public boolean pruneEmptyPartition() {
-        return pruneEmptyPartition;
     }
 
     public int getCpuResourceLimit() {
