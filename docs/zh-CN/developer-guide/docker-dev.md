@@ -55,7 +55,7 @@ RUN yum install -y vim net-tools man wget git mysql lsof bash-completion \
 
 # 更安全的使用，创建用户而不是使用 root
 RUN yum install -y sudo \
-        && useradd -ms /bin/bash <!!! your user !!!> && echo <!!! your user password !!!> | passwd jakevin --stdin \
+        && useradd -ms /bin/bash <!!! your user !!!> && echo <!!! your user password !!!> | passwd <!!! your user !!!> --stdin \
         && usermod -a -G wheel <!!! your user !!!>
 
 USER <!!! your user !!!>
