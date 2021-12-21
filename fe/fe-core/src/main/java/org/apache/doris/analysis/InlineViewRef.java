@@ -429,6 +429,10 @@ public class InlineViewRef extends TableRef {
         return view;
     }
 
+    public QueryStmt getQueryStmt() {
+        return queryStmt;
+    }
+
     @Override
     public String tableRefToSql() {
         // Enclose the alias in quotes if Hive cannot parse it without quotes.

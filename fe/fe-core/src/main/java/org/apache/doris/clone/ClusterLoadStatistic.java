@@ -137,12 +137,14 @@ public class ClusterLoadStatistic {
             beByTotalReplicaCountMaps.put(medium, beByTotalReplicaCount);
         }
 
-        // Actually the partition is [partition_id, index_id], aka pid.
-        // Multimap<skew -> PartitionBalanceInfo>
-        //                  PartitionBalanceInfo: <pid -> <partitionReplicaCount, beId>>
-        // Only count available bes here, aligned with the beByTotalReplicaCountMaps.
-        skewMaps = invertedIndex.buildPartitionInfoBySkew(beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).
-                map(BackendLoadStatistic::getBeId).collect(Collectors.toList()));
+        if (Config.tablet_rebalancer_type.equalsIgnoreCase("Partition")) {
+            // Actually the partition is [partition_id, index_id], aka pid.
+            // Multimap<skew -> PartitionBalanceInfo>
+            //                  PartitionBalanceInfo: <pid -> <partitionReplicaCount, beId>>
+            // Only count available bes here, aligned with the beByTotalReplicaCountMaps.
+            skewMaps = invertedIndex.buildPartitionInfoBySkew(beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).
+                    map(BackendLoadStatistic::getBeId).collect(Collectors.toList()));
+        }
     }
 
     /*

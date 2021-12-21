@@ -2,12 +2,18 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20211220
+
+- Modified: OpenSSL 1.0.2k -> 1.1.1m
+- Modified: cmake 3.19.8 -> 3.22.1
+- Added: ccache
+
 ## v20211215
 
 ### Changes
 
 - Added: cyrus-sasl
-- Modifoed: librdkafka
+- Modified: librdkafka
 
 ## build-env-1.4.2
 
