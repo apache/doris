@@ -31,15 +31,15 @@ In fact,seatunnel load data by stream load function.Everyone is welcome to use
 ### Options
 | name | type | required | default value | engine |
 | --- | --- | --- | --- | --- |
-| host | string | yes | - | Spark |
+| fenodes | string | yes | - | Spark |
 | database | string | yes | - | Spark |
-| tableName	 | string | yes | - | Spark |
+| table	 | string | yes | - | Spark |
 | user	 | string | yes | - | Spark |
 | password	 | string | yes | - | Spark |
-| bulk_size	 | int | yes | - | Spark |
+| batch_size	 | int | yes | 100 | Spark |
 | doris.*	 | string | no | - | Spark |
 
-`host [string]`
+`fenodes [string]`
 
 Doris FE address:8030
 
@@ -47,7 +47,7 @@ Doris FE address:8030
 
 Doris target database name
 
-`tableName [string]`
+`table [string]`
 
 Doris target table name
 
@@ -59,7 +59,7 @@ Doris user name
 
 Doris user's password
 
-`bulk_size [string]`
+`batch_size [string]`
 
 Doris number of submissions per batch
 
@@ -99,12 +99,12 @@ Console {
   }
 
 Doris {
-   host="xxxx:8030"
+   fenodes="xxxx:8030"
    database="gl_mint_dim"
-   tableName="dim_date"
+   table="dim_date"
    user="root"
    password="root"
-   bulk_size=1000
+   batch_size=1000
    doris.column_separator="\t"
    doris.columns="date_key,date_value,day_in_year,day_in_month"
    }

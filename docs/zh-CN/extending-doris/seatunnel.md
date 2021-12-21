@@ -32,23 +32,24 @@ Spark Sink Doris的插件代码在[这里](https://github.com/InterestingLab/sea
 ### 参数列表
 | 参数名 | 参数类型 | 是否必要 | 默认值 | 引擎类型 |
 | --- | --- | --- | --- | --- |
-| host | string | yes | - | Spark |
+| fenodes | string | yes | - | Spark |
 | database | string | yes | - | Spark |
-| tableName	 | string | yes | - | Spark |
+| table	 | string | yes | - | Spark |
 | user	 | string | yes | - | Spark |
 | password	 | string | yes | - | Spark |
-| bulk_size	 | int | yes | - | Spark |
+| batch_size	 | int | yes | 100 | Spark |
 | doris.*	 | string | no | - | Spark |
 
-`host [string]`
+`fenodes [string]`
 
 Dioris Fe节点地址:8030
+
 
 `database [string]`
 
 写入Doris的库名
 
-`tableName [string]`
+`table [string]`
 
 写入Doris的表名
 
@@ -60,7 +61,7 @@ Doris访问用户
 
 Doris访问用户密码
 
-`bulk_size [string]`
+`batch_size [string]`
 
 Spark通过Stream_load方式写入,每个批次提交条数
 
@@ -99,12 +100,12 @@ Console {
   }
 
 Doris {
-   host="xxxx:8030"
-   database="gl_mint_dim"
-   tableName="dim_date"
+   fenodes="xxxx:8030"
+   database="tmp"
+   table="test"
    user="root"
    password="root"
-   bulk_size=1000
+   batch_size=1000
    doris.column_separator="\t"
    doris.columns="date_key,date_value,day_in_year,day_in_month"
    }
