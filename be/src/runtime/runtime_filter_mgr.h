@@ -66,7 +66,7 @@ public:
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
     // regist filter
     Status regist_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                         int node_id = -1);
+                         const TQueryOptions& options, int node_id = -1);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request, const char* data);
@@ -108,7 +108,9 @@ public:
     RuntimeFilterMergeControllerEntity() : _query_id(0, 0) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
-    Status init(UniqueId query_id, const TRuntimeFilterParams& runtime_filter_params);
+    Status init(UniqueId query_id,
+                const TRuntimeFilterParams& runtime_filter_params,
+                const TQueryOptions& query_options);
 
     // handle merge rpc
     Status merge(const PMergeFilterRequest* request, const char* data);
@@ -117,6 +119,7 @@ public:
 
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
+                           const TQueryOptions* query_options,
                            const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
                            const int producer_size);
 

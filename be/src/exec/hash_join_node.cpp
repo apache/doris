@@ -86,7 +86,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     for (const auto& filter_desc : _runtime_filter_descs) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(RuntimeFilterRole::PRODUCER,
-                                                                   filter_desc));
+                                                                   filter_desc,
+                                                                   state->query_options()));
     }
 
     return Status::OK();
