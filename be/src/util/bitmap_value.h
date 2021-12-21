@@ -1736,7 +1736,7 @@ private:
 class BitmapValueIterator {
 public:
     BitmapValueIterator()
-       : _bitmap(BitmapValue()) {
+       : _bitmap() {
     }
 
     BitmapValueIterator(const BitmapValue& bitmap, bool end = false)
