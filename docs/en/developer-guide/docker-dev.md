@@ -102,7 +102,6 @@ docker run -it doris:latest /bin/bash
 
 if you installed zsh, replace plugins in ~/.zshrc after running the container
 
-
 ```
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
 ```
@@ -141,7 +140,6 @@ manually create `meta_dir` metadata storage location, default value is `${DORIS_
 mkdir meta_dir
 ```
 
-启动FE
 launch FE
 
 ```bash
