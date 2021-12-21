@@ -28,9 +28,9 @@ under the License.
 
 ### Syntax
 
-`BIGINT BITMAP_XOR_COUNT(BITMAP lhs, BITMAP rhs)`
+`BIGINT BITMAP_XOR_COUNT(BITMAP lhs, BITMAP rhs, ...)`
 
-XOR two bitmap sets and return the size of the result set.
+XOR two or more bitmap sets and return the size of the result set.
 
 ## example
 
@@ -55,6 +55,27 @@ mysql> select bitmap_xor_count(bitmap_from_string('1,2,3'),bitmap_from_string('4
 +----------------------------------------------------------------------------+
 |                                                                          6 |
 +----------------------------------------------------------------------------+
+
+MySQL> select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5')));
++-----------------------------------------------------------------------------------------------------------+
+| (bitmap_xor_count(bitmap_from_string('2,3'), bitmap_from_string('1,2,3,4'), bitmap_from_string('3,4,5'))) |
++-----------------------------------------------------------------------------------------------------------+
+|                                                                                                         3 |
++-----------------------------------------------------------------------------------------------------------+
+
+MySQL> select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),bitmap_empty()));
++---------------------------------------------------------------------------------------------------------------------------+
+| (bitmap_xor_count(bitmap_from_string('2,3'), bitmap_from_string('1,2,3,4'), bitmap_from_string('3,4,5'), bitmap_empty())) |
++---------------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                         3 |
++---------------------------------------------------------------------------------------------------------------------------+
+
+MySQL> select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),NULL));
++-----------------------------------------------------------------------------------------------------------------+
+| (bitmap_xor_count(bitmap_from_string('2,3'), bitmap_from_string('1,2,3,4'), bitmap_from_string('3,4,5'), NULL)) |
++-----------------------------------------------------------------------------------------------------------------+
+|                                                                                                            NULL |
++-----------------------------------------------------------------------------------------------------------------+
 ```
 
 ## keyword
