@@ -22,6 +22,9 @@ under the License.
 
 事实上,Seatunnel通过Stream load方式同步数据,性能强劲,欢迎大家使用
 
+#安装 Seatunnel
+[Seatunnel安装链接](https://interestinglab.github.io/seatunnel-docs/#/zh-cn/v2/flink/installation)
+
 ## Spark Sink Doris
 
 ### 插件代码
@@ -68,17 +71,46 @@ Stream_load方式写入的Http参数优化,在官网参数前加上'Doris.'前�
 [更多stream_load参数配置](https://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
 
 ### Examples
-
+Hive迁移数据至Doris
 ```
-doris {
-            host="0.0.0.0:8030"
-            database="test"
-            tableName="user"
-            user="doris"
-            password="doris"
-            bulk_size=10000
-            doris.column_separator="\t"
-            doris.columns="id,user_name,user_name_cn,create_time,last_login_time"
-      
-      }
+env{
+  spark.app.name = "hive2doris-template"
+}
+
+spark {
+  spark.sql.catalogImplementation = "hive"
+}
+
+source {
+  hive {
+    preSql = "select * from tmp.test"
+    result_table_name = "test"
+  }
+}
+
+transform {
+}
+
+
+sink {
+
+Console {
+
+  }
+
+Doris {
+   host="xxxx:8030"
+   database="gl_mint_dim"
+   tableName="dim_date"
+   user="root"
+   password="root"
+   bulk_size=1000
+   doris.column_separator="\t"
+   doris.columns="date_key,date_value,day_in_year,day_in_month"
+   }
+}
+```
+启动命令
+```
+sh bin/start-waterdrop-spark.sh --master local[4] --deploy-mode client --config ./config/spark.conf
 ```

@@ -24,6 +24,8 @@ seatunnel can load data by Spark engine or Flink engine.
 
 In fact,seatunnel load data by stream load function.Everyone is welcome to use
 
+# Install Seatunnel
+[Seatunnel install](https://interestinglab.github.io/seatunnel-docs/#/zh-cn/v2/flink/installation)
 
 ## Spark Sink Doris
 ### Options
@@ -67,17 +69,48 @@ Doris stream_load properties,you can use 'doris.' prefix + stream_load propertie
 [More Doris stream_load Configurations](https://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
 
 ### Examples
+Hive to Doris
 
+Config properties
 ```
-doris {
-            host="0.0.0.0:8030"
-            database="test"
-            tableName="user"
-            user="doris"
-            password="doris"
-            bulk_size=10000
-            doris.column_separator="\t"
-            doris.columns="id,user_name,user_name_cn,create_time,last_login_time"
-      
-      }
+env{
+  spark.app.name = "hive2doris-template"
+}
+
+spark {
+  spark.sql.catalogImplementation = "hive"
+}
+
+source {
+  hive {
+    preSql = "select * from tmp.test"
+    result_table_name = "test"
+  }
+}
+
+transform {
+}
+
+
+sink {
+
+Console {
+
+  }
+
+Doris {
+   host="xxxx:8030"
+   database="gl_mint_dim"
+   tableName="dim_date"
+   user="root"
+   password="root"
+   bulk_size=1000
+   doris.column_separator="\t"
+   doris.columns="date_key,date_value,day_in_year,day_in_month"
+   }
+}
+```
+Start command
+```
+sh bin/start-waterdrop-spark.sh --master local[4] --deploy-mode client --config ./config/spark.conf
 ```
