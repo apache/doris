@@ -627,6 +627,7 @@ module.exports = [
     children: [
         "debug-tool",
         "benchmark-tool",
+	"docker-dev"
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",
@@ -634,7 +635,7 @@ module.exports = [
         "cpp-format-code",
         "How-to-Share-blogs",
 	"commit-format-specification",
-		"minidump"
+	"minidump"
     ],
   },
   {
