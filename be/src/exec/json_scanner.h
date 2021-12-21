@@ -65,7 +65,7 @@ public:
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) override;
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) override;
 
     // Close this scanner
     void close() override;

@@ -294,6 +294,10 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
                     if (reader->eof()) {
                         break;
                     }
+                    //if read row but fill tuple fails, 
+                    if (!reader->is_fill_tuple()) {
+                        break;
+                    }
                     if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
                         LOG(WARNING) << "fail to attach row to rowset_writer. "
                                      << "res=" << res << ", tablet=" << cur_tablet->full_name()
@@ -1016,12 +1020,12 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
 
     memset(_tuple, 0, _tuple_desc->num_null_bytes());
     // Get from scanner
-    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof);
+    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof, &_fill_tuple);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Scanner get next tuple failed";
         return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
     }
-    if (_eof) {
+    if (_eof || !_fill_tuple) {
         return OLAP_SUCCESS;
     }
 
