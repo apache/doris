@@ -622,6 +622,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
+	"docker-dev",
         "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
@@ -630,7 +631,7 @@ module.exports = [
         "cpp-format-code",
         "How-to-Share-blogs",
 	"commit-format-specification",
-		"minidump"
+	"minidump"
     ],
   },
   {
