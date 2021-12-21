@@ -26,7 +26,8 @@ under the License.
 
 # SQL Block Rule
 
-Support SQL block rule by user level, by regex way to deny specify SQL
+Support SQL block rule by user level, by regex way to deny specify SQL.
+This function is only used to limit the query statement, and does not limit the execution of the explain statement.
 
 ## Rule
 

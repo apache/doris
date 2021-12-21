@@ -183,13 +183,7 @@ public class ConnectProcessor {
         }
         String sqlHash = DigestUtils.md5Hex(originStmt);
         ctx.setSqlHash(sqlHash);
-        try {
-            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, sqlHash, ctx.getQualifiedUser());
-        } catch (AnalysisException e) {
-            LOG.warn(e.getMessage());
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        }
+
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
                 .setTimestamp(System.currentTimeMillis())

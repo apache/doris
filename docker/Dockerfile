@@ -20,13 +20,13 @@ FROM centos:7 AS builder
 # install dependencies
 RUN yum makecache && yum -y update && yum -y groupinstall 'Development Tools' && \
     yum install -y byacc automake java-11-openjdk-devel java-1.8.0-openjdk-devel libtool bison binutils-devel zip \
-    unzip ncurses-devel curl git wget python2 glibc-static java-1.8.0-openjdk-devel \
+    unzip ncurses-devel curl git wget python2 glibc-static java-1.8.0-openjdk-devel ccache \
     libstdc++-static which psl libpsl-devel centos-release-scl && \
     yum install -y devtoolset-10 devtoolset-10-gcc devtoolset-10-libubsan-devel devtoolset-10-liblsan-devel \
     devtoolset-10-libasan-devel
 
 # build cmake
-ARG CMAKE_VERSION=3.19.8
+ARG CMAKE_VERSION=3.22.1
 ARG CMAKE_BASE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 RUN wget ${CMAKE_BASE_URL}/cmake-${CMAKE_VERSION}-Linux-x86_64.sh -q -O /tmp/cmake-install.sh && \
     chmod u+x /tmp/cmake-install.sh && \
