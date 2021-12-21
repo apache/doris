@@ -640,7 +640,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
-	      "docker-dev",
+	"docker-dev",
         "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
