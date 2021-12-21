@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2.dpp;
+package org.apache.doris.common.io;
 
 import org.apache.commons.codec.binary.StringUtils;
 

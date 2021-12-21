@@ -48,6 +48,7 @@
 #include "exec/schema_scan_node.h"
 #include "exec/select_node.h"
 #include "exec/spill_sort_node.h"
+#include "exec/table_function_node.h"
 #include "exec/topn_node.h"
 #include "exec/union_node.h"
 #include "exprs/expr_context.h"
@@ -472,6 +473,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
         return Status::OK();
 
+    case TPlanNodeType::TABLE_FUNCTION_NODE:
+        *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+        return Status::OK();
+
     default:
         map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -654,6 +659,10 @@ Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
     // TODO chenhao , when introduce latest AnalyticEvalNode open it
     // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
     return state->check_query_state(msg);
+}
+
+Status ExecNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    return Status::NotSupported("Not Implemented get batch");
 }
 
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {

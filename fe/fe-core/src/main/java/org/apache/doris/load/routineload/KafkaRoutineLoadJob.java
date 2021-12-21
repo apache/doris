@@ -28,7 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -187,12 +186,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<Integer, Long> taskKafkaProgress = Maps.newHashMap();
-                    for (int j = 0; j < currentKafkaPartitions.size(); j++) {
-                        if (j % currentConcurrentTaskNum == i) {
-                            int kafkaPartition = currentKafkaPartitions.get(j);
-                            taskKafkaProgress.put(kafkaPartition,
-                                    ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
-                        }
+                    for (int j = i; j < currentKafkaPartitions.size(); j = j + currentConcurrentTaskNum) {
+                        int kafkaPartition = currentKafkaPartitions.get(j);
+                        taskKafkaProgress.put(kafkaPartition,
+                                ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
                             maxBatchIntervalS * 2 * 1000, taskKafkaProgress);
@@ -214,19 +211,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
+    public int calculateCurrentConcurrentTaskNum() {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
-        int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = currentKafkaPartitions.size();
         if (desireTaskConcurrentNum == 0) {
             desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
 
         LOG.debug("current concurrent task number is min"
-                        + "(partition num: {}, desire task concurrent num: {}, alive be num: {}, config: {})",
-                partitionNum, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
-        currentTaskConcurrentNum = Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)),
-                Config.max_routine_load_task_concurrent_num);
+                        + "(partition num: {}, desire task concurrent num: {} config: {})",
+                partitionNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
+        currentTaskConcurrentNum = Math.min(partitionNum, Math.min(desireTaskConcurrentNum,
+                Config.max_routine_load_task_concurrent_num));
         return currentTaskConcurrentNum;
     }
 

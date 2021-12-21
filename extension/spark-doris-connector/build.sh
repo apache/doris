@@ -28,9 +28,10 @@ set -eo pipefail
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
-
 export DORIS_HOME=${ROOT}/../../
 export PATH=${DORIS_THIRDPARTY}/installed/bin:$PATH
+
+. ${DORIS_HOME}/env.sh
 
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then

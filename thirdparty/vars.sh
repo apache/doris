@@ -58,10 +58,10 @@ LIBEVENT_SOURCE=libevent-release-2.1.12-stable
 LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
 
 # openssl
-OPENSSL_DOWNLOAD="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2k.tar.gz"
-OPENSSL_NAME=openssl-1.0.2k.tar.gz
-OPENSSL_SOURCE=openssl-1.0.2k
-OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
+OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1m.tar.gz"
+OPENSSL_NAME=openssl-OpenSSL_1_1_1m.tar.gz
+OPENSSL_SOURCE=openssl-OpenSSL_1_1_1m
+OPENSSL_MD5SUM="710c2368d28f1a25ab92e25b5b9b11ec"
 
 # thrift
 THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
@@ -185,6 +185,12 @@ ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
 ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
+
+#cyrus-sasl
+CYRUS_SASL_DOWNLOAD="https://github.com/cyrusimap/cyrus-sasl/releases/download/cyrus-sasl-2.1.27/cyrus-sasl-2.1.27.tar.gz"
+CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
+CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
+CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
 # librdkafka-1.8.0
 LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.8.0.tar.gz"
@@ -406,6 +412,7 @@ ODBC
 LEVELDB
 BRPC
 ROCKSDB
+CYRUS_SASL
 LIBRDKAFKA
 FLATBUFFERS
 ARROW

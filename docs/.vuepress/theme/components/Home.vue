@@ -138,7 +138,7 @@ under the License.
       </div>
     </div>
 
-    <div
+    <!-- <div
       v-if="data.cases"
       class="wrapper cases"
     >
@@ -161,7 +161,7 @@ under the License.
           >
         </div>
       </div>
-    </div>
+    </div> -->
 
     <footer class="footer">
       <CustomFooter />

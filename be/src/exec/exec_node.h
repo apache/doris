@@ -100,7 +100,7 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) = 0;
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
@@ -184,17 +184,17 @@ public:
     const RowDescriptor& row_desc() const { return _row_descriptor; }
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
-    bool reached_limit() { return _limit != -1 && _num_rows_returned >= _limit; }
+    bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
-    RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
+    RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
     std::shared_ptr<MemTracker> mem_tracker() const { return _mem_tracker; }
 
     std::shared_ptr<MemTracker> expr_mem_tracker() const { return _expr_mem_tracker; }
 
-    MemPool* expr_mem_pool() { return _expr_mem_pool.get(); }
+    MemPool* expr_mem_pool() const { return _expr_mem_pool.get(); }
 
     // Extract node id from p->name().
     static int get_node_id_from_profile(RuntimeProfile* p);

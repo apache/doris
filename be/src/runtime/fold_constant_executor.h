@@ -32,22 +32,21 @@ class TExpr;
 class TQueryGlobals;
 
 // This class used to fold constant expr from fe
-class FoldConstantMgr {
+class FoldConstantExecutor {
 public:
-    FoldConstantMgr(ExecEnv* exec_env);
-    // fold constant expr 
+    // fold constant expr
     Status fold_constant_expr(const TFoldConstantParams& params, PConstantExprResult* response);
-    // init runtime_state and mem_tracker
-    Status init(TQueryGlobals query_globals);
-    // prepare expr
-    Status prepare_and_open(ExprContext* ctx);
-
-    std::string get_result(void* src, PrimitiveType slot_type);
-
 private:
+    // init runtime_state and mem_tracker
+    Status _init(const TQueryGlobals& query_globals);
+    // prepare expr
+    Status _prepare_and_open(ExprContext* ctx);
+
+    std::string _get_result(void* src, PrimitiveType slot_type);
+
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<MemTracker> _mem_tracker;
-    RuntimeProfile* _runtime_profile;
+    RuntimeProfile* _runtime_profile = nullptr;
     std::unique_ptr<MemPool> _mem_pool;
     ExecEnv* _exec_env;
     ObjectPool _pool;

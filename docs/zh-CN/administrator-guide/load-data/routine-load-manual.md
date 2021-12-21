@@ -118,12 +118,12 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     `desired_concurrent_number` 用于指定一个例行作业期望的并发度。即一个作业，最多有多少 task 同时在执行。对于 Kafka 导入而言，当前的实际并发度计算如下：
 
     ```
-    Min(partition num, desired_concurrent_number, alive_backend_num, Config.max_routine_load_task_concurrrent_num)
+    Min(partition num, desired_concurrent_number, Config.max_routine_load_task_concurrrent_num)
     ```
 
     其中 `Config.max_routine_load_task_concurrrent_num` 是系统的一个默认的最大并发数限制。这是一个 FE 配置，可以通过改配置调整。默认为 5。
 
-    其中 partition num 指订阅的 Kafka topic 的 partition 数量。`alive_backend_num` 是当前正常的 BE 节点数。
+    其中 partition num 指订阅的 Kafka topic 的 partition 数量。
 
 * max\_batch\_interval/max\_batch\_rows/max\_batch\_size
 

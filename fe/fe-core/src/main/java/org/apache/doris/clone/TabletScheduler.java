@@ -181,7 +181,7 @@ public class TabletScheduler extends MasterDaemon {
         for (Long beId : backendsWorkingSlots.keySet()) {
             if (backends.containsKey(beId)) {
                 List<Long> pathHashes = backends.get(beId).getDisks().values().stream()
-                        .filter(v -> v.getState()==DiskState.ONLINE)
+                        .filter(v -> v.getState() == DiskState.ONLINE)
                         .map(DiskInfo::getPathHash).collect(Collectors.toList());
                 backendsWorkingSlots.get(beId).updatePaths(pathHashes);
             } else {
@@ -529,7 +529,7 @@ public class TabletScheduler extends MasterDaemon {
                 // executing an alter job, but the alter job is in a PENDING state and is waiting for
                 // the table to become stable. In this case, we allow the tablet repair to proceed.
                 throw new SchedException(Status.UNRECOVERABLE,
-                    "table is in alter process, but tablet status is " + statusPair.first.name());
+                        "table is in alter process, but tablet status is " + statusPair.first.name());
             }
 
             tabletCtx.setTabletStatus(statusPair.first);
@@ -912,7 +912,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
-            boolean force, ClusterLoadStatistic statistic) throws SchedException {
+                                              boolean force, ClusterLoadStatistic statistic) throws SchedException {
         Replica chosenReplica = null;
         double maxScore = 0;
         for (Replica replica : replicas) {
@@ -976,7 +976,8 @@ public class TabletScheduler extends MasterDaemon {
          * 2. Wait for any txns before the watermark txn id to be finished. If all are finished, which means this replica is
          *      safe to be deleted.
          */
-        if (!force && replica.getState().canLoad() && replica.getWatermarkTxnId() == -1 && !FeConstants.runningUnitTest) {
+        if (!force && !Config.enable_force_drop_redundant_replica && replica.getState().canLoad()
+                && replica.getWatermarkTxnId() == -1 && !FeConstants.runningUnitTest) {
             long nextTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             replica.setWatermarkTxnId(nextTxnId);
             replica.setState(ReplicaState.DECOMMISSION);
@@ -1011,11 +1012,11 @@ public class TabletScheduler extends MasterDaemon {
 
         // write edit log
         ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(tabletCtx.getDbId(),
-                                                                     tabletCtx.getTblId(),
-                                                                     tabletCtx.getPartitionId(),
-                                                                     tabletCtx.getIndexId(),
-                                                                     tabletCtx.getTabletId(),
-                                                                     replica.getBackendId());
+                tabletCtx.getTblId(),
+                tabletCtx.getPartitionId(),
+                tabletCtx.getIndexId(),
+                tabletCtx.getTabletId(),
+                replica.getBackendId());
 
         Catalog.getCurrentCatalog().getEditLog().logDeleteReplica(info);
 
@@ -1103,7 +1104,7 @@ public class TabletScheduler extends MasterDaemon {
             addTablet(tabletCtx, false);
         }
     }
- 
+
     /**
      * Try to create a balance task for a tablet.
      */

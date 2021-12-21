@@ -30,6 +30,8 @@ ROOT=`cd "$ROOT"; pwd`
 
 export DORIS_HOME=${ROOT}/../../
 
+. ${DORIS_HOME}/env.sh
+
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
     . ${DORIS_HOME}/custom_env.sh
