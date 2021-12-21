@@ -163,13 +163,14 @@ namespace doris {
         T floating_value = *reinterpret_cast<const T *>(val);
         memcpy(&tmp, &floating_value, sizeof(T));
         if (UNLIKELY(std::isnan(floating_value))) return 0;
+        // "int" is enough because U and T are only primitive type
+        int s = (int)((sizeof(U) - sizeof(T)) * 8);
         if (floating_value < 0.0) {
             // Flipping all bits for negative values.
-            return static_cast<U>(~tmp) << std::max((sizeof(U) - sizeof(T)) * 8, (uint64_t) 0);
+            return static_cast<U>(~tmp) << std::max(s, 0);
         } else {
             // Flipping only first bit.
-            return (static_cast<U>(tmp) << std::max((sizeof(U) - sizeof(T)) * 8, (uint64_t) 0)) ^
-                   mask;
+            return (static_cast<U>(tmp) << std::max(s, 0)) ^ mask;
         }
     }
 
