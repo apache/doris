@@ -38,6 +38,7 @@ set -eo pipefail
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
+
 export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
@@ -201,6 +202,12 @@ make
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
+    # Has to set CC and CXX here
+    # --gcc-toolchain=/usr/local/gcc-10.1.0
+    # Could set use clang here to build BE with clang
+    #export CC="/data/common/clang-11/bin/clang --gcc-toolchain=${DORIS_GCC_HOME}"
+    #export CXX="/data/common/clang-11/bin/clang++ --gcc-toolchain=${DORIS_GCC_HOME}"
+
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}

@@ -18,13 +18,6 @@
 cmake_minimum_required(VERSION 3.19.2)
 
 # set CMAKE_C_COMPILER, this must set before project command
-if (DEFINED ENV{DORIS_GCC_HOME})
-    set(CMAKE_C_COMPILER "$ENV{DORIS_GCC_HOME}/bin/gcc")
-    set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
-    set(GCC_HOME $ENV{DORIS_GCC_HOME})
-else()
-    message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
-endif()
 
 project(doris CXX C)
 
@@ -88,16 +81,6 @@ else()
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
-
-# Check gcc
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
-        message(FATAL_ERROR "Need GCC version at least 7.3.0")
-    endif()
-    message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
-elseif (NOT APPLE)
-    message(FATAL_ERROR "Compiler should be GNU")
-endif()
 
 set(PIC_LIB_PATH "${THIRDPARTY_DIR}")
 if(PIC_LIB_PATH)

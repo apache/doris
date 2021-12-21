@@ -51,6 +51,37 @@ public:
     void resize(size_t _size);
 };
 
+template <class T>
+DataBuffer<T>::DataBuffer(size_t new_size) : buf(nullptr), current_size(0), current_capacity(0) {
+    resize(new_size);
+}
+
+template <class T>
+DataBuffer<T>::~DataBuffer() {
+    for (uint64_t i = current_size; i > 0; --i) {
+        (buf + i - 1)->~T();
+    }
+    if (buf) {
+        std::free(buf);
+    }
+}
+
+template <class T>
+void DataBuffer<T>::resize(size_t new_size) {
+    if (new_size > current_capacity || !buf) {
+        if (buf) {
+            T* buf_old = buf;
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_size));
+            memcpy(buf, buf_old, sizeof(T) * current_size);
+            std::free(buf_old);
+        } else {
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_size));
+        }
+        current_capacity = new_size;
+    }
+    current_size = new_size;
+}
+
 template class DataBuffer<bool>;
 template class DataBuffer<int8_t>;
 template class DataBuffer<int16_t>;
@@ -160,6 +191,9 @@ public:
 private:
     DataBuffer<ScalarCppType> _data;
 };
+
+template <class ScalarType>
+ScalarColumnVectorBatch<ScalarType>::~ScalarColumnVectorBatch() = default;
 
 // util class for read array's null signs.
 class ArrayNullColumnVectorBatch : public ColumnVectorBatch {

@@ -75,6 +75,8 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
 
     default:
         DCHECK(false) << "Unsupported Compare type";
+        // Clang will report error if not all path have return value
+        return nullptr;
     }
 }
 
