@@ -1832,7 +1832,7 @@ public:
     }
 
 private:
-    const BitmapValue& _bitmap;
+    const BitmapValue _bitmap;
     detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
     uint64_t _sv = 0;
     bool _end = false;

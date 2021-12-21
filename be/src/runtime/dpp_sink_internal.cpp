@@ -31,11 +31,12 @@ namespace doris {
 PartRangeKey PartRangeKey::_s_pos_infinite(1);
 PartRangeKey PartRangeKey::_s_neg_infinite(-1);
 
+// Clang will check constructor method not exist
 PartRange PartRange::_s_all_range = {
-        ._start_key = PartRangeKey::neg_infinite(),
-        ._end_key = PartRangeKey::pos_infinite(),
-        ._include_start_key = true,
-        ._include_end_key = true,
+        PartRangeKey::neg_infinite(),
+        PartRangeKey::pos_infinite(),
+        true,
+        true
 };
 
 RollupSchema::RollupSchema() {}

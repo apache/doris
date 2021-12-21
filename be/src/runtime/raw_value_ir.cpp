@@ -16,6 +16,7 @@
 // under the License.
 
 #include "runtime/raw_value.h"
+#include "runtime/string_value.hpp"
 #include "util/types.h"
 
 namespace doris {
