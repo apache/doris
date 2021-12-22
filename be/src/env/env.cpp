@@ -15,35 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/tablet_meta.h"
-
-#include <gtest/gtest.h>
-
-#include <string>
+#include "env/env.h"
+#include "env/env_posix.h"
+#include "env/env_remote.h"
 
 namespace doris {
 
-TEST(TabletMetaTest, SaveAndParse) {
-    std::string meta_path = "./be/test/olap/test_data/tablet_meta_test.hdr";
+std::shared_ptr<PosixEnv> Env::_posix_env(new PosixEnv());
+std::shared_ptr<RemoteEnv> Env::_remote_env(new RemoteEnv());
 
-    TabletMeta old_tablet_meta(1, 2, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD);
-    ASSERT_EQ(OLAP_SUCCESS, old_tablet_meta.save(meta_path));
+// Default Posix Env
+Env *Env::Default() {
+    return _posix_env.get();
+}
 
-    {
-        // Just to make stack space dirty
-        TabletMeta new_tablet_meta;
-        new_tablet_meta._preferred_rowset_type = BETA_ROWSET;
+Env* Env::get_env(TStorageMedium::type storage_medium) {
+    switch (storage_medium) {
+        case TStorageMedium::S3:
+            return _remote_env.get();
+        case TStorageMedium::SSD:
+        case TStorageMedium::HDD:
+        default:
+            return Default();
     }
-    TabletMeta new_tablet_meta;
-    new_tablet_meta.create_from_file(meta_path);
-
-    ASSERT_EQ(old_tablet_meta, new_tablet_meta);
 }
 
-} // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+Status Env::init() {
+    RETURN_IF_ERROR(_posix_env->init_conf());
+    RETURN_IF_ERROR(_remote_env->init_conf());
+    LOG(INFO) << "Env init successfully.";
+    return Status::OK();
 }
+
+} // end namespace doris

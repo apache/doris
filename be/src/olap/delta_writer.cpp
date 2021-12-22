@@ -134,7 +134,7 @@ OLAPStatus DeltaWriter::init() {
     } else {
         writer_context.rowset_type = ALPHA_ROWSET;
     }
-    writer_context.rowset_path_prefix = _tablet->tablet_path();
+    writer_context.path_desc = _tablet->tablet_path_desc();
     writer_context.tablet_schema = &(_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
     writer_context.txn_id = _req.txn_id;

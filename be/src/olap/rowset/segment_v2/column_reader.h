@@ -89,7 +89,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, const std::string& file_name,
+                         uint64_t num_rows, const FilePathDesc& path_desc,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();
@@ -132,7 +132,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 const std::string& file_name);
+                 FilePathDesc path_desc);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -167,7 +167,7 @@ private:
     ColumnMetaPB _meta;
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
-    std::string _file_name;
+    FilePathDesc _path_desc;
 
     const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =

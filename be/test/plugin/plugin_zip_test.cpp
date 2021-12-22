@@ -96,7 +96,7 @@ TEST_F(PluginZipTest, local_normal) {
 
     char f[11];
     Slice s(f, 11);
-    file->read_at(0, s);
+    file->read_at(0, &s);
 
     ASSERT_EQ("hello world", s.to_string());
 
@@ -119,7 +119,7 @@ TEST_F(PluginZipTest, http_normal) {
 
     char f[11];
     Slice s(f, 11);
-    file->read_at(0, s);
+    file->read_at(0, &s);
 
     ASSERT_EQ("hello world", s.to_string());
 

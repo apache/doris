@@ -228,7 +228,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;
         }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
+        context.path_desc = cur_tablet->tablet_path_desc();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
         context.txn_id = _request.transaction_id;
@@ -410,7 +410,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;
         }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
+        context.path_desc = cur_tablet->tablet_path_desc();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
         context.txn_id = _request.transaction_id;
