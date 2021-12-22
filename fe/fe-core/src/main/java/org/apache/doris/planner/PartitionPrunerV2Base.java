@@ -111,7 +111,6 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
                 return finalFilters.filters.stream()
                     .map(filter -> {
                         RangeMap<ColumnBound, UniqueId> filtered = candidate.subRangeMap(filter);
-                        Map<Range<ColumnBound>, UniqueId> rangeUniqueIdMap = filtered.asMapOfRanges();
                         return filtered.asMapOfRanges().values().stream()
                             .map(UniqueId::getPartitionId)
                             .collect(Collectors.toSet());
