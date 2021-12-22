@@ -77,8 +77,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _cluster_id_incomplete(false),
           _to_be_deleted(false),
           _current_shard(0),
-          _meta(nullptr),
-          _env(Env::get_env(storage_medium)) {
+          _env(Env::get_env(storage_medium)),
+          _meta(nullptr) {
     _path_desc.storage_medium = storage_medium;
     _path_desc.remote_path = remote_path;
     _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
