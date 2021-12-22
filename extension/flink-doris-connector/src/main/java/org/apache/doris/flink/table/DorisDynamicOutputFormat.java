@@ -29,6 +29,7 @@ import org.apache.flink.runtime.util.ExecutorThreadFactory;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.types.RowKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +47,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.table.data.RowData.createFieldGetter;
 
@@ -58,6 +60,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
     private static final Logger LOG = LoggerFactory.getLogger(DorisDynamicOutputFormat.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private static final String COLUMNS_KEY = "columns";
     private static final String FIELD_DELIMITER_KEY = "column_separator";
     private static final String FIELD_DELIMITER_DEFAULT = "\t";
     private static final String LINE_DELIMITER_KEY = "line_delimiter";
@@ -67,18 +70,17 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
     private static final String NULL_VALUE = "\\N";
     private static final String ESCAPE_DELIMITERS_KEY = "escape_delimiters";
     private static final String ESCAPE_DELIMITERS_DEFAULT = "false";
-
-    private String fieldDelimiter;
-    private String lineDelimiter;
+    private static final String DORIS_DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     private final String[] fieldNames;
     private final boolean jsonFormat;
+    private final RowData.FieldGetter[] fieldGetters;
+    private final List batch = new ArrayList<>();
+    private String fieldDelimiter;
+    private String lineDelimiter;
     private DorisOptions options;
     private DorisReadOptions readOptions;
     private DorisExecutionOptions executionOptions;
     private DorisStreamLoad dorisStreamLoad;
-    private final RowData.FieldGetter[] fieldGetters;
-
-    private final List batch = new ArrayList<>();
     private transient volatile boolean closed = false;
 
     private transient ScheduledExecutorService scheduler;
@@ -93,9 +95,27 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         this.options = option;
         this.readOptions = readOptions;
         this.executionOptions = executionOptions;
+        this.fieldNames = fieldNames;
+        this.jsonFormat = FORMAT_JSON_VALUE.equals(executionOptions.getStreamLoadProp().getProperty(FORMAT_KEY));
 
-        Properties streamLoadProp=executionOptions.getStreamLoadProp();
+        handleStreamloadProp();
+        this.fieldGetters = new RowData.FieldGetter[logicalTypes.length];
+        for (int i = 0; i < logicalTypes.length; i++) {
+            fieldGetters[i] = createFieldGetter(logicalTypes[i], i);
+        }
+    }
 
+    /**
+     * A builder used to set parameters to the output format's configuration in a fluent way.
+     *
+     * @return builder
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    private void handleStreamloadProp() {
+        Properties streamLoadProp = executionOptions.getStreamLoadProp();
         boolean ifEscape = Boolean.parseBoolean(streamLoadProp.getProperty(ESCAPE_DELIMITERS_KEY, ESCAPE_DELIMITERS_DEFAULT));
         if (ifEscape) {
             this.fieldDelimiter = escapeString(streamLoadProp.getProperty(FIELD_DELIMITER_KEY,
@@ -113,24 +133,27 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
                     LINE_DELIMITER_DEFAULT);
         }
 
-        this.fieldNames = fieldNames;
-        this.jsonFormat = FORMAT_JSON_VALUE.equals(executionOptions.getStreamLoadProp().getProperty(FORMAT_KEY));
-        this.fieldGetters = new RowData.FieldGetter[logicalTypes.length];
-        for (int i = 0; i < logicalTypes.length; i++) {
-            fieldGetters[i] = createFieldGetter(logicalTypes[i], i);
+        //add column key
+        if (!streamLoadProp.containsKey(COLUMNS_KEY)) {
+            String columns = String.join(",", Arrays.stream(fieldNames).map(item -> String.format("`%s`", item.trim().replace("`", ""))).collect(Collectors.toList()));
+            if (executionOptions.getEnableDelete()) {
+                columns = String.format("%s,%s", columns, DORIS_DELETE_SIGN);
+            }
+            System.out.println("===" + columns);
+            streamLoadProp.put(COLUMNS_KEY, columns);
         }
     }
 
-    private String escapeString( String s) {
-            Pattern p = Pattern.compile("\\\\x(\\d{2})");
-            Matcher m = p.matcher(s);
+    private String escapeString(String s) {
+        Pattern p = Pattern.compile("\\\\x(\\d{2})");
+        Matcher m = p.matcher(s);
 
-            StringBuffer buf = new StringBuffer();
-            while (m.find()) {
-                m.appendReplacement(buf, String.format("%s", (char) Integer.parseInt(m.group(1))));
-            }
-            m.appendTail(buf);
-            return buf.toString();
+        StringBuffer buf = new StringBuffer();
+        while (m.find()) {
+            m.appendReplacement(buf, String.format("%s", (char) Integer.parseInt(m.group(1))));
+        }
+        m.appendTail(buf);
+        return buf.toString();
     }
 
     @Override
@@ -195,13 +218,30 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
                     value.add(data);
                 }
             }
+            // add doris delete sign
+            if (executionOptions.getEnableDelete()) {
+                if (jsonFormat) {
+                    valueMap.put(DORIS_DELETE_SIGN, parseDeleteSign(rowData.getRowKind()));
+                } else {
+                    value.add(parseDeleteSign(rowData.getRowKind()));
+                }
+            }
             Object data = jsonFormat ? valueMap : value.toString();
             batch.add(data);
-
         } else if (row instanceof String) {
             batch.add(row);
         } else {
             throw new RuntimeException("The type of element should be 'RowData' or 'String' only.");
+        }
+    }
+
+    private String parseDeleteSign(RowKind rowKind) {
+        if (RowKind.INSERT.equals(rowKind) || RowKind.UPDATE_AFTER.equals(rowKind)) {
+            return "0";
+        } else if (RowKind.DELETE.equals(rowKind) || RowKind.UPDATE_BEFORE.equals(rowKind)) {
+            return "1";
+        } else {
+            throw new RuntimeException("Unrecognized row kind:" + rowKind.toString());
         }
     }
 
@@ -262,7 +302,6 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         }
     }
 
-
     private String getBackend() throws IOException {
         try {
             //get be url from fe
@@ -271,16 +310,6 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
             LOG.error("get backends info fail");
             throw new IOException(e);
         }
-    }
-
-
-    /**
-     * A builder used to set parameters to the output format's configuration in a fluent way.
-     *
-     * @return builder
-     */
-    public static Builder builder() {
-        return new Builder();
     }
 
     /**

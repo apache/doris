@@ -94,7 +94,7 @@ public class DorisStreamLoad implements Serializable {
             try {
                 RespContent respContent = OBJECT_MAPPER.readValue(loadResponse.respContent, RespContent.class);
                 if (!DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
-                    String errMsg=String.format("stream load error: %s, see more in %s",respContent.getMessage(),respContent.getErrorURL());
+                    String errMsg = String.format("stream load error: %s, see more in %s", respContent.getMessage(), respContent.getErrorURL());
                     throw new StreamLoadException(errMsg);
                 }
             } catch (IOException e) {
