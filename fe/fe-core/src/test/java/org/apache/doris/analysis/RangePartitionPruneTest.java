@@ -185,10 +185,12 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
         addCase("select * from test.t2 where k1 in (3, 10, 13) and k2>10", "partitions=2/9", "partitions=2/9");
         // is null and other predicates
         addCase("select * from test.t2 where k1 > 10 and k1 is null", "partitions=1/9", "partitions=0/9");
+        addCase("select * from test.t2 where k1 is null and k1 > 10", "partitions=1/9", "partitions=0/9");
         addCase("select * from test.multi_not_null where k1 > 10 and k1 is null", "partitions=0/2", "partitions=0/2");
         // others predicates combination
         addCase("select * from test.t2 where k1 > 10 and k2 < 4", "partitions=6/9", "partitions=6/9");
         addCase("select * from test.t2 where k1 >10 and k1 < 10 and (k1=11 or k1=12)", "partitions=0/9", "partitions=0/9");
+        addCase("select * from test.t2 where k1 > 20 and k1 < 7 and k1 = 10", "partitions=0/9", "partitions=0/9");
 
         // 4. Disjunctive predicates
         addCase("select * from test.t2 where k1=10 or k1=23", "partitions=9/9", "partitions=3/9");

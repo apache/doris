@@ -145,15 +145,10 @@ abstract public class ScanNode extends PlanNode {
 
     private ColumnRange createColumnRange(SlotDescriptor desc,
                                           List<Expr> conjuncts) {
-        ColumnRange result = null;
+        ColumnRange result = ColumnRange.create();
         for (Expr expr : conjuncts) {
             if (!expr.isBound(desc.getId())) {
                 continue;
-            }
-
-            // Finish early if we have ever met `is null` predicate.
-            if (result != null && result.hasConjunctiveIsNull()) {
-                return result;
             }
 
             if (expr instanceof CompoundPredicate &&
@@ -182,28 +177,21 @@ abstract public class ScanNode extends PlanNode {
                     }
                 });
                 if (allMatch && !(disjunctiveRanges.isEmpty() && hasIsNull.isEmpty())) {
-                    if (result == null) {
-                        result = ColumnRange.create();
-                    }
-                    result.merge(disjunctiveRanges);
+                    result.intersect(disjunctiveRanges);
                     result.setHasDisjunctiveIsNull(!hasIsNull.isEmpty());
                 }
             } else {
                 // Try to get column filter from conjunctive predicates.
                 ColumnRanges ranges = expressionToRanges(expr, desc);
-                ColumnRanges.Type type = ranges.type;
-                if (type == ColumnRanges.Type.IS_NULL || type == ColumnRanges.Type.CONVERT_SUCCESS) {
-                    if (result == null) {
-                        result = ColumnRange.create();
-                    }
-
-                    if (type == ColumnRanges.Type.IS_NULL) {
+                switch (ranges.type) {
+                    case IS_NULL:
                         result.setHasConjunctiveIsNull(true);
-                    }
-
-                    if (type == ColumnRanges.Type.CONVERT_SUCCESS) {
-                        result.merge(ranges.ranges);
-                    }
+                        break;
+                    case CONVERT_SUCCESS:
+                        result.intersect(ranges.ranges);
+                    case CONVERT_FAILURE:
+                    default:
+                        break;
                 }
             }
         }

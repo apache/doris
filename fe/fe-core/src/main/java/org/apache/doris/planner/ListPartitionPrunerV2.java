@@ -82,6 +82,10 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
     @Override
     FinalFilters getFinalFilters(ColumnRange columnRange,
                                  Column column) throws AnalysisException {
+        if (!columnRange.hasFilter()) {
+            return FinalFilters.noFilters();
+        }
+
         Optional<RangeSet<ColumnBound>> rangeSetOpt = columnRange.getRangeSet();
         if (columnRange.hasConjunctiveIsNull() || !rangeSetOpt.isPresent()) {
             return FinalFilters.constantFalseFilters();

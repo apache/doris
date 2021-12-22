@@ -23,7 +23,17 @@ import java.util.List;
 import com.google.common.collect.Lists;
 
 public class PredicateUtils {
-
+    /**
+     * Split predicates in disjunctive form recursively, i.e., split the input expression
+     * if the root node of the expression tree is `or` predicate.
+     *
+     * Some examples:
+     * a or b -> a, b
+     * a or b or c -> a, b, c
+     * (a and b) or (c or d) -> (a and b), (c and d)
+     * (a or b) and c -> (a or b) and c
+     * a -> a
+     */
     public static List<Expr> splitDisjunctivePredicates(Expr expr) {
         ArrayList<Expr> result = Lists.newArrayList();
         if (expr == null) {

@@ -32,6 +32,12 @@ import com.google.common.collect.TreeRangeSet;
  * This can represent both conjunctive and disjunctive predicates for a column.
  *
  * The meaning of the predicates is: `conjunctiveIsNull` AND (`rangeSet` OR `disjunctiveIsNull`)
+ *
+ * Notes about internal state:
+ * 1. If `conjunctiveIsNull` and  `disjunctiveIsNull` are both false and `rangeSet` is null,
+ * it means that there is no filter for the column. See {@link ColumnRange#hasFilter()}.
+ * 2. If `rangeSet` is empty, it means that the `not null` predicates are folded to false literal,
+ * i.e., col=1 and col=2.
  */
 public class ColumnRange {
     private boolean hasConjunctiveIsNull;
@@ -41,14 +47,14 @@ public class ColumnRange {
     private ColumnRange() {
     }
 
-    public void merge(List<Range<ColumnBound>> ranges) {
-        if (!hasConjunctiveIsNull && ranges != null && !ranges.isEmpty()) {
+    public void intersect(List<Range<ColumnBound>> disjunctiveRanges) {
+        if (disjunctiveRanges != null && !disjunctiveRanges.isEmpty()) {
             if (rangeSet == null) {
                 rangeSet = TreeRangeSet.create();
-                ranges.forEach(rangeSet::add);
+                disjunctiveRanges.forEach(rangeSet::add);
             } else {
                 RangeSet<ColumnBound> merged = TreeRangeSet.create();
-                ranges.forEach(range -> merged.addAll(rangeSet.subRangeSet(range)));
+                disjunctiveRanges.forEach(range -> merged.addAll(rangeSet.subRangeSet(range)));
                 rangeSet = merged;
             }
         }
@@ -82,6 +88,10 @@ public class ColumnRange {
     public ColumnRange setHasDisjunctiveIsNull(boolean hasDisjunctiveIsNull) {
         this.hasDisjunctiveIsNull = hasDisjunctiveIsNull;
         return this;
+    }
+
+    public boolean hasFilter() {
+        return hasConjunctiveIsNull || hasDisjunctiveIsNull || rangeSet != null;
     }
 
     @Override

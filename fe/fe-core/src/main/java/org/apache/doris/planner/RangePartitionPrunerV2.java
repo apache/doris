@@ -74,6 +74,10 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
     @Override
     FinalFilters getFinalFilters(ColumnRange columnRange,
                                  Column column) throws AnalysisException {
+        if (!columnRange.hasFilter()) {
+            return FinalFilters.noFilters();
+        }
+
         Optional<RangeSet<ColumnBound>> rangeSetOpt = columnRange.getRangeSet();
         if (columnRange.hasConjunctiveIsNull()) {
             if (!rangeSetOpt.isPresent()) {
@@ -101,7 +105,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                         return FinalFilters.create(rangeSet.asRanges());
                     }
                 } else {
-                    throw new RuntimeException("Empty PartitionColumnRange for column " + column);
+                    return FinalFilters.noFilters();
                 }
             }
         }
