@@ -105,16 +105,6 @@ ${TP_DIR}/download-thirdparty.sh
 
 export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
-# set COMPILER
-if [[ ! -z ${DORIS_GCC_HOME} ]]; then
-    export CC=${DORIS_GCC_HOME}/bin/gcc
-    export CPP=${DORIS_GCC_HOME}/bin/cpp
-    export CXX=${DORIS_GCC_HOME}/bin/g++
-else
-    echo "DORIS_GCC_HOME environment variable is not set"
-    exit 1
-fi
-
 # prepare installed prefix
 mkdir -p ${TP_DIR}/installed/lib64
 pushd  ${TP_DIR}/installed/
@@ -184,6 +174,8 @@ check_if_source_exist() {
         echo "$TP_SOURCE_DIR/$1 does not exist."
         exit 1
     fi
+    # Remove the build dir to clean build env
+    rm -rf $TP_SOURCE_DIR/$1/$BUILD_DIR
     echo "===== begin build $1"
 }
 
@@ -517,7 +509,7 @@ build_rocksdb() {
 
     cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
-    CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC -Wno-deprecated-copy -Wno-stringop-truncation -Wno-pessimizing-move" LDFLAGS="-static-libstdc++ -static-libgcc" \
+    CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC -Wno-deprecated-copy -Wno-shadow -Wno-range-loop-construct -Wno-dangling-gsl -Wno-pessimizing-move" LDFLAGS="-static-libstdc++ -static-libgcc" \
         PORTABLE=1 make USE_RTTI=1 -j $PARALLEL static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
@@ -566,7 +558,7 @@ build_flatbuffers() {
   cd $TP_SOURCE_DIR/$FLATBUFFERS_SOURCE
   mkdir -p $BUILD_DIR && cd $BUILD_DIR
   rm -rf CMakeCache.txt CMakeFiles/
-  CXXFLAGS="-fPIC -Wno-class-memaccess" \
+  CXXFLAGS="-fPIC " \
   LDFLAGS="-static-libstdc++ -static-libgcc" \
   ${CMAKE_CMD} -G "${GENERATOR}" ..
   ${BUILD_SYSTEM} -j $PARALLEL
@@ -643,55 +635,13 @@ build_s2() {
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
-# bitshuffle
 build_bitshuffle() {
     check_if_source_exist $BITSHUFFLE_SOURCE
     cd $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE
     PREFIX=$TP_INSTALL_DIR
-
-    # This library has significant optimizations when built with -mavx2. However,
-    # we still need to support non-AVX2-capable hardware. So, we build it twice,
-    # once with the flag and once without, and use some linker tricks to
-    # suffix the AVX2 symbols with '_avx2'.
-    arches="default avx2"
-    MACHINE_TYPE=$(uname -m)
-    # Becuase aarch64 don't support avx2, disable it.
-    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
-        arches="default"
-    fi
-
-    to_link=""
-    for arch in $arches ; do
-        arch_flag=""
-        if [ "$arch" == "avx2" ]; then
-            arch_flag="-mavx2"
-        fi
-        tmp_obj=bitshuffle_${arch}_tmp.o
-        dst_obj=bitshuffle_${arch}.o
-        ${CC:-$DORIS_GCC_HOME/bin/gcc} $EXTRA_CFLAGS $arch_flag -std=c99 -I$PREFIX/include/lz4/ -O3 -DNDEBUG -fPIC -c \
-            "src/bitshuffle_core.c" \
-            "src/bitshuffle.c" \
-            "src/iochain.c"
-        # Merge the object files together to produce a combined .o file.
-        $DORIS_BIN_UTILS/ld -r -o $tmp_obj bitshuffle_core.o bitshuffle.o iochain.o
-        # For the AVX2 symbols, suffix them.
-        if [ "$arch" == "avx2" ]; then
-            # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
-            $DORIS_BIN_UTILS/nm --defined-only --extern-only $tmp_obj | while read addr type sym ; do
-              echo ${sym} ${sym}_${arch}
-            done > renames.txt
-            $DORIS_BIN_UTILS/objcopy --redefine-syms=renames.txt $tmp_obj $dst_obj
-        else
-            mv $tmp_obj $dst_obj
-        fi
-        to_link="$to_link $dst_obj"
-    done
-    rm -f libbitshuffle.a
-    $DORIS_BIN_UTILS/ar rs libbitshuffle.a $to_link
     mkdir -p $PREFIX/include/bitshuffle
-    cp libbitshuffle.a $PREFIX/lib/
-    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle.h $PREFIX/include/bitshuffle/bitshuffle.h
-    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle_core.h $PREFIX/include/bitshuffle/bitshuffle_core.h
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake ${TP_DIR}/cmake/bitshuffle-cmake -DDORIS_HOME=${DORIS_HOME} -DTP_INSTALL_DIR=${TP_INSTALL_DIR} && make install
 }
 
 # croaring bitmap
@@ -744,7 +694,7 @@ build_orc() {
     cd $TP_SOURCE_DIR/$ORC_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
-    CXXFLAGS="-O3 -Wno-array-bounds" \
+    CXXFLAGS="-O3 -Wno-array-bounds -Wno-suggest-destructor-override -Wno-suggest-override" \
     ${CMAKE_CMD} -G "${GENERATOR}" ../ -DBUILD_JAVA=OFF \
     -DPROTOBUF_HOME=$TP_INSTALL_DIR \
     -DSNAPPY_HOME=$TP_INSTALL_DIR \

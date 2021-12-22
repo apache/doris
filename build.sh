@@ -41,6 +41,13 @@ ROOT=`cd "$ROOT"; pwd`
 
 export DORIS_HOME=${ROOT}
 
+#export CC="/data/common/clang-11/bin/clang --gcc-toolchain=/usr/local/gcc-10.1.0"
+#export CXX="/data/common/clang-11/bin/clang++ --gcc-toolchain=/usr/local/gcc-10.1.0"
+
+export CC="/usr/local/gcc-10.1.0/bin/gcc"
+export CXX="/usr/local/gcc-10.1.0/bin/g++"
+
+
 . ${DORIS_HOME}/env.sh
 
 # Check args
