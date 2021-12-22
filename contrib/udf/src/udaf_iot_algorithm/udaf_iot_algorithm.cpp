@@ -148,6 +148,6 @@ namespace doris_udf {
         const TsKeyValueState *src_struct = reinterpret_cast<const TsKeyValueState *>(src.ptr);
         DoubleVal result = src_struct->value;
         context->free(src.ptr);
-        return Double();
+        return result;
     }
 }
