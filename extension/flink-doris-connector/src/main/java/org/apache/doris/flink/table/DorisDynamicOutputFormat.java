@@ -139,7 +139,6 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
             if (executionOptions.getEnableDelete()) {
                 columns = String.format("%s,%s", columns, DORIS_DELETE_SIGN);
             }
-            System.out.println("===" + columns);
             streamLoadProp.put(COLUMNS_KEY, columns);
         }
     }
