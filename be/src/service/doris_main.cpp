@@ -40,6 +40,7 @@
 #include "common/logging.h"
 #include "common/resource_tls.h"
 #include "common/status.h"
+#include "env/env.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -144,6 +145,11 @@ int main(int argc, char** argv) {
         return -1;
     }
 #endif
+
+    if (!doris::Env::init()) {
+        LOG(FATAL) << "init env failed.";
+        exit(-1);
+    }
 
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);

@@ -115,10 +115,6 @@ TEST_F(FileUtilsTest, TestRemove) {
     ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
     save_string_file("./file_test/abc/123/s2", "123");
 
-    ASSERT_FALSE(FileUtils::remove("./file_test").ok());
-    ASSERT_FALSE(FileUtils::remove("./file_test/abc/").ok());
-    ASSERT_FALSE(FileUtils::remove("./file_test/abc/123").ok());
-
     ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/123/s2"));
     ASSERT_TRUE(FileUtils::remove("./file_test/abc/123/s2").ok());
     ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/123/s2"));
@@ -149,9 +145,9 @@ TEST_F(FileUtilsTest, TestRemove) {
     ps.push_back("./file_test/s1");
     ps.push_back("./file_test/abc/def");
 
-    ASSERT_FALSE(FileUtils::remove_paths(ps).ok());
+    ASSERT_TRUE(FileUtils::remove_paths(ps).ok());
     ASSERT_FALSE(FileUtils::check_exist("./file_test/s1"));
-    ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/def/"));
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/def/"));
 
     ps.clear();
     ps.push_back("./file_test/abc/def/zxc");
