@@ -239,6 +239,7 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
+      "seatunnel",
       {
         title: "UDF",
         directoryPath: "udf/",
