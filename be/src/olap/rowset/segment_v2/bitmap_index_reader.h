@@ -39,8 +39,8 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(const std::string& file_name, const BitmapIndexPB* bitmap_index_meta)
-            : _file_name(file_name), _bitmap_index_meta(bitmap_index_meta) {
+    explicit BitmapIndexReader(const FilePathDesc& path_desc, const BitmapIndexPB* bitmap_index_meta)
+            : _path_desc(path_desc), _bitmap_index_meta(bitmap_index_meta) {
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
@@ -56,7 +56,7 @@ public:
 private:
     friend class BitmapIndexIterator;
 
-    std::string _file_name;
+    FilePathDesc _path_desc;
     const TypeInfo* _typeinfo;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;

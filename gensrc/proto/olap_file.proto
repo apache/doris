@@ -295,6 +295,12 @@ enum TabletTypePB {
     TABLET_TYPE_MEMORY = 1;
 }
 
+enum StorageMediumPB {
+    HDD = 0;
+    SSD = 1;
+    S3 = 2;
+}
+
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -319,6 +325,7 @@ message TabletMetaPB {
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
     repeated RowsetMetaPB stale_rs_metas = 18;
+    optional StorageMediumPB storage_medium = 19 [default = HDD];
 }
 
 message OLAPIndexHeaderMessage {

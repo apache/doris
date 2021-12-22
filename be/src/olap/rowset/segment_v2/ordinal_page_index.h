@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "env/env.h"
 #include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
@@ -61,9 +62,9 @@ class OrdinalPageIndexIterator;
 
 class OrdinalIndexReader {
 public:
-    explicit OrdinalIndexReader(const std::string& filename, const OrdinalIndexPB* index_meta,
+    explicit OrdinalIndexReader(const FilePathDesc& path_desc, const OrdinalIndexPB* index_meta,
                                 ordinal_t num_values)
-            : _filename(filename), _index_meta(index_meta), _num_values(num_values) {}
+            : _path_desc(path_desc), _index_meta(index_meta), _num_values(num_values) {}
 
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -83,7 +84,7 @@ public:
 private:
     friend OrdinalPageIndexIterator;
 
-    std::string _filename;
+    FilePathDesc _path_desc;
     const OrdinalIndexPB* _index_meta;
     // total number of values (including NULLs) in the indexed column,
     // equals to 1 + 'last ordinal of last data pages'

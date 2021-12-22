@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -52,10 +53,9 @@ public:
     static Status create_dir(const std::string& dir_path, Env* env);
 
     // Delete file recursively.
-    static Status remove_all(const std::string& dir_path);
+    static Status remove_all(const std::string& dir_path, TStorageMedium::type store);
 
-    // Delete dir or file, failed when there are files or dirs under the path
-    static Status remove(const std::string& path, Env* env);
+    static Status remove_all(const std::string& dir_path);
 
     static Status remove(const std::string& path);
 
@@ -101,9 +101,6 @@ public:
 
     // check path(file or directory) exist with default env
     static bool check_exist(const std::string& path);
-
-    // check path(file or directory) exist with env
-    static bool check_exist(const std::string& path, Env* env);
 
     // Canonicalize 'path' by applying the following conversions:
     // - Converts a relative path into an absolute one using the cwd.
