@@ -202,6 +202,7 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
         // TODO: predicates are "PREDICATES: ((`dt` = 20211123 AND `k1` = 1) OR (`dt` = 20211125 AND `k1` = 3)), `k2` > ",
         // maybe something goes wrong with ExtractCommonFactorsRule.
         addCase("select * from test.t1 where ((dt=20211123 and k1=1) or (dt=20211125 and k1=3)) and k2>0", "partitions=8/8", "partitions=8/8");
+        addCase("select * from test.t2 where k1 > 10 or k2 < 1", "partitions=9/9", "partitions=9/9");
     }
 
     @Test
