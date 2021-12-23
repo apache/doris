@@ -120,7 +120,7 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
             } else {
                 *fill_tuple = false;
             }
-            break; //break always
+            break; // break always
         }
     }
     if (_scanner_eof) {
