@@ -290,7 +290,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
                 continue;
             }
 
-            // if read row succed, but fill dest tuple fail, we need to increase # of uncommitted rows, 
+            // if read row succeed, but fill dest tuple fail, we need to increase # of uncommitted rows, 
             // once reach the capacity of row batch, will transfer the row batch to next operator to release memory
             if (!tuple_fill) {
                 row_batch->increase_uncommitted_rows();
