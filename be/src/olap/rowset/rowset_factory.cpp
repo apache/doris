@@ -28,14 +28,14 @@
 
 namespace doris {
 
-OLAPStatus RowsetFactory::create_rowset(const TabletSchema* schema, const std::string& rowset_path,
+OLAPStatus RowsetFactory::create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                                         RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
-        rowset->reset(new AlphaRowset(schema, rowset_path, rowset_meta));
+        rowset->reset(new AlphaRowset(schema, rowset_path_desc, rowset_meta));
         return (*rowset)->init();
     }
     if (rowset_meta->rowset_type() == BETA_ROWSET) {
-        rowset->reset(new BetaRowset(schema, rowset_path, rowset_meta));
+        rowset->reset(new BetaRowset(schema, rowset_path_desc, rowset_meta));
         return (*rowset)->init();
     }
     return OLAP_ERR_ROWSET_TYPE_NOT_FOUND; // should never happen

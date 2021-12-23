@@ -346,6 +346,43 @@ TEST(BitmapValueTest, bitmap_single_convert) {
     bitmap |= bitmap_u;
     ASSERT_EQ(BitmapValue::BITMAP, bitmap._type);
 }
+
+TEST(BitmapValueTest, bitmap_value_iterator_test) {
+    BitmapValue empty;
+    for (auto iter = empty.begin(); iter != empty.end(); ++iter) {
+        // should not goes here
+        ASSERT_TRUE(false);
+    }
+
+    BitmapValue single(1024);
+    for (auto iter = single.begin(); iter != single.end(); ++iter) {
+        ASSERT_EQ(1024, *iter);
+    }
+
+    int i = 0;
+    BitmapValue bitmap({0, 1025, 1026, UINT32_MAX, UINT64_MAX});
+    for (auto iter = bitmap.begin(); iter != bitmap.end(); ++iter, ++i) {
+        switch (i) {
+            case 0:
+                ASSERT_EQ(0, *iter);
+                break;
+            case 1:
+                ASSERT_EQ(1025, *iter);
+                break;
+            case 2:
+                ASSERT_EQ(1026, *iter);
+                break;
+            case 3:
+                ASSERT_EQ(UINT32_MAX, *iter);
+                break;
+            case 4:
+                ASSERT_EQ(UINT64_MAX, *iter);
+                break;
+            default:
+                ASSERT_TRUE(false); 
+        }
+    }
+}
 } // namespace doris
 
 int main(int argc, char** argv) {

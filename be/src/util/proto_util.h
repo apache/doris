@@ -27,11 +27,11 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request, Closure*
     if (brpc_request->has_row_batch() && config::transfer_data_by_brpc_attachment == true) {
         butil::IOBuf attachment;
         auto row_batch = brpc_request->mutable_row_batch();
-        row_batch->set_transfer_by_attachment(true);
         attachment.append(row_batch->tuple_data());
         row_batch->clear_tuple_data();
         row_batch->set_tuple_data("");
         closure->cntl.request_attachment().swap(attachment);
+        brpc_request->set_transfer_by_attachment(true);
     }
 }
 
@@ -40,13 +40,11 @@ template <typename Params>
 inline void attachment_transfer_request_row_batch(const Params* brpc_request,
                                                   brpc::Controller* cntl) {
     Params* req = const_cast<Params*>(brpc_request);
-    if (req->has_row_batch()) {
+    if (req->has_row_batch() && req->transfer_by_attachment()) {
         auto rb = req->mutable_row_batch();
-        if (rb->transfer_by_attachment()) {
-            DCHECK(cntl->request_attachment().size() > 0);
-            const butil::IOBuf& io_buf = cntl->request_attachment();
-            io_buf.copy_to(rb->mutable_tuple_data(), io_buf.size(), 0);
-        }
+        DCHECK(cntl->request_attachment().size() > 0);
+        const butil::IOBuf& io_buf = cntl->request_attachment();
+        io_buf.copy_to(rb->mutable_tuple_data(), io_buf.size(), 0);
     }
 }
 

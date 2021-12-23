@@ -43,6 +43,7 @@ import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
+import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteLikePredicateRule;
@@ -268,6 +269,8 @@ public class Analyzer {
             // Binary predicates must be rewritten to a canonical form for both predicate
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
+            // Put it after NormalizeBinaryPredicatesRule, make sure slotRef is on the left and Literal is on the right.
+            rules.add(RewriteBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);

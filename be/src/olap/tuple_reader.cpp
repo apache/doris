@@ -79,16 +79,9 @@ OLAPStatus TupleReader::init(const ReaderParams& read_params) {
     auto status = _init_collect_iter(read_params, &rs_readers);
     if (status != OLAP_SUCCESS) { return status; }
 
-    // optimize for single rowset reading without do aggregation when reading all columns, 
-    // and otherwise should use _agg_key_next_row for AGG_KEYS
     if (_optimize_for_single_rowset(rs_readers)) {
-        if(_tablet->keys_type() == AGG_KEYS && _return_columns.size() == _tablet->tablet_schema().num_columns()) {
-            _next_row_func = &TupleReader::_direct_agg_key_next_row;
-        } else if (_tablet->keys_type() == AGG_KEYS) {
-            _next_row_func = &TupleReader::_agg_key_next_row;
-        } else {
-            _next_row_func = &TupleReader::_direct_next_row;
-        }
+        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &TupleReader::_direct_agg_key_next_row
+                                                          : &TupleReader::_direct_next_row;
         return OLAP_SUCCESS;
     }
 
@@ -184,7 +177,6 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
                                         ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
-    int64_t merged_count = 0;
     do {
         if (UNLIKELY(_next_key == nullptr)) {
             *eof = true;
@@ -196,23 +188,13 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
         // skip the lower version rows;
-        while (nullptr != _next_key) {
-            auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
-            if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
-                break;
-            }
-
+        auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
+        if (LIKELY(res != OLAP_ERR_DATA_EOF)) {
             if (UNLIKELY(res != OLAP_SUCCESS)) {
                 LOG(WARNING) << "next failed: " << res;
                 return res;
             }
-
-            // break while can NOT doing aggregation
-            if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
-                agg_finalize_row(_value_cids, row_cursor, mem_pool);
-                break;
-            }
-            ++merged_count;
+            agg_finalize_row(_value_cids, row_cursor, mem_pool);
             cur_delete_flag = _next_delete_flag;
         }
 
@@ -223,7 +205,6 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
         }
         _stats.rows_del_filtered++;
     } while (cur_delete_flag);
-    _merged_rows += merged_count;
     return OLAP_SUCCESS;
 }
 

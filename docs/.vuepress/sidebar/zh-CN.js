@@ -194,6 +194,7 @@ module.exports = [
         sidebarDepth: 1,
       },
       "backup-restore",
+      "bloomfilter",
       "broker",
       "colocation-join",
       "bucket-shuffle-join",
@@ -239,6 +240,7 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
+      "seatunnel",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -439,6 +441,15 @@ module.exports = [
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
           },
+          {
+            title: "table functions",
+            directoryPath: "table-functions/",
+            children: [
+              "explode-bitmap",
+              "explode-split",
+              "explode-json-array"
+            ],
+          },
           "window-function",
           "cast",
           "digital-masking",
@@ -588,6 +599,7 @@ module.exports = [
               "alter-routine-load",
               "insert",
               "UPDATE",
+              "lateral-view",
             ],
           },
           {

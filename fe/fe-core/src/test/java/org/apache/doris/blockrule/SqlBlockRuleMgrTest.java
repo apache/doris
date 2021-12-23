@@ -17,24 +17,32 @@
 
 package org.apache.doris.blockrule;
 
+import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
+import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.UserException;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
 
 public class SqlBlockRuleMgrTest {
     
@@ -125,5 +133,26 @@ public class SqlBlockRuleMgrTest {
     public void testNormalCreate() throws Exception {
         String createSql = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table\",\"enable\"=\"true\")";
         CreateSqlBlockRuleStmt createSqlBlockRuleStmt = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
+    }
+
+    @Test
+    public void testOnlyBlockQuery() throws DdlException, UserException {
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
+
+        SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", "test", null, true, true);
+        mgr.replayCreate(sqlRule);
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CreateSqlBlockRuleStmt.SQL_PROPERTY, "select \\* from test_table");
+        AlterSqlBlockRuleStmt stmt = new AlterSqlBlockRuleStmt("test_rule1", properties);
+
+        stmt.analyze(analyzer);
+        mgr.alterSqlBlockRule(stmt);
+
+        ShowSqlBlockRuleStmt showStmt = new ShowSqlBlockRuleStmt("test_rule1");
+
+        Assert.assertEquals(1, mgr.getSqlBlockRule(showStmt).size());
+        Assert.assertEquals("select \\* from test_table", mgr.getSqlBlockRule(showStmt).get(0).getSql());
     }
 }

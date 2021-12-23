@@ -475,7 +475,7 @@ CONF_Bool(enable_metric_calculator, "true");
 CONF_mInt32(max_consumer_num_per_group, "3");
 
 // the size of thread pool for routine load task.
-// this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
+// this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 CONF_Int32(routine_load_thread_pool_size, "10");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
@@ -642,6 +642,14 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 // So the value of this config should corresponding to the number of rowsets on this BE.
 CONF_mInt32(segment_cache_capacity, "1000000");
 
+// s3 config
+CONF_String(s3_ak, "");
+CONF_String(s3_sk, "");
+CONF_String(s3_endpoint, "");
+CONF_String(s3_region, "");
+CONF_mInt32(s3_max_conn, "50");
+CONF_mInt32(s3_request_timeout_ms, "3000");
+CONF_mInt32(s3_conn_timeout_ms, "1000");
 // Set to true to disable the minidump feature.
 CONF_Bool(disable_minidump , "false");
 

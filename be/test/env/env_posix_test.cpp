@@ -36,6 +36,17 @@ public:
     void TearDown() override {}
 };
 
+TEST_F(EnvPosixTest, file_path_desc) {
+    FilePathDesc path_desc("/local");
+    path_desc.storage_medium = TStorageMedium::S3;
+    path_desc.remote_path = "/remote";
+    FilePathDescStream path_desc_stream;
+    path_desc_stream << path_desc << "/test" << "/" << 1;
+    FilePathDesc dest_path_desc = path_desc_stream.path_desc();
+    ASSERT_EQ("/local/test/1", dest_path_desc.filepath);
+    ASSERT_EQ("/remote/test/1", dest_path_desc.remote_path);
+}
+
 TEST_F(EnvPosixTest, random_access) {
     std::string fname = "./ut_dir/env_posix/random_access";
     WritableFileOptions ops;
@@ -90,12 +101,12 @@ TEST_F(EnvPosixTest, random_access) {
         ASSERT_STREQ("abc", std::string(slice3.data, slice3.size).c_str());
 
         Slice slice4(mem, 3);
-        st = rfile->read_at(112, slice4);
+        st = rfile->read_at(112, &slice4);
         ASSERT_TRUE(st.ok());
         ASSERT_STREQ("bcd", std::string(slice4.data, slice4.size).c_str());
 
         // end of file
-        st = rfile->read_at(114, slice4);
+        st = rfile->read_at(114, &slice4);
         ASSERT_EQ(TStatusCode::END_OF_FILE, st.code());
         LOG(INFO) << "st=" << st.to_string();
     }
@@ -160,11 +171,11 @@ TEST_F(EnvPosixTest, random_rw) {
         ASSERT_STREQ("789", std::string(slice3.data, slice3.size).c_str());
 
         Slice slice4(mem, 100);
-        st = rfile->read_at(9, slice4);
+        st = rfile->read_at(9, &slice4);
         ASSERT_TRUE(st.ok());
 
         // end of file
-        st = rfile->read_at(102, slice4);
+        st = rfile->read_at(102, &slice4);
         ASSERT_EQ(TStatusCode::END_OF_FILE, st.code());
         LOG(INFO) << "st=" << st.to_string();
     }

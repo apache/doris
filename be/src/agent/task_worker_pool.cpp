@@ -1167,14 +1167,14 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
-            disk.__set_root_path(root_path_info.path);
+            disk.__set_root_path(root_path_info.path_desc.filepath);
             disk.__set_path_hash(root_path_info.path_hash);
             disk.__set_storage_medium(root_path_info.storage_medium);
             disk.__set_disk_total_capacity(root_path_info.disk_capacity);
             disk.__set_data_used_capacity(root_path_info.data_used_capacity);
             disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_used(root_path_info.is_used);
-            disks[root_path_info.path] = disk;
+            disks[root_path_info.path_desc.filepath] = disk;
         }
         request.__set_disks(disks);
         _handle_report(request, ReportType::DISK);
@@ -1583,7 +1583,7 @@ AgentStatus TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHa
         return DORIS_TASK_REQUEST_ERROR;
     }
 
-    std::string dest_tablet_dir = tablet->tablet_path();
+    std::string dest_tablet_dir = tablet->tablet_path_desc().filepath;
     SnapshotLoader loader(_env, job_id, tablet_id);
     Status status = loader.move(src, tablet, overwrite);
 

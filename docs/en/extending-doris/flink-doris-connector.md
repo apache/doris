@@ -81,12 +81,25 @@ enable_http_server_v2 = true
 
 
 ## How to use
-The purpose of this step is to register the Doris data source on Flink. 
-This step is operated on Flink.
-There are two ways to use sql and java. The following are examples to illustrate
+
+There are three ways to use Flink Doris Connector. 
+
+* SQL
+* DataStream
+* DataSet
+
+### Parameters Configuration
+
+Flink Doris Connector Sink writes data to Doris by the `Stream load`, and also supports the configurations of `Stream load`
+
+* SQL  configured by `sink.properties.` in the `WITH`
+* DataStream configured by `DorisExecutionOptions.builder().setStreamLoadProp(Properties)`
+
+
 ### SQL
-The purpose of this step is to register the Doris data source on Flink. 
-This step is operated on Flink
+
+* Source
+
 ```sql
 CREATE TABLE flink_doris_source (
     name STRING,
@@ -101,7 +114,11 @@ CREATE TABLE flink_doris_source (
       'username' = '$YOUR_DORIS_USERNAME',
       'password' = '$YOUR_DORIS_PASSWORD'
 );
+```
 
+* Sink
+
+```sql
 CREATE TABLE flink_doris_sink (
     name STRING,
     age INT,
@@ -115,29 +132,42 @@ CREATE TABLE flink_doris_sink (
       'username' = '$YOUR_DORIS_USERNAME',
       'password' = '$YOUR_DORIS_PASSWORD'
 );
+```
 
+* Insert
+
+```sql
 INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 ```
 
-### DataStreamSource
+### DataStream
 
-```scala
+* Source
+
+```java
  Properties properties = new Properties();
  properties.put("fenodes","FE_IP:8030");
  properties.put("username","root");
  properties.put("password","");
  properties.put("table.identifier","db.table");
- env.addSource(new DorisSourceFunction(new DorisStreamOptions(properties),new SimpleListDeserializationSchema())).print();
+ env.addSource(new DorisSourceFunction(
+                        new DorisStreamOptions(properties), 
+                        new SimpleListDeserializationSchema()
+                )
+        ).print(); 
 ```
 
-### DataStreamSink
+* Sink
+
+Json Stream
 
 ```java
-// -------- sink with raw json string stream --------
 Properties pro = new Properties();
 pro.setProperty("format", "json");
 pro.setProperty("strip_outer_array", "true");
-env.fromElements( "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+env.fromElements(
+    "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}"
+    )
      .addSink(
      	DorisSink.sink(
             DorisReadOptions.builder().build(),
@@ -152,9 +182,14 @@ env.fromElements( "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latit
                     .setUsername("root")
                     .setPassword("").build()
      	));
+```
 
-OR
-env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+Json Stream
+
+```java
+env.fromElements(
+    "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}"
+    )
     .addSink(
     	DorisSink.sink(
         	DorisOptions.builder()
@@ -163,9 +198,11 @@ env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitu
                     .setUsername("root")
                     .setPassword("").build()
     	));
+```
 
+RowData Stream
 
-// -------- sink with RowData stream --------
+```java
 DataStream<RowData> source = env.fromElements("")
     .map(new MapFunction<String, RowData>() {
         @Override
@@ -199,7 +236,9 @@ source.addSink(
     ));
 ```
 
-### DataSetSink
+### DataSet
+
+* Sink
 
 ```java
 MapOperator<String, RowData> data = env.fromElements("")
@@ -223,10 +262,11 @@ DorisReadOptions readOptions = DorisReadOptions.defaults();
 DorisExecutionOptions executionOptions = DorisExecutionOptions.defaults();
 
 LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
-String[] fiels = {"city", "longitude", "latitude"};
+String[] fields = {"city", "longitude", "latitude"};
 
-DorisDynamicOutputFormat outputFormat =
-    new DorisDynamicOutputFormat(dorisOptions, readOptions, executionOptions, types, fiels);
+DorisDynamicOutputFormat outputFormat = new DorisDynamicOutputFormat(
+    dorisOptions, readOptions, executionOptions, types, fields
+    );
 
 outputFormat.open(0, 1);
 data.output(outputFormat);
@@ -257,7 +297,7 @@ outputFormat.close();
 | sink.batch.size                        | 100            | Maximum number of lines in a single write BE                                             |
 | sink.max-retries                        | 1            | Number of retries after writing BE failed                                              |
 | sink.batch.interval                         | 1s            | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 1 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
-| sink.properties.*     | --               | The stream load parameters.eg:sink.properties.column_separator' = ','. Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /> Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
+| sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br />  Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />  Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
 
 
 ## Doris & Flink Column Type Mapping
