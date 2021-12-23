@@ -292,6 +292,7 @@ TEST_F(StringFunctionsTest, left) {
 
     ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::left(context, StringVal(""), 10));
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, substring) {

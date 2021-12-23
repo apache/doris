@@ -195,6 +195,7 @@ module.exports = [
         sidebarDepth: 1,
       },
       "backup-restore",
+      "bloomfilter",
       "broker",
       "colocation-join",
       "bucket-shuffle-join",
@@ -238,6 +239,7 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
+      "seatunnel",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -435,6 +437,15 @@ module.exports = [
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
           },
+          {
+            title: "table functions",
+            directoryPath: "table-functions/",
+            children: [
+              "explode-bitmap",
+              "explode-split",
+              "explode-json-array"
+            ],
+          },
           "window-function",
           "cast",
           "digital-masking",
@@ -585,6 +596,7 @@ module.exports = [
               "alter-routine-load",
               "insert",
               "UPDATE",
+              "lateral-view",
             ],
           },
           {
@@ -618,6 +630,13 @@ module.exports = [
     ],
   },
   {
+    title: "Doris User",
+    directoryPath: "case-user/",
+    children: [
+        "case-user",
+    ],
+  },
+  {
     title: "Developer Guide",
     directoryPath: "developer-guide/",
     children: [
@@ -625,11 +644,12 @@ module.exports = [
         "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
-        "be-vscode-dev",        
+        "be-vscode-dev",
         "java-format-code",
         "cpp-format-code",
         "How-to-Share-blogs",
-        "minidump"
+        "minidump",
+        "bitmap-hll-file-format",
     ],
   },
   {

@@ -18,9 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.InlineView;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -77,18 +75,9 @@ public class LateralViewRef extends TableRef {
         if (!(expr instanceof FunctionCallExpr)) {
             throw new AnalysisException("Only support function call expr in lateral view");
         }
-        fnExpr = (FunctionCallExpr) expr;
-        fnExpr.setTableFnCall(true);
-        checkAndSupplyDefaultTableName(fnExpr);
-        fnExpr.analyze(analyzer);
-        if (!fnExpr.getFnName().getFunction().equals(FunctionSet.EXPLODE_SPLIT)) {
-            throw new AnalysisException("Only support explode function in lateral view");
-        }
-        checkScalarFunction(fnExpr.getChild(0));
-        if (!(fnExpr.getChild(1) instanceof StringLiteral)) {
-            throw new AnalysisException("Split separator of explode must be a string const");
-        }
-        fnExpr.getChild(0).collect(SlotRef.class, originSlotRefList);
+
+        analyzeFunctionExpr(analyzer);
+
         // analyze lateral view
         desc = analyzer.registerTableRef(this);
         explodeSlotRef = new SlotRef(new TableName(null, viewName), columnName);
@@ -96,13 +85,21 @@ public class LateralViewRef extends TableRef {
         isAnalyzed = true;  // true now that we have assigned desc
     }
 
+    private void analyzeFunctionExpr(Analyzer analyzer) throws AnalysisException {
+        fnExpr = (FunctionCallExpr) expr;
+        fnExpr.setTableFnCall(true);
+        checkAndSupplyDefaultTableName(fnExpr);
+        fnExpr.analyze(analyzer);
+        checkScalarFunction(fnExpr.getChild(0));
+        fnExpr.getChild(0).collect(SlotRef.class, originSlotRefList);
+    }
+
     @Override
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
         // Create a fake catalog table for the lateral view
         List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, Type.VARCHAR,
-                false, null, true,
-                null, ""));
+        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(),
+                false, null, true, null, ""));
         view = new InlineView(viewName, columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
@@ -180,3 +177,4 @@ public class LateralViewRef extends TableRef {
         }
     }
 }
+

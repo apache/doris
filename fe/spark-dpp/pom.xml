@@ -92,10 +92,6 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.roaringbitmap</groupId>
-            <artifactId>RoaringBitmap</artifactId>
-        </dependency>
 
         <!-- spark -->
         <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
@@ -181,7 +177,7 @@ under the License.
                     <!-->not reuse forked jvm, so that each unit test will run in separate jvm. to avoid singleton confict<-->
                     <reuseForks>false</reuseForks>
                     <argLine>
-                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/1.48/jmockit-1.48.jar
+                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
                     </argLine>
                 </configuration>
             </plugin>

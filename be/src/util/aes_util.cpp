@@ -102,7 +102,6 @@ static int do_encrypt(EVP_CIPHER_CTX* aes_ctx, const EVP_CIPHER* cipher,
 int AesUtil::encrypt(AesMode mode, const unsigned char* source, uint32_t source_length,
                      const unsigned char* key, uint32_t key_length, const unsigned char* iv,
                      bool padding, unsigned char* encrypt) {
-    EVP_CIPHER_CTX aes_ctx;
     const EVP_CIPHER* cipher = get_evp_type(mode);
     /* The encrypt key to be used for encryption */
     unsigned char encrypt_key[AES_MAX_KEY_LENGTH / 8];
@@ -111,11 +110,12 @@ int AesUtil::encrypt(AesMode mode, const unsigned char* source, uint32_t source_
     if (cipher == nullptr || (EVP_CIPHER_iv_length(cipher) > 0 && !iv)) {
         return AES_BAD_DATA;
     }
-    EVP_CIPHER_CTX_init(&aes_ctx);
+    EVP_CIPHER_CTX* aes_ctx = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX_reset(aes_ctx);
     int length = 0;
-    int ret = do_encrypt(&aes_ctx, cipher, source, source_length, encrypt_key, iv, padding, encrypt,
+    int ret = do_encrypt(aes_ctx, cipher, source, source_length, encrypt_key, iv, padding, encrypt,
                          &length);
-    EVP_CIPHER_CTX_cleanup(&aes_ctx);
+    EVP_CIPHER_CTX_free(aes_ctx);
     if (ret == 0) {
         ERR_clear_error();
         return AES_BAD_DATA;
@@ -150,7 +150,6 @@ static int do_decrypt(EVP_CIPHER_CTX* aes_ctx, const EVP_CIPHER* cipher,
 int AesUtil::decrypt(AesMode mode, const unsigned char* encrypt, uint32_t encrypt_length,
                      const unsigned char* key, uint32_t key_length, const unsigned char* iv,
                      bool padding, unsigned char* decrypt_content) {
-    EVP_CIPHER_CTX aes_ctx;
     const EVP_CIPHER* cipher = get_evp_type(mode);
 
     /* The encrypt key to be used for decryption */
@@ -160,12 +159,12 @@ int AesUtil::decrypt(AesMode mode, const unsigned char* encrypt, uint32_t encryp
     if (cipher == nullptr || (EVP_CIPHER_iv_length(cipher) > 0 && !iv)) {
         return AES_BAD_DATA;
     }
-
-    EVP_CIPHER_CTX_init(&aes_ctx);
+    EVP_CIPHER_CTX* aes_ctx = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX_reset(aes_ctx);
     int length = 0;
-    int ret = do_decrypt(&aes_ctx, cipher, encrypt, encrypt_length, encrypt_key, iv, padding,
+    int ret = do_decrypt(aes_ctx, cipher, encrypt, encrypt_length, encrypt_key, iv, padding,
                          decrypt_content, &length);
-    EVP_CIPHER_CTX_cleanup(&aes_ctx);
+    EVP_CIPHER_CTX_free(aes_ctx);
     if (ret > 0) {
         return length;
     } else {

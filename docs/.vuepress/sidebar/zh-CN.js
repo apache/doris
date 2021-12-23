@@ -194,6 +194,7 @@ module.exports = [
         sidebarDepth: 1,
       },
       "backup-restore",
+      "bloomfilter",
       "broker",
       "colocation-join",
       "bucket-shuffle-join",
@@ -239,6 +240,7 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
+      "seatunnel",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -439,6 +441,15 @@ module.exports = [
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
           },
+          {
+            title: "table functions",
+            directoryPath: "table-functions/",
+            children: [
+              "explode-bitmap",
+              "explode-split",
+              "explode-json-array"
+            ],
+          },
           "window-function",
           "cast",
           "digital-masking",
@@ -588,6 +599,7 @@ module.exports = [
               "alter-routine-load",
               "insert",
               "UPDATE",
+              "lateral-view",
             ],
           },
           {
@@ -622,6 +634,13 @@ module.exports = [
     ],
   },
   {
+    title: "Doris用户",
+    directoryPath: "case-user/",
+    children: [
+        "case-user",
+    ],
+  },
+  {
     title: "开发者手册",
     directoryPath: "developer-guide/",
     children: [
@@ -633,7 +652,8 @@ module.exports = [
         "java-format-code",
         "cpp-format-code",
         "How-to-Share-blogs",
-        "minidump"
+        "minidump",
+        "bitmap-hll-file-format",
     ],
   },
   {

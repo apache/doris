@@ -27,6 +27,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
@@ -251,6 +252,17 @@ public class OutFileClause {
                                 "but the definition type of column " + i + " is " + type);
                     }
                     break;
+                case HLL:
+                case BITMAP:
+                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
+                        if (!type.equals("byte_array")) {
+                            throw new AnalysisException("project field type is HLL/BITMAP, should use byte_array, " +
+                                    "but the definition type of column " + i + " is " + type);
+                        }
+                    } else {
+                        throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
+                    }
+                    break;
                 default:
                     throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
             }
@@ -289,6 +301,11 @@ public class OutFileClause {
                 case DECIMALV2:
                     column.add("byte_array");
                     break;
+                case HLL:
+                case BITMAP:
+                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
+                        column.add("byte_array");
+                    }
                 default:
                     throw new AnalysisException("currently parquet do not support column type: " + expr.getType().getPrimitiveType());
             }

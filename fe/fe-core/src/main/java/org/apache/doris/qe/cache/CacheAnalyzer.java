@@ -217,7 +217,7 @@ public class CacheAnalyzer {
         latestTable.Debug();
 
         addAllViewStmt(selectStmt);
-        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, ",");
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
 
         if (now == 0) {
             now = nowtime();
@@ -459,6 +459,7 @@ public class CacheAnalyzer {
                     addAllViewStmt(inlineViewRef.getViewStmt());
                     allViewStmtSet.add(inlineViewRef.getView().getInlineViewDef());
                 }
+                addAllViewStmt(inlineViewRef.getQueryStmt());
             }
         }
     }

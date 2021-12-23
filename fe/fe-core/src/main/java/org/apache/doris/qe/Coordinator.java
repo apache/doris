@@ -573,6 +573,7 @@ public class Coordinator {
                         LOG.warn("catch a execute exception", e);
                         exception = e;
                         code = TStatusCode.THRIFT_RPC_ERROR;
+                        BackendServiceProxy.getInstance().removeProxy(pair.first.brpcAddress);
                     } catch (InterruptedException e) {
                         LOG.warn("catch a interrupt exception", e);
                         exception = e;
@@ -2227,5 +2228,6 @@ public class Coordinator {
         }
     }
 }
+
 
 

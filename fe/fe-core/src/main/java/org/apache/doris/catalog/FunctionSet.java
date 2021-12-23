@@ -2140,19 +2140,51 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
         return builtinFunctions;
     }
 
-
     public static final String EXPLODE_SPLIT = "explode_split";
+    public static final String EXPLODE_BITMAP = "explode_bitmap";
+    public static final String EXPLODE_JSON_ARRAY_INT = "explode_json_array_int";
+    public static final String EXPLODE_JSON_ARRAY_DOUBLE = "explode_json_array_double";
+    public static final String EXPLODE_JSON_ARRAY_STRING = "explode_json_array_string";
 
     private void initTableFunction() {
-        // init explode_split function
-        ArrayList<Type> argsType = Lists.newArrayList();
-        argsType.add(Type.VARCHAR);
-        argsType.add(Type.VARCHAR);
-        Function explodeSplit = ScalarFunction.createBuiltin(
-                EXPLODE_SPLIT, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT, argsType, false,
-                "", "", "", true);
         List<Function> explodeSplits = Lists.newArrayList();
-        explodeSplits.add(explodeSplit);
+        explodeSplits.add(ScalarFunction.createBuiltin(
+                EXPLODE_SPLIT, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR, Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions13explode_splitEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
+                null, null, true));
         tableFunctions.put(EXPLODE_SPLIT, explodeSplits);
+
+        List<Function> explodeBitmaps = Lists.newArrayList();
+        explodeBitmaps.add(ScalarFunction.createBuiltin(
+                EXPLODE_BITMAP, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.BITMAP), false,
+                "_ZN5doris19DummyTableFunctions14explode_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_BITMAP, explodeBitmaps);
+
+        List<Function> explodeJsonArrayInts = Lists.newArrayList();
+        explodeJsonArrayInts.add(ScalarFunction.createBuiltin(
+                EXPLODE_JSON_ARRAY_INT, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions22explode_json_array_intEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_JSON_ARRAY_INT, explodeJsonArrayInts);
+
+        List<Function> explodeJsonArrayDoubles = Lists.newArrayList();
+        explodeJsonArrayDoubles.add(ScalarFunction.createBuiltin(
+                EXPLODE_JSON_ARRAY_DOUBLE, Type.DOUBLE, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions25explode_json_array_doubleEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_JSON_ARRAY_DOUBLE, explodeJsonArrayDoubles);
+
+        List<Function> explodeJsonArrayStrings = Lists.newArrayList();
+        explodeJsonArrayStrings.add(ScalarFunction.createBuiltin(
+                EXPLODE_JSON_ARRAY_STRING, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions25explode_json_array_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_JSON_ARRAY_STRING, explodeJsonArrayStrings);
     }
 }

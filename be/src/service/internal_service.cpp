@@ -23,7 +23,7 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
-#include "runtime/fold_constant_mgr.h"
+#include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -62,14 +62,18 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
              << " node=" << request->node_id();
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
     attachment_transfer_request_row_batch<PTransmitDataParams>(request, cntl);
-    auto st = _exec_env->stream_mgr()->transmit_data(request, &done);
+    // The response is accessed when done->Run is called in transmit_data(),
+    // give response a default value to avoid null pointers in high concurrency.
+    Status st;
+    st.to_protobuf(response->mutable_status());
+    st = _exec_env->stream_mgr()->transmit_data(request, &done);
     if (!st.ok()) {
         LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
                      << ", fragment_instance_id=" << print_id(request->finst_id())
                      << ", node=" << request->node_id();
     }
-    st.to_protobuf(response->mutable_status());
     if (done != nullptr) {
+        st.to_protobuf(response->mutable_status());
         done->Run();
     }
 }
@@ -418,8 +422,7 @@ Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_reque
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    FoldConstantMgr mgr(_exec_env);
-    return mgr.fold_constant_expr(t_request, response);
+    return FoldConstantExecutor().fold_constant_expr(t_request, response);
 }
 
 template <typename T>

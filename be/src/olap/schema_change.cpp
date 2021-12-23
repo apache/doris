@@ -764,7 +764,10 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
     if (_memory_limitation > 0 &&
         _mem_tracker->consumption() + row_block_size > _memory_limitation) {
         LOG(WARNING) << "RowBlockAllocator::alocate() memory exceeded. "
-                     << "m_memory_allocated=" << _mem_tracker->consumption();
+                     << "m_memory_allocated=" << _mem_tracker->consumption() << " "
+                     << "mem limit for schema change=" << _memory_limitation << " "
+                     << "You can increase the memory "
+                     << "by changing the Config.memory_limitation_per_thread_for_schema_change";
         *row_block = nullptr;
         return OLAP_SUCCESS;
     }

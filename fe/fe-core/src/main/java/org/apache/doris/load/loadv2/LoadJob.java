@@ -423,8 +423,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws AnalysisException          there are error params in job
      * @throws DuplicatedRequestException
      */
-    public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
+    public void execute() throws LoadException {
         writeLock();
         try {
             unprotectedExecute();
@@ -433,19 +432,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    public void unprotectedExecute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
+    public void unprotectedExecute() throws LoadException {
         // check if job state is pending
         if (state != JobState.PENDING) {
             return;
         }
-        // the limit of job will be restrict when begin txn
-        beginTxn();
+
         unprotectedExecuteJob();
-        // update spark load job state from PENDING to ETL when pending task is finished
-        if (jobType != EtlJobType.SPARK) {
-            unprotectedUpdateState(JobState.LOADING);
-        }
     }
 
     public void processTimeout() {
@@ -759,7 +752,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             // task info
             jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + getTimeout()
-                                + "; max_filter_ratio:" + getMaxFilterRatio());
+                    + "; max_filter_ratio:" + getMaxFilterRatio());
             // error msg
             if (failMsg == null) {
                 jobInfo.add(FeConstants.null_string);
@@ -1127,7 +1120,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         loadStartTimestamp = info.getLoadStartTimestamp();
     }
 
-    protected void auditFinishedLoadJob() {}
+    protected void auditFinishedLoadJob() {
+    }
 
     public static class LoadJobStateUpdateInfo implements Writable {
         @SerializedName(value = "jobId")
