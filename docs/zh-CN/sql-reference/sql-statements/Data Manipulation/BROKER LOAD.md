@@ -217,22 +217,6 @@ under the License.
                 "AWS_SECRET_KEY"="",
                 "AWS_REGION" = ""
             )
-        6. 如果使用HDFS协议直接连接远程存储时需要指定如下属性
-            (
-                "fs.defaultFS" = "",
-                "hdfs_user"="",
-                "kerb_principal" = "",
-                "kerb_ticket_cache_path" = "",
-                "kerb_token" = ""
-            )
-            fs.defaultFS: hdfs集群defaultFS
-            hdfs_user: 连接hdfs集群时使用的用户名
-            namenode HA：
-            通过配置 namenode HA，可以在 namenode 切换时，自动识别到新的 namenode
-            dfs.nameservices: 指定 hdfs 服务的名字，自定义，如："dfs.nameservices" = "my_ha"
-            dfs.ha.namenodes.xxx：自定义 namenode 的名字,多个名字以逗号分隔。其中 xxx 为 dfs.nameservices 中自定义的名字，如 "dfs.ha.namenodes.my_ha" = "my_nn"
-            dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
-            dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
         
     4. opt_properties
 
@@ -563,36 +547,6 @@ under the License.
         properties("fuzzy_parse"="true", "strip_outer_array"="true")
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
-
-     17. LOAD WITH HDFS, 普通HDFS集群
-        LOAD LABEL example_db.label_filter
-        (
-            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
-            INTO TABLE `tbl1`
-            COLUMNS TERMINATED BY ","
-            (k1,k2,v1,v2)
-        ) 
-        with HDFS (
-            "fs.defaultFS"="hdfs://testFs",
-            "hdfs_user"="user"
-        );
-     18. LOAD WITH HDFS, 带ha的HDFS集群
-        LOAD LABEL example_db.label_filter
-        (
-            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
-            INTO TABLE `tbl1`
-            COLUMNS TERMINATED BY ","
-            (k1,k2,v1,v2)
-        ) 
-        with HDFS (
-            "fs.defaultFS"="hdfs://testFs",
-            "hdfs_user"="user"
-            "dfs.nameservices"="my_ha",
-            "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
-            "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
-            "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
-            "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
-        );
 
 ## keyword
 

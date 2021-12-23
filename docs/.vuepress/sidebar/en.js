@@ -551,6 +551,7 @@ module.exports = [
             title: "Data Manipulation",
             directoryPath: "Data Manipulation/",
             children: [
+              "BEGIN",
               "BROKER LOAD",
               "CANCEL DELETE",
               "CANCEL LABEL",
@@ -560,6 +561,7 @@ module.exports = [
               "EXPORT",
               "GET LABEL STATE",
               "GROUP BY",
+              "HDFS LOAD",
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
