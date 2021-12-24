@@ -44,6 +44,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
         : _mem_tracker(mem_tracker),
           _has_in_flight_row(false),
           _num_rows(0),
+          _num_uncommitted_rows(0),
           _capacity(capacity),
           _flush(FlushMode::NO_FLUSH_RESOURCES),
           _needs_deep_copy(false),
@@ -76,6 +77,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
         : _mem_tracker(tracker),
           _has_in_flight_row(false),
           _num_rows(input_batch.num_rows()),
+          _num_uncommitted_rows(0),
           _capacity(_num_rows),
           _flush(FlushMode::NO_FLUSH_RESOURCES),
           _needs_deep_copy(false),
@@ -208,6 +210,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
         : _mem_tracker(tracker),
           _has_in_flight_row(false),
           _num_rows(input_batch.num_rows),
+          _num_uncommitted_rows(0),
           _capacity(_num_rows),
           _flush(FlushMode::NO_FLUSH_RESOURCES),
           _needs_deep_copy(false),
@@ -493,6 +496,12 @@ size_t RowBatch::serialize(PRowBatch* output_batch) {
     // actual batch size if tuple_data isn't compressed)
     return get_batch_size(*output_batch) - mutable_tuple_data->size() + size;
 }
+
+// when row from files can't fill into tuple with schema limitation, increase the _num_uncommitted_rows in row batch, 
+void RowBatch::increase_uncommitted_rows() {
+    _num_uncommitted_rows++;
+}
+
 
 void RowBatch::add_io_buffer(DiskIoMgr::BufferDescriptor* buffer) {
     DCHECK(buffer != nullptr);
