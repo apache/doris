@@ -265,26 +265,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         LOG.debug(debugString() + " opcode: " + vectorOpcode);
     }
 
-    private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
-        if (t1.isDateType()) {
-            if (t2.isDateType() || t2.isStringType() || t2.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else if (t2.isDateType()) {
-            if (t1.isStringType() || t1.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else {
-            return false;
-        }
-    }
-
     private Type getCmpType() throws AnalysisException {
-        PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
-        PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
-
         for (Expr e : getChildren()) {
             if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
                 throw new AnalysisException("Hll type dose not support operand: " + toSql());
@@ -294,29 +275,39 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
+        Type t1 = getChild(0).getType();
+        Type t2 = getChild(1).getType();
+
+        if (Type.canCompareDate(t1.getPrimitiveType(), t2.getPrimitiveType())) {
+            return Type.DATE;
+        }
+
+        if (Type.canCompareDatetime(t1.getPrimitiveType(), t2.getPrimitiveType())) {
             return Type.DATETIME;
         }
 
+        PrimitiveType t1ResultType = t1.getResultType().getPrimitiveType();
+        PrimitiveType t2ResultType = t2.getResultType().getPrimitiveType();
+
         // Following logical is compatible with MySQL:
-        //    Cast to DOUBLE by default, because DOUBLE has the largest range of values.
-        if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {
+        // Cast to DOUBLE by default, because DOUBLE has the largest range of values.
+        if (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR) {
             return Type.VARCHAR;
         }
-        if (t1 == PrimitiveType.STRING && t2 == PrimitiveType.STRING
-                || t1 == PrimitiveType.STRING && t2 == PrimitiveType.VARCHAR
-                || t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.STRING) {
+        if (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.STRING
+                || t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.VARCHAR
+                || t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.STRING) {
             return Type.STRING;
         }
-        if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+        if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
+            return Type.getAssignmentCompatibleType(t1, t2, false);
         }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
+        if ((t1ResultType == PrimitiveType.BIGINT || t1ResultType == PrimitiveType.DECIMALV2)
+                && (t2ResultType == PrimitiveType.BIGINT || t2ResultType == PrimitiveType.DECIMALV2)) {
             return Type.DECIMALV2;
         }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
+        if ((t1ResultType == PrimitiveType.BIGINT || t1ResultType == PrimitiveType.LARGEINT)
+                && (t2ResultType == PrimitiveType.BIGINT || t2ResultType == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
 
@@ -327,17 +318,19 @@ public class BinaryPredicate extends Predicate implements Writable {
         // When int column compares with string, Mysql will convert string to int.
         // So it is also compatible with Mysql.
 
-        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 ==PrimitiveType.STRING)) {
+        if (t1ResultType == PrimitiveType.BIGINT
+                && (t2ResultType == PrimitiveType.VARCHAR || t2ResultType == PrimitiveType.STRING)) {
             Expr rightChild = getChild(1);
             Long parsedLong = Type.tryParseToLong(rightChild);
-            if(parsedLong != null) {
+            if (parsedLong != null) {
                 return Type.BIGINT;
             }
         }
-        if ((t1 == PrimitiveType.VARCHAR || t1 ==PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
+        if ((t1ResultType == PrimitiveType.VARCHAR || t1ResultType == PrimitiveType.STRING)
+                && t2ResultType == PrimitiveType.BIGINT) {
             Expr leftChild = getChild(0);
             Long parsedLong = Type.tryParseToLong(leftChild);
-            if(parsedLong != null) {
+            if (parsedLong != null) {
                 return Type.BIGINT;
             }
         }
