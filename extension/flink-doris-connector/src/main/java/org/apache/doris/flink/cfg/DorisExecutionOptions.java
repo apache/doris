@@ -113,8 +113,9 @@ public class DorisExecutionOptions implements Serializable {
             return this;
         }
 
-        public void setEnableDelete(Boolean enableDelete) {
+        public Builder setEnableDelete(Boolean enableDelete) {
             this.enableDelete = enableDelete;
+            return this;
         }
 
         public DorisExecutionOptions build() {

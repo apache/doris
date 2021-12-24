@@ -133,8 +133,8 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
                     LINE_DELIMITER_DEFAULT);
         }
 
-        //add column key
-        if (!streamLoadProp.containsKey(COLUMNS_KEY)) {
+        //add column key when fieldNames is not empty
+        if (!streamLoadProp.containsKey(COLUMNS_KEY) && fieldNames != null && fieldNames.length > 0) {
             String columns = String.join(",", Arrays.stream(fieldNames).map(item -> String.format("`%s`", item.trim().replace("`", ""))).collect(Collectors.toList()));
             if (executionOptions.getEnableDelete()) {
                 columns = String.format("%s,%s", columns, DORIS_DELETE_SIGN);
