@@ -89,7 +89,7 @@ Status BrokerScanner::open() {
     return Status::OK();
 }
 
-Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) {
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
@@ -116,8 +116,11 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             SCOPED_TIMER(_materialize_timer);
             if (convert_one_row(Slice(ptr, size), tuple, tuple_pool)) {
                 free_expr_local_allocations();
-                break;
+                *fill_tuple = true;
+            } else {
+                *fill_tuple = false;
             }
+            break; // break always
         }
     }
     if (_scanner_eof) {
