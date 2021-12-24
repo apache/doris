@@ -38,7 +38,7 @@ public class RewriteLikePredicateRule implements ExprRewriteRule {
     public static RewriteLikePredicateRule INSTANCE = new RewriteLikePredicateRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (expr instanceof LikePredicate) {
             Expr leftChild = expr.getChild(0);
             if (leftChild instanceof SlotRef) {

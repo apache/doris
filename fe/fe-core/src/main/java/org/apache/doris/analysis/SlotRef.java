@@ -286,6 +286,14 @@ public class SlotRef extends Expr {
         if (desc != null && other.desc != null) {
             return desc.getId().equals(other.desc.getId());
         }
+        return notCheckDescIdEquals(obj);
+    }
+
+    public boolean notCheckDescIdEquals(Object obj) {
+        if (!super.equals(obj)) {
+            return false;
+        }
+        SlotRef other = (SlotRef) obj;
         if ((tblName == null) != (other.tblName == null)) {
             return false;
         }
