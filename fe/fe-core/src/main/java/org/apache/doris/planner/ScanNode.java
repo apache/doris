@@ -202,7 +202,7 @@ abstract public class ScanNode extends PlanNode {
                                             SlotDescriptor desc) {
         if (expr instanceof IsNullPredicate) {
             IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
-            if (isNullPredicate.isSlotRefChildren() || !isNullPredicate.isNotNull()) {
+            if (isNullPredicate.isSlotRefChildren() && !isNullPredicate.isNotNull()) {
                 return ColumnRanges.createIsNull();
             }
         }
