@@ -175,6 +175,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here](./load-data/insert-into-manual.md).
 
+* `insert_max_filter_ratio`
+    
+     Used to set the `max_filter_ratio`  when loading data via INSERT statement. The default value is 1.0 which means filtering has no effect on the insert process. If set to 0, it is equivalent to enable `insert_strict` mode
+
 * `enable_spilling`
 
     Used to set whether to enable external sorting. The default is false, which turns off the feature. This feature is enabled when the user does not specify a LIMIT condition for the ORDER BY clause and also sets `enable_spilling` to true. When this feature is enabled, the temporary data is stored in the `doris-scratch/` directory of the BE data directory and the temporary data is cleared after the query is completed.

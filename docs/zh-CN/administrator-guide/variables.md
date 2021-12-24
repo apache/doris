@@ -172,6 +172,11 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
     用于设置通过 INSERT 语句进行数据导入时，是否开启 `strict` 模式。默认为 false，即不开启 `strict` 模式。关于该模式的介绍，可以参阅 [这里](./load-data/insert-into-manual.md)。
 
+* `insert_max_filter_ratio`
+    
+    用于设置通过 INSERT 语句进行数据导入时，最大过滤比例，默认为 1.0。 即数据过滤对insert 执行成功与否不具有影响。
+    如果设置为0，相当于开启`insert_strict` 模式
+
 * `enable_spilling`
 
     用于设置是否开启大数据量落盘排序。默认为 false，即关闭该功能。当用户未指定 ORDER BY 子句的 LIMIT 条件，同时设置 `enable_spilling` 为 true 时，才会开启落盘排序。该功能启用后，会使用 BE 数据目录下 `doris-scratch/` 目录存放临时的落盘数据，并在查询结束后，清空临时数据。

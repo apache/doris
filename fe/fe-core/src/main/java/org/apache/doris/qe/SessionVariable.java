@@ -330,7 +330,7 @@ public class SessionVariable implements Serializable, Writable {
     public long loadMemLimit = 0L;
 
     @VariableMgr.VarAttr(name = INSERT_MAX_FILTER_RATIO)
-    public double insertMaxFilterRatio = 0L;
+    public double insertMaxFilterRatio = 1.0;
 
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
