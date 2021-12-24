@@ -716,7 +716,7 @@ inline __int128 StringParser::string_to_decimal(const char* s, int len,
             scale += found_dot;
         } else if (c == '.' && LIKELY(!found_dot)) {
             found_dot = 1;
-        } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
+        } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent) && found_value) {
             found_exponent = true;
             exponent = string_to_int_internal<int8_t>(s + i + 1, len - i - 1, result);
             if (UNLIKELY(*result != StringParser::PARSE_SUCCESS)) {
