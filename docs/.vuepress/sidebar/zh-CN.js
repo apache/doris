@@ -646,6 +646,7 @@ module.exports = [
     children: [
         "debug-tool",
         "benchmark-tool",
+        "docker-dev",
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",
