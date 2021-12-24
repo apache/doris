@@ -659,7 +659,7 @@ OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
                         << ", version='" << version.first << "-" << version.second;
 
             it = _stale_rs_version_map.find(version);
-            if (it == _rs_version_map.end()) {
+            if (it == _stale_rs_version_map.end()) {
                 LOG(WARNING) << "fail to find Rowset in stale_rs_version for version. tablet="
                              << full_name() << ", version='" << version.first << "-"
                              << version.second;
