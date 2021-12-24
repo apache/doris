@@ -27,7 +27,7 @@ TEST(TabletMetaTest, SaveAndParse) {
     std::string meta_path = "./be/test/olap/test_data/tablet_meta_test.hdr";
 
     TabletMeta old_tablet_meta(1, 2, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK);
+                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD);
     ASSERT_EQ(OLAP_SUCCESS, old_tablet_meta.save(meta_path));
 
     {

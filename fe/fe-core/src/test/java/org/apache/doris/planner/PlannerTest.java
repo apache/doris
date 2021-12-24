@@ -394,4 +394,44 @@ public class PlannerTest {
     }
 
 
+    @Test
+    public void testBigintSlotRefCompareDecimalLiteral() {
+        java.util.function.BiConsumer<String, String> compare = (sql1, sql2) -> {
+            StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+            try {
+                stmtExecutor1.execute();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            Planner planner1 = stmtExecutor1.planner();
+            List<PlanFragment> fragments1 = planner1.getFragments();
+            String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(false, false));
+
+            StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
+            try {
+                stmtExecutor2.execute();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            Planner planner2 = stmtExecutor2.planner();
+            List<PlanFragment> fragments2 = planner2.getFragments();
+            String plan2 = planner2.getExplainString(fragments2, new ExplainOptions(false, false));
+
+            Assert.assertEquals(plan1, plan2);
+        };
+
+        compare.accept("select * from db1.tbl2 where k1 = 2.0", "select * from db1.tbl2 where k1 = 2");
+        compare.accept("select * from db1.tbl2 where k1 = 2.1", "select * from db1.tbl2 where 2 = 2.1");
+        compare.accept("select * from db1.tbl2 where k1 != 2.0", "select * from db1.tbl2 where k1 != 2");
+        compare.accept("select * from db1.tbl2 where k1 != 2.1", "select * from db1.tbl2");
+        compare.accept("select * from db1.tbl2 where k1 <= 2.0", "select * from db1.tbl2 where k1 <= 2");
+        compare.accept("select * from db1.tbl2 where k1 <= 2.1", "select * from db1.tbl2 where k1 < 3");
+        compare.accept("select * from db1.tbl2 where k1 >= 2.0", "select * from db1.tbl2 where k1 >= 2");
+        compare.accept("select * from db1.tbl2 where k1 >= 2.1", "select * from db1.tbl2 where k1 > 2");
+        compare.accept("select * from db1.tbl2 where k1 < 2.0", "select * from db1.tbl2 where k1 < 2");
+        compare.accept("select * from db1.tbl2 where k1 < 2.1", "select * from db1.tbl2 where k1 < 3");
+        compare.accept("select * from db1.tbl2 where k1 > 2.0", "select * from db1.tbl2 where k1 > 2");
+        compare.accept("select * from db1.tbl2 where k1 > 2.1", "select * from db1.tbl2 where k1 > 2");
+    }
+
 }

@@ -30,16 +30,23 @@ struct FileStat {
 class StorageBackend {
 public:
     virtual Status download(const std::string& remote, const std::string& local) = 0;
+    virtual Status direct_download(const std::string& remote, std::string* content) = 0;
     virtual Status upload(const std::string& local, const std::string& remote) = 0;
     virtual Status upload_with_checksum(const std::string& local, const std::string& remote,
                                         const std::string& checksum) = 0;
-    virtual Status list(const std::string& remote_path, std::map<std::string, FileStat>* files) = 0;
+    virtual Status list(const std::string& remote_path, bool contain_md5,
+                        bool recursion, std::map<std::string, FileStat>* files) = 0;
     virtual Status rename(const std::string& orig_name, const std::string& new_name) = 0;
+    virtual Status rename_dir(const std::string& orig_name, const std::string& new_name) = 0;
     virtual Status direct_upload(const std::string& remote, const std::string& content) = 0;
     virtual Status copy(const std::string& src, const std::string& dst) = 0;
+    virtual Status copy_dir(const std::string& src, const std::string& dst) = 0;
     virtual Status rm(const std::string& remote) = 0;
+    virtual Status rmdir(const std::string& remote) = 0;
     virtual Status mkdir(const std::string& path) = 0;
+    virtual Status mkdirs(const std::string& path) = 0;
     virtual Status exist(const std::string& path) = 0;
+    virtual Status exist_dir(const std::string& path) = 0;
 
     virtual ~StorageBackend() = default;
 };
