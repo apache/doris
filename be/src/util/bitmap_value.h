@@ -1510,7 +1510,6 @@ public:
             }
             break;
         case BITMAP:
-            DCHECK(_bitmap.cardinality() > 1);
             _bitmap.runOptimize();
             _bitmap.shrinkToFit();
             res = _bitmap.getSizeInBytes();
