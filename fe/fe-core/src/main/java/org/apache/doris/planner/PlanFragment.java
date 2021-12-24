@@ -95,9 +95,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // created in finalize() or set in setSink()
     private DataSink sink;
 
-    // specification of the partition of the input of this fragment;
+    // data source(or sender) of specific partition in the fragment;
     // an UNPARTITIONED fragment is executed on only a single node
-    // TODO: improve this comment, "input" is a bit misleading
     private DataPartition dataPartition;
 
     // specification of the actually input partition of this fragment when transmitting to be.
