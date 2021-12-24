@@ -31,8 +31,8 @@ under the License.
 
 1. 通过正则匹配的方式拒绝指定SQL
 
-2. 通过设置partitionNum, tabletNum, cardinality, 检查一个查询是否达到其中一个限制
-  - partitionNum, tabletNum, cardinality 可以一起设置，一旦一个查询达到其中一个限制，查询将会被拦截
+2. 通过设置partition_num, tablet_num, cardinality, 检查一个查询是否达到其中一个限制
+  - partition_num, tablet_num, cardinality 可以一起设置，一旦一个查询达到其中一个限制，查询将会被拦截
 
 ## 规则
 
@@ -40,8 +40,8 @@ under the License.
 - 创建SQL阻止规则
     - sql：匹配规则(基于正则匹配,特殊字符需要转译)，可选，默认值为 "NULL"
     - sqlHash: sql hash值，用于完全匹配，我们会在`fe.audit.log`打印这个值，可选，这个参数和sql只能二选一，默认值为 "NULL"
-    - partitionNum: 一个扫描节点会扫描的最大partition数量，默认值为0L
-    - tabletNum: 一个扫描节点会扫描的最大扽tablet数量，默认值为0L
+    - partition_num: 一个扫描节点会扫描的最大partition数量，默认值为0L
+    - tablet_num: 一个扫描节点会扫描的最大tablet数量，默认值为0L
     - cardinality: 一个扫描节点粗略的扫描行数，默认值为0L
     - global：是否全局(所有用户)生效，默认为false  
     - enable：是否开启阻止规则，默认为true
@@ -60,8 +60,9 @@ mysql> select * from order_analysis;
 ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule
 ```
 
+- 创建 test_rule2，将最大扫描的分区数量限制在30个，最大扫描基数限制在100亿行，示例如下：
 ```sql
-CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partitionNum" = "30", "cardinality"="10000000000","global"="false","enable"="true")
+CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "30", "cardinality"="10000000000","global"="false","enable"="true")
 ```
 
 - 查看已配置的SQL阻止规则，不指定规则名则为查看所有规则
@@ -69,15 +70,15 @@ CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partitionNum" = "30", "cardinality"
 ```sql
 SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
 ```
-- 修改SQL阻止规则，允许对sql/sqlHash/partitionNum/tabletNum/cardinality/global/enable等每一项进行修改
+- 修改SQL阻止规则，允许对sql/sqlHash/partition_num/tablet_num/cardinality/global/enable等每一项进行修改
   - sql 和 sqlHash 不能同时被设置。这意味着，如果一个rule设置了sql或者sqlHash，则另一个属性将无法被修改
-  - sql/sqlHash 和 partitionNum/tabletNum/cardinality 不能同时被设置。举个例子，如果一个rule设置了partitionNum，那么sql或者sqlHash将无法被修改
+  - sql/sqlHash 和 partition_num/tablet_num/cardinality 不能同时被设置。举个例子，如果一个rule设置了partition_num，那么sql或者sqlHash将无法被修改
 ```sql
 ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","enable"="true")
 ```
 
 ```
-ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partitionNum" = "10","tabletNum"="300","enable"="true")
+ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "10","tablet_num"="300","enable"="true")
 ```
 
 - 删除SQL阻止规则，支持多规则，以`,`隔开

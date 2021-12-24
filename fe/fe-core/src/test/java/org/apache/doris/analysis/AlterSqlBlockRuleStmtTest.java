@@ -86,7 +86,7 @@ public class AlterSqlBlockRuleStmtTest {
         AlterSqlBlockRuleStmt stmt = new AlterSqlBlockRuleStmt("test_rule", properties);
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "errCode = 2, detailMessage = sql/sqlHash and partitionNum/tabletNum/cardinality cannot be set in one rule.",
+                "errCode = 2, detailMessage = sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
                 () -> stmt.analyze(analyzer));
     }
 

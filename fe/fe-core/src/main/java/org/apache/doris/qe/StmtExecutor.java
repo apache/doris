@@ -359,7 +359,7 @@ public class StmtExecutor implements ProfileWriter {
                         context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                         return;
                     }
-                    // limitations: partitionNum, tabletNum, cardinality
+                    // limitations: partition_num, tablet_num, cardinality
                     List<ScanNode> scanNodeList = planner.getScanNodes();
                     for (ScanNode scanNode : scanNodeList) {
                         if (scanNode instanceof OlapScanNode) {

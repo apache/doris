@@ -51,9 +51,9 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public static final String SQL_HASH_PROPERTY = "sqlHash";
 
-    public static final String SCANNED_PARTITION_NUM = "partitionNum";
+    public static final String SCANNED_PARTITION_NUM = "partition_num";
 
-    public static final String SCANNED_TABLET_NUM = "tabletNum";
+    public static final String SCANNED_TABLET_NUM = "tablet_num";
 
     public static final String SCANNED_CARDINALITY = "cardinality";
 

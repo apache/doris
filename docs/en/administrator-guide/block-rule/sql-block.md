@@ -31,8 +31,8 @@ Support SQL block rule by user level:
 
 1. by regex way to deny specify SQL
 
-2. by setting partitionNum, tabletNum, cardinality, check whether a sql reaches one of the limitations
-   - partitionNum, tabletNum, cardinality could be set together, and once reach one of them, the sql will be blocked.
+2. by setting partition_num, tablet_num, cardinality, check whether a sql reaches one of the limitations
+   - partition_num, tablet_num, cardinality could be set together, and once reach one of them, the sql will be blocked.
 
 ## Rule
 
@@ -40,8 +40,8 @@ SQL block rule CRUD
 - create SQL block rule
     - sql：Regex pattern，Special characters need to be translated, "NULL" by default
     - sqlHash: Sql hash value, Used to match exactly, We print it in fe.audit.log, This parameter is the only choice between sql and sql, "NULL" by default
-    - partitionNum: Max number of partitions will be scanned by a scan node, 0L by default
-    - tabletNum: Max number of tablets will be scanned by a scan node, 0L by default
+    - partition_num: Max number of partitions will be scanned by a scan node, 0L by default
+    - tablet_num: Max number of tablets will be scanned by a scan node, 0L by default
     - cardinality: An inaccurate number of scan rows of a scan node, 0L by default
     - global: Whether global(all users)is in effect, false by default
     - enable：Whether to enable block rule，true by default
@@ -60,8 +60,9 @@ mysql> select * from order_analysis;
 ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule
 ```
 
+- create test_rule2, limits the maximum number of scanning partitions to 30 and the maximum scanning cardinality to 10 billion rows. As shown in the following example:
 ```sql
-CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partitionNum" = "30", "cardinality"="10000000000","global"="false","enable"="true")
+CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "30", "cardinality"="10000000000","global"="false","enable"="true")
 ```
 
 - show configured SQL block rules, or show all rules if you do not specify a rule name
@@ -69,15 +70,15 @@ CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partitionNum" = "30", "cardinality"
 ```sql
 SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
 ```
-- alter SQL block rule，Allows changes sql/sqlHash/global/enable/partitionNum/tabletNum/cardinality anyone
+- alter SQL block rule，Allows changes sql/sqlHash/global/enable/partition_num/tablet_num/cardinality anyone
   - sql and sqlHash cannot be set both. It means if sql or sqlHash is set in a rule, another property will never be allowed to be altered
-  - sql/sqlHash and partitionNum/tabletNum/cardinality cannot be set together. For example, partitionNum is set in a rule, then sql or sqlHash will never be allowed to be altered.
+  - sql/sqlHash and partition_num/tablet_num/cardinality cannot be set together. For example, partition_num is set in a rule, then sql or sqlHash will never be allowed to be altered.
 ```sql
 ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","enable"="true")
 ```
 
 ```
-ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partitionNum" = "10","tabletNum"="300","enable"="true")
+ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "10","tablet_num"="300","enable"="true")
 ```
 
 - drop SQL block rule，Support multiple rules, separated by `,`

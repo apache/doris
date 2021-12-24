@@ -170,9 +170,9 @@ public class SqlBlockRuleMgrTest {
 
         SqlBlockRuleMgr mgr = Catalog.getCurrentCatalog().getSqlBlockRuleMgr();
 
-        // test reach partitionNum :
+        // test reach partition_num :
         // cuz there is no data in test.table2, so the selectedPartitionLongValue == 0;
-        // set sqlBlockRule.partitionNum = -1, so it can be blocked.
+        // set sqlBlockRule.partition_num = -1, so it can be blocked.
         SqlBlockRule sqlBlockRule = new SqlBlockRule("test_rule2", "NULL", "NULL", -1L, 0L, 0L, true, true);
         mgr.replayCreate(sqlBlockRule);
         Assert.assertEquals(true, mgr.existRule("test_rule2"));
@@ -183,10 +183,10 @@ public class SqlBlockRuleMgrTest {
         Assert.assertEquals(0L, (long) sqlBlockRule.getCardinality());
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = sql hits sql block rule: "
-                        + sqlBlockRule.getName() + ", reach partitionNum : " + sqlBlockRule.getPartitionNum(),
+                        + sqlBlockRule.getName() + ", reach partition_num : " + sqlBlockRule.getPartitionNum(),
                 () -> mgr.checkLimitaions(sqlBlockRule, selectedPartitionLongValue, selectedTablet, cardinality));
 
-        // test reach TabletNum :
+        // test reach tablet_num :
         SqlBlockRule sqlBlockRule2 = new SqlBlockRule("test_rule3", "NULL", "NULL", 0L, -1L, 0L, true, true);
         mgr.replayCreate(sqlBlockRule2);
         Assert.assertEquals(true, mgr.existRule("test_rule3"));
@@ -197,7 +197,7 @@ public class SqlBlockRuleMgrTest {
         Assert.assertEquals(0L, (long) sqlBlockRule2.getCardinality());
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = sql hits sql block rule: "
-                        + sqlBlockRule2.getName() + ", reach tabletNum : " + sqlBlockRule2.getTabletNum(),
+                        + sqlBlockRule2.getName() + ", reach tablet_num : " + sqlBlockRule2.getTabletNum(),
                 () -> mgr.checkLimitaions(sqlBlockRule2, selectedPartitionLongValue, selectedTablet, cardinality));
 
         // test reach cardinality :
@@ -237,18 +237,18 @@ public class SqlBlockRuleMgrTest {
 
         // create : sql
         // alter : tabletNum
-        // AnalysisException : sql/sqlHash and partitionNum/tabletNum/cardinality cannot be set in one rule.
+        // AnalysisException : sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.
         Map<String, String> properties2 = new HashMap<>();
         properties2.put(CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM, "4");
         AlterSqlBlockRuleStmt stmt2 = new AlterSqlBlockRuleStmt("test_rule", properties2);
 
         stmt2.analyze(analyzer);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql/sqlHash and partitionNum/tabletNum/cardinality cannot be set in one rule.",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
                 () -> mgr.alterSqlBlockRule(stmt2));
 
         // create : cardinality
         // alter : sqlHash
-        // AnalysisException : sql/sqlHash and partitionNum/tabletNum/cardinality cannot be set in one rule.
+        // AnalysisException : sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.
         SqlBlockRule sqlBlockRule2 = new SqlBlockRule("test_rule2", "NULL", "NULL", 0L, 0L, 10L, true, true);
         mgr.unprotectedAdd(sqlBlockRule2);
         Assert.assertEquals(true, mgr.existRule("test_rule2"));
@@ -257,7 +257,7 @@ public class SqlBlockRuleMgrTest {
         properties3.put(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY, "xxxx");
         AlterSqlBlockRuleStmt stmt3 = new AlterSqlBlockRuleStmt("test_rule2", properties3);
         stmt3.analyze(analyzer);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql/sqlHash and partitionNum/tabletNum/cardinality cannot be set in one rule.",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
                 () -> mgr.alterSqlBlockRule(stmt3));
     }
 
