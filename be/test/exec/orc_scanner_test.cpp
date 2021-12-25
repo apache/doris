@@ -67,6 +67,7 @@ private:
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
     std::vector<TExpr> _pre_filter;
+    bool _fill_tuple;
 };
 
 TEST_F(OrcScannerTest, normal) {
@@ -416,17 +417,17 @@ TEST_F(OrcScannerTest, normal) {
     Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
 
-    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof, &_fill_tuple).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
               "(0 null doris      1.567 1.567000031471252 12345 1 doris)");
-    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof, &_fill_tuple).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
               "(1 true doris      1.567 1.567000031471252 12345 1 doris)");
     ASSERT_FALSE(eof);
     for (int i = 2; i < 10; i++) {
-        ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+        ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof, &_fill_tuple).ok());
     }
-    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof, &_fill_tuple).ok());
     ASSERT_TRUE(eof);
     scanner.close();
 }
@@ -539,9 +540,9 @@ TEST_F(OrcScannerTest, normal2) {
 
     Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
-    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof, &_fill_tuple).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(null)");
-    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof, &_fill_tuple).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(true)");
     scanner.close();
 }
@@ -889,7 +890,7 @@ TEST_F(OrcScannerTest, normal3) {
 
     Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
-    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof, &_fill_tuple).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
               "(0.123456789 1.12 -1.12345 0.12345 0 1 2020-01-14 14:12:19 2020-02-10 "
               "-0.0014)");
