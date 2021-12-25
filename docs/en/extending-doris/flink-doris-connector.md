@@ -295,7 +295,7 @@ outputFormat.close();
 | doris.read.field            | --            | List of column names in the Doris table, separated by commas                  |
 | doris.filter.query          | --            | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
 | sink.batch.size                        | 10000          | Maximum number of lines in a single write BE                                             |
-| sink.max-retries                        | 3           | Number of retries after writing BE failed                                              |
+| sink.max-retries                        | 1          | Number of retries after writing BE failed                                              |
 | sink.batch.interval                         | 10s           | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 10 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
 | sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br />  Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />  Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
 

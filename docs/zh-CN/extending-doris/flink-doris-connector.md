@@ -297,7 +297,7 @@ outputFormat.close();
 | doris.read.field            | --            | 读取Doris表的列名列表，多列之间使用逗号分隔                  |
 | doris.filter.query          | --            | 过滤读取数据的表达式，此表达式透传给Doris。Doris使用此表达式完成源端数据过滤。 |
 | sink.batch.size     | 10000              | 单次写BE的最大行数        |
-| sink.max-retries     | 3               | 写BE失败之后的重试次数       |
+| sink.max-retries     | 1              | 写BE失败之后的重试次数       |
 | sink.batch.interval     | 10s               | flush 间隔时间，超过该时间后异步线程将 缓存中数据写入BE。 默认值为10秒，支持时间单位ms、s、min、h和d。设置为0表示关闭定期写入。 |
 | sink.properties.*     | --               | Stream load 的导入参数<br /><br />例如:<br />'sink.properties.column_separator' = ', '<br />定义列分隔符<br /><br />'sink.properties.escape_delimiters' = 'true'<br />特殊字符作为分隔符,'\\x01'会被转换为二进制的0x01<br /><br /> 'sink.properties.format' = 'json'<br />'sink.properties.strip_outer_array' = 'true' <br />JSON格式导入|
 
