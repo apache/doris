@@ -28,7 +28,7 @@ import java.util.Properties;
 public class DorisExecutionOptions implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    public static final Integer DEFAULT_BATCH_SIZE = 1000;
+    public static final Integer DEFAULT_BATCH_SIZE = 10000;
     public static final Integer DEFAULT_MAX_RETRY_TIMES = 3;
     private static final Long DEFAULT_INTERVAL_MILLIS = 10000L;
 
