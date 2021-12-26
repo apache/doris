@@ -288,6 +288,34 @@ public class MaterializedViewFunctionTest {
         dorisAssert.query(query).explainContains(QUERY_USE_EMPS_MV);
     }
 
+    /**
+     * Aggregation query with two aggregation operators
+     */
+    @Test
+    public void testAggQueryOnAggMV11() throws Exception {
+        String createMVSQL = "create materialized view " + EMPS_MV_NAME + " as select deptno, count(salary) "
+                + "from " + EMPS_TABLE_NAME + " group by deptno;";
+        String query = "select deptno, count(salary) + count(1) from " + EMPS_TABLE_NAME
+                + " group by deptno;";
+        dorisAssert.withMaterializedView(createMVSQL);
+        dorisAssert.query(query).explainContains(QUERY_USE_EMPS);
+    }
+
+    /**
+     * Aggregation query with set operand
+     */
+    @Test
+    public void testAggQueryWithSetOperandOnAggMV() throws Exception {
+        String createMVSQL = "create materialized view " + EMPS_MV_NAME + " as select deptno, count(salary) "
+                + "from " + EMPS_TABLE_NAME + " group by deptno;";
+        String query = "select deptno, count(salary) + count(1) from " + EMPS_TABLE_NAME
+                + " group by deptno union " +
+                "select deptno, count(salary) + count(1) from " + EMPS_TABLE_NAME
+                + " group by deptno;";
+        dorisAssert.withMaterializedView(createMVSQL);
+        dorisAssert.query(query).explainContains(QUERY_USE_EMPS);
+    }
+
     @Test
     public void testJoinOnLeftProjectToJoin() throws Exception {
         String createEmpsMVSQL = "create materialized view " + EMPS_MV_NAME
@@ -409,15 +437,6 @@ public class MaterializedViewFunctionTest {
         String createEmpsMVSQL = "create materialized view " + EMPS_MV_NAME + " as select time, deptno, empid, name, " +
                 "salary, commission from " + EMPS_TABLE_NAME + " order by time, deptno, empid;";
         String query = "select * from " + EMPS_TABLE_NAME + " where deptno = 1";
-        dorisAssert.withMaterializedView(createEmpsMVSQL).query(query).explainContains(QUERY_USE_EMPS_MV);
-    }
-
-    @Test
-    public void testQueryOnStarAndJoin() throws Exception {
-        String createEmpsMVSQL = "create materialized view " + EMPS_MV_NAME + " as select time, deptno, empid, name, " +
-                "salary, commission from " + EMPS_TABLE_NAME + " order by time, deptno, empid;";
-        String query = "select * from " + EMPS_TABLE_NAME + " join depts on " + EMPS_TABLE_NAME + ".deptno = " +
-                DEPTS_TABLE_NAME + ".deptno";
         dorisAssert.withMaterializedView(createEmpsMVSQL).query(query).explainContains(QUERY_USE_EMPS_MV);
     }
 
