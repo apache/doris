@@ -404,6 +404,8 @@ public class QueryPlanTest {
 
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
+        createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as concat FROM test.test1;");
+
     }
 
     @AfterClass
@@ -419,6 +421,13 @@ public class QueryPlanTest {
     private static void createView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createView(createViewStmt);
+    }
+
+    @Test
+    public void testFunctionViewGroupingSet() throws Exception {
+        String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup(query_id, client_ip, concat);";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainStr.contains("repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]"));
     }
 
     @Test
