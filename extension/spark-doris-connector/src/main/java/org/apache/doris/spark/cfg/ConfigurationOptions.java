@@ -66,11 +66,9 @@ public interface ConfigurationOptions {
 
     String DORIS_WRITE_FIELDS = "doris.write.fields";
 
-    String SINK_BATCH_SIZE = "sink.batch.size";
     String DORIS_SINK_BATCH_SIZE = "doris.sink.batch.size";
-    int SINK_BATCH_SIZE_DEFAULT = 1024;
+    int SINK_BATCH_SIZE_DEFAULT = 10000;
 
-    String SINK_MAX_RETRIES = "sink.max-retries";
     String DORIS_SINK_MAX_RETRIES = "doris.sink.max-retries";
-    int SINK_MAX_RETRIES_DEFAULT = 3;
+    int SINK_MAX_RETRIES_DEFAULT = 1;
 }
