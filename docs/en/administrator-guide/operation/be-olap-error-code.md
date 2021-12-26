@@ -118,9 +118,9 @@ under the License.
 | OLAP_ERR_FETCH_SCHEMA_ERROR | -603 | FetchHandler Schema error |
 | OLAP_ERR_FETCH_COMPRESSION_ERROR | -604 | FetchHandler compression error |
 | OLAP_ERR_FETCH_CONTEXT_NOT_EXIST | -605 | FetchHandler context does not exist |
-| OLAP_ERR_FETCH_GET_READER_PARAMS_ERR | -607 | FetchHandler GET read parameter error |
-| OLAP_ERR_FETCH_SAVE_SESSION_ERR | -608 | FetchHandler save session error |
-| OLAP_ERR_FETCH_MEMORY_EXCEEDED | -609 | FetchHandler memory exceeded exception |
+| OLAP_ERR_FETCH_GET_READER_PARAMS_ERR | -606 | FetchHandler GET read parameter error |
+| OLAP_ERR_FETCH_SAVE_SESSION_ERR | -607 | FetchHandler save session error |
+| OLAP_ERR_FETCH_MEMORY_EXCEEDED | -608 | FetchHandler memory exceeded exception |
 | Read exception error code | | |
 | OLAP_ERR_READER_IS_UNINITIALIZED | -700 | Read cannot be initialized |
 | OLAP_ERR_READER_GET_ITERATOR_ERROR | -701 | Get read iterator error |
