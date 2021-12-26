@@ -28,9 +28,9 @@ under the License.
 ## description
 ### Syntax
 
-`BITMAP BITMAP_OR(BITMAP lhs, BITMAP rhs)`
+`BITMAP BITMAP_OR(BITMAP lhs, BITMAP rhs, ...)`
 
-Compute union of two input bitmaps, returns the new bitmap.
+Compute union of two or more input bitmaps, returns the new bitmap.
 
 ## example
 
@@ -48,6 +48,34 @@ mysql> select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(1))) cnt;
 +------+
 |    1 |
 +------+
+
+MySQL> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2)));
++---------------------------------------------------------+
+| bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2))) |
++---------------------------------------------------------+
+| 1,2                                                     |
++---------------------------------------------------------+
+
+MySQL> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL));
++--------------------------------------------------------------------------------------------+
+| bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL)) |
++--------------------------------------------------------------------------------------------+
+| NULL                                                                                       |
++--------------------------------------------------------------------------------------------+
+
+MySQL> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2),to_bitmap(10),to_bitmap(0),bitmap_empty()));
++------------------------------------------------------------------------------------------------------+
+| bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), bitmap_empty())) |
++------------------------------------------------------------------------------------------------------+
+| 0,1,2,10                                                                                             |
++------------------------------------------------------------------------------------------------------+
+
+MySQL> select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) ;
++--------------------------------------------------------------------------------------------------------+
+| bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) |
++--------------------------------------------------------------------------------------------------------+
+| 1,2,3,4,5,10                                                                                           |
++--------------------------------------------------------------------------------------------------------+
 ```
 
 ## keyword
