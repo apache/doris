@@ -684,6 +684,17 @@ public class StmtExecutor implements ProfileWriter {
         analyzer = new Analyzer(context.getCatalog(), context);
 
         parsedStmt.reset();
+
+        // DORIS-7361
+        // Need to reset selectList before second-round analyze, because exprs in selectList could be rewritten by mvExprRewriter
+        // in first-round analyze, which could cause analyze failure.
+        if (parsedStmt instanceof QueryStmt) {
+            ((QueryStmt) parsedStmt).resetSelectList();
+        }
+
+        if (parsedStmt instanceof InsertStmt) {
+            ((InsertStmt) parsedStmt).getQueryStmt().resetSelectList();
+        }
     }
 
     // Because this is called by other thread
