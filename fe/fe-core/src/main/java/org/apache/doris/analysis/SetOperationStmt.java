@@ -155,6 +155,13 @@ public class SetOperationStmt extends QueryStmt {
         setOpsResultExprs_.clear();
     }
 
+    @Override
+    public void resetSelectList() {
+        for (SetOperand operand : operands) {
+            operand.getQueryStmt().resetSelectList();
+        }
+    }
+
     public List<SetOperand> getOperands() { return operands; }
     public List<SetOperand> getDistinctOperands() { return distinctOperands_; }
     public boolean hasDistinctOps() { return !distinctOperands_.isEmpty(); }
