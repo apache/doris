@@ -1322,7 +1322,8 @@ public class Roaring64Map {
         Codec.encodeVarint64(highToBitmap.size(), out);
 
         for (Map.Entry<Integer, BitmapDataProvider> entry : highToBitmap.entrySet()) {
-            out.writeInt(entry.getKey().intValue());
+            // serialized in little end for BE cpp read in case of bugs when the value is larger than 32bits
+            out.writeInt(Integer.reverseBytes(entry.getKey().intValue()));
             entry.getValue().serialize(out);
         }
     }
@@ -1356,7 +1357,8 @@ public class Roaring64Map {
 
         long nbHighs = Codec.decodeVarint64(in);
         for (int i = 0; i < nbHighs; i++) {
-            int high = in.readInt();
+            // keep the same behavior with little-end serialize
+            int high = Integer.reverseBytes(in.readInt());
             RoaringBitmap provider = new RoaringBitmap();
             provider.deserialize(in);
             highToBitmap.put(high, provider);
