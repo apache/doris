@@ -76,6 +76,21 @@ public:
     static StringVal bitmap_and_not(FunctionContext* ctx, const StringVal& src,
                                     const StringVal& dst);
 
+    //TODO: this functions support variable parameter, but in order to version compatible
+    //so have not remove old functions, and now is the version of 0.15, in the future could remove that functions
+    static StringVal bitmap_or(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                               const StringVal* bitmap_strs);
+    static StringVal bitmap_and(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                const StringVal* bitmap_strs);
+    static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                const StringVal* bitmap_strs);
+    static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs);
+    static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs);
+    static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs);
+
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap
     // Example:
