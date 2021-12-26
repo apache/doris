@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SeaTunnel"
+    "title": "SeaTunnel",
     "language": "zh-CN"
 }
 ---
