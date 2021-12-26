@@ -36,7 +36,7 @@ import java.util.Map;
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("QueryId").add("ConnectionId").add("Database").add("User")
-            .add("ScanBytes").add("ProcessRows").add("ExecTime").add("Statement").build();
+            .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
 
     private static final int EXEC_TIME_INDEX = 6;
 
@@ -87,7 +87,6 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
                 values.add("N/A");
             }
             values.add(item.getQueryExecTime());
-            values.add(item.getSql());
             sortedRowData.add(values);
         }
         // sort according to ExecTime
