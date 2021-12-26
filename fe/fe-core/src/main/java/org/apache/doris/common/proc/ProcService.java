@@ -50,6 +50,7 @@ public final class ProcService {
         root.register("trash", new TrashProcDir());
         root.register("monitor", new MonitorProcDir());
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
+        root.register("current_query_stmts", new CurrentQueryStatementsProcNode());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
         root.register("cluster_balance", new ClusterBalanceProcDir());
         root.register("routine_loads", new RoutineLoadsProcDir());
