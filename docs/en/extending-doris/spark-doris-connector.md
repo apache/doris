@@ -182,8 +182,8 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.deserialize.arrow.async    | false             | Whether to support asynchronous conversion of Arrow format to RowBatch required for spark-doris-connector iteration                 |
 | doris.deserialize.queue.size     | 64                | Asynchronous conversion of the internal processing queue in Arrow format takes effect when doris.deserialize.arrow.async is true        |
 | doris.write.fields                | --                 | Specifies the fields (or the order of the fields) to write to the Doris table, fileds separated by commas.<br/>By default, all fields are written in the order of Doris table fields. |
-| sink.batch.size | 1024 | Maximum number of lines in a single write BE |
-| sink.max-retries | 3 | Number of retries after writing BE failed |
+| sink.batch.size | 10000 | Maximum number of lines in a single write BE |
+| sink.max-retries | 1 | Number of retries after writing BE failed |
 
 ### SQL & Dataframe Configuration
 

@@ -186,8 +186,8 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.deserialize.arrow.async    | false             | 是否支持异步转换Arrow格式到spark-doris-connector迭代所需的RowBatch                 |
 | doris.deserialize.queue.size     | 64                | 异步转换Arrow格式的内部处理队列，当doris.deserialize.arrow.async为true时生效        |
 | doris.write.fields               | --                 | 指定写入Doris表的字段或者字段顺序，多列之间使用逗号分隔。<br />默认写入时要按照Doris表字段顺序写入全部字段。 |
-| sink.batch.size | 1024 | 单次写BE的最大行数 |
-| sink.max-retries | 3 | 写BE失败之后的重试次数 |
+| sink.batch.size | 10000 | 单次写BE的最大行数 |
+| sink.max-retries | 1 | 写BE失败之后的重试次数 |
 
 ### SQL 和 Dataframe 专有配置
 
