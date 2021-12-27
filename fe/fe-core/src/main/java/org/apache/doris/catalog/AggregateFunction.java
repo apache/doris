@@ -115,15 +115,6 @@ public class AggregateFunction extends Function {
                              Type retType, Type intermediateType, boolean hasVarArgs,
                              HdfsURI location, String updateFnSymbol, String initFnSymbol,
                              String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
-                             String removeFnSymbol, String finalizeFnSymbol) {
-        this(fnName, argTypes, retType, intermediateType, hasVarArgs, location, updateFnSymbol, initFnSymbol, serializeFnSymbol,
-                mergeFnSymbol, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, false);
-    }
-
-    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
-                             Type retType, Type intermediateType, boolean hasVarArgs,
-                             HdfsURI location, String updateFnSymbol, String initFnSymbol,
-                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
                              String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
         // only `count` is always not nullable, other aggregate function is always nullable
         super(fnName, argTypes, retType, hasVarArgs, vectorized,
