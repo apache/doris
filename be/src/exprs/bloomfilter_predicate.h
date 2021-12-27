@@ -243,6 +243,8 @@ struct DateFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
 
 template <class BloomFilterAdaptor>
 struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value, BloomFilterAdaptor> {
+    // avoid violating C/C++ aliasing rules.
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101684
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         auto packed_decimal = *static_cast<const decimal12_t*>(data);
         DecimalV2Value value;
