@@ -150,7 +150,7 @@ public class TableRef implements ParseNode, Writable {
         this.name = name;
         if (alias != null) {
             if (Catalog.isStoredTableNamesLowerCase()) {
-                alias = alias.toLowerCase(Locale.ROOT);
+                alias = alias.toLowerCase();
             }
             aliases_ = new String[]{alias};
             hasExplicitAlias_ = true;
