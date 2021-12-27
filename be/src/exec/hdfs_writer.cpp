@@ -193,6 +193,11 @@ Status HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
         LOG(ERROR) << "hdfs properties is incorrect.";
         return Status::InternalError("hdfs properties is incorrect");
     }
+
+    if (_path.find(_namenode) != _path.npos) {
+        _path = _path.substr(_namenode.size());
+    }
+
     return Status::OK();
 }
 
