@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -148,6 +149,9 @@ public class TableRef implements ParseNode, Writable {
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
+            if (Catalog.isStoredTableNamesLowerCase()) {
+                alias = alias.toLowerCase(Locale.ROOT);
+            }
             aliases_ = new String[]{alias};
             hasExplicitAlias_ = true;
         } else {
