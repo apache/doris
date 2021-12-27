@@ -188,6 +188,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
+            stmt.setIsReplay(true);
             Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
             setColumnsDefineExpr(columnNameToDefineExpr);
         } catch (Exception e) {
