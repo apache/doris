@@ -113,7 +113,7 @@ public class CreateSqlBlockRuleStmtTest {
         CreateSqlBlockRuleStmt stmt = new CreateSqlBlockRuleStmt("test_rule", properties);
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "errCode = 2, detailMessage = tabletNum should be a long",
+                "errCode = 2, detailMessage = tablet_num should be a long",
                 () -> stmt.analyze(analyzer));
     }
 
