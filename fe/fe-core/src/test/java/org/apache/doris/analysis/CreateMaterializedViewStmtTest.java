@@ -17,12 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -76,6 +79,71 @@ public class CreateMaterializedViewStmtTest {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
         } catch (UserException e) {
+            System.out.print(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testCountDistinct(@Injectable SlotRef slotRef, @Injectable ArithmeticExpr arithmeticExpr,
+                                  @Injectable SelectStmt selectStmt, @Injectable Column column,
+                                  @Injectable TableRef tableRef,
+                                  @Injectable SlotDescriptor slotDescriptor) throws UserException {
+        SelectList selectList = new SelectList();
+        SelectListItem selectListItem = new SelectListItem(slotRef, null);
+        selectList.addItem(selectListItem);
+
+        TableName tableName = new TableName("db", "table");
+        SlotRef slotRef2 = new SlotRef(tableName, "v1");
+        List<Expr> fnChildren = Lists.newArrayList(slotRef2);
+        Deencapsulation.setField(slotRef2, "desc", slotDescriptor);
+        FunctionParams functionParams = new FunctionParams(true, fnChildren);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(FunctionSet.COUNT, functionParams);
+        functionCallExpr.setFn(AggregateFunction.createBuiltin(FunctionSet.COUNT,
+                new ArrayList<>(), Type.BIGINT, Type.BIGINT, false, true, true));
+        SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
+        selectList.addItem(selectListItem2);
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default";
+                selectStmt.analyze(analyzer);
+                selectStmt.getSelectList();
+                result = selectList;
+                arithmeticExpr.toString();
+                result = "a+b";
+                slotRef.getColumnName();
+                result = "k1";
+                selectStmt.getWhereClause();
+                minTimes = 0;
+                result = null;
+                selectStmt.getHavingPred();
+                minTimes = 0;
+                result = null;
+                selectStmt.getTableRefs();
+                minTimes = 0;
+                result = Lists.newArrayList(tableRef);
+                slotDescriptor.getColumn();
+                minTimes = 0;
+                result = column;
+                selectStmt.getLimit();
+                minTimes = 0;
+                result = -1;
+                column.getType();
+                minTimes = 0;
+                result = Type.INT;
+                slotRef.getType();
+                result = Type.INT;
+            }
+        };
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+                new CreateMaterializedViewStmt("test", selectStmt, null);
+        try {
+            createMaterializedViewStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (AnalysisException e) {
+            Assert.assertTrue(
+                    e.getMessage().contains("Materialized view does not support distinct function"));
             System.out.print(e.getMessage());
         }
     }
