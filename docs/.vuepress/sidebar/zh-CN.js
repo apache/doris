@@ -557,6 +557,7 @@ module.exports = [
             title: "DML",
             directoryPath: "Data Manipulation/",
             children: [
+              "BEGIN",
               "BROKER LOAD",
               "CANCEL LOAD",
               "CREATE SYNC JOB",

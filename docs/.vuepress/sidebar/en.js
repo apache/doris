@@ -551,6 +551,7 @@ module.exports = [
             title: "Data Manipulation",
             directoryPath: "Data Manipulation/",
             children: [
+              "BEGIN",
               "BROKER LOAD",
               "CANCEL DELETE",
               "CANCEL LABEL",
