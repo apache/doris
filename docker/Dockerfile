@@ -92,6 +92,20 @@ RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.s
 
 RUN alternatives --set java java-11-openjdk.x86_64 && alternatives --set javac java-11-openjdk.x86_64
 
+# build clang 11
+RUN wget -P ${DEFAULT_DIR}  https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/llvm-project-11.0.0.tar.xz \
+    && tar Jxf ${DEFAULT_DIR}/llvm-project-11.0.0.tar.xz -C ${DEFAULT_DIR} \
+    && echo "source /opt/rh/devtoolset-10/enable" > ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cd ${DEFAULT_DIR}/llvm-project-11.0.0" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "mkdir build" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cd build" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_PROJECTS=\"clang;libcxx;libcxxabi\" -G \"Unix Makefiles\" ../llvm " >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "make -j $(nproc)" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "make install" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "rm -rf ${DEFAULT_DIR}/llvm-project-11.0.0*" >> ${DEFAULT_DIR}/build_clang.sh \
+    && chmod +x ${DEFAULT_DIR}/build_clang.sh \
+    && ${DEFAULT_DIR}/build_clang.sh
+
 FROM scratch
 
 COPY --from=builder / /

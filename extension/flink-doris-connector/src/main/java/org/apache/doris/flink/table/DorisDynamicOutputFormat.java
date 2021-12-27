@@ -94,7 +94,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         this.readOptions = readOptions;
         this.executionOptions = executionOptions;
 
-        Properties streamLoadProp=executionOptions.getStreamLoadProp();
+        Properties streamLoadProp = executionOptions.getStreamLoadProp();
 
         boolean ifEscape = Boolean.parseBoolean(streamLoadProp.getProperty(ESCAPE_DELIMITERS_KEY, ESCAPE_DELIMITERS_DEFAULT));
         if (ifEscape) {
@@ -121,16 +121,16 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         }
     }
 
-    private String escapeString( String s) {
-            Pattern p = Pattern.compile("\\\\x(\\d{2})");
-            Matcher m = p.matcher(s);
+    private String escapeString(String s) {
+        Pattern p = Pattern.compile("\\\\x(\\d{2})");
+        Matcher m = p.matcher(s);
 
-            StringBuffer buf = new StringBuffer();
-            while (m.find()) {
-                m.appendReplacement(buf, String.format("%s", (char) Integer.parseInt(m.group(1))));
-            }
-            m.appendTail(buf);
-            return buf.toString();
+        StringBuffer buf = new StringBuffer();
+        while (m.find()) {
+            m.appendReplacement(buf, String.format("%s", (char) Integer.parseInt(m.group(1))));
+        }
+        m.appendTail(buf);
+        return buf.toString();
     }
 
     @Override
@@ -220,6 +220,8 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
             } catch (Exception e) {
                 LOG.warn("Writing records to doris failed.", e);
                 throw new RuntimeException("Writing records to doris failed.", e);
+            } finally {
+                this.dorisStreamLoad.close();
             }
         }
         checkFlushException();

@@ -273,7 +273,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             }
 
             // This row batch has been filled up, and break this
-            if (row_batch->is_full()) {
+            if (row_batch->is_full() || row_batch->is_full_uncommited() ) {
                 break;
             }
 
@@ -284,8 +284,16 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             memset(tuple, 0, _tuple_desc->num_null_bytes());
 
             // Get from scanner
-            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));
+            bool tuple_fill = false;
+            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof, &tuple_fill));
             if (scanner_eof) {
+                continue;
+            }
+
+            // if read row succeed, but fill dest tuple fail, we need to increase # of uncommitted rows, 
+            // once reach the capacity of row batch, will transfer the row batch to next operator to release memory
+            if (!tuple_fill) {
+                row_batch->increase_uncommitted_rows();
                 continue;
             }
 

@@ -34,9 +34,9 @@ under the License.
 3. MERGE: 根据 DELETE ON 的决定 APPEND 还是 DELETE
 
 ## 原理
-通过增加一个隐藏列`__DELETE_SIGN__`实现，因为我们只是在unique 模型上做批量删除，因此只需要增加一个 类型为bool 聚合函数为replace 的隐藏列即可。在be 各种聚合写入流程都和正常列一样，读取方案有两个：
+通过增加一个隐藏列`__DORIS_DELETE_SIGN__`实现，因为我们只是在unique 模型上做批量删除，因此只需要增加一个 类型为bool 聚合函数为replace 的隐藏列即可。在be 各种聚合写入流程都和正常列一样，读取方案有两个：
 
-在fe遇到 * 等扩展时去去掉`__DELETE_SIGN__`，并且默认加上 `__DELETE_SIGN__ != true` 的条件
+在fe遇到 * 等扩展时去去掉`__DORIS_DELETE_SIGN__`，并且默认加上 `__DORIS_DELETE_SIGN__ != true` 的条件
 be 读取时都会加上一列进行判断，通过条件确定是否删除。
 
 ### 导入
@@ -45,7 +45,7 @@ be 读取时都会加上一列进行判断，通过条件确定是否删除。
 
 ### 读取
 
-读取时在所有存在隐藏列的olapScanNode上增加`__DELETE_SIGN__ != true` 的条件，be 不感知这以过程，正常执行
+读取时在所有存在隐藏列的olapScanNode上增加`__DORIS_DELETE_SIGN__ != true` 的条件，be 不感知这以过程，正常执行
 
 ### Cumulative Compaction
 
@@ -129,7 +129,7 @@ routine load 在`columns` 字段增加映射 映射方式同上，示例如下
 2. 对于没有更改上述fe 配置或对于以存在的不支持批量删除功能的表，可以使用如下语句：
 `ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` 来启用批量删除。本操作本质上是一个schema change 操作，操作立即返回，可以通过`show alter table column` 来确认操作是否完成。
 
-如果确定一个表是否支持批量删除，可以通过 设置一个session variable 来显示隐藏列 `SET show_hidden_columns=true` ，之后使用`desc tablename`，如果输出中有`__DELETE_SIGN__` 列则支持，如果没有则不支持
+如果确定一个表是否支持批量删除，可以通过 设置一个session variable 来显示隐藏列 `SET show_hidden_columns=true` ，之后使用`desc tablename`，如果输出中有`__DORIS_DELETE_SIGN__` 列则支持，如果没有则不支持
 
 ## 注意
 1. 由于除stream load 外的导入操作在doris 内部有可能乱序执行，因此在使用`MERGE` 方式导入时如果不是stream load，需要与 load sequence 一起使用，具体的 语法可以参照sequence列 相关的文档 
