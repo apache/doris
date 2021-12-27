@@ -218,6 +218,24 @@ under the License.
                 "AWS_SECRET_KEY"="",
                 "AWS_REGION" = ""
             )
+        6. if using load with hdfs, you need to specify the following attributes 
+            (
+                "fs.defaultFS" = "",
+                "hdfs_user"="",
+                "dfs.nameservices"="my_ha",
+                "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+                "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+                "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+                "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            )
+            fs.defaultFS: defaultFS
+            hdfs_user: hdfs user
+            namenode HA：
+            By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
+            dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
+            dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
+            dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
+            dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
 
     4. opt_properties
 
@@ -531,6 +549,36 @@ under the License.
         properties("fuzzy_parse"="true", "strip_outer_array"="true")
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");   
+
+    15. LOAD WITH HDFS, normal HDFS cluster
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+        );
+    16. LOAD WITH HDFS, hdfs ha
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+            "dfs.nameservices"="my_ha",
+            "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+            "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+            "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+            "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+        );
 
 ## keyword
 
