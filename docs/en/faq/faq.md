@@ -335,7 +335,7 @@ Then the result of replica 1 may be '1, "ABC', while the result of replica 2 may
 
 To ensure the unique data order between different replicas, refer to the  [Sequence Column](../administrator-guide/load-data/sequence-column-manual.md) function.
 
-### Q23. ` recoveryTracker should overlap or follow on disk last VLSN of 4,422,880 recoveryFirst= 4,422,882 UNEXPECTED_STATE_FATAL`
+### Q23. `recoveryTracker should overlap or follow on disk last VLSN of 4,422,880 recoveryFirst= 4,422,882 UNEXPECTED_STATE_FATAL`
 
 Sometimes when restarting the Fe, the above error will occur (usually only in the case of multiple followers), and the difference between the two values in the error is 2. As a result, the Fe startup fails.
 
