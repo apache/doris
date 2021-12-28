@@ -194,6 +194,8 @@ Status HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
         return Status::InternalError("hdfs properties is incorrect");
     }
 
+    // if the format of _path is hdfs://ip:port/path, replace it to /path.
+    // path like hdfs://ip:port/path can't be used by libhdfs3.
     if (_path.find(_namenode) != _path.npos) {
         _path = _path.substr(_namenode.size());
     }

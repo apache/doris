@@ -567,6 +567,7 @@ module.exports = [
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
+              "OUTFILE",
               "PAUSE ROUTINE LOAD",
               "PAUSE SYNC JOB",
               "RESUME ROUTINE LOAD",

@@ -71,13 +71,13 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _disk_capacity_bytes(0),
           _storage_medium(storage_medium),
           _is_used(false),
+          _env(Env::get_env(storage_medium)),
           _tablet_manager(tablet_manager),
           _txn_manager(txn_manager),
           _cluster_id(-1),
           _cluster_id_incomplete(false),
           _to_be_deleted(false),
           _current_shard(0),
-          _env(Env::get_env(storage_medium)),
           _meta(nullptr) {
     _path_desc.storage_medium = storage_medium;
     _path_desc.remote_path = remote_path;
