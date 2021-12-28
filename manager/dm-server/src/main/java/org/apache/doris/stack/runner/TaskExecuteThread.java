@@ -25,7 +25,6 @@ import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.task.AbstractTask;
 import org.apache.doris.stack.task.InstallAgentTask;
-import org.apache.doris.stack.task.JoinBeTask;
 
 import java.util.concurrent.Callable;
 
@@ -69,8 +68,6 @@ public class TaskExecuteThread implements Callable<Object> {
         switch (taskType) {
             case INSTALL_AGENT:
                 return new InstallAgentTask(taskContext);
-            case JOIN_BE:
-                return new JoinBeTask(taskContext);
             default:
                 log.error("not support task type: {}", taskType.name());
                 throw new IllegalArgumentException("not support task type");

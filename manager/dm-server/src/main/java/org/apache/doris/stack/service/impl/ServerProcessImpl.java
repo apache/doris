@@ -35,7 +35,6 @@ import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
-import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
 import org.apache.doris.stack.model.task.AgentInstall;
@@ -50,6 +49,7 @@ import javax.servlet.http.HttpServletResponse;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -110,11 +110,16 @@ public class ServerProcessImpl implements ServerProcess {
         return processId;
     }
 
+    /**
+     * remove already install agent host
+     */
     private void checkAgentInstall(AgentInstallReq installReq) {
-        for (String host : installReq.getHosts()) {
+        Iterator<String> iterator = installReq.getHosts().iterator();
+        while (iterator.hasNext()) {
+            String host = iterator.next();
             if (agentCache.containsAgent(host)) {
-                log.error("host {} already install agent", host);
-                throw new ServerException("host " + host + " already install agent");
+                log.warn("host {} already install agent,skipped", host);
+                iterator.remove();
             }
         }
     }
@@ -138,6 +143,7 @@ public class ServerProcessImpl implements ServerProcess {
     @Override
     public List<AgentEntity> agentList(int clusterId) {
         List<AgentEntity> agentEntities = agentComponent.queryAgentNodes(clusterId);
+        agentCache.refresh(agentEntities);
         return agentEntities;
     }
 

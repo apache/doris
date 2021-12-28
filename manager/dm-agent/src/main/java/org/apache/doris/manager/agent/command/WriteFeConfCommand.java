@@ -96,7 +96,7 @@ public class WriteFeConfCommand extends FeCommand {
             FeService service = (FeService) ServiceContext.getServiceMap().get(ServiceRole.FE);
             service.load();
             if (taskDesc.isCreateMetaDir()) {
-                service.createMetaDir(true);
+                service.createMetaDir();
             }
         }
     }

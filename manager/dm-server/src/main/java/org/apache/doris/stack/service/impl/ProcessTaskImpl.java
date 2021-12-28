@@ -31,12 +31,15 @@ import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.component.TaskInstanceComponent;
 import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
+import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
+import org.apache.doris.stack.model.response.CurrentProcessResp;
+import org.apache.doris.stack.model.response.TaskInstanceResp;
 import org.apache.doris.stack.model.task.AgentInstall;
 import org.apache.doris.stack.model.task.BeJoin;
 import org.apache.doris.stack.runner.TaskExecuteRunner;
@@ -44,6 +47,7 @@ import org.apache.doris.stack.service.ProcessTask;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -79,10 +83,25 @@ public class ProcessTaskImpl implements ProcessTask {
     private TaskExecuteRunner taskExecuteRunner;
 
     @Override
-    public ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    public CurrentProcessResp currentProcess(HttpServletRequest request, HttpServletResponse response) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessByuserId(userId);
-        return processEntity;
+        CurrentProcessResp processResp = null;
+        if (processEntity != null) {
+            List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessStep(processEntity.getId(), processEntity.getProcessType());
+            boolean hasUnFinishTask = false;
+            for (TaskInstanceEntity task : taskEntities) {
+                if (!task.getFinish().typeIsYes()) {
+                    hasUnFinishTask = true;
+                    break;
+                }
+            }
+            processResp = processEntity.transToCurrentResp();
+            if (!hasUnFinishTask && !processEntity.getProcessType().endProcess()) {
+                processResp.setProcessStep(processResp.getProcessStep() + 1);
+            }
+        }
+        return processResp;
     }
 
     @Override
@@ -98,28 +117,29 @@ public class ProcessTaskImpl implements ProcessTask {
     }
 
     @Override
-    public List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
+    public List<TaskInstanceResp> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
         ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessById(processId);
         Preconditions.checkArgument(processEntity != null, "can not find processId " + processId);
         refreshAgentTaskStatus(processId);
         List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessStep(processId, processEntity.getProcessType());
-        List<TaskInstanceEntity> resultTasks = Lists.newArrayList();
+        List<TaskInstanceResp> resultTasks = Lists.newArrayList();
         for (TaskInstanceEntity task : taskEntities) {
             if (task.getSkip().typeIsYes()) {
                 continue;
             }
+            TaskInstanceResp taskResp = task.transToModel();
             //set response
             if (task.getStatus().typeIsSuccess()) {
-                task.setResponse(task.getTaskType().getName() + " success");
+                taskResp.setResponse(task.getTaskType().getName() + " success");
             } else if (task.getStatus().typeIsFailure()) {
                 if (StringUtils.isBlank(task.getResult())) {
-                    task.setResponse(task.getTaskType().getName() + " fail");
+                    taskResp.setResponse(task.getTaskType().getName() + " fail");
                 } else {
-                    task.setResponse(task.getResult());
+                    taskResp.setResponse(task.getResult());
                 }
             }
-            task.setTaskRole(task.getTaskType().parseTaskRole());
-            resultTasks.add(task);
+            taskResp.setTaskRole(task.getTaskType().parseTaskRole());
+            resultTasks.add(taskResp);
         }
         return resultTasks;
     }
@@ -223,6 +243,23 @@ public class ProcessTaskImpl implements ProcessTask {
             result.put("log", taskEntity.getResult());
             return result;
         }
+    }
+
+    @Transactional
+    @Override
+    public void backPrevious(int processId) {
+        ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessById(processId);
+        Preconditions.checkNotNull(processEntity, "process not exist");
+        ProcessTypeEnum processType = processEntity.getProcessType();
+        Preconditions.checkArgument(processType == ProcessTypeEnum.START_SERVICE, "process can not back");
+
+        //remove history task
+        List<TaskInstanceEntity> startServiceTasks = taskInstanceRepository.queryTasksByProcessStep(processEntity.getId(), ProcessTypeEnum.START_SERVICE);
+        taskInstanceRepository.deleteAll(startServiceTasks);
+
+        ProcessTypeEnum parent = ProcessTypeEnum.findParent(processType);
+        processEntity.setProcessType(parent);
+        processInstanceComponent.saveProcess(processEntity);
     }
 
     private int agentPort(String host) {

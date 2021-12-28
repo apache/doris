@@ -10,7 +10,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>dm-server</artifactId>
-<!--    <packaging>jar</packaging>-->
+    <!--    <packaging>jar</packaging>-->
 
     <name>dm-server</name>
 

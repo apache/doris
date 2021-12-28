@@ -24,8 +24,7 @@ public enum ProcessTypeEnum {
     INSTALL_AGENT(0, "install agent"),
     INSTALL_SERVICE(1, "install service"),
     DEPLOY_CONFIG(2, "deploy config"),
-    START_SERVICE(3, "start service"),
-    BUILD_CLUSTER(4, "build cluster");
+    START_SERVICE(3, "start service");
 
     private int code;
     private String desc;
@@ -60,6 +59,10 @@ public enum ProcessTypeEnum {
         } else {
             return processType;
         }
+    }
+
+    public boolean endProcess() {
+        return this == START_SERVICE;
     }
 
     public int getCode() {

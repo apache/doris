@@ -25,7 +25,9 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BeStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.BrokerInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BrokerStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
@@ -54,13 +56,13 @@ import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
+import org.apache.doris.stack.exceptions.JdbcException;
 import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.request.BeJoinReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
 import org.apache.doris.stack.model.request.DorisStartReq;
-import org.apache.doris.stack.model.task.BeJoin;
 import org.apache.doris.stack.model.task.DeployConfig;
 import org.apache.doris.stack.model.task.DorisInstall;
 import org.apache.doris.stack.model.task.DorisStart;
@@ -78,6 +80,7 @@ import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLSyntaxErrorException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
@@ -121,7 +124,7 @@ public class AgentProcessImpl implements AgentProcess {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         processInstanceComponent.checkProcessFinish(installReq.getProcessId());
         processInstanceComponent.checkHasUnfinishProcess(userId, installReq.getProcessId());
-        boolean success = taskInstanceComponent.checkParentTaskSuccess(installReq.getProcessId(), ProcessTypeEnum.INSTALL_SERVICE);
+        boolean success = taskInstanceComponent.checkTaskSuccess(installReq.getProcessId(), ProcessTypeEnum.INSTALL_AGENT);
         Preconditions.checkArgument(success, "The agent is not installed successfully and the service cannot be installed");
 
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(installReq.getProcessId(), ProcessTypeEnum.INSTALL_SERVICE);
@@ -133,6 +136,8 @@ public class AgentProcessImpl implements AgentProcess {
         if (installInfos == null) {
             throw new ServerException("Please specify the host configuration to be installed");
         }
+        //add broker
+        addBrokerInstallnfo(installInfos);
         for (DorisInstall install : installInfos) {
             String key = install.getHost() + "-" + install.getRole();
             if (agentRoleList.contains(key)) {
@@ -150,31 +155,48 @@ public class AgentProcessImpl implements AgentProcess {
         }
     }
 
+    /**
+     * auto install broker when install fe/be in install cluster
+     */
+    private void addBrokerInstallnfo(List<DorisInstall> installInfos) {
+        List<String> brokerList = installInfos.stream().map(DorisInstall::getHost).distinct().collect(Collectors.toList());
+        for (String broker : brokerList) {
+            DorisInstall brokerInstall = new DorisInstall();
+            brokerInstall.setHost(broker);
+            brokerInstall.setRole(ServiceRole.BROKER.name());
+            installInfos.add(brokerInstall);
+        }
+    }
+
     private void installDoris(int processId, DorisInstall install, String packageUrl, String installDir) {
         if (!installDir.endsWith(File.separator)) {
             installDir = installDir + File.separator;
         }
+        String serviceInstallDir = "";
         CommandRequest creq = new CommandRequest();
         TaskInstanceEntity installServiceTmp = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE, ExecutionStatus.SUBMITTED);
         if (ServiceRole.FE.name().equals(install.getRole())) {
+            serviceInstallDir = installDir + ServiceRole.FE.getInstallName();
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
             feBody.setMkFeMetadir(true);
             feBody.setPackageUrl(packageUrl);
-            feBody.setInstallDir(installDir + ServiceRole.FE.getInstallName());
+            feBody.setInstallDir(serviceInstallDir);
             creq.setCommandType(CommandType.INSTALL_FE.name());
             creq.setBody(JSON.toJSONString(feBody));
             installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_FE);
         } else if (ServiceRole.BE.name().equals(install.getRole())) {
+            serviceInstallDir = installDir + ServiceRole.BE.getInstallName();
             BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
             beBody.setMkBeStorageDir(true);
             beBody.setPackageUrl(packageUrl);
-            beBody.setInstallDir(installDir + ServiceRole.BE.getInstallName());
+            beBody.setInstallDir(serviceInstallDir);
             creq.setCommandType(CommandType.INSTALL_BE.name());
             creq.setBody(JSON.toJSONString(beBody));
             installServiceTmp.setTaskType(TaskTypeEnum.INSTALL_BE);
         } else if (ServiceRole.BROKER.name().equals(install.getRole())) {
+            serviceInstallDir = installDir + ServiceRole.BROKER.getInstallName();
             BrokerInstallCommandRequestBody broker = new BrokerInstallCommandRequestBody();
-            broker.setInstallDir(installDir + ServiceRole.BROKER.getInstallName());
+            broker.setInstallDir(serviceInstallDir);
             broker.setPackageUrl(packageUrl);
             creq.setCommandType(CommandType.INSTALL_BROKER.name());
             creq.setBody(JSON.toJSONString(broker));
@@ -187,8 +209,8 @@ public class AgentProcessImpl implements AgentProcess {
             return;
         }
         handleAgentTask(installService, creq);
-        agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir, Flag.NO));
-        log.info("agent {} installing doris {}", install.getHost(), install.getRole());
+        agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), serviceInstallDir, Flag.NO));
+        log.info("agent {} installing doris {} in dir {}", install.getHost(), install.getRole(), serviceInstallDir);
     }
 
     /**
@@ -216,7 +238,7 @@ public class AgentProcessImpl implements AgentProcess {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         processInstanceComponent.checkProcessFinish(deployConfigReq.getProcessId());
         processInstanceComponent.checkHasUnfinishProcess(userId, deployConfigReq.getProcessId());
-        boolean success = taskInstanceComponent.checkParentTaskSuccess(deployConfigReq.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
+        boolean success = taskInstanceComponent.checkTaskSuccess(deployConfigReq.getProcessId(), ProcessTypeEnum.INSTALL_SERVICE);
         Preconditions.checkArgument(success, "doris is not installed successfully and the configuration cannot be delivered");
 
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(deployConfigReq.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
@@ -292,11 +314,12 @@ public class AgentProcessImpl implements AgentProcess {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         processInstanceComponent.checkProcessFinish(dorisStart.getProcessId());
         processInstanceComponent.checkHasUnfinishProcess(userId, dorisStart.getProcessId());
-        boolean success = taskInstanceComponent.checkParentTaskSuccess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
+        boolean success = taskInstanceComponent.checkTaskSuccess(dorisStart.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
         Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
 
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
         List<DorisStart> dorisStarts = dorisStart.getDorisStarts();
+        addBrokerStart(dorisStarts);
         for (DorisStart start : dorisStarts) {
             TaskInstanceEntity execTaskTmp = new TaskInstanceEntity(process.getId(), start.getHost(), ProcessTypeEnum.START_SERVICE, ExecutionStatus.SUBMITTED);
             TaskTypeEnum parentTask;
@@ -380,6 +403,19 @@ public class AgentProcessImpl implements AgentProcess {
         }
     }
 
+    /**
+     * auto start broker when start fe/be in install cluster
+     */
+    private void addBrokerStart(List<DorisStart> dorisStarts) {
+        List<String> brokerList = dorisStarts.stream().map(DorisStart::getHost).distinct().collect(Collectors.toList());
+        for (String broker : brokerList) {
+            DorisStart brokerStart = new DorisStart();
+            brokerStart.setHost(broker);
+            brokerStart.setRole(ServiceRole.BROKER.name());
+            dorisStarts.add(brokerStart);
+        }
+    }
+
     private String waitMasterFeStart(int processId) throws InterruptedException {
         String masterFeHost;
         while (true) {
@@ -410,10 +446,18 @@ public class AgentProcessImpl implements AgentProcess {
                     Integer leaderFeEditLogPort = getFeEditLogPort(leaderFeHost, agentCache.agentPort(leaderFeHost));
                     feBody.setHelpHostPort(leaderFeHost + ":" + leaderFeEditLogPort);
                 }
+                feBody.setStopBeforeStart(true);
                 creq.setBody(JSON.toJSONString(feBody));
                 break;
             case START_BE:
+                BeStartCommandRequestBody beBody = new BeStartCommandRequestBody();
+                beBody.setStopBeforeStart(true);
+                creq.setBody(JSON.toJSONString(beBody));
+                break;
             case START_BROKER:
+                BrokerStartCommandRequestBody brokerBody = new BrokerStartCommandRequestBody();
+                brokerBody.setStopBeforeStart(true);
+                creq.setBody(JSON.toJSONString(brokerBody));
                 break;
             default:
                 log.error("not support command: {}", commandType.name());
@@ -532,30 +576,45 @@ public class AgentProcessImpl implements AgentProcess {
 
     @Override
     public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(beJoinReq.getHosts()), "not find backends");
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         processInstanceComponent.checkProcessFinish(beJoinReq.getProcessId());
         processInstanceComponent.checkHasUnfinishProcess(userId, beJoinReq.getProcessId());
-        boolean success = taskInstanceComponent.checkParentTaskSuccess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
+        boolean success = taskInstanceComponent.checkTaskSuccess(beJoinReq.getProcessId(), ProcessTypeEnum.START_SERVICE);
         Preconditions.checkArgument(success, "The service has not been started and completed, and the component cannot be clustered");
-        ProcessInstanceEntity process = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
 
+        ProcessInstanceEntity process = processInstanceComponent.queryProcessById(beJoinReq.getProcessId());
         //Query the alive agent that installed fe and get fe's query port
         AgentEntity aliveAgent = getAliveAgent(process.getClusterId());
         Integer queryPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
+        Connection conn = null;
+        try {
+            conn = JdbcUtil.getConnection(aliveAgent.getHost(), queryPort);
+        } catch (SQLException e) {
+            log.error("get connection fail, host {}, port {} :", aliveAgent.getHost(), queryPort, e);
+            throw new JdbcException("Failed to get fe's jdbc connection");
+        }
+
+        StringBuilder joinBeSb = new StringBuilder();
         for (String be : beJoinReq.getHosts()) {
-            boolean parentTaskSkip = checkParentTaskSkip(beJoinReq.getProcessId(), be, TaskTypeEnum.START_BE);
-            if (parentTaskSkip) {
-                log.warn("host {} parent start be task has skipped,so the current add be to cluster task is also skipped", be);
-                continue;
-            }
-            TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(process.getId(), be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
-            if (joinBeTask == null) {
+            Properties beConf = agentRest.roleConfig(be, agentCache.agentPort(be), ServiceRole.BE.name());
+            String beHeatPort = beConf.getProperty(Constants.KEY_BE_HEARTBEAT_PORT);
+            joinBeSb.append("\"").append(be).append(":").append(beHeatPort).append("\"").append(",");
+        }
+        String joinBeStr = joinBeSb.deleteCharAt(joinBeSb.length() - 1).toString();
+        String addBe = String.format("ALTER SYSTEM ADD BACKEND %s", joinBeStr);
+        try {
+            log.info("execute {}", addBe);
+            JdbcUtil.execute(conn, addBe);
+        } catch (SQLException e) {
+            if (e instanceof SQLSyntaxErrorException
+                    && StringUtils.isNotBlank(e.getMessage())
+                    && e.getMessage().contains(Constants.BE_EXIST_MSG)) {
+                log.info("backend already exist,response:{}", e.getMessage());
                 return;
             }
-            int agentPort = agentCache.agentPort(be);
-            BeJoin beJoin = new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort);
-            joinBeTask.setTaskJson(JSON.toJSONString(beJoin));
-            taskExecuteRunner.execTask(joinBeTask, beJoin);
+            log.error("Failed to add backend:{}", joinBeStr, e);
+            throw new ServerException(e.getMessage());
         }
     }
 

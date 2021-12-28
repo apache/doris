@@ -20,7 +20,9 @@ package org.apache.doris.manager.agent.command;
 import com.alibaba.fastjson.JSON;
 import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BeStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.BrokerInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BrokerStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
@@ -61,11 +63,11 @@ public class CommandFactory {
             case STOP_FE:
                 return new FeStopCommand();
             case START_BE:
-                return new BeStartCommand();
+                return new BeStartCommand(JSON.parseObject(body, BeStartCommandRequestBody.class));
             case STOP_BE:
                 return new BeStopCommand();
             case START_BROKER:
-                return new BrokerStartCommand();
+                return new BrokerStartCommand(JSON.parseObject(body, BrokerStartCommandRequestBody.class));
             case STOP_BROKER:
                 return new BrokerStopCommand();
             case WRITE_FE_CONF:

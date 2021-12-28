@@ -15,25 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.common.domain;
+package org.apache.doris.stack.model.response;
 
-public class FeStartCommandRequestBody {
-    private String helpHostPort;
-    private boolean stopBeforeStart;
+import lombok.Data;
+import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.ProcessTypeEnum;
 
-    public String getHelpHostPort() {
-        return helpHostPort;
-    }
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
+import java.util.Date;
 
-    public void setHelpHostPort(String helpHostPort) {
-        this.helpHostPort = helpHostPort;
-    }
+/**
+ * current process resp
+ **/
+@Data
+public class CurrentProcessResp {
 
-    public boolean isStopBeforeStart() {
-        return stopBeforeStart;
-    }
+    private int id;
 
-    public void setStopBeforeStart(boolean stopBeforeStart) {
-        this.stopBeforeStart = stopBeforeStart;
-    }
+    private int clusterId;
+
+    private int processStep;
+
+    @Enumerated(EnumType.STRING)
+    private ProcessTypeEnum processType;
+
+    @Enumerated(EnumType.STRING)
+    private ExecutionStatus status;
+
+    private Date createTime;
+
+    private Date updateTime;
 }

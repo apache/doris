@@ -106,10 +106,6 @@ public class BeInstallCommand extends Command {
         @Override
         public void onSuccess(BeInstallTaskDesc taskDesc) {
             BeService beService = new BeService(taskDesc.getInstallDir());
-            if (taskDesc.isCreateBeStorageDir()) {
-                beService.createStrorageDir(false);
-            }
-
             ServiceContext.register(beService);
         }
     }
