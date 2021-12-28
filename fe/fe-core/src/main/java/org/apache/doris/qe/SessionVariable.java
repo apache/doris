@@ -156,7 +156,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
-    
+
+    public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
+
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
@@ -367,6 +369,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
+
+    @VariableMgr.VarAttr(name = PARTITION_PRUNE_ALGORITHM_VERSION, needForward = true)
+    public int partitionPruneAlgorithmVersion = 2;
+
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
     private String runtimeFilterMode = "GLOBAL";
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE)
@@ -818,6 +824,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isExtractWideRangeExpr() {
         return extractWideRangeExpr;
+    }
+
+    public int getPartitionPruneAlgorithmVersion() {
+        return partitionPruneAlgorithmVersion;
     }
 
     public int getCpuResourceLimit() {
