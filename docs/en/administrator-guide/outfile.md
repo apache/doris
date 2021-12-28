@@ -139,7 +139,7 @@ Planning example for concurrent export:
 
 ## Usage example
 
-For details, please refer to [OUTFILE Document](../sql-reference/sql-statements/Data Manipulation/OUTFILE.html).
+For details, please refer to [OUTFILE Document](../sql-reference/sql-statements/Data%20Manipulation/OUTFILE.md).
 
 ## Return result
 

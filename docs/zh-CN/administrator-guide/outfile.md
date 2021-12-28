@@ -138,7 +138,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
 ## 使用示例
 
-具体参阅[OUTFILE 文档](../sql-reference/sql-statements/Data Manipulation/OUTFILE.html)。
+具体参阅[OUTFILE 文档](../sql-reference/sql-statements/Data%20Manipulation/OUTFILE.md)。
 
 ## 返回结果
 
