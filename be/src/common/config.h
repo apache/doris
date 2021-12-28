@@ -526,9 +526,9 @@ CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 CONF_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
-CONF_Int64(brpc_max_body_size, "209715200");
+CONF_Int64(brpc_max_body_size, "3147483648");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
+CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 // Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
 // through brpc, this will be faster and avoid the error of Request length overflow.
 CONF_mBool(transfer_data_by_brpc_attachment, "false");

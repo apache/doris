@@ -442,6 +442,18 @@ module.exports = [
             children: ["murmur_hash3_32"],
           },
           {
+            title: "加密和信息摘要函数",
+            directoryPath: "encrypt-digest-functions/",
+            children: [
+              "aes",
+              "md5",
+              "md5sum",
+              "sm4",
+              "sm3",
+              "sm3sum"
+            ],
+          },
+          {
             title: "table functions",
             directoryPath: "table-functions/",
             children: [
