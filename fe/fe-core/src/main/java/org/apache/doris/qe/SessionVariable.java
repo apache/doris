@@ -169,6 +169,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
 
+    public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -400,6 +402,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
     private boolean returnObjectDataAsBinary = false;
 
+    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
+    private String blockEncryptionMode = "";
+
+    public String getBlockEncryptionMode() {
+        return blockEncryptionMode;
+    }
+
+    public void setBlockEncryptionMode(String blockEncryptionMode) {
+        this.blockEncryptionMode = blockEncryptionMode;
+    }
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
