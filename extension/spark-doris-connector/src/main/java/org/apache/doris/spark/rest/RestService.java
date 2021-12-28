@@ -174,16 +174,16 @@ public class RestService implements Serializable {
                     connection.getURL(), connection.getResponseCode());
             throw new IOException("Failed to get response from Doris");
         }
-        String result = "";
-        BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream(), "utf-8"));
+        StringBuilder result = new StringBuilder("");
+        BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
         String line;
         while ((line = in.readLine()) != null) {
-            result += line;
+            result.append(line);
         }
         if (in != null) {
             in.close();
         }
-        return result;
+        return result.toString();
     }
 
     private static String getConnectionPost(HttpRequestBase request,String user, String passwd,Logger logger) throws IOException {
