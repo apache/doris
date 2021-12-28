@@ -95,7 +95,8 @@ public class ProcessInstanceEntity {
         CurrentProcessResp processResp = new CurrentProcessResp();
         processResp.setId(id);
         processResp.setClusterId(clusterId);
-        processResp.setProcessStep(processType.getProcessStep());
+        processResp.setProcessType(processType);
+        processResp.setProcessStep(processType.getCode());
         processResp.setCreateTime(createTime);
         processResp.setUpdateTime(updateTime);
         processResp.setStatus(status);

@@ -123,6 +123,7 @@ public class TaskInstanceEntity {
         TaskInstanceResp taskResp = new TaskInstanceResp();
         taskResp.setId(id);
         taskResp.setProcessId(processId);
+        taskResp.setHost(host);
         taskResp.setProcessType(processType);
         taskResp.setTaskType(taskType);
         taskResp.setStatus(status);

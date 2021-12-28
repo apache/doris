@@ -109,14 +109,10 @@ public class TaskInstanceComponent {
     }
 
     /**
-     * Check whether the parent task is successful
+     * Check whether the task is successful
      */
-    public boolean checkParentTaskSuccess(int processId, ProcessTypeEnum processType) {
-        ProcessTypeEnum parent = ProcessTypeEnum.findParent(processType);
-        if (parent == null) {
-            return true;
-        }
-        List<TaskInstanceEntity> taskInstanceEntities = taskInstanceRepository.queryTasksByProcessStep(processId, parent);
+    public boolean checkTaskSuccess(int processId, ProcessTypeEnum processType) {
+        List<TaskInstanceEntity> taskInstanceEntities = taskInstanceRepository.queryTasksByProcessStep(processId, processType);
         if (ObjectUtils.isEmpty(taskInstanceEntities)) {
             log.error("parent step {} has no task", processType.name());
             return false;

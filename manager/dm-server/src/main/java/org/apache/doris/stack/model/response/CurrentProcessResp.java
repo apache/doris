@@ -19,6 +19,7 @@ package org.apache.doris.stack.model.response;
 
 import lombok.Data;
 import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.ProcessTypeEnum;
 
 import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
@@ -35,6 +36,9 @@ public class CurrentProcessResp {
     private int clusterId;
 
     private int processStep;
+
+    @Enumerated(EnumType.STRING)
+    private ProcessTypeEnum processType;
 
     @Enumerated(EnumType.STRING)
     private ExecutionStatus status;

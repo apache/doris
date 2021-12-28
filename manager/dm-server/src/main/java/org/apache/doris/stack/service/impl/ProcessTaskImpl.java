@@ -88,7 +88,18 @@ public class ProcessTaskImpl implements ProcessTask {
         ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessByuserId(userId);
         CurrentProcessResp processResp = null;
         if (processEntity != null) {
+            List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessStep(processEntity.getId(), processEntity.getProcessType());
+            boolean hasUnFinishTask = false;
+            for (TaskInstanceEntity task : taskEntities) {
+                if (!task.getFinish().typeIsYes()) {
+                    hasUnFinishTask = true;
+                    break;
+                }
+            }
             processResp = processEntity.transToCurrentResp();
+            if (!hasUnFinishTask && !processEntity.getProcessType().endProcess()) {
+                processResp.setProcessStep(processResp.getProcessStep() + 1);
+            }
         }
         return processResp;
     }
@@ -240,20 +251,12 @@ public class ProcessTaskImpl implements ProcessTask {
         ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessById(processId);
         Preconditions.checkNotNull(processEntity, "process not exist");
         ProcessTypeEnum processType = processEntity.getProcessType();
-        Preconditions.checkArgument(processType == ProcessTypeEnum.START_SERVICE || processType == ProcessTypeEnum.BUILD_CLUSTER, "process can not back");
+        Preconditions.checkArgument(processType == ProcessTypeEnum.START_SERVICE, "process can not back");
 
         //remove history task
-        List<TaskInstanceEntity> deleteTask = Lists.newArrayList();
         List<TaskInstanceEntity> startServiceTasks = taskInstanceRepository.queryTasksByProcessStep(processEntity.getId(), ProcessTypeEnum.START_SERVICE);
-        List<TaskInstanceEntity> joinBeTasks = taskInstanceRepository.queryTasksByProcessStep(processEntity.getId(), ProcessTypeEnum.BUILD_CLUSTER);
-        deleteTask.addAll(startServiceTasks);
-        deleteTask.addAll(joinBeTasks);
-        taskInstanceRepository.deleteAll(deleteTask);
+        taskInstanceRepository.deleteAll(startServiceTasks);
 
-        //back process step
-        if (processType == ProcessTypeEnum.BUILD_CLUSTER) {
-            processType = ProcessTypeEnum.START_SERVICE;
-        }
         ProcessTypeEnum parent = ProcessTypeEnum.findParent(processType);
         processEntity.setProcessType(parent);
         processInstanceComponent.saveProcess(processEntity);
