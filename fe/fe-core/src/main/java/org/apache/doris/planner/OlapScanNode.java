@@ -424,12 +424,23 @@ public class OlapScanNode extends ScanNode {
         } else {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
+
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            partitionPruner = new RangePartitionPruner(keyItemMap,
-                    partitionInfo.getPartitionColumns(), columnFilters);
+            if (analyzer.getContext().getSessionVariable().getPartitionPruneAlgorithmVersion() == 2) {
+                partitionPruner = new RangePartitionPrunerV2(keyItemMap,
+                        partitionInfo.getPartitionColumns(), columnNameToRange);
+            } else {
+                partitionPruner = new RangePartitionPruner(keyItemMap,
+                        partitionInfo.getPartitionColumns(), columnFilters);
+            }
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            partitionPruner = new ListPartitionPruner(keyItemMap,
+            if (analyzer.getContext().getSessionVariable().getPartitionPruneAlgorithmVersion() == 2) {
+                partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                    columnNameToRange);
+            } else {
+                partitionPruner = new ListPartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
+            }
         }
         return partitionPruner.prune();
     }
@@ -576,8 +587,8 @@ public class OlapScanNode extends ScanNode {
             }
         } else {
             selectedPartitionIds = selectedPartitionIds.stream()
-                    .filter(id -> olapTable.getPartition(id).hasData())
-                    .collect(Collectors.toList());
+                  .filter(id -> olapTable.getPartition(id).hasData())
+                  .collect(Collectors.toList());
         }
         selectedPartitionNum = selectedPartitionIds.size();
         LOG.debug("partition prune cost: {} ms, partitions: {}",

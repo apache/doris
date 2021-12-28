@@ -17,38 +17,32 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.Config;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 import java.util.UUID;
 
-public class ListPartitionPrunerTest {
-    private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
-    private static DorisAssert dorisAssert;
-
-    @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
-
-    @AfterClass
-    public static void tearDown() throws Exception {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
-    }
+public class ListPartitionPrunerTest extends PartitionPruneTestBase {
 
     @BeforeClass
-    public static void setUp() throws Exception {
-        Config.enable_batch_delete_by_default = true;
+    public static void beforeClass() throws Exception {
         FeConstants.runningUnitTest = true;
+        runningDir = "fe/mocked/ListPartitionPrunerTest/" + UUID.randomUUID().toString() + "/";
         UtFrameUtils.createDorisCluster(runningDir);
 
-        String createSinglePartColWithSinglePartKey = "create table test.t1\n"
+        connectContext = UtFrameUtils.createDefaultCtx();
+
+        String createDbStmtStr = "create database test;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+
+        String createSinglePartColWithSinglePartKey =
+            "create table test.t1\n"
                 + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
                 + "partition by list(k1)\n"
                 + "(\n"
@@ -57,7 +51,8 @@ public class ListPartitionPrunerTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
-        String createSinglePartColWithMultiPartKey = "create table test.t2\n"
+        String createSinglePartColWithMultiPartKey =
+            "create table test.t2\n"
                 + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
                 + "partition by list(k1)\n"
                 + "(\n"
@@ -67,7 +62,8 @@ public class ListPartitionPrunerTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
-        String createMultiPartColWithSinglePartKey = "create table test.t3\n"
+        String createMultiPartColWithSinglePartKey =
+            "create table test.t3\n"
                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                 + "partition by list(k1, k2)\n"
                 + "(\n"
@@ -76,7 +72,8 @@ public class ListPartitionPrunerTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
-        String createMultiPartColWithMultiPartKey = "create table test.t4\n"
+        String createMultiPartColWithMultiPartKey =
+            "create table test.t4\n"
                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                 + "partition by list(k1, k2)\n"
                 + "(\n"
@@ -86,86 +83,59 @@ public class ListPartitionPrunerTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
-        dorisAssert = new DorisAssert();
-        dorisAssert.withDatabase("test").useDatabase("test");
-        dorisAssert.withTable(createSinglePartColWithSinglePartKey)
-                .withTable(createSinglePartColWithMultiPartKey)
-                .withTable(createMultiPartColWithSinglePartKey)
-                .withTable(createMultiPartColWithMultiPartKey);
+
+        createTable(createSinglePartColWithSinglePartKey);
+        createTable(createSinglePartColWithMultiPartKey);
+        createTable(createMultiPartColWithSinglePartKey);
+        createTable(createMultiPartColWithMultiPartKey);
     }
 
-    @Test
-    public void testSelectWithPartition() throws Exception {
-        String sql = "select * from t1 partition p1;";
-        dorisAssert.query(sql).explainContains("partitions=1/2");
+    @AfterClass
+    public static void tearDown() throws Exception {
+        UtFrameUtils.cleanDorisFeDir(runningDir);
+    }
 
-        sql = "select * from t2 partition (p2, p3);";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
+    private void initTestCases() {
+        // Select by partition name
+        addCase("select * from test.t1 partition p1;", "partitions=1/2", "partitions=1/2");
+        addCase("select * from test.t2 partition (p2, p3);", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t3 partition (p1, p2);", "partitions=2/2", "partitions=2/2");
+        addCase("select * from test.t4 partition p2;", "partitions=1/3", "partitions=1/3");
 
-        sql = "select * from t3 partition (p1, p2);";
-        dorisAssert.query(sql).explainContains("partitions=2/2");
+        // Single partition column
+        addCase("select * from test.t2 where k1 < 7", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t2 where k1 = 1;", "partitions=1/3", "partitions=1/3");
+        addCase("select * from test.t2 where k1 in (1, 2);", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t2 where k1 >= 6;", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t2 where k1 < 8 and k1 > 6;", "partitions=1/3", "partitions=1/3");
+        addCase("select * from test.t2 where k2 = \"beijing\";", "partitions=3/3", "partitions=3/3");
+        addCase("select * from test.t1 where k1 != 1", "partitions=2/2", "partitions=1/2");
+        addCase("select * from test.t4 where k2 != \"beijing\"", "partitions=3/3", "partitions=2/3");
 
-        sql = "select * from t4 partition p2;";
-        dorisAssert.query(sql).explainContains("partitions=1/3");
+        // Multiple partition columns
+        addCase("select * from test.t4 where k1 = 2;", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t4 where k2 = \"tianjin\";", "partitions=1/3", "partitions=1/3");
+        addCase("select * from test.t4 where k1 = 1 and k2 = \"shanghai\";", "partitions=2/3", "partitions=1/3");
+        addCase("select * from test.t4 where k1 in (1, 3) and k2 in (\"tianjin\", \"shanghai\");", "partitions=2/3", "partitions=1/3");
+        addCase("select * from test.t4 where k1 in (1, 3);", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t4 where k2 in (\"tianjin\", \"shanghai\");", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t4 where k1 < 3;", "partitions=3/3", "partitions=3/3");
+        addCase("select * from test.t4 where k1 > 2;", "partitions=1/3", "partitions=1/3");
+        addCase("select * from test.t4 where k2 <\"shanghai\";", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t4 where k2 >=\"shanghai\";", "partitions=2/3", "partitions=2/3");
+        addCase("select * from test.t4 where k1 > 1 and k2 < \"shanghai\";", "partitions=2/3", "partitions=1/3");
+        addCase("select * from test.t4 where k1 >= 2 and k2 = \"shanghai\";", "partitions=2/3", "partitions=1/3");
+
+        // Disjunctive predicates
+        addCase("select * from test.t2 where k1=1 or k1=4", "partitions=3/3", "partitions=2/3");
+        addCase("select * from test.t4 where k1=1 or k1=3", "partitions=3/3", "partitions=2/3");
+        addCase("select * from test.t4 where k2=\"tianjin\" or k2=\"shanghai\"", "partitions=3/3", "partitions=2/3");
+        addCase("select * from test.t4 where k1 > 1 or k2 < \"shanghai\"", "partitions=3/3", "partitions=3/3");
     }
 
     @Test
     public void testPartitionPrune() throws Exception {
-        // single partition column
-        String sql = "select * from t2 where k1 < 7";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t2 where k1 = 1;";
-        dorisAssert.query(sql).explainContains("partitions=1/3");
-
-        sql = "select * from t2 where k1 in (1, 2);";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t2 where k1 >= 6;";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t2 where k1 < 8 and k1 > 6;";
-        dorisAssert.query(sql).explainContains("partitions=1/3");
-
-        sql = "select * from t2 where k2 = \"beijing\";";
-        dorisAssert.query(sql).explainContains("partitions=3/3");
-
-        // multi partition columns
-        sql = "select * from t4 where k1 = 2;";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k2 = \"tianjin\";";
-        dorisAssert.query(sql).explainContains("partitions=1/3");
-
-        sql = "select * from t4 where k1 = 1 and k2 = \"shanghai\";";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k1 in (1, 3) and k2 in (\"tianjin\", \"shanghai\");";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k1 in (1, 3);";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k2 in (\"tianjin\", \"shanghai\");";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k1 < 3;";
-        dorisAssert.query(sql).explainContains("partitions=3/3");
-
-        sql = "select * from t4 where k1 > 2;";
-        dorisAssert.query(sql).explainContains("partitions=1/3");
-
-        sql = "select * from t4 where k2 <\"shanghai\";";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k2 >=\"shanghai\";";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k1 > 1 and k2 < \"shanghai\";";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
-
-        sql = "select * from t4 where k1 >= 2 and k2 = \"shanghai\";";
-        dorisAssert.query(sql).explainContains("partitions=2/3");
+        initTestCases();
+        doTest();
     }
-
 }
