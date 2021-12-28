@@ -223,20 +223,28 @@ struct DateTimeFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
     }
 };
 
-// avoid violating C/C++ aliasing rules.
-// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101684
-
 template <class BloomFilterAdaptor>
 struct DateFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
+    // avoid violating C/C++ aliasing rules.
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101684
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        DateTimeValue value;
-        value.from_olap_date(*reinterpret_cast<const uint24_t*>(data));
-        return bloom_filter.test_bytes((char*)&value, sizeof(DateTimeValue));
+        uint24_t date = *static_cast<const uint24_t*>(data);
+        uint64_t value = uint32_t(date);
+
+        DateTimeValue date_value;
+        date_value.from_olap_date(value);
+        date_value.to_datetime();
+
+        char data_bytes[sizeof(date_value)];
+        memcpy(&data_bytes, &date_value, sizeof(date_value));
+        return bloom_filter.test_bytes(data_bytes, sizeof(DateTimeValue));
     }
 };
 
 template <class BloomFilterAdaptor>
 struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value, BloomFilterAdaptor> {
+    // avoid violating C/C++ aliasing rules.
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101684
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         auto packed_decimal = *static_cast<const decimal12_t*>(data);
         DecimalV2Value value;
