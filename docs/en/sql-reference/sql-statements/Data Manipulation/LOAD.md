@@ -280,6 +280,27 @@ v2 = hll, u hash (k2)
 )
 );
 
+
+
+8.  import s3 data to table, need set AK, SK messages as follow:
+
+   LOAD LABEL example_db.label8
+   (
+   DATA INFILE("s3a://s3:host:s3_port/user/palo/data/input/file")
+   INTO TABLE `my_table`
+   PARTITION (p1, p2)
+   )
+   WITH BROKER broker
+   (
+   "fs.s3a.access.key" = 'xxx',                 //require
+    "fs.s3a.secret.key" = 'xxx',                 //require
+    "fs.s3a.endpoint" = 'xxx',   				  //require
+    "fs.s3a.impl.disable.cache" = 'true'/'false' //optional
+     );
+     fs.s3a.impl.disable.cache is optional，default is true
+
+
+
 ## keyword
 LOAD
 
