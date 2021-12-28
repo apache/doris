@@ -86,7 +86,7 @@ public class RestService implements Serializable {
     private static final String QUERY_PLAN = "_query_plan";
     @Deprecated
     private static final String BACKENDS = "/rest/v1/system?path=//backends";
-    private static final String BACKENDS_V2 = "/api/backends?is_aliva=true";
+    private static final String BACKENDS_V2 = "/api/backends?is_alive=true";
     private static final String FE_LOGIN = "/rest/v1/login";
 
     /**

@@ -69,7 +69,7 @@ Status ParquetScanner::open() {
     return BaseScanner::open();
 }
 
-Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) {
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
@@ -93,8 +93,11 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
         if (fill_dest_tuple(tuple, tuple_pool)) {
-            break; // break if true
+            *fill_tuple = true;
+        } else {
+            *fill_tuple = false;
         }
+        break; // break always
     }
     if (_scanner_eof) {
         *eof = true;

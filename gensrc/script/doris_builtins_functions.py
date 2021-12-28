@@ -1175,18 +1175,30 @@ visible_functions = [
     [['bitmap_empty'], 'BITMAP', [],
         '_ZN5doris15BitmapFunctions12bitmap_emptyEPN9doris_udf15FunctionContextE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['bitmap_or'], 'BITMAP', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions9bitmap_orEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_or'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions9bitmap_orEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
+    [['bitmap_xor'], 'BITMAP', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions10bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_xor'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
+    [['bitmap_xor_count'], 'BIGINT', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions16bitmap_xor_countEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_xor_count'], 'BIGINT', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions16bitmap_xor_countEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', '', ''],
     [['bitmap_not'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_notEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
+    [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions10bitmap_andEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_andEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
@@ -1223,8 +1235,14 @@ visible_functions = [
     [['bitmap_subset_limit'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'],
         '_ZN5doris15BitmapFunctions19bitmap_subset_limitEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValES9_',
         '', '', 'vec', ''],
+    [['bitmap_and_count'], 'BIGINT', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions16bitmap_and_countEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_and_count'], 'BIGINT', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions16bitmap_and_countEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', '', ''],
+    [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions15bitmap_or_countEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
         '', '', '', ''],
     [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions15bitmap_or_countEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
@@ -1248,18 +1266,54 @@ visible_functions = [
     [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
     [['from_base64'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris19EncryptionFunctions11from_base64EPN9doris_udf'
         '15FunctionContextERKNS1_9StringValE', '', '', '', ''],
     [['to_base64'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris19EncryptionFunctions9to_base64EPN9doris_udf'
         '15FunctionContextERKNS1_9StringValE', '', '', '', ''],
-      [['aes_encrypt'], 'STRING', ['STRING', 'STRING'],
+    [['aes_encrypt'], 'STRING', ['STRING', 'STRING'],
         '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
     [['aes_decrypt'], 'STRING', ['STRING', 'STRING'],
         '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+    [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+    [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+      [['sm4_encrypt'], 'STRING', ['STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+      [['sm4_decrypt'], 'STRING', ['STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+      [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+      [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
     [['from_base64'], 'STRING', ['STRING'],
         '_ZN5doris19EncryptionFunctions11from_base64EPN9doris_udf'
         '15FunctionContextERKNS1_9StringValE', '', '', '', ''],
@@ -1275,6 +1329,15 @@ visible_functions = [
         '_ZN5doris19EncryptionFunctions3md5EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
     [['md5sum'], 'VARCHAR', ['STRING', '...'],
         '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
+
+    [['sm3'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['sm3sum'], 'VARCHAR', ['VARCHAR', '...'],
+        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
+    [['sm3'], 'VARCHAR', ['STRING'],
+        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['sm3sum'], 'VARCHAR', ['STRING', '...'],
+        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
 
     # geo functions
     [['ST_Point'], 'VARCHAR', ['DOUBLE', 'DOUBLE'],

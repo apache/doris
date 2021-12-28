@@ -195,6 +195,7 @@ module.exports = [
         sidebarDepth: 1,
       },
       "backup-restore",
+      "bloomfilter",
       "broker",
       "colocation-join",
       "bucket-shuffle-join",
@@ -238,6 +239,7 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
+      "seatunnel",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -428,6 +430,18 @@ module.exports = [
               "orthogonal_bitmap_intersect",
               "orthogonal_bitmap_intersect_count",
               "orthogonal_bitmap_union_count",
+            ],
+          },
+          {
+            title: "Encryption and Digest Functions",
+            directoryPath: "encrypt-digest-functions/",
+            children: [
+                "aes",
+                "md5",
+                "md5sum",
+                "sm4",
+                "sm3",
+                "sm3sum"
             ],
           },
           {
@@ -639,6 +653,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
+	"docker-dev",
         "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",

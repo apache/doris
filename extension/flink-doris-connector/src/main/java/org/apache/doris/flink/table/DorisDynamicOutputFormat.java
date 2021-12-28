@@ -259,6 +259,8 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
             } catch (Exception e) {
                 LOG.warn("Writing records to doris failed.", e);
                 throw new RuntimeException("Writing records to doris failed.", e);
+            } finally {
+                this.dorisStreamLoad.close();
             }
         }
         checkFlushException();

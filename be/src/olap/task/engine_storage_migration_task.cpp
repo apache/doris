@@ -91,10 +91,11 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             LOG(WARNING) << "fail to get shard from store: " << _dest_store->path();
             break;
         }
-        std::stringstream root_path_stream;
-        root_path_stream << _dest_store->path() << DATA_PREFIX << "/" << shard;
-        string full_path = SnapshotManager::instance()->get_schema_hash_full_path(
-                _tablet, root_path_stream.str());
+        FilePathDescStream root_path_desc_s;
+        root_path_desc_s << _dest_store->path_desc() << DATA_PREFIX << "/" << shard;
+        FilePathDesc full_path_desc = SnapshotManager::instance()->get_schema_hash_full_path(
+                _tablet, root_path_desc_s.path_desc());
+        string full_path = full_path_desc.filepath;
         // if dir already exist then return err, it should not happen.
         // should not remove the dir directly, for safety reason.
         if (FileUtils::check_exist(full_path)) {

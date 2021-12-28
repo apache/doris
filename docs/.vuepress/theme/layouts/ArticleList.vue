@@ -64,7 +64,8 @@ export default {
   },
   computed: {
     articleList () {
-      return this.$site.pages.filter(item => item.frontmatter.isArticle && item.frontmatter.language === this.$lang)
+      const list = this.$site.pages.filter(item => item.frontmatter.isArticle && item.frontmatter.language === this.$lang)
+      return list.sort((a, b) => Date.parse(b.frontmatter.date) - Date.parse(a.frontmatter.date))
     },
     currentArticleList () {
       const start = (this.pageNumber - 1) * this.pageSize
