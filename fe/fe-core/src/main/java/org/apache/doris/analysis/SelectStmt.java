@@ -113,6 +113,9 @@ public class SelectStmt extends QueryStmt {
     // Table alias generator used during query rewriting.
     private TableAliasGenerator tableAliasGenerator = null;
 
+    // Members that need to be reset to origin
+    private SelectList originSelectList;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -131,6 +134,7 @@ public class SelectStmt extends QueryStmt {
             LimitElement limitElement) {
         super(orderByElements, limitElement);
         this.selectList = selectList;
+        this.originSelectList = selectList.clone();
         if (fromClause == null) {
             fromClause_ = new FromClause();
         } else {
@@ -185,6 +189,13 @@ public class SelectStmt extends QueryStmt {
         analyticInfo = null;
         baseTblSmap.clear();
         groupingInfo = null;
+    }
+
+    @Override
+    public void resetSelectList() {
+        if (originSelectList != null) {
+            selectList = originSelectList;
+        }
     }
 
     @Override

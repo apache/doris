@@ -348,6 +348,17 @@ public class StmtExecutor implements ProfileWriter {
 
             if (parsedStmt instanceof QueryStmt) {
                 context.getState().setIsQuery(true);
+                if (!((QueryStmt) parsedStmt).isExplain()) {
+                    // sql/sqlHash block
+                    try {
+                        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+                    } catch (AnalysisException e) {
+                        LOG.warn(e.getMessage());
+                        context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                        return;
+                    }
+                    // limitations: partitionNum, tabletNum, cardinality
+                }
                 MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i++) {
@@ -673,6 +684,17 @@ public class StmtExecutor implements ProfileWriter {
         analyzer = new Analyzer(context.getCatalog(), context);
 
         parsedStmt.reset();
+
+        // DORIS-7361
+        // Need to reset selectList before second-round analyze, because exprs in selectList could be rewritten by mvExprRewriter
+        // in first-round analyze, which could cause analyze failure.
+        if (parsedStmt instanceof QueryStmt) {
+            ((QueryStmt) parsedStmt).resetSelectList();
+        }
+
+        if (parsedStmt instanceof InsertStmt) {
+            ((InsertStmt) parsedStmt).getQueryStmt().resetSelectList();
+        }
     }
 
     // Because this is called by other thread

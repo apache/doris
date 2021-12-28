@@ -194,6 +194,7 @@ module.exports = [
         sidebarDepth: 1,
       },
       "backup-restore",
+      "bloomfilter",
       "broker",
       "colocation-join",
       "bucket-shuffle-join",
@@ -239,6 +240,7 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
+      "seatunnel",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -438,6 +440,18 @@ module.exports = [
             title: "Hash函数",
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
+          },
+          {
+            title: "加密和信息摘要函数",
+            directoryPath: "encrypt-digest-functions/",
+            children: [
+              "aes",
+              "md5",
+              "md5sum",
+              "sm4",
+              "sm3",
+              "sm3sum"
+            ],
           },
           {
             title: "table functions",
@@ -644,6 +658,7 @@ module.exports = [
     children: [
         "debug-tool",
         "benchmark-tool",
+        "docker-dev",
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",

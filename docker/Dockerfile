@@ -20,13 +20,13 @@ FROM centos:7 AS builder
 # install dependencies
 RUN yum makecache && yum -y update && yum -y groupinstall 'Development Tools' && \
     yum install -y byacc automake java-11-openjdk-devel java-1.8.0-openjdk-devel libtool bison binutils-devel zip \
-    unzip ncurses-devel curl git wget python2 glibc-static java-1.8.0-openjdk-devel \
+    unzip ncurses-devel curl git wget python2 glibc-static java-1.8.0-openjdk-devel ccache \
     libstdc++-static which psl libpsl-devel centos-release-scl && \
     yum install -y devtoolset-10 devtoolset-10-gcc devtoolset-10-libubsan-devel devtoolset-10-liblsan-devel \
     devtoolset-10-libasan-devel
 
 # build cmake
-ARG CMAKE_VERSION=3.19.8
+ARG CMAKE_VERSION=3.22.1
 ARG CMAKE_BASE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 RUN wget ${CMAKE_BASE_URL}/cmake-${CMAKE_VERSION}-Linux-x86_64.sh -q -O /tmp/cmake-install.sh && \
     chmod u+x /tmp/cmake-install.sh && \
@@ -91,6 +91,20 @@ RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.s
     && rm -rf ${DEFAULT_DIR}/incubator-doris
 
 RUN alternatives --set java java-11-openjdk.x86_64 && alternatives --set javac java-11-openjdk.x86_64
+
+# build clang 11
+RUN wget -P ${DEFAULT_DIR}  https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/llvm-project-11.0.0.tar.xz \
+    && tar Jxf ${DEFAULT_DIR}/llvm-project-11.0.0.tar.xz -C ${DEFAULT_DIR} \
+    && echo "source /opt/rh/devtoolset-10/enable" > ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cd ${DEFAULT_DIR}/llvm-project-11.0.0" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "mkdir build" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cd build" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_PROJECTS=\"clang;libcxx;libcxxabi\" -G \"Unix Makefiles\" ../llvm " >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "make -j $(nproc)" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "make install" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "rm -rf ${DEFAULT_DIR}/llvm-project-11.0.0*" >> ${DEFAULT_DIR}/build_clang.sh \
+    && chmod +x ${DEFAULT_DIR}/build_clang.sh \
+    && ${DEFAULT_DIR}/build_clang.sh
 
 FROM scratch
 

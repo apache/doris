@@ -1005,15 +1005,20 @@ public abstract class Type {
             return t1;
         }
 
-        PrimitiveType t1ResultType = t1.getResultType().getPrimitiveType();
-        PrimitiveType t2ResultType = t2.getResultType().getPrimitiveType();
         if (canCompareDate(t1.getPrimitiveType(), t2.getPrimitiveType())) {
+            return Type.DATE;
+        }
+
+        if (canCompareDatetime(t1.getPrimitiveType(), t2.getPrimitiveType())) {
             return Type.DATETIME;
         }
 
+        PrimitiveType t1ResultType = t1.getResultType().getPrimitiveType();
+        PrimitiveType t2ResultType = t2.getResultType().getPrimitiveType();
+
         // Following logical is compatible with MySQL.
         if (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR) {
-            return Type.VARCHAR; 
+            return Type.VARCHAR;
         }
         if ((t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.STRING)
                 || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.VARCHAR)
@@ -1022,30 +1027,30 @@ public abstract class Type {
         }
 
         // int family type and char family type should cast to char family type
-        if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily()) ||
-                (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
-            return t1.isStringType() ?  t1 : t2;
+        if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily())
+                || (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
+            return t1.isStringType() ? t1 : t2;
         }
 
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
             return getAssignmentCompatibleType(t1, t2, false);
         }
-        if ((t1ResultType == PrimitiveType.BIGINT
-                || t1ResultType == PrimitiveType.DECIMALV2)
-                && (t2ResultType == PrimitiveType.BIGINT
-                || t2ResultType == PrimitiveType.DECIMALV2)) {
+        if ((t1ResultType == PrimitiveType.BIGINT || t1ResultType == PrimitiveType.DECIMALV2)
+                && (t2ResultType == PrimitiveType.BIGINT || t2ResultType == PrimitiveType.DECIMALV2)) {
             return Type.DECIMALV2;
         }
-        if ((t1ResultType == PrimitiveType.BIGINT
-                || t1ResultType == PrimitiveType.LARGEINT)
-                && (t2ResultType == PrimitiveType.BIGINT
-                || t2ResultType == PrimitiveType.LARGEINT)) {
+        if ((t1ResultType == PrimitiveType.BIGINT || t1ResultType == PrimitiveType.LARGEINT)
+                && (t2ResultType == PrimitiveType.BIGINT || t2ResultType == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
         return Type.DOUBLE;
     }
 
     public static boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
+        return (t1 == PrimitiveType.DATE && t2 == PrimitiveType.DATE);
+    }
+
+    public static boolean canCompareDatetime(PrimitiveType t1, PrimitiveType t2) {
         if (t1.isDateType()) {
             if (t2.isDateType() || t2.isStringType() || t2.isIntegerType()) {
                 return true;

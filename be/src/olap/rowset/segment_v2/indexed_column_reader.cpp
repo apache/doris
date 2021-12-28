@@ -41,8 +41,8 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     _value_key_coder = get_key_coder(_type_info->type());
 
     std::unique_ptr<fs::ReadableBlock> rblock;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
-    RETURN_IF_ERROR(block_mgr->open_block(_file_name, &rblock));
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc.storage_medium);
+    RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
     // read and parse ordinal index page when exists
     if (_meta.has_ordinal_index_meta()) {
         if (_meta.ordinal_index_meta().is_root_data_page()) {

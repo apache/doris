@@ -77,8 +77,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({fname});
-        Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
+        fs::CreateBlockOptions opts(fname);
+        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
@@ -125,16 +125,18 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     {
         // read and check
         ColumnReaderOptions reader_opts;
+        FilePathDesc path_desc;
+        path_desc.filepath = fname;
         std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, fname, &reader);
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
         ASSERT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
         std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_manager();
-        block_manager->open_block(fname, &rblock);
+        fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+        block_manager->open_block(path_desc, &rblock);
 
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
@@ -238,8 +240,8 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({fname});
-        Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
+        fs::CreateBlockOptions opts(fname);
+        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
@@ -289,16 +291,18 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     // read and check
     {
         ColumnReaderOptions reader_opts;
+        FilePathDesc path_desc;
+        path_desc.filepath = fname;
         std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, fname, &reader);
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
         ASSERT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
         std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_manager();
-        st = block_manager->open_block(fname, &rblock);
+        fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+        st = block_manager->open_block(path_desc, &rblock);
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;

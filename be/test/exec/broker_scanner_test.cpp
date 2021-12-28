@@ -364,9 +364,10 @@ TEST_F(BrokerScannerTest, normal) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // 1,2,3
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(1, *(int*)tuple->get_slot(0));
@@ -374,21 +375,28 @@ TEST_F(BrokerScannerTest, normal) {
     ASSERT_EQ(3, *(int*)tuple->get_slot(8));
 
     // 4,5,6
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(4, *(int*)tuple->get_slot(0));
     ASSERT_EQ(5, *(int*)tuple->get_slot(4));
     ASSERT_EQ(6, *(int*)tuple->get_slot(8));
+
+    // 7, 8, unqualitifed
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(eof);
+    ASSERT_FALSE(fill_tuple);
+
     // 8,9,10
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(8, *(int*)tuple->get_slot(0));
     ASSERT_EQ(9, *(int*)tuple->get_slot(4));
     ASSERT_EQ(10, *(int*)tuple->get_slot(8));
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -416,9 +424,10 @@ TEST_F(BrokerScannerTest, normal2) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // 1,2,3
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(1, *(int*)tuple->get_slot(0));
@@ -426,16 +435,23 @@ TEST_F(BrokerScannerTest, normal2) {
     ASSERT_EQ(3, *(int*)tuple->get_slot(8));
 
     // 3,4,5
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
+    ASSERT_TRUE(fill_tuple);
     ASSERT_EQ(3, *(int*)tuple->get_slot(0));
     ASSERT_EQ(4, *(int*)tuple->get_slot(4));
     ASSERT_EQ(5, *(int*)tuple->get_slot(8));
 
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(fill_tuple);
+    ASSERT_FALSE(eof);
+
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(fill_tuple);
     ASSERT_TRUE(eof);
 }
 
@@ -462,9 +478,10 @@ TEST_F(BrokerScannerTest, normal3) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // 1,2,3
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(1, *(int*)tuple->get_slot(0));
@@ -472,14 +489,22 @@ TEST_F(BrokerScannerTest, normal3) {
     ASSERT_EQ(3, *(int*)tuple->get_slot(8));
 
     // 3,4,5
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
+    ASSERT_TRUE(fill_tuple);
     ASSERT_EQ(3, *(int*)tuple->get_slot(0));
     ASSERT_EQ(4, *(int*)tuple->get_slot(4));
     ASSERT_EQ(5, *(int*)tuple->get_slot(8));
+
+    // first line of normal2_2.csv is 2,3, which is unqualified
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(eof);
+    ASSERT_FALSE(fill_tuple);
+
     // 4,5,6
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(4, *(int*)tuple->get_slot(0));
@@ -487,7 +512,7 @@ TEST_F(BrokerScannerTest, normal3) {
     ASSERT_EQ(6, *(int*)tuple->get_slot(8));
 
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -509,16 +534,17 @@ TEST_F(BrokerScannerTest, normal4) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // 1,2,3
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(1, *(int*)tuple->get_slot(0));
     ASSERT_EQ(2, *(int*)tuple->get_slot(4));
     ASSERT_EQ(3, *(int*)tuple->get_slot(8));
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -540,9 +566,10 @@ TEST_F(BrokerScannerTest, normal5) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -564,16 +591,17 @@ TEST_F(BrokerScannerTest, normal6) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // 4,5,6
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(4, *(int*)tuple->get_slot(0));
     ASSERT_EQ(5, *(int*)tuple->get_slot(4));
     ASSERT_EQ(6, *(int*)tuple->get_slot(8));
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -595,9 +623,10 @@ TEST_F(BrokerScannerTest, normal7) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -619,16 +648,17 @@ TEST_F(BrokerScannerTest, normal8) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // 4,5,6
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(4, *(int*)tuple->get_slot(0));
     ASSERT_EQ(5, *(int*)tuple->get_slot(4));
     ASSERT_EQ(6, *(int*)tuple->get_slot(8));
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -650,9 +680,10 @@ TEST_F(BrokerScannerTest, normal9) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -678,23 +709,24 @@ TEST_F(BrokerScannerTest, multi_bytes_1) {
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool fill_tuple;
     bool eof = false;
     // 4,5,6
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(4, *(int*)tuple->get_slot(0));
     ASSERT_EQ(5, *(int*)tuple->get_slot(4));
     ASSERT_EQ(6, *(int*)tuple->get_slot(8));
     // 1,2,3
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
     ASSERT_EQ(1, *(int*)tuple->get_slot(0));
     ASSERT_EQ(2, *(int*)tuple->get_slot(4));
     ASSERT_EQ(3, *(int*)tuple->get_slot(8));
     // end of file
-    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }

@@ -30,16 +30,23 @@ public:
                          const std::map<std::string, std::string>& broker_prop);
     ~BrokerStorageBackend() {}
     Status download(const std::string& remote, const std::string& local) override;
+    Status direct_download(const std::string& remote, std::string* content) override;
     Status upload(const std::string& local, const std::string& remote) override;
     Status upload_with_checksum(const std::string& local, const std::string& remote,
                                 const std::string& checksum) override;
     Status rename(const std::string& orig_name, const std::string& new_name) override;
-    Status list(const std::string& remote_path, std::map<std::string, FileStat>* files) override;
+    Status rename_dir(const std::string& orig_name, const std::string& new_name) override;
+    Status list(const std::string& remote_path, bool contain_md5,
+                bool recursion, std::map<std::string, FileStat>* files) override;
     Status direct_upload(const std::string& remote, const std::string& content) override;
     Status rm(const std::string& remote) override;
+    Status rmdir(const std::string& remote) override;
     Status copy(const std::string& src, const std::string& dst) override;
+    Status copy_dir(const std::string& src, const std::string& dst) override;
     Status mkdir(const std::string& path) override;
+    Status mkdirs(const std::string& path) override;
     Status exist(const std::string& path) override;
+    Status exist_dir(const std::string& path) override;
 
 private:
     ExecEnv* _env;

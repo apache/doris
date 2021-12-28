@@ -28,9 +28,9 @@ under the License.
 ## description
 ### Syntax
 
-`BigIntVal bitmap_and_count(BITMAP lhs, BITMAP rhs)`
+`BigIntVal bitmap_and_count(BITMAP lhs, BITMAP rhs, ...)`
 
-Calculate the intersection of two input bitmaps and return the number of intersections.
+Calculate the intersection of two or more input bitmaps and return the number of intersections.
 
 ## example
 
@@ -56,6 +56,27 @@ MySQL> select bitmap_and_count(bitmap_from_string('1,2,3'),bitmap_from_string('3
 +----------------------------------------------------------------------------+
 |                                                                          1 |
 +----------------------------------------------------------------------------+
+
+MySQL> select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'));
++-------------------------------------------------------------------------------------------------------------+
+| (bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) |
++-------------------------------------------------------------------------------------------------------------+
+|                                                                                                           2 |
++-------------------------------------------------------------------------------------------------------------+
+
+MySQL> select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),bitmap_empty());
++-----------------------------------------------------------------------------------------------------------------------------+
+| (bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), bitmap_empty())) |
++-----------------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                           0 |
++-----------------------------------------------------------------------------------------------------------------------------+
+
+MySQL> select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL);
++-------------------------------------------------------------------------------------------------------------------+
+| (bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL)) |
++-------------------------------------------------------------------------------------------------------------------+
+|                                                                                                              NULL |
++-------------------------------------------------------------------------------------------------------------------+
 ```
 
 ## keyword
