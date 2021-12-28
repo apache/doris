@@ -161,6 +161,12 @@ Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
 字符串类（CHAR/VARCHAR）: "I am a student", "a"
 NULL value: N
 
+6. S3 Storage
+   fs.s3a.access.key  user AK，required
+   fs.s3a.secret.key  user SK，required
+   fs.s3a.endpoint  user endpoint，required
+   fs.s3a.impl.disable.cache  whether disable cache，default true，optional
+
 '35;'35; example
 
 1. Import a batch of data, specify timeout time and filtering ratio. Specify the import queue as my_cluster.
