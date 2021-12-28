@@ -1616,11 +1616,6 @@ public class QueryPlanTest {
         String sql = "select day from tbl_int_date where day = '2020-10-30'";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
-
-        sql = "select day from tbl_int_date where day = cast('2020-10-30' as date)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30'"));
-
         sql = "select day from tbl_int_date where day = from_unixtime(1196440219)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2007-12-01 00:30:19'"));
