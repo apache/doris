@@ -76,8 +76,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _cluster_id(-1),
           _cluster_id_incomplete(false),
           _to_be_deleted(false),
-          _current_shard(0),
           _env(Env::get_env(storage_medium)),
+          _current_shard(0),
           _meta(nullptr) {
     _path_desc.storage_medium = storage_medium;
     _path_desc.remote_path = remote_path;
@@ -99,9 +99,9 @@ DataDir::~DataDir() {
 
 Status DataDir::init() {
     if (!Env::Default()->path_exists(_path_desc.filepath).ok()) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute("opendir failed, path=$0", _path_desc.filepath)),
-                "check file exist failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
+                                               "opendir failed, path=$0", _path_desc.filepath)),
+                                       "check file exist failed");
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
@@ -129,14 +129,15 @@ Status DataDir::_init_cluster_id() {
     }
     if (is_remote()) {
         int32_t remote_cluster_id;
-        RETURN_IF_ERROR(read_cluster_id(_env, cluster_id_path_desc.remote_path, &remote_cluster_id));
+        RETURN_IF_ERROR(
+                read_cluster_id(_env, cluster_id_path_desc.remote_path, &remote_cluster_id));
         if (remote_cluster_id == -1) {
             _cluster_id_incomplete = true;
         }
         if (remote_cluster_id != -1 && _cluster_id != -1 && _cluster_id != remote_cluster_id) {
-            return Status::InternalError(strings::Substitute(
-                    "cluster id $0 is not equal with remote cluster id $1",
-                    _cluster_id, remote_cluster_id));
+            return Status::InternalError(
+                    strings::Substitute("cluster id $0 is not equal with remote cluster id $1",
+                                        _cluster_id, remote_cluster_id));
         }
         if (_cluster_id == -1) {
             _cluster_id = remote_cluster_id;
@@ -151,8 +152,9 @@ Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, in
     Status exist_status = env->path_exists(cluster_id_path);
     if (exist_status.ok()) {
         Status status = env->new_random_access_file(cluster_id_path, &input_file);
-        RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("open file failed: $0, err=$1",
-                                                                   cluster_id_path, status.to_string()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                status, strings::Substitute("open file failed: $0, err=$1", cluster_id_path,
+                                            status.to_string()));
         std::string content;
         RETURN_IF_ERROR(input_file->read_all(&content));
         if (content.size() > 0) {
@@ -163,8 +165,9 @@ Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, in
     } else if (exist_status.is_not_found()) {
         *cluster_id = -1;
     } else {
-        RETURN_NOT_OK_STATUS_WITH_WARN(exist_status, strings::Substitute("check exist failed: $0, err=$1",
-                                                                         cluster_id_path, exist_status.to_string()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                exist_status, strings::Substitute("check exist failed: $0, err=$1", cluster_id_path,
+                                                  exist_status.to_string()));
     }
     return Status::OK();
 }
@@ -172,23 +175,26 @@ Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, in
 Status DataDir::_init_capacity() {
     int64_t disk_capacity = -1;
     int64_t available = -1;
-    RETURN_NOT_OK_STATUS_WITH_WARN(Env::Default()->get_space_info(_path_desc.filepath, &disk_capacity, &available),
-                                   strings::Substitute("get_space_info failed: $0", _path_desc.filepath));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            Env::Default()->get_space_info(_path_desc.filepath, &disk_capacity, &available),
+            strings::Substitute("get_space_info failed: $0", _path_desc.filepath));
     if (_capacity_bytes == -1) {
         _capacity_bytes = disk_capacity;
     } else if (_capacity_bytes > disk_capacity) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::InvalidArgument(strings::Substitute(
-                        "root path $0's capacity $1 should not larger than disk capacity $2", _path_desc.filepath,
-                        _capacity_bytes, disk_capacity)),
+                        "root path $0's capacity $1 should not larger than disk capacity $2",
+                        _path_desc.filepath, _capacity_bytes, disk_capacity)),
                 "init capacity failed");
     }
 
     std::string data_path = _path_desc.filepath + DATA_PREFIX;
     Status exist_status = Env::Default()->path_exists(data_path);
-    if (!exist_status.ok() && (!exist_status.is_not_found() || !Env::Default()->create_dirs(data_path).ok())) {
+    if (!exist_status.ok() &&
+        (!exist_status.is_not_found() || !Env::Default()->create_dirs(data_path).ok())) {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
-                "failed to create data root path $0", data_path)), "create_dirs failed");
+                                               "failed to create data root path $0", data_path)),
+                                       "create_dirs failed");
     }
 
     return Status::OK();
@@ -209,7 +215,8 @@ Status DataDir::_init_meta() {
     OLAPStatus res = _meta->init();
     if (res != OLAP_SUCCESS) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute("open rocksdb failed, path=$0", _path_desc.filepath)),
+                Status::IOError(
+                        strings::Substitute("open rocksdb failed, path=$0", _path_desc.filepath)),
                 "init OlapMeta failed");
     }
     return Status::OK();
@@ -234,12 +241,14 @@ Status DataDir::_write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t
     cluster_id_ss << cluster_id;
     std::unique_ptr<WritableFile> wfile;
     if (!Env::Default()->path_exists(path_desc.filepath).ok()) {
-        RETURN_IF_ERROR(env_util::write_string_to_file_sync(Env::Default(), Slice(cluster_id_ss.str()), path_desc.filepath));
+        RETURN_IF_ERROR(env_util::write_string_to_file_sync(
+                Env::Default(), Slice(cluster_id_ss.str()), path_desc.filepath));
     }
     if (_env->is_remote_env()) {
         Status exist_status = _env->path_exists(path_desc.remote_path);
         if (exist_status.is_not_found()) {
-            RETURN_IF_ERROR(env_util::write_string_to_file_sync(_env, Slice(cluster_id_ss.str()), path_desc.remote_path));
+            RETURN_IF_ERROR(env_util::write_string_to_file_sync(_env, Slice(cluster_id_ss.str()),
+                                                                path_desc.remote_path));
         } else {
             RETURN_IF_ERROR(exist_status);
         }
@@ -252,7 +261,8 @@ void DataDir::health_check() {
     if (_is_used) {
         OLAPStatus res = OLAP_SUCCESS;
         if ((res = _read_and_write_test_file()) != OLAP_SUCCESS) {
-            LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path_desc.filepath;
+            LOG(WARNING) << "store read/write test file occur IO Error. path="
+                         << _path_desc.filepath;
             if (is_io_error(res)) {
                 _is_used = false;
             }
@@ -355,7 +365,8 @@ OLAPStatus DataDir::_clean_unfinished_converting_data() {
             _meta, clean_unifinished_tablet_meta_func, HEADER_PREFIX);
     if (clean_unfinished_meta_status != OLAP_SUCCESS) {
         // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
-        LOG(WARNING) << "there is failure when clean temp tablet meta from data dir=" << _path_desc.filepath;
+        LOG(WARNING) << "there is failure when clean temp tablet meta from data dir="
+                     << _path_desc.filepath;
     } else {
         LOG(INFO) << "successfully clean temp tablet meta from data dir=" << _path_desc.filepath;
     }
@@ -384,7 +395,8 @@ bool DataDir::convert_old_data_success() {
 OLAPStatus DataDir::set_convert_finished() {
     OLAPStatus res = _meta->set_tablet_convert_finished();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "save convert flag failed after convert old tablet. dir=" << _path_desc.filepath;
+        LOG(FATAL) << "save convert flag failed after convert old tablet. dir="
+                   << _path_desc.filepath;
         return res;
     }
     return OLAP_SUCCESS;
@@ -449,7 +461,8 @@ OLAPStatus DataDir::load() {
             RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
 
     if (load_rowset_status != OLAP_SUCCESS) {
-        LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << _path_desc.filepath;
+        LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:"
+                     << _path_desc.filepath;
     } else {
         LOG(INFO) << "load rowset from meta finished, data dir: " << _path_desc.filepath;
     }
@@ -492,19 +505,23 @@ OLAPStatus DataDir::load() {
     if (failed_tablet_ids.size() != 0) {
         LOG(WARNING) << "load tablets from header failed"
                      << ", loaded tablet: " << tablet_ids.size()
-                     << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path_desc.filepath;
+                     << ", error tablet: " << failed_tablet_ids.size()
+                     << ", path: " << _path_desc.filepath;
         if (!config::ignore_load_tablet_failure) {
-            LOG(FATAL) << "load tablets encounter failure. stop BE process. path: " << _path_desc.filepath;
+            LOG(FATAL) << "load tablets encounter failure. stop BE process. path: "
+                       << _path_desc.filepath;
         }
     }
     if (load_tablet_status != OLAP_SUCCESS) {
         LOG(WARNING) << "there is failure when loading tablet headers"
                      << ", loaded tablet: " << tablet_ids.size()
-                     << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path_desc.filepath;
+                     << ", error tablet: " << failed_tablet_ids.size()
+                     << ", path: " << _path_desc.filepath;
     } else {
         LOG(INFO) << "load tablet from meta finished"
                   << ", loaded tablet: " << tablet_ids.size()
-                  << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path_desc.filepath;
+                  << ", error tablet: " << failed_tablet_ids.size()
+                  << ", path: " << _path_desc.filepath;
     }
 
     // traverse rowset
@@ -731,8 +748,8 @@ void DataDir::perform_path_scan() {
             }
         }
     }
-    LOG(INFO) << "scan data dir path: " << _path_desc.filepath
-              << " finished. path size: " << _all_check_paths.size() + _all_tablet_schemahash_paths.size();
+    LOG(INFO) << "scan data dir path: " << _path_desc.filepath << " finished. path size: "
+              << _all_check_paths.size() + _all_tablet_schemahash_paths.size();
     _check_path_cv.notify_one();
 }
 
@@ -749,8 +766,9 @@ bool DataDir::_check_pending_ids(const std::string& id) {
 }
 
 Status DataDir::update_capacity() {
-    RETURN_NOT_OK_STATUS_WITH_WARN(_env->get_space_info(_path_desc.filepath, &_disk_capacity_bytes, &_available_bytes),
-                                   strings::Substitute("get_space_info failed: $0", _path_desc.filepath));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            _env->get_space_info(_path_desc.filepath, &_disk_capacity_bytes, &_available_bytes),
+            strings::Substitute("get_space_info failed: $0", _path_desc.filepath));
     if (_disk_capacity_bytes < 0) {
         _disk_capacity_bytes = _capacity_bytes;
     }
