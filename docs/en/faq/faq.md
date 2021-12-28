@@ -311,9 +311,9 @@ If the BE node is down, you need to check the specific reason for the downtime. 
 
 One situation is OVERCROWDED, which means that a large amount of unsent data at the rpc client exceeds the threshold. BE has two parameters related to it:
 
-1. `brpc_socket_max_unwritten_bytes`: The default is 64MB. If the unwritten data exceeds this value, an error will be reported. You can modify this value appropriately to avoid OVERCROWDED errors. (But this cures the symptoms rather than the root cause, essentially congestion still occurs).
+1. `brpc_socket_max_unwritten_bytes`: The default is 1GB. If the unwritten data exceeds this value, an error will be reported. You can modify this value appropriately to avoid OVERCROWDED errors. (But this cures the symptoms rather than the root cause, essentially congestion still occurs).
 2. `tablet_writer_ignore_eovercrowded`: The default is false. If set to true, Doris will ignore OVERCROWDED errors during the load process. This parameter is mainly used to avoid load failure and improve the stability of load.
 
 The second is that the packet size of rpc exceeds `max_body_size`. This problem may occur if the query contains a very large String type or a Bitmap type. It can be circumvented by modifying the following BE parameters:
 
-1. `brpc_max_body_size`: The default is 200MB, if necessary, it can be modified to 3GB (in bytes).
+1. `brpc_max_body_size`: The default is 3GB, if necessary, it can be modified to 3GB (in bytes).
