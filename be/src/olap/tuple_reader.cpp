@@ -80,8 +80,15 @@ OLAPStatus TupleReader::init(const ReaderParams& read_params) {
     if (status != OLAP_SUCCESS) { return status; }
 
     if (_optimize_for_single_rowset(rs_readers)) {
-        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &TupleReader::_direct_agg_key_next_row
-                                                          : &TupleReader::_direct_next_row;
+        if (_tablet->keys_type() == AGG_KEYS) {
+            if (_aggregation) {
+                _next_row_func = &Reader::_agg_key_next_row;
+            } else {
+                _next_row_func = &Reader::_direct_agg_key_next_row;
+            }
+        } else {
+            _next_row_func = &Reader::_direct_next_row;
+        }
         return OLAP_SUCCESS;
     }
 
