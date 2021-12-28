@@ -238,6 +238,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         builder.append("]; ");
 
         builder.append("keys: [");
+        builder.append(toString(keys));
+        builder.append("]; ");
+
+        return builder.toString();
+    }
+
+    public static String toString(List<LiteralExpr> keys) {
+        StringBuilder builder = new StringBuilder();
         int i = 0;
         for (LiteralExpr expr : keys) {
             Object value = null;
@@ -253,12 +261,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             if (keys.size() - 1 == i) {
                 builder.append(value);
             } else {
-                builder.append(value + ", ");
+                builder.append(value).append(", ");
             }
             ++i;
         }
-        builder.append("]; ");
-
         return builder.toString();
     }
 
