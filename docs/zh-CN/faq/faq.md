@@ -311,12 +311,12 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 
 一种情况是 OVERCROWDED，即表示 rpc 源端有大量未发送的数据超过了阈值。BE 有两个参数与之相关：
 
-1. `brpc_socket_max_unwritten_bytes`：默认 64MB，如果未发送数据超过这个值，则会报错。可以适当修改这个值以避免 OVERCROWDED 错误。（但这个治标不治本，本质上还是有拥塞发生）。
+1. `brpc_socket_max_unwritten_bytes`：默认 1GB，如果未发送数据超过这个值，则会报错。可以适当修改这个值以避免 OVERCROWDED 错误。（但这个治标不治本，本质上还是有拥塞发生）。
 2. `tablet_writer_ignore_eovercrowded`：默认为 false。如果设为true，则 Doris 会忽略导入过程中出现的 OVERCROWDED 错误。这个参数主要为了避免导入失败，以提高导入的稳定性。
 
 第二种是 rpc 的包大小超过 max_body_size。如果查询中带有超大 String 类型，或者 bitmap 类型时，可能出现这个问题。可以通过修改以下 BE 参数规避：
 
-1. `brpc_max_body_size`：默认200MB，如果有必要，可以修改为 3GB（单位字节）。
+1. `brpc_max_body_size`：默认 3GB.
 
 
 

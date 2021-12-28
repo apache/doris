@@ -179,7 +179,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，在 BE 日志中会出现 `body_size is too large` 的错误信息。这可能发生在 SQL 模式为 multi distinct + 无 group by + 超过1T 数据量的情况下。这个错误表示 brpc 的包大小超过了配置值。此时可以通过调大该配置避免这个错误。
 
-
 ### `brpc_socket_max_unwritten_bytes`
 
 这个配置主要用来修改 brpc  的参数 `socket_max_unwritten_bytes`。
