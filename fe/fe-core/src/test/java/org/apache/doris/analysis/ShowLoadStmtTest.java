@@ -139,8 +139,7 @@ public class ShowLoadStmtTest {
         CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, likePredicate);
         ShowLoadStmt stmt1 = new ShowLoadStmt(null, compoundPredicate1, null, null);
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = Should not use " +
-                        slotRef1.getColumnName() + " = \"\" AND " + slotRef2.getColumnName() + " = \"\"",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "column names on both sides of operator AND should be diffrent",
                 () -> stmt1.analyze(analyzer));
 
         //test: WHERE state="abc" AND state="def";  --> AnalysisException
@@ -155,8 +154,7 @@ public class ShowLoadStmtTest {
         CompoundPredicate compoundPredicate2 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate3, binaryPredicate4);
         ShowLoadStmt stmt2 = new ShowLoadStmt(null, compoundPredicate2, null, null);
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = Should not use " +
-                        slotRef3.getColumnName() + " = \"\" AND " + slotRef4.getColumnName() + " = \"\"",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "column names on both sides of operator AND should be diffrent",
                 () -> stmt2.analyze(analyzer));
 
 

@@ -162,7 +162,7 @@ public class ShowLoadStmt extends ShowStmt {
         String leftChildColumnName = ((SlotRef) leftChild.getChild(0)).getColumnName();
         String rightChildColumnName = ((SlotRef) rightChild.getChild(0)).getColumnName();
         if (leftChildColumnName.equals(rightChildColumnName)) {
-            throw new AnalysisException("Should not use " + leftChildColumnName + " = \"\" AND " + rightChildColumnName + " = \"\"");
+            throw new AnalysisException("column names on both sides of operator AND should be diffrent");
         }
     }
 
