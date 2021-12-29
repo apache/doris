@@ -195,7 +195,7 @@ public class DorisWriterEmitter {
             httpPut.setHeader(HttpHeaders.AUTHORIZATION, this.getBasicAuthHeader(this.keys.getUsername(), this.keys.getPassword()));
             httpPut.setHeader("label", flushBatch.getLabel());
             httpPut.setHeader("format", this.keys.getFormat());
-            httpPut.setHeader("line_delimiter", this.keys.getLineDelimiterDesc());
+            httpPut.setHeader("line_delimiter", this.keys.getLineDelimiter());
 
             if ("csv".equalsIgnoreCase(this.keys.getFormat())) {
                 httpPut.setHeader("column_separator", this.keys.getColumnSeparatorDesc());
