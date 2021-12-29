@@ -18,9 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
 
@@ -121,5 +123,41 @@ public class ShowLoadStmtTest {
         stmt = new ShowLoadStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `state` = \'PENDING\' LIMIT 10", stmt.toString());
+    }
+
+    @Test
+    public void testInvalidWhereClause() throws AnalysisException {
+        SlotRef slotRef1 = new SlotRef(null, "label");
+        StringLiteral stringLiteral1 = new StringLiteral("abc");
+        BinaryPredicate binaryPredicate1 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef1, stringLiteral1);
+
+        SlotRef slotRef2 = new SlotRef(null, "label");
+        StringLiteral stringLiteral2 = new StringLiteral("def");
+        BinaryPredicate binaryPredicate2 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef2, stringLiteral2);
+
+        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, binaryPredicate2);
+        ShowLoadStmt stmt1 = new ShowLoadStmt(null, compoundPredicate1, null, null);
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = Should not use " +
+                        slotRef1.getColumnName() + " = \"\" AND " + slotRef2.getColumnName() + " = \"\"",
+                () -> stmt1.analyze(analyzer));
+
+
+        SlotRef slotRef3 = new SlotRef(null, "state");
+        StringLiteral stringLiteral3 = new StringLiteral("abc");
+        BinaryPredicate binaryPredicate3 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef3, stringLiteral3);
+
+        SlotRef slotRef4 = new SlotRef(null, "state");
+        StringLiteral stringLiteral4 = new StringLiteral("def");
+        BinaryPredicate binaryPredicate4 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef4, stringLiteral4);
+
+        CompoundPredicate compoundPredicate2 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate3, binaryPredicate4);
+        ShowLoadStmt stmt2 = new ShowLoadStmt(null, compoundPredicate2, null, null);
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = Should not use " +
+                        slotRef3.getColumnName() + " = \"\" AND " + slotRef4.getColumnName() + " = \"\"",
+                () -> stmt2.analyze(analyzer));
+
+
     }
 }
