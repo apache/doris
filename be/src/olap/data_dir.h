@@ -140,6 +140,14 @@ public:
         return _env;
     }
 
+    // 将segment_path_desc移到回收站，回收站位于storage_root/trash, segment_path_desc可以是文件或目录
+    // 移动的同时将segment_path_desc的路径进行修改
+    // filepath改为：
+    // storage_root/trash/20150619154308/delete_counter/tablet_path/segment_path,
+    // remote_path改为：
+    // storage_root/trash/20150619154308/delete_counter/tablet_path/segment_path/tablet_uid
+    OLAPStatus move_to_trash(const FilePathDesc& segment_path_desc);
+
 private:
     Status _init_cluster_id();
     Status _init_capacity();

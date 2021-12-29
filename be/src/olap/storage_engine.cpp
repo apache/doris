@@ -678,18 +678,20 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         OLAPStatus curr_res = OLAP_SUCCESS;
-        string snapshot_path = info.path_desc.filepath + SNAPSHOT_PREFIX;
-        curr_res = _do_sweep(snapshot_path, local_now, snapshot_expire);
+        FilePathDesc snapshot_path_desc(info.path_desc.filepath + SNAPSHOT_PREFIX);
+        curr_res = _do_sweep(snapshot_path_desc, local_now, snapshot_expire);
         if (curr_res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path
+            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path_desc.filepath
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
 
-        string trash_path = info.path_desc.filepath + TRASH_PREFIX;
-        curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
+        FilePathDescStream trash_path_desc_s;
+        trash_path_desc_s << info.path_desc << TRASH_PREFIX;
+        FilePathDesc trash_path_desc = trash_path_desc_s.path_desc();
+        curr_res = _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (curr_res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to sweep trash. [path=%s" << trash_path
+            LOG(WARNING) << "failed to sweep trash. [path=%s" << trash_path_desc.filepath
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
@@ -776,10 +778,10 @@ void StorageEngine::_clean_unused_txns() {
     }
 }
 
-OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local_now,
+OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_now,
                                     const int32_t expire) {
     OLAPStatus res = OLAP_SUCCESS;
-    if (!FileUtils::check_exist(scan_root)) {
+    if (!FileUtils::check_exist(scan_root_desc.filepath)) {
         // dir not existed. no need to sweep trash.
         return res;
     }
@@ -787,7 +789,7 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
-        std::copy(directory_iterator(path(scan_root)), directory_iterator(),
+        std::copy(directory_iterator(path(scan_root_desc.filepath)), directory_iterator(),
                   std::back_inserter(sorted_pathes));
         std::sort(sorted_pathes.begin(), sorted_pathes.end());
         for (const auto& sorted_path : sorted_pathes) {
@@ -812,10 +814,23 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
+                if (Env::get_env(scan_root_desc.storage_medium)->is_remote_env()) {
+                    std::filesystem::path local_path(path_name);
+                    std::stringstream remote_file_stream;
+                    remote_file_stream << scan_root_desc.remote_path << "/" << local_path.filename().string();
+                    Status ret = Env::get_env(scan_root_desc.storage_medium)->
+                            delete_dir(remote_file_stream.str());
+                    if (!ret.ok()) {
+                        LOG(WARNING) << "fail to remove file or directory. path=" << remote_file_stream.str()
+                                     << ", error=" << ret.to_string();
+                        res = OLAP_ERR_OS_ERROR;
+                        continue;
+                    }
+                }
                 Status ret = FileUtils::remove_all(path_name);
                 if (!ret.ok()) {
-                    LOG(WARNING) << "fail to remove file or directory. path=" << path_name
-                                 << ", error=" << ret.to_string();
+                    LOG(WARNING) << "fail to remove file or directory. path_desc: "
+                                 << scan_root_desc.debug_string();
                     res = OLAP_ERR_OS_ERROR;
                     continue;
                 }

@@ -800,24 +800,25 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
 
 OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                                                SchemaHash schema_hash,
-                                               const string& schema_hash_path, bool force,
-                                               bool restore) {
+                                               const FilePathDesc& schema_hash_path_desc, bool force,
+                                               bool restore, bool reset_tablet_uid) {
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
-              << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
+              << " path = " << schema_hash_path_desc.filepath << " force = " << force << " restore = " << restore;
     // not add lock here, because load_tablet_from_meta already add lock
-    string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
+    string header_path = TabletMeta::construct_header_file_path(schema_hash_path_desc.filepath, tablet_id);
     // should change shard id before load tablet
     string shard_path = path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
     string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     int32_t shard = stol(shard_str);
     // load dir is called by clone, restore, storage migration
     // should change tablet uid when tablet object changed
-    RETURN_NOT_OK_LOG(
-            TabletMeta::reset_tablet_uid(header_path),
-            strings::Substitute("failed to set tablet uid when copied meta file. header_path=%0",
-                                header_path));
-    ;
+    if (reset_tablet_uid) {
+        RETURN_NOT_OK_LOG(
+                TabletMeta::reset_tablet_uid(header_path),
+                strings::Substitute("failed to set tablet uid when copied meta file. header_path=%0",
+                                    header_path));
+    }
 
     if (!Env::Default()->path_exists(header_path).ok()) {
         LOG(WARNING) << "fail to find header file. [header_path=" << header_path << "]";
@@ -1010,7 +1011,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
                             tablet_path_desc.filepath, std::to_string((*it)->tablet_id()) + ".hdr");
                     (*it)->tablet_meta()->save(meta_file_path);
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path_desc.debug_string();
-                    OLAPStatus rm_st = move_to_trash(tablet_path_desc.filepath, tablet_path_desc.filepath);
+                    OLAPStatus rm_st = (*it)->data_dir()->move_to_trash(tablet_path_desc);
                     if (rm_st != OLAP_SUCCESS) {
                         LOG(WARNING) << "fail to move dir to trash. " << tablet_path_desc.debug_string();
                         ++it;
@@ -1091,7 +1092,31 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     // TODO(ygl): may do other checks in the future
     if (Env::Default()->path_exists(schema_hash_path).ok()) {
         LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
-        OLAPStatus rm_st = move_to_trash(schema_hash_path, schema_hash_path);
+        FilePathDesc segment_desc(schema_hash_path);
+        std::string tablet_uid_file = schema_hash_path + TABLET_UID;
+        if (data_dir->is_remote() && FileUtils::check_exist(tablet_uid_file)) {
+            // it means you must remove remote file for this segment first
+            faststring buf;
+            Status s = env_util::read_file_to_string(Env::Default(), tablet_uid_file, &buf);
+            if (!s.ok()) {
+                LOG(WARNING) << "delete unused file error when read tablet_uid: " << tablet_uid_file;
+                return;
+            }
+            std::string tablet_uid = buf.ToString();
+            boost::trim(tablet_uid);
+            if (!tablet_uid.empty()) {
+                // remote file may be exist, check and mv it to trash
+                std::filesystem::path local_segment_path(schema_hash_path);
+                std::stringstream remote_file_stream;
+                remote_file_stream << data_dir->path_desc().remote_path << DATA_PREFIX
+                                   << "/" << local_segment_path.parent_path().parent_path().filename().string()  // shard
+                                   << "/" << local_segment_path.parent_path().filename().string()                // tablet_path
+                                   << "/" << local_segment_path.filename().string();                             // segment_path
+                segment_desc.storage_medium = data_dir->path_desc().storage_medium;
+                segment_desc.remote_path = remote_file_stream.str();
+            }
+        }
+        OLAPStatus rm_st = data_dir->move_to_trash(segment_desc);
         if (rm_st != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to move dir to trash. dir=" << schema_hash_path;
         } else {

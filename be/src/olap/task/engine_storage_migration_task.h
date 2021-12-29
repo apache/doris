@@ -44,7 +44,7 @@ private:
     // TODO: hkp
     // rewrite this function
     OLAPStatus _copy_index_and_data_files(
-            const std::string& full_path,
+            const FilePathDesc& full_path_desc,
             const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
 
 private:

@@ -35,8 +35,10 @@ using std::vector;
 
 static std::string CAPACITY_UC = "CAPACITY";
 static std::string MEDIUM_UC = "MEDIUM";
+static std::string REMOTE_UC = "REMOTE";
 static std::string SSD_UC = "SSD";
 static std::string HDD_UC = "HDD";
+static std::string S3_UC = "S3";
 
 // TODO: should be a general util method
 static std::string to_upper(const std::string& str) {
@@ -48,6 +50,7 @@ static std::string to_upper(const std::string& str) {
 // Currently, both of two following formats are supported(see be.conf)
 //   format 1:   /home/disk1/palo.HDD,50
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
+//   s3 format:  /home/disk/palo/cache,medium:s3,capacity:50,remote:s3://bucket_name/palo/storage
 OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
 
@@ -100,6 +103,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
             // property 'medium' has a higher priority than the extension of
             // path, so it can override medium_str
             medium_str = to_upper(value);
+        } else if (property == REMOTE_UC) {
+            path->remote_path = value;
         } else {
             LOG(WARNING) << "invalid property of store path, " << tmp_vec[i];
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -122,6 +127,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
             path->storage_medium = TStorageMedium::SSD;
         } else if (medium_str == HDD_UC) {
             path->storage_medium = TStorageMedium::HDD;
+        } else if (medium_str == S3_UC) {
+            path->storage_medium = TStorageMedium::S3;
         } else {
             LOG(WARNING) << "invalid storage medium. medium=" << medium_str;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;

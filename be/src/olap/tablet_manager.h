@@ -107,8 +107,8 @@ public:
                                      bool check_path = true);
 
     OLAPStatus load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
-                                    const std::string& schema_hash_path, bool force = false,
-                                    bool restore = false);
+                                    const FilePathDesc& schema_hash_path_desc, bool force = false,
+                                    bool restore = false, bool reset_tablet_uid = true);
 
     void release_schema_change_lock(TTabletId tablet_id);
 

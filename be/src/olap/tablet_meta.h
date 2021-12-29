@@ -91,7 +91,7 @@ public:
     OLAPStatus create_from_file(const std::string& file_path);
     OLAPStatus save(const std::string& file_path);
     static OLAPStatus save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
-    static OLAPStatus reset_tablet_uid(const std::string& file_path);
+    static OLAPStatus reset_tablet_uid(const std::string& file_path, const PUniqueId* new_uid = nullptr);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
     OLAPStatus save_meta(DataDir* data_dir);
