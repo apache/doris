@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
@@ -112,8 +113,7 @@ public class ShowLoadStmtTest {
         Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` = \'abc\' LIMIT 10", stmt.toString());
 
         StringLiteral stringLiteralLike = new StringLiteral("ab%");
-        LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
-                slotRef, stringLiteralLike);
+        LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef, stringLiteralLike);
 
         stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
@@ -133,9 +133,9 @@ public class ShowLoadStmtTest {
 
         SlotRef slotRef2 = new SlotRef(null, "label");
         StringLiteral stringLiteral2 = new StringLiteral("def");
-        BinaryPredicate binaryPredicate2 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef2, stringLiteral2);
+        LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef2, stringLiteral2);
 
-        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, binaryPredicate2);
+        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, likePredicate);
         ShowLoadStmt stmt1 = new ShowLoadStmt(null, compoundPredicate1, null, null);
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = Should not use " +
