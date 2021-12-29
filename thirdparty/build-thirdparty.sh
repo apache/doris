@@ -356,7 +356,6 @@ build_gperftools() {
     CFLAGS="-fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     LD_LIBRARY_PATH="${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR/gperftools --disable-shared --enable-static --disable-libunwind --with-pic --enable-frame-pointers
     make -j $PARALLEL && make install
 }
@@ -449,38 +448,6 @@ build_boost() {
 
     ./bootstrap.sh --prefix=$TP_INSTALL_DIR
     ./b2 link=static runtime-link=static -j $PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
-}
-
-# mysql
-build_mysql() {
-    check_if_source_exist $MYSQL_SOURCE
-    check_if_source_exist $BOOST_SOURCE
-
-    cd $TP_SOURCE_DIR/$MYSQL_SOURCE
-
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    rm -rf CMakeCache.txt CMakeFiles/
-    if [ ! -d $BOOST_SOURCE ]; then
-        cp -rf $TP_SOURCE_DIR/$BOOST_SOURCE ./
-    fi
-
-    ${CMAKE_CMD} -G "${GENERATOR}" ../ -DWITH_BOOST=`pwd`/$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
-    -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 -DWITH_ZLIB=$TP_INSTALL_DIR \
-    -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
-    -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a
-    ${BUILD_SYSTEM} -j $PARALLEL mysqlclient
-
-    # copy headers manually
-    rm -rf ../../../installed/include/mysql/
-    mkdir ../../../installed/include/mysql/ -p
-    cp -R ./include/* ../../../installed/include/mysql/
-    cp -R ../include/* ../../../installed/include/mysql/
-    cp ../libbinlogevents/export/binary_log_types.h ../../../installed/include/mysql/
-    echo "mysql headers are installed."
-
-    # copy libmysqlclient.a
-    cp libmysql/libmysqlclient.a ../../../installed/lib/
-    echo "mysql client lib is installed."
 }
 
 #leveldb
@@ -925,6 +892,20 @@ build_breakpad() {
     make -j $PARALLEL && make install
 }
 
+#mariadb-connector-c
+build_mariadb() {
+    check_if_source_exist $MARIADB_SOURCE
+    cd $TP_SOURCE_DIR/$MARIADB_SOURCE
+    mkdir -p build && cd build
+    CPPLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    $CMAKE_CMD .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR} \
+    -DOPENSSL_USE_STATIC_LIBS=TRUE \
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib64" \
+    -DOPENSSL_ROOT_DIR="$TP_INSTALL_DIR/include"
+    make -j$PARALLEL && make install
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -961,7 +942,6 @@ build_libdivide
 build_orc
 build_cctz
 build_tsan_header
-build_mysql
 build_aws_c_common
 build_aws_s2n
 build_aws_c_cal
@@ -976,6 +956,7 @@ build_gsasl
 build_hdfs3
 build_benchmark
 build_breakpad
+build_mariadb
 
 echo "Finished to build all thirdparties"
 

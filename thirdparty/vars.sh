@@ -154,12 +154,6 @@ BOOST_NAME=boost_1_73_0.tar.gz
 BOOST_SOURCE=boost_1_73_0
 BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"
 
-# mysql
-MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
-MYSQL_NAME=mysql-5.7.18.tar.gz
-MYSQL_SOURCE=mysql-server-mysql-5.7.18
-MYSQL_MD5SUM="58598b10dce180e4d1fbdd7cf5fa68d6"
-
 # unix odbc
 ODBC_DOWNLOAD="http://www.unixodbc.org/unixODBC-2.3.7.tar.gz"
 ODBC_NAME=unixODBC-2.3.7.tar.gz
@@ -389,6 +383,12 @@ BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
 BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
 BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
 
+# mariadb-connector-c
+MARIADB_DOWNLOAD="https://github.com/mariadb-corporation/mariadb-connector-c/archive/refs/tags/v3.1.15.tar.gz"
+MARIADB_NAME="mariadb-connector-c-3.1.15.tar.gz"
+MARIADB_SOURCE="mariadb-connector-c-3.1.15"
+MARIADB_MD5SUM="38306253a34b091b05a949dddbccd1c2"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -407,7 +407,6 @@ LZO2
 CURL
 RE2
 BOOST
-MYSQL
 ODBC
 LEVELDB
 BRPC
@@ -445,5 +444,6 @@ HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
-BREAKPAD"
+BREAKPAD
+MARIADB"
 

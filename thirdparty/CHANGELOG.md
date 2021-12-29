@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20211229
+
+- Removed: mysql-5.7.18
+- Added: mariadb-connector-c-3.1.15
+
 ## v20211220
 
 - Modified: OpenSSL 1.0.2k -> 1.1.1m

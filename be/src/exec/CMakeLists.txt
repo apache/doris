@@ -109,6 +109,8 @@ set(EXEC_FILES
     s3_reader.cpp
     s3_writer.cpp
     hdfs_reader_writer.cpp
+    mysql_scan_node.cpp
+    mysql_scanner.cpp
 )
 
 if (ARCH_AMD64)
@@ -116,14 +118,6 @@ if (ARCH_AMD64)
         ${EXEC_FILES}
         hdfs_file_reader.cpp
         hdfs_writer.cpp
-        )
-endif()
-
-if (WITH_MYSQL)
-    set(EXEC_FILES
-        ${EXEC_FILES}
-        mysql_scan_node.cpp
-        mysql_scanner.cpp
         )
 endif()
 

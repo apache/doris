@@ -108,13 +108,8 @@ set(UTIL_FILES
   s3_util.cpp
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
+  mysql_load_error_hub.cpp
 )
-
-if (WITH_MYSQL)
-    set(UTIL_FILES ${UTIL_FILES}
-        mysql_load_error_hub.cpp
-        )
-endif()
 
 add_library(Util STATIC
     ${UTIL_FILES}

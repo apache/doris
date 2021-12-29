@@ -352,13 +352,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::MYSQL_SCAN_NODE:
-#ifdef DORIS_WITH_MYSQL
         *node = pool->add(new MysqlScanNode(pool, tnode, descs));
         return Status::OK();
-#else
-        return Status::InternalError(
-                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
-#endif
+
     case TPlanNodeType::ODBC_SCAN_NODE:
         *node = pool->add(new OdbcScanNode(pool, tnode, descs));
         return Status::OK();

@@ -87,7 +87,6 @@ else()
     option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
-option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -198,10 +197,8 @@ if(WITH_LZO)
     set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
 endif()
 
-if (WITH_MYSQL)
-    add_library(mysql STATIC IMPORTED)
-    set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
-endif()
+add_library(mysql STATIC IMPORTED)
+set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/mariadb/libmariadbclient.a)
 
 add_library(libevent STATIC IMPORTED)
 set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
@@ -355,9 +352,7 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
 endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
-if (WITH_MYSQL)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
-endif()
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
 
 if (WITH_LZO)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
@@ -553,6 +548,7 @@ if(ARCH_AARCH64)
 else()
     set(DORIS_DEPENDENCIES
         ${DORIS_DEPENDENCIES}
+        mysql
         ${WL_START_GROUP}
         ${X86_DEPENDENCIES}
         ${WL_END_GROUP}
@@ -565,11 +561,6 @@ if(WITH_LZO)
     )
 endif()
 
-if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        mysql
-        )
-endif()
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 

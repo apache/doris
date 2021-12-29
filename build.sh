@@ -164,9 +164,6 @@ if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_D
     exit 0
 fi
 
-if [[ -z ${WITH_MYSQL} ]]; then
-    WITH_MYSQL=OFF
-fi
 if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
@@ -184,7 +181,6 @@ echo "Get params:
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
-    WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
@@ -214,7 +210,6 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
             -DMAKE_TEST=OFF \
             ${CMAKE_USE_CCACHE} \
-            -DWITH_MYSQL=${WITH_MYSQL} \
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
