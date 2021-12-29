@@ -217,7 +217,6 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
@@ -715,6 +714,11 @@ public class Catalog {
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
         return getCurrentCatalog().getAuditEventProcessor();
+    }
+
+    // For unit test only
+    public Checkpoint getCheckpointer() {
+        return checkpointer;
     }
 
     public StatisticsManager getStatisticsManager() {
@@ -2236,10 +2240,6 @@ public class Catalog {
     public long saveGlobalVariable(CountingDataOutputStream dos, long checksum) throws IOException {
         VariableMgr.write(dos);
         return checksum;
-    }
-
-    public void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
-        VariableMgr.replayGlobalVariable(variable);
     }
 
     public void replayGlobalVariableV2(GlobalVarPersistInfo info) throws IOException, DdlException {
