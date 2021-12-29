@@ -318,6 +318,79 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 
 1. `brpc_max_body_size`：默认 3GB.
 
+### Q22. 多个FE，在使用Nginx实现web UI负载均衡的时候，登录不进去的情况
+
+Doris 可以部署多个FE，在访问Web UI的时候，如果使用Nginx进行负载均衡，因为Session问题会出现不停的提示要重新登录，这个问题其实是Session共享的问题，Nginx提供了集中Session共享的解决方案，这里我们使用的是nginx中的ip_hash技术，ip_hash能够将某个ip的请求定向到同一台后端，这样一来这个ip下的某个客户端和某个后端就能建立起稳固的session，ip_hash是在upstream配置中定义的：
+
+```
+upstream  doris.com {
+   server    172.22.197.238:8030 weight=3;
+   server    172.22.197.239:8030 weight=4;
+	 server    172.22.197.240:8030 weight=4;
+   ip_hash;
+}
+```
+完整的Nginx示例配置如下:
+
+```
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+# Load dynamic modules. See /usr/share/doc/nginx/README.dynamic.
+include /usr/share/nginx/modules/*.conf;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 2048;
+
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
+
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    include /etc/nginx/conf.d/*.conf;
+    #include /etc/nginx/custom/*.conf;
+    upstream  doris.com {
+        server    172.22.197.238:8030 weight=3;
+        server    172.22.197.239:8030 weight=4;
+	      server    172.22.197.240:8030 weight=4;
+        ip_hash;
+    }
+
+    server {
+        listen       80;
+        server_name  gaia-pro-bigdata-fe02;
+        if ($request_uri ~ _load) {
+           return 307 http://$host$request_uri ;
+        }
+
+        location / {
+            proxy_pass http://doris.com;
+            proxy_redirect default;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+ }
+```
 
 
 
