@@ -127,6 +127,7 @@ public class ShowLoadStmtTest {
 
     @Test
     public void testInvalidWhereClause() throws AnalysisException {
+        //test:  WHERE label="abc" AND label LIKE "def";  --> AnalysisException
         SlotRef slotRef1 = new SlotRef(null, "label");
         StringLiteral stringLiteral1 = new StringLiteral("abc");
         BinaryPredicate binaryPredicate1 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef1, stringLiteral1);
@@ -142,7 +143,7 @@ public class ShowLoadStmtTest {
                         slotRef1.getColumnName() + " = \"\" AND " + slotRef2.getColumnName() + " = \"\"",
                 () -> stmt1.analyze(analyzer));
 
-
+        //test: WHERE state="abc" AND state="def";  --> AnalysisException
         SlotRef slotRef3 = new SlotRef(null, "state");
         StringLiteral stringLiteral3 = new StringLiteral("abc");
         BinaryPredicate binaryPredicate3 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef3, stringLiteral3);
