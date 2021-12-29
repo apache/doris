@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.action;
 
+import com.clearspring.analytics.util.Lists;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.common.Config;
 import org.apache.doris.http.ActionController;
@@ -27,6 +28,8 @@ import org.apache.doris.qe.VariableMgr;
 
 import io.netty.handler.codec.http.HttpMethod;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
@@ -57,7 +60,9 @@ public class VariableAction extends WebBaseAction {
         HashMap<String, String> confmap;
         try {
             confmap = Config.dump();
-            for (String key : confmap.keySet()) {
+            List<String> keyList = Lists.newArrayList(confmap.keySet());
+            Collections.sort(keyList);
+            for (String key : keyList) {
                 buffer.append(key + "=" + confmap.get(key) + "\n");
             }
         } catch (Exception e) {
