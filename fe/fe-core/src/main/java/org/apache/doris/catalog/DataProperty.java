@@ -30,25 +30,29 @@ import java.io.IOException;
 
 public class DataProperty implements Writable {
     public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
-            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD);
+            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD,
+            "HDD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.HDD : TStorageMedium.S3);
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
     @SerializedName(value =  "storageMedium")
     private TStorageMedium storageMedium;
     @SerializedName(value =  "cooldownTimeMs")
     private long cooldownTimeMs;
+    @SerializedName(value =  "storageColdMedium")
+    private TStorageMedium storageColdMedium;
 
     private DataProperty() {
         // for persist
     }
 
-    public DataProperty(TStorageMedium medium) {
-        this(medium, MAX_COOLDOWN_TIME_MS);
+    public DataProperty(TStorageMedium medium, TStorageMedium storageColdMedium) {
+        this(medium, MAX_COOLDOWN_TIME_MS, storageColdMedium);
     }
 
-    public DataProperty(TStorageMedium medium, long cooldown) {
+    public DataProperty(TStorageMedium medium, long cooldown, TStorageMedium storageColdMedium) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
+        this.storageColdMedium = storageColdMedium;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -57,6 +61,10 @@ public class DataProperty implements Writable {
 
     public long getCooldownTimeMs() {
         return cooldownTimeMs;
+    }
+
+    public TStorageMedium getStorageColdMedium() {
+        return storageColdMedium;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -69,11 +77,13 @@ public class DataProperty implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, storageMedium.name());
         out.writeLong(cooldownTimeMs);
+        Text.writeString(out, storageColdMedium.name());
     }
 
     public void readFields(DataInput in) throws IOException {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
         cooldownTimeMs = in.readLong();
+        storageColdMedium = TStorageMedium.valueOf(Text.readString(in));
     }
 
     @Override
@@ -89,14 +99,16 @@ public class DataProperty implements Writable {
         DataProperty other = (DataProperty) obj;
 
         return this.storageMedium == other.storageMedium
-                && this.cooldownTimeMs == other.cooldownTimeMs;
+                && this.cooldownTimeMs == other.cooldownTimeMs
+                && this.storageColdMedium == other.storageColdMedium;
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
-        sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("].");
+        sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
+        sb.append("storage cold medium[").append(this.storageColdMedium).append("].");
         return sb.toString();
     }
 }

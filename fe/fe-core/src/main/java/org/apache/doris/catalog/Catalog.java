@@ -4925,8 +4925,9 @@ public class Catalog {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long partitionId = partition.getId();
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
-                        if (dataProperty.getStorageMedium() == TStorageMedium.SSD
+                        Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:"
+                                + partitionId + ", db: " + dbId + ", tbl: " + tableId);
+                        if (dataProperty.getStorageMedium() != dataProperty.getStorageColdMedium()
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
                             // record and change when holding write lock
@@ -4978,19 +4979,23 @@ public class Catalog {
                             continue;
                         }
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        if (dataProperty.getStorageMedium() == TStorageMedium.SSD
+                        if (dataProperty.getStorageMedium() != dataProperty.getStorageColdMedium()
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
-                            partitionInfo.setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
-                            storageMediumMap.put(partitionId, TStorageMedium.HDD);
-                            LOG.debug("partition[{}-{}-{}] storage medium changed from SSD to HDD",
-                                    dbId, tableId, partitionId);
+                            partitionInfo.setDataProperty(partition.getId(),
+                                    new DataProperty(dataProperty.getStorageColdMedium(),
+                                            dataProperty.getStorageColdMedium()));
+                            storageMediumMap.put(partitionId, dataProperty.getStorageColdMedium());
+                            LOG.debug("partition[{}-{}-{}] storage medium changed from {} to {}",
+                                    dbId, tableId, partitionId, dataProperty.getStorageMedium(),
+                                    dataProperty.getStorageColdMedium());
 
                             // log
                             ModifyPartitionInfo info =
                                     new ModifyPartitionInfo(db.getId(), olapTable.getId(),
                                             partition.getId(),
-                                            DataProperty.DEFAULT_DATA_PROPERTY,
+                                            new DataProperty(dataProperty.getStorageColdMedium(),
+                                                    dataProperty.getStorageColdMedium()),
                                             ReplicaAllocation.NOT_SET,
                                             partitionInfo.getIsInMemory(partition.getId()));
                             editLog.logModifyPartition(info);

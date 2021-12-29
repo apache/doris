@@ -840,7 +840,7 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
             }
         }
     } catch (...) {
-        LOG(WARNING) << "Exception occur when scan directory. path=" << scan_root;
+        LOG(WARNING) << "Exception occur when scan directory. path=" << scan_root_desc.debug_string();
         res = OLAP_ERR_IO_ERROR;
     }
 

@@ -38,6 +38,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -335,6 +336,22 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkStorageMedium(String val) throws DdlException {
+        try {
+            TStorageMedium.valueOf(val);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException("Invalid dynamic_partition.storage_medium: " + val);
+        }
+    }
+
+    private static void checkStorageColdMedium(String val) throws DdlException {
+        try {
+            TStorageMedium.valueOf(val);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException("Invalid dynamic_partition.storage_cold_medium: " + val);
+        }
+    }
+
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
         if (properties == null) {
             return false;
@@ -567,6 +584,20 @@ public class DynamicPartitionUtil {
             checkReservedHistoryPeriodValidate(reservedHistoryPeriods, analyzedProperties.get(DynamicPartitionProperty.TIME_UNIT));
             properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
             analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
+        }
+
+        if (properties.containsKey(DynamicPartitionProperty.STORAGE_MEDIUM)) {
+            String val = properties.get(DynamicPartitionProperty.STORAGE_MEDIUM);
+            checkStorageMedium(val);
+            properties.remove(DynamicPartitionProperty.STORAGE_MEDIUM);
+            analyzedProperties.put(DynamicPartitionProperty.STORAGE_MEDIUM, val);
+        }
+
+        if (properties.containsKey(DynamicPartitionProperty.STORAGE_COLD_MEDIUM)) {
+            String val = properties.get(DynamicPartitionProperty.STORAGE_COLD_MEDIUM);
+            checkStorageColdMedium(val);
+            properties.remove(DynamicPartitionProperty.STORAGE_COLD_MEDIUM);
+            analyzedProperties.put(DynamicPartitionProperty.STORAGE_COLD_MEDIUM, val);
         }
         return analyzedProperties;
     }

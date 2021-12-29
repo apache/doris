@@ -58,6 +58,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COLDOWN_TIME = "storage_cooldown_time";
+    public static final String PROPERTIES_STORAGE_COLD_MEDIUM = "storage_cold_medium";
     // for 1.x -> 2.x migration
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
@@ -112,6 +113,7 @@ public class PropertyAnalyzer {
 
         TStorageMedium storageMedium = null;
         long coolDownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        TStorageMedium storageColdMedium = TStorageMedium.HDD;
 
         boolean hasMedium = false;
         boolean hasCooldown = false;
@@ -127,6 +129,14 @@ public class PropertyAnalyzer {
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
+            } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COLD_MEDIUM)) {
+                if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
+                    storageColdMedium = TStorageMedium.HDD;
+                } else if (value.equalsIgnoreCase(TStorageMedium.S3.name())) {
+                    storageColdMedium = TStorageMedium.S3;
+                } else {
+                    throw new AnalysisException("Invalid storage cold medium: " + value);
+                }
             } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COLDOWN_TIME)) {
                 hasCooldown = true;
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
@@ -140,29 +150,31 @@ public class PropertyAnalyzer {
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
         properties.remove(PROPERTIES_STORAGE_COLDOWN_TIME);
+        properties.remove(PROPERTIES_STORAGE_COLD_MEDIUM);
 
         if (hasCooldown && !hasMedium) {
             throw new AnalysisException("Invalid data property. storage medium property is not found");
         }
 
-        if (storageMedium == TStorageMedium.HDD && hasCooldown) {
-            throw new AnalysisException("Can not assign cooldown timestamp to HDD storage medium");
+        if (storageMedium == TStorageMedium.HDD && storageColdMedium != TStorageMedium.S3 && hasCooldown) {
+            throw new AnalysisException("Can not assign cooldown timestamp for storage medium(HDD->HDD)," +
+                    " please set property: storage_cold_medium.");
         }
 
         long currentTimeMs = System.currentTimeMillis();
-        if (storageMedium == TStorageMedium.SSD && hasCooldown) {
+        if ((storageMedium == TStorageMedium.SSD || storageColdMedium == TStorageMedium.S3) && hasCooldown) {
             if (coolDownTimeStamp <= currentTimeMs) {
                 throw new AnalysisException("Cooldown time should later than now");
             }
         }
 
-        if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
+        if ((storageMedium == TStorageMedium.SSD || storageColdMedium == TStorageMedium.S3) && !hasCooldown) {
             // set default cooldown time
             coolDownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
         }
 
         Preconditions.checkNotNull(storageMedium);
-        return new DataProperty(storageMedium, coolDownTimeStamp);
+        return new DataProperty(storageMedium, coolDownTimeStamp, storageColdMedium);
     }
     
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {

@@ -328,7 +328,7 @@ void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* 
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     std::string trash_path = _path_desc.filepath + TRASH_PREFIX;
     if (_env->is_remote_env()) {
-        trash_path = _remote_path + TRASH_PREFIX;
+        trash_path = _path_desc.remote_path + TRASH_PREFIX;
     }
     std::vector<std::string> sub_dirs;
     FileUtils::list_files(_env, trash_path, &sub_dirs);

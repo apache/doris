@@ -160,6 +160,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             idx = 0;
         }
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
+        TStorageMedium storageMedium = dynamicPartitionProperty.getStorageMedium();
+        TStorageMedium storageColdMedium = dynamicPartitionProperty.getStorageColdMedium();
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, idx, partitionFormat);
@@ -212,7 +214,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             if (hotPartitionNum > 0) {
                 // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num
-                setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
+                setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx,
+                        storageMedium, storageColdMedium);
             }
 
             String partitionName = dynamicPartitionProperty.getPrefix() + DynamicPartitionUtil.getFormattedPartitionName(
@@ -235,11 +238,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void setStorageMediumProperty(HashMap<String, String> partitionProperties, DynamicPartitionProperty property,
-                                          ZonedDateTime now, int hotPartitionNum, int offset) {
+                                          ZonedDateTime now, int hotPartitionNum, int offset,
+                                          TStorageMedium storageMedium, TStorageMedium storageColdMedium) {
         if (offset + hotPartitionNum <= 0) {
             return;
         }
-        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, storageMedium.name());
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLD_MEDIUM, storageColdMedium.name());
         String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(property, now, offset + hotPartitionNum,
                 DynamicPartitionUtil.DATETIME_FORMAT);
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, cooldownTime);

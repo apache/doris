@@ -1309,7 +1309,8 @@ public class OlapTable extends Table {
                 // set storage medium to HDD for backup job, because we want that the backuped table
                 // can be able to restored to another Doris cluster without SSD disk.
                 // But for other operation such as truncate table, keep the origin storage medium.
-                copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
+                copied.getPartitionInfo().setDataProperty(partition.getId(),
+                        new DataProperty(TStorageMedium.HDD, TStorageMedium.HDD));
             }
             for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
                 idx.setState(IndexState.NORMAL);
