@@ -519,6 +519,7 @@ set(COMMON_THIRDPARTY
     cctz
     minizip
     breakpad
+    mysql
     ${AWS_LIBS}
 )
 
@@ -548,7 +549,6 @@ if(ARCH_AARCH64)
 else()
     set(DORIS_DEPENDENCIES
         ${DORIS_DEPENDENCIES}
-        mysql
         ${WL_START_GROUP}
         ${X86_DEPENDENCIES}
         ${WL_END_GROUP}
