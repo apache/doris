@@ -168,6 +168,7 @@ public class CreateTableStmt extends DdlStmt {
         this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
     }
 
+    // This is for iceberg table, which has no column schema
     public CreateTableStmt(boolean ifNotExists,
                            boolean isExternal,
                            TableName tableName,

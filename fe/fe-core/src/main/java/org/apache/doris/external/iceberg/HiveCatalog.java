@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.iceberg;
 
+import org.apache.doris.catalog.IcebergProperty;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
@@ -41,13 +42,13 @@ public class HiveCatalog implements IcebergCatalog {
     }
 
     @Override
-    public void initialize(Map<String, String> properties) {
+    public void initialize(IcebergProperty icebergProperty) {
         // set hadoop conf
         Configuration conf = new Configuration();
         hiveCatalog.setConf(conf);
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put("uri", properties.get(IcebergCatalogMgr.HIVE_METASTORE_URIS));
+        catalogProperties.put("uri", icebergProperty.getHiveMetastoreUris());
         hiveCatalog.initialize("hive", catalogProperties);
     }
 

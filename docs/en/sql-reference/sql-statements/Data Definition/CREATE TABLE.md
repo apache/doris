@@ -160,10 +160,10 @@ Syntax:
     4) For iceberg, properties should include:
         ```
         PROPERTIES (
-            "database" = "iceberg_db_name",
-            "table" = "iceberg_table_name",
-            "hive.metastore.uris" = "thrift://127.0.0.1:9083",
-            "catalog.type" = "HIVE_CATALOG"
+            "iceberg.database" = "iceberg_db_name",
+            "iceberg.table" = "iceberg_table_name",
+            "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+            "iceberg.catalog.type" = "HIVE_CATALOG"
             )
 
         ```
@@ -809,10 +809,10 @@ Syntax:
     CREATE TABLE example_db.t_iceberg 
     ENGINE=ICEBERG
     PROPERTIES (
-    "database" = "iceberg_db",
-    "table" = "iceberg_table",
-    "hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
-    "catalog.type"  =  "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
     );
 ```
 

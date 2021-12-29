@@ -17,16 +17,32 @@
 
 package org.apache.doris.external.iceberg;
 
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.IcebergProperty;
+import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Enums;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.external.iceberg.util.IcebergUtils;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
+
+import static org.apache.doris.catalog.IcebergProperty.ICEBERG_CATALOG_TYPE;
+import static org.apache.doris.catalog.IcebergProperty.ICEBERG_DATABASE;
+import static org.apache.doris.catalog.IcebergProperty.ICEBERG_HIVE_METASTORE_URIS;
+import static org.apache.doris.catalog.IcebergProperty.ICEBERG_TABLE;
+import static org.apache.doris.common.SystemIdGenerator.getNextId;
 
 /**
  * Iceberg catalog manager
@@ -36,18 +52,14 @@ public class IcebergCatalogMgr {
 
     private static final String PROPERTY_MISSING_MSG = "Iceberg %s is null. " +
             "Please add properties('%s'='xxx') when create iceberg database.";
-    public static final String DATABASE = "database";
-    public static final String TABLE = "table";
-    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
-    public static final String CATALOG_TYPE = "catalog.type";
 
     // TODO:(qjl) We'll support more types of Iceberg catalog.
     public enum CatalogType {
         HIVE_CATALOG
     }
 
-    public static IcebergCatalog getCatalog(Map<String, String> properties) throws DdlException {
-        CatalogType type = CatalogType.valueOf(properties.get(CATALOG_TYPE));
+    public static IcebergCatalog getCatalog(IcebergProperty icebergProperty) throws DdlException {
+        CatalogType type = CatalogType.valueOf(icebergProperty.getCatalogType());
         IcebergCatalog catalog;
         switch (type) {
             case HIVE_CATALOG:
@@ -56,38 +68,38 @@ public class IcebergCatalogMgr {
             default:
                 throw new DdlException("Unsupported catalog type: " + type);
         }
-        catalog.initialize(properties);
+        catalog.initialize(icebergProperty);
         return catalog;
     }
 
     public static void validateProperties(Map<String, String> properties, boolean isTable) throws DdlException {
         if (properties.size() == 0) {
-            throw new DdlException("Please set properties of hive table, "
-                    + "they are: database and 'hive.metastore.uris'");
+            throw new DdlException("Please set properties of iceberg, "
+                    + "they are: iceberg.database and 'iceberg.hive.metastore.uris'");
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
-        String icebergDb = copiedProps.get(DATABASE);
+        String icebergDb = copiedProps.get(ICEBERG_DATABASE);
         if (Strings.isNullOrEmpty(icebergDb)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG, DATABASE, DATABASE));
+            throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_DATABASE, ICEBERG_DATABASE));
         }
-        copiedProps.remove(DATABASE);
+        copiedProps.remove(ICEBERG_DATABASE);
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetastoreUris = copiedProps.get(HIVE_METASTORE_URIS);
+        String hiveMetastoreUris = copiedProps.get(ICEBERG_HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetastoreUris)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG, HIVE_METASTORE_URIS, HIVE_METASTORE_URIS));
+            throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_HIVE_METASTORE_URIS, ICEBERG_HIVE_METASTORE_URIS));
         }
-        copiedProps.remove(HIVE_METASTORE_URIS);
+        copiedProps.remove(ICEBERG_HIVE_METASTORE_URIS);
 
         // check iceberg catalog type
-        String icebergCatalogType = copiedProps.get(CATALOG_TYPE);
+        String icebergCatalogType = copiedProps.get(ICEBERG_CATALOG_TYPE);
         if (Strings.isNullOrEmpty(icebergCatalogType)) {
             icebergCatalogType = IcebergCatalogMgr.CatalogType.HIVE_CATALOG.name();
-            properties.put(CATALOG_TYPE, icebergCatalogType);
+            properties.put(ICEBERG_CATALOG_TYPE, icebergCatalogType);
         } else {
-            copiedProps.remove(CATALOG_TYPE);
+            copiedProps.remove(ICEBERG_CATALOG_TYPE);
         }
 
         if (!Enums.getIfPresent(IcebergCatalogMgr.CatalogType.class, icebergCatalogType).isPresent()) {
@@ -96,15 +108,80 @@ public class IcebergCatalogMgr {
 
         // only check table property when it's an iceberg table
         if (isTable) {
-            String icebergTbl = copiedProps.get(TABLE);
+            String icebergTbl = copiedProps.get(ICEBERG_TABLE);
             if (Strings.isNullOrEmpty(icebergTbl)) {
-                throw new DdlException(String.format(PROPERTY_MISSING_MSG, TABLE, TABLE));
+                throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_TABLE, ICEBERG_TABLE));
             }
-            copiedProps.remove(TABLE);
+            copiedProps.remove(ICEBERG_TABLE);
         }
 
         if (!copiedProps.isEmpty()) {
             throw new DdlException("Unknown table properties: " + copiedProps.toString());
         }
+    }
+
+    /**
+     * Get Doris IcebergTable from remote Iceberg by database and table
+     * @param tableName table name in Doris
+     * @param icebergProperty Iceberg property
+     * @param identifier Iceberg table identifier
+     * @param isTable
+     * @return IcebergTable in Doris
+     * @throws DdlException
+     */
+    public static IcebergTable getTableFromIceberg(String tableName, IcebergProperty icebergProperty,
+                                            TableIdentifier identifier,
+                                            boolean isTable) throws DdlException {
+        long tableId = getNextId();
+        IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
+
+        if (isTable && !icebergCatalog.tableExists(identifier)) {
+            throw new DdlException(String.format("Table [%s] dose not exist in Iceberg.", identifier.toString()));
+        }
+
+        // get iceberg table schema
+        org.apache.iceberg.Table icebergTable = icebergCatalog.loadTable(identifier);
+
+        // covert iceberg table schema to Doris's
+        List<Column> columns = IcebergUtils.createSchemaFromIcebergSchema(icebergTable.schema());
+
+        // create new iceberg table in doris
+        IcebergTable table = new IcebergTable(tableId, tableName, columns, icebergProperty, icebergTable);
+
+        return table;
+
+    }
+
+    /**
+     * create iceberg table in Doris
+     *
+     * 1. check table existence in Iceberg
+     * 2. get table schema from Iceberg
+     * 3. convert Iceberg table schema to Doris table schema
+     * 4. create associate table in Doris
+     *
+     * @param db
+     * @param stmt
+     * @throws DdlException
+     */
+    public static void createIcebergTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+        Map<String, String> properties = stmt.getProperties();
+
+        // validate iceberg table properties
+        validateProperties(properties, true);
+        IcebergProperty icebergProperty = new IcebergProperty(properties);
+
+        String icebergDb = icebergProperty.getDatabase();
+        String icebergTbl = icebergProperty.getTable();
+
+        IcebergTable table = getTableFromIceberg(tableName, icebergProperty,
+                TableIdentifier.of(icebergDb, icebergTbl), true);
+
+        // check iceberg table if exists in doris database
+        if (!db.createTableWithLock(table, false, stmt.isSetIfNotExists()).first) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, table.getId());
     }
 }

@@ -19,7 +19,7 @@ package org.apache.doris.external.iceberg;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.IcebergDatabase;
+import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -57,7 +57,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
 
     // database -> table identifier -> properties
     // used to create table
-    private Map<Database, Map<TableIdentifier, Map<String, String>>> dbToTableIdentifiers = Maps.newConcurrentMap();
+    private Map<Database, Map<TableIdentifier, IcebergProperty>> dbToTableIdentifiers = Maps.newConcurrentMap();
     // table creation records, used for show stmt
     // db -> table -> create msg
     private Map<String, Map<String, IcebergTableCreationRecord>> dbToTableToCreationRecord = Maps.newConcurrentMap();
@@ -70,12 +70,12 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
         super("iceberg_table_creation_record_mgr", Config.iceberg_table_creation_interval_second * 1000);
     }
 
-    public void registerTable(Database db, TableIdentifier identifier, Map<String, String> properties) {
+    public void registerTable(Database db, TableIdentifier identifier, IcebergProperty icebergProperty) {
         if (dbToTableIdentifiers.containsKey(db)) {
-            dbToTableIdentifiers.get(db).put(identifier, properties);
+            dbToTableIdentifiers.get(db).put(identifier, icebergProperty);
         } else {
-            Map<TableIdentifier, Map<String, String>> identifierToProperties = Maps.newConcurrentMap();
-            identifierToProperties.put(identifier, properties);
+            Map<TableIdentifier, IcebergProperty> identifierToProperties = Maps.newConcurrentMap();
+            identifierToProperties.put(identifier, icebergProperty);
             dbToTableIdentifiers.put(db, identifierToProperties);
         }
         LOG.info("Register a new table[{}] to database[{}]", identifier.name(), db.getFullName());
@@ -90,7 +90,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     public void deRegisterTable(Database db, IcebergTable table) {
         if (dbToTableIdentifiers.containsKey(db)) {
             TableIdentifier identifier = TableIdentifier.of(table.getIcebergDb(), table.getIcebergTbl());
-            Map<TableIdentifier, Map<String, String>> identifierToProperties = dbToTableIdentifiers.get(db);
+            Map<TableIdentifier, IcebergProperty> identifierToProperties = dbToTableIdentifiers.get(db);
             identifierToProperties.remove(identifier);
         }
         if (dbToTableToCreationRecord.containsKey(db.getFullName())) {
@@ -108,7 +108,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
                 if (dbToTableIdentifiers.containsKey(db)) {
                     for (Map.Entry<String, IcebergTableCreationRecord> innerEntry : entry.getValue().entrySet()) {
                         String tableName = innerEntry.getKey();
-                        String icebergDbName = ((IcebergDatabase) db).getIcebergDb();
+                        String icebergDbName = db.getDbProperties().getIcebergProperty().getDatabase();
                         TableIdentifier identifier = TableIdentifier.of(icebergDbName, tableName);
                         dbToTableIdentifiers.get(db).remove(identifier);
                     }
@@ -121,15 +121,15 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     protected void runAfterCatalogReady() {
         PropertySchema.DateProperty prop =
                 new PropertySchema.DateProperty("key", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
-        for (Map.Entry<Database, Map<TableIdentifier, Map<String, String>>> entry : dbToTableIdentifiers.entrySet()) {
+        for (Map.Entry<Database, Map<TableIdentifier, IcebergProperty>> entry : dbToTableIdentifiers.entrySet()) {
             Database db = entry.getKey();
-            for (Map.Entry<TableIdentifier, Map<String, String>> innerEntry : entry.getValue().entrySet()) {
+            for (Map.Entry<TableIdentifier, IcebergProperty> innerEntry : entry.getValue().entrySet()) {
                 TableIdentifier identifier = innerEntry.getKey();
-                Map<String, String> properties = innerEntry.getValue();
+                IcebergProperty icebergProperty = innerEntry.getValue();
                 try {
                     // get doris table from iceberg
-                    IcebergTable table = Catalog.getCurrentCatalog().getTableFromIceberg(identifier.name(),
-                            properties, identifier, false);
+                    IcebergTable table = IcebergCatalogMgr.getTableFromIceberg(identifier.name(),
+                            icebergProperty, identifier, false);
                     // check iceberg table if exists in doris database
                     if (!db.createTableWithLock(table, false, false).first) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE,

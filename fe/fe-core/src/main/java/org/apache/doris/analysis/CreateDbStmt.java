@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -29,31 +28,19 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Sets;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 // 用于描述CREATE DATABASE的内部结构
 public class CreateDbStmt extends DdlStmt {
     private boolean ifNotExists;
     private String dbName;
-    private String engineName;
     private Map<String, String> properties;
 
-    private static Set<String> engineNames;
-
-    static {
-        engineNames = Sets.newHashSet();
-        engineNames.add("builtin");
-        engineNames.add("iceberg");
-    }
-
-    public CreateDbStmt(boolean ifNotExists, String dbName, String engine, Map<String, String> properties) {
+    public CreateDbStmt(boolean ifNotExists, String dbName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.dbName = dbName;
-        this.engineName = engine;
         this.properties = properties == null ? new HashMap<>() : properties;
     }
 
@@ -63,10 +50,6 @@ public class CreateDbStmt extends DdlStmt {
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
-    }
-
-    public String getEngineName() {
-        return engineName;
     }
 
     public Map<String, String> getProperties() {
@@ -85,17 +68,6 @@ public class CreateDbStmt extends DdlStmt {
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
-
-        // analyze engine name
-        if (Strings.isNullOrEmpty(engineName)) {
-            engineName = "builtin";
-        }
-
-        engineName = engineName.toLowerCase();
-
-        if (!engineNames.contains(engineName)) {
-            throw new AnalysisException("Unknown engine name: " + engineName);
-        }
     }
 
     @Override
@@ -107,8 +79,7 @@ public class CreateDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
-        if (!engineName.equals("builtin")) {
-            stringBuilder.append("\nENGINE = ").append(engineName);
+        if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");
             stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
             stringBuilder.append("\n)");

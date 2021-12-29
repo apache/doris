@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -39,7 +38,7 @@ import java.util.Map;
  * External Iceberg table
  */
 public class IcebergTable extends Table {
-    private static final Logger LOG = LogManager.getLogger(IcebergDatabase.class);
+    private static final Logger LOG = LogManager.getLogger(IcebergTable.class);
 
     // remote Iceberg database name
     private String icebergDb;
@@ -53,16 +52,16 @@ public class IcebergTable extends Table {
         super(TableType.ICEBERG);
     }
 
-    public IcebergTable(long id, String tableName, List<Column> fullSchema, Map<String, String> properties,
+    public IcebergTable(long id, String tableName, List<Column> fullSchema, IcebergProperty icebergProperty,
                         org.apache.iceberg.Table icebergTable) {
         super(id, tableName, TableType.ICEBERG, fullSchema);
-        this.icebergDb = properties.get(IcebergCatalogMgr.DATABASE);
-        this.icebergTbl = properties.get(IcebergCatalogMgr.TABLE);
+        this.icebergDb = icebergProperty.getDatabase();
+        this.icebergTbl = icebergProperty.getTable();
 
-        icebergProperties.put(IcebergCatalogMgr.HIVE_METASTORE_URIS,
-                properties.get(IcebergCatalogMgr.HIVE_METASTORE_URIS));
-        icebergProperties.put(IcebergCatalogMgr.CATALOG_TYPE,
-                properties.get(IcebergCatalogMgr.CATALOG_TYPE));
+        icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS,
+                icebergProperty.getHiveMetastoreUris());
+        icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE,
+                icebergProperty.getCatalogType());
         this.icebergTable = icebergTable;
     }
 

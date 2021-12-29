@@ -96,7 +96,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.IcebergDatabase;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -769,11 +768,9 @@ public class ShowExecutor {
         Database db = ctx.getCatalog().getDbOrAnalysisException(showStmt.getDb());
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
-        if (db.getDbType() != Database.DbType.BUILTIN) {
-            sb.append("\nENGINE = ").append(db.getDbType().name());
+        if (db.getDbProperties().getProperties().size() > 0) {
             sb.append("\nPROPERTIES (\n");
-            sb.append("\"database\" = \"").append(((IcebergDatabase) db).getIcebergDb()).append("\",\n");
-            sb.append(new PrintableMap<>(((IcebergDatabase) db).getDbProperties(), "=", true, true, false));
+            sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
             sb.append("\n)");
         }
 

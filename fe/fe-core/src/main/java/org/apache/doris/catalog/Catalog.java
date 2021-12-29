@@ -154,7 +154,6 @@ import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.iceberg.IcebergCatalog;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -1707,7 +1706,8 @@ public class Catalog {
         int dbCount = dis.readInt();
         long newChecksum = checksum ^ dbCount;
         for (long i = 0; i < dbCount; ++i) {
-            Database db = Database.read(dis);
+            Database db = new Database();
+            db.readFields(dis);
             newChecksum ^= db.getId();
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
@@ -2638,10 +2638,15 @@ public class Catalog {
     public void createDb(CreateDbStmt stmt) throws DdlException {
         final String clusterName = stmt.getClusterName();
         String fullDbName = stmt.getFullDbName();
-        long id = 0L;
-        String engineName = stmt.getEngineName();
-        List<TableIdentifier> icebergTables = Lists.newArrayList();
-        Database db = null;
+        Map<String, String> properties = stmt.getProperties();
+
+        long id = getNextId();
+        Database db = new Database(id, fullDbName);
+        db.setClusterName(clusterName);
+        // check and analyze database properties before create database
+        db.getDbProperties().putAll(properties);
+        db.getDbProperties().checkAndBuildProperties();
+
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -2657,15 +2662,6 @@ public class Catalog {
                     ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
                 }
             } else {
-                id = getNextId();
-                if (engineName.equals("builtin")) {
-                    db = new Database(id, fullDbName);
-                } else if (engineName.equals("iceberg")) {
-                    db = createIcebergDb(stmt, id, icebergTables);
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_DATABASE_ENGINE, engineName);
-                }
-                db.setClusterName(clusterName);
                 unprotectCreateDb(db);
                 editLog.logCreateDb(db);
             }
@@ -2675,30 +2671,15 @@ public class Catalog {
         LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
 
         // create tables in iceberg database
-        if (CollectionUtils.isNotEmpty(icebergTables)) {
-            Map<String, String> properties = stmt.getProperties();
+        if (db.getDbProperties().getIcebergProperty().isExist()) {
+            IcebergProperty icebergProperty = db.getDbProperties().getIcebergProperty();
+            IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
+            List<TableIdentifier> icebergTables = icebergCatalog.listTables(icebergProperty.getDatabase());
             for (TableIdentifier identifier : icebergTables) {
-                properties.put(IcebergCatalogMgr.TABLE, identifier.name());
-                icebergTableCreationRecordMgr.registerTable(db, identifier,properties);
+                icebergProperty.setTable(identifier.name());
+                icebergTableCreationRecordMgr.registerTable(db, identifier, icebergProperty);
             }
         }
-    }
-
-    // Create Iceberg database in Doris
-    public IcebergDatabase createIcebergDb(CreateDbStmt stmt, long id, List<TableIdentifier> icebergTables) throws DdlException {
-        Map<String, String> properties = stmt.getProperties();
-        // validate iceberg properties
-        IcebergCatalogMgr.validateProperties(properties, false);
-
-        String icebergDb = properties.get(IcebergCatalogMgr.DATABASE);
-        IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(properties);
-        // check database exists
-        if (!icebergCatalog.databaseExists(icebergDb)) {
-            throw new DdlException("Database [" + icebergDb + "] dose not exist in Iceberg.");
-        }
-        // list iceberg tables in database
-        icebergTables.addAll(icebergCatalog.listTables(icebergDb));
-        return new IcebergDatabase(id, stmt.getFullDbName(), properties);
     }
 
     // For replay edit log, need't lock metadata
@@ -2814,7 +2795,7 @@ public class Catalog {
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay) {
         // drop Iceberg database table creation records
-        if (db.getDbType() == Database.DbType.ICEBERG) {
+        if (db.getDbProperties().getIcebergProperty().isExist()) {
             icebergTableCreationRecordMgr.deRegisterDb(db);
         }
         for (Table table : db.getTables()) {
@@ -3109,7 +3090,7 @@ public class Catalog {
             createHiveTable(db, stmt);
             return;
         } else if (engineName.equalsIgnoreCase("iceberg")) {
-            createIcebergTable(db, stmt);
+            IcebergCatalogMgr.createIcebergTable(db, stmt);
             return;
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
@@ -4126,62 +4107,6 @@ public class Catalog {
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
     }
 
-    /**
-     * create iceberg table in Doris
-     *
-     * 1. check table existence in Iceberg
-     * 2. get table schema from Iceberg
-     * 3. convert Iceberg table schema to Doris table schema
-     * 4. create associate table in Doris
-     *
-     * @param db
-     * @param stmt
-     * @throws DdlException
-     */
-    private void createIcebergTable(Database db, CreateTableStmt stmt) throws DdlException {
-        String tableName = stmt.getTableName();
-        Map<String, String> properties = stmt.getProperties();
-        long tableId = getNextId();
-
-        // validate iceberg table properties
-        IcebergCatalogMgr.validateProperties(properties, true);
-
-        String icebergDb = properties.get(IcebergCatalogMgr.DATABASE);
-        String icebergTbl = properties.get(IcebergCatalogMgr.TABLE);
-
-        IcebergTable table = getTableFromIceberg(tableName, properties,
-                TableIdentifier.of(icebergDb, icebergTbl), true);
-
-        // check iceberg table if exists in doris database
-        if (!db.createTableWithLock(table, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
-        }
-        LOG.info("successfully create table[{}-{}]", tableName, tableId);
-    }
-
-    public IcebergTable getTableFromIceberg(String tableName, Map<String, String> properties,
-                                      TableIdentifier identifier,
-                                      boolean isTable) throws DdlException {
-        long tableId = getNextId();
-        IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(properties);
-
-        if (isTable && !icebergCatalog.tableExists(identifier)) {
-            throw new DdlException(String.format("Table [%s] dose not exist in Iceberg.", identifier.toString()));
-        }
-
-        // get iceberg table schema
-        org.apache.iceberg.Table icebergTable = icebergCatalog.loadTable(identifier);
-
-        // covert iceberg table schema to Doris's
-        List<Column> columns = IcebergUtils.createSchemaFromIcebergSchema(icebergTable.schema());
-
-        // create new iceberg table in doris
-        IcebergTable table = new IcebergTable(tableId, tableName, columns, properties, icebergTable);
-
-        return table;
-
-    }
-
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
@@ -4477,8 +4402,8 @@ public class Catalog {
             }
             // properties
             sb.append("\nPROPERTIES (\n");
-            sb.append("\"database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
-            sb.append("\"table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
+            sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
+            sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
             sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(), " = ", true, true, false).toString());
             sb.append("\n)");
         }

@@ -1194,13 +1194,13 @@ opt_intermediate_type ::=
 // Create Statement
 create_stmt ::=
     /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_engine:engine opt_properties:properties
+    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_properties:properties
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db, engine, properties);
+        RESULT = new CreateDbStmt(ifNotExists, db, properties);
     :}
     | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db, null, null);
+        RESULT = new CreateDbStmt(ifNotExists, db, null);
     :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password

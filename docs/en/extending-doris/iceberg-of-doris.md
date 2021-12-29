@@ -55,10 +55,10 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     ENGINE = ICEBERG
     [COMMENT "comment"]
     PROPERTIES (
-    "database" = "iceberg_db_name",
-    "table" = "icberg_table_name",
-    "hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db_name",
+    "iceberg.table" = "icberg_table_name",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
     );
 
 
@@ -66,10 +66,10 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     CREATE TABLE `t_iceberg` 
     ENGINE = ICEBERG
     PROPERTIES (
-    "database" = "iceberg_db",
-    "table" = "iceberg_table",
-    "hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
     );
     ```
 
@@ -79,21 +79,19 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     ```sql
     -- Syntax
     CREATE DATABASE db_name 
-    ENGINE = ICEBERG
     [COMMENT "comment"]
     PROPERTIES (
-    "database" = "iceberg_db_name",
-    "hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db_name",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
     );
 
     -- Example: mount the iceberg_db in Iceberg and mount all tables under that db
     CREATE DATABASE `iceberg_test_db`
-    ENGINE = ICEBERG
     PROPERTIES (
-    "database" = "iceberg_db",
-    "hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
     );
     ```
 
@@ -103,10 +101,10 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
 
 - ENGINE needs to be specified as ICEBERG
 - PROPERTIES property.
-    - `hive.metastore.uris`: Hive Metastore service address
-    - `database`: the name of the database to which Iceberg is mounted
-    - `table`: the name of the table to which Iceberg is mounted, not required when mounting Iceberg database.
-    - `catalog.type`: the catalog method used in Iceberg, the default is `HIVE_CATALOG`, currently only this method is supported, more Iceberg catalog access methods will be supported in the future.
+    - `iceberg.hive.metastore.uris`: Hive Metastore service address
+    - `iceberg.database`: the name of the database to which Iceberg is mounted
+    - `iceberg.table`: the name of the table to which Iceberg is mounted, not required when mounting Iceberg database.
+    - `iceberg.catalog.type`: the catalog method used in Iceberg, the default is `HIVE_CATALOG`, currently only this method is supported, more Iceberg catalog access methods will be supported in the future.
 
 ### Show table structure
 

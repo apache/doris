@@ -55,10 +55,10 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     ENGINE = ICEBERG
     [COMMENT "comment"]
     PROPERTIES (
-    "database" = "iceberg_db_name",
-    "table" = "icberg_table_name",
-    "hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
-    "catalog.type"  =  "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db_name",
+    "iceberg.table" = "icberg_table_name",
+    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
     );
 
 
@@ -66,10 +66,10 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     CREATE TABLE `t_iceberg` 
     ENGINE = ICEBERG
     PROPERTIES (
-    "database" = "iceberg_db",
-    "table" = "iceberg_table",
-    "hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
-    "catalog.type"  =  "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
     );
     ```
 
@@ -79,21 +79,19 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     ```sql
     -- 语法
     CREATE DATABASE db_name 
-    ENGINE = ICEBERG
     [COMMENT "comment"]
     PROPERTIES (
-    "database" = "iceberg_db_name",
-    "hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db_name",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
     );
 
     -- 例子：挂载 Iceberg 中的 iceberg_db，同时挂载该 db 下的所有 table
     CREATE DATABASE `iceberg_test_db`
-    ENGINE = ICEBERG
     PROPERTIES (
-    "database" = "iceberg_db",
-    "hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_db",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
     );
     ```
 
@@ -103,10 +101,10 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 
 - ENGINE 需要指定为 ICEBERG
 - PROPERTIES 属性：
-    - `hive.metastore.uris`：Hive Metastore 服务地址
-    - `database`：挂载 Iceberg 对应的数据库名
-    - `table`：挂载 Iceberg 对应的表名，挂载 Iceberg database 时无需指定。
-    - `catalog.type`：Iceberg 中使用的 catalog 方式，默认为 `HIVE_CATALOG`，当前仅支持该方式，后续会支持更多的 Iceberg catalog 接入方式。
+    - `iceberg.hive.metastore.uris`：Hive Metastore 服务地址
+    - `iceberg.database`：挂载 Iceberg 对应的数据库名
+    - `iceberg.table`：挂载 Iceberg 对应的表名，挂载 Iceberg database 时无需指定。
+    - `iceberg.catalog.type`：Iceberg 中使用的 catalog 方式，默认为 `HIVE_CATALOG`，当前仅支持该方式，后续会支持更多的 Iceberg catalog 接入方式。
 
 ### 展示表结构
 

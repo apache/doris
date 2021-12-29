@@ -18,11 +18,11 @@
 package org.apache.doris.external.iceberg;
 
 
+import org.apache.doris.catalog.IcebergProperty;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * A Catalog API for iceberg table and namespace.
@@ -30,9 +30,9 @@ import java.util.Map;
 public interface IcebergCatalog {
     /**
      * Initialize a catalog given a map of catalog properties.
-     * @param properties catalog properties
+     * @param icebergProperty
      */
-    default void initialize(Map<String, String> properties) {
+    default void initialize(IcebergProperty icebergProperty) {
     }
 
     /**

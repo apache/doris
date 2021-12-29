@@ -31,23 +31,22 @@ under the License.
     This statement is used to create a new database  
     Syntax:  
         CREATE DATABASE [IF NOT EXISTS] db_name  
-        [ENGINE = [builtin|iceberg]]  
         [PROPERTIES ("key"="value", ...)] ;
 
-1. ENGINE type
-    Default is builtin, can be defaulted. Optional iceberg
+1. PROPERTIES
+    Additional information of a database, can be defaulted.
     1) In case of iceberg, the following information needs to be provided in the properties.
     ```
         PROPERTIES (
-            "database" = "iceberg_db_name",
-            "hive.metastore.uris" = "thrift://127.0.0.1:9083",
-            "catalog.type" = "HIVE_CATALOG"
+            "iceberg.database" = "iceberg_db_name",
+            "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+            "iceberg.catalog.type" = "HIVE_CATALOG"
             )
 
     ```
-    `database` is the name of the database corresponding to Iceberg.  
-    `hive.metastore.uris` is the address of the hive metastore service.  
-    `catalog.type` defaults to `HIVE_CATALOG`. Currently, only `HIVE_CATALOG` is supported, more Iceberg catalog types will be supported later.
+    `iceberg.database` is the name of the database corresponding to Iceberg.  
+    `iceberg.hive.metastore.uris` is the address of the hive metastore service.  
+    `iceberg.catalog.type` defaults to `HIVE_CATALOG`. Currently, only `HIVE_CATALOG` is supported, more Iceberg catalog types will be supported later.
 
 ## example
    1. Create a new database db_test
@@ -58,11 +57,10 @@ under the License.
    2. Create a new Iceberg database iceberg_test
         ```
         CREATE DATABASE `iceberg_test`
-        ENGINE = ICEBERG
         PROPERTIES (
-        "database" = "doris",
-        "hive.metastore.uris" = "thrift://127.0.0.1:9083",
-        "catalog.type" = "HIVE_CATALOG"
+        "iceberg.database" = "doris",
+        "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+        "iceberg.catalog.type" = "HIVE_CATALOG"
         );
         ```
 

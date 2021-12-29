@@ -31,23 +31,22 @@ under the License.
     该语句用于新建数据库（database）
     语法：
         CREATE DATABASE [IF NOT EXISTS] db_name
-        [ENGINE = [builtin|iceberg]]
         [PROPERTIES ("key"="value", ...)];
 
-1. ENGINE 类型
-    默认为 builtin，可缺省。可选 iceberg
-    1）如果是 iceberg，则需要在 properties 中提供以下信息：
+1. PROPERTIES
+    该数据库的附加信息，可以缺省。
+    1）如果创建 Iceberg 数据库，则需要在 properties 中提供以下信息：
     ```
         PROPERTIES (
-            "database" = "iceberg_db_name",
-            "hive.metastore.uris" = "thrift://127.0.0.1:9083",
-            "catalog.type" = "HIVE_CATALOG"
+            "iceberg.database" = "iceberg_db_name",
+            "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+            "iceberg.catalog.type" = "HIVE_CATALOG"
             )
 
     ```
-    其中 `database` 是 Iceberg 对应的库名；  
-    `hive.metastore.uris` 是 hive metastore 服务地址。  
-    `catalog.type` 默认为 `HIVE_CATALOG`。当前仅支持 `HIVE_CATALOG`，后续会支持更多 Iceberg catalog 类型。
+    其中 `iceberg.database` 是 Iceberg 对应的库名；  
+    `iceberg.hive.metastore.uris` 是 hive metastore 服务地址。  
+    `iceberg.catalog.type` 默认为 `HIVE_CATALOG`。当前仅支持 `HIVE_CATALOG`，后续会支持更多 Iceberg catalog 类型。
 
 ## example
     1. 新建数据库 db_test
@@ -58,11 +57,10 @@ under the License.
     2. 新建 Iceberg 数据库 iceberg_test
         ```
         CREATE DATABASE `iceberg_test`
-        ENGINE = ICEBERG
         PROPERTIES (
-        "database" = "doris",
-        "hive.metastore.uris" = "thrift://127.0.0.1:9083",
-        "catalog.type" = "HIVE_CATALOG"
+        "iceberg.database" = "doris",
+        "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+        "iceberg.catalog.type" = "HIVE_CATALOG"
         );
         ```
 

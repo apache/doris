@@ -252,17 +252,17 @@ public class CreateTableStmtTest {
     @Test
     public void testCreateIcebergTable() throws UserException {
         Map<String, String> properties = new HashMap<>();
-        properties.put("database", "doris");
-        properties.put("table", "test");
-        properties.put("hive.metastore.uris", "thrift://127.0.0.1:9087");
+        properties.put("iceberg.database", "doris");
+        properties.put("iceberg.table", "test");
+        properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
         CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
         stmt.analyze(analyzer);
 
         Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
                 "\n" +
                 ") ENGINE = iceberg\n" +
-                "PROPERTIES (\"database\"  =  \"doris\",\n" +
-                "\"hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
-                "\"table\"  =  \"test\")", stmt.toString());
+                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
+                "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
+                "\"iceberg.table\"  =  \"test\")", stmt.toString());
     }
 }
