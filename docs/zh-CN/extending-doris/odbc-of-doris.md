@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ODBC of Doris",
+    "title": "MySQL & ODBC External Table",
     "language": "zh-CN"
 }
 ---
@@ -24,25 +24,64 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ODBC External Table Of Doris
+# MySQL & ODBC External Table
 
-ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(ODBC)来访问外部表，外部表省去了繁琐的数据导入工作，让Doris可以具有了访问各式数据库的能力，并借助Doris本身的OLAP的能力来解决外部表的数据分析问题：
+Doris支持通过数据库访问的标准接口(ODBC)来访问外部表，外部表省去了繁琐的数据导入工作，让Doris可以具有了访问各式数据库的能力，并借助Doris本身的OLAP的能力来解决外部表的数据分析问题：
 
- 1. 支持各种数据源接入Doris
- 2. 支持Doris与各种数据源中的表联合查询，进行更加复杂的分析操作
-  3. 通过insert into将Doris执行的查询结果写入外部的数据源
+1. 支持各种支持ODBC的数据源接入Doris
+2. 支持Doris与各种数据源中的表联合查询，进行更加复杂的分析操作
+3. 通过insert into将Doris执行的查询结果写入外部的数据源
+
+同时，对于 MySQL 数据库，Doris 也可以不依赖 ODBC，而直接通过 mariadb-connector 连接。 
 
 本文档主要介绍该功能的实现原理、使用方式等。
 
 ## 名词解释
 
 ### Doris相关
+
 * FE：Frontend，Doris 的前端节点,负责元数据管理和请求接入
 * BE：Backend，Doris 的后端节点,负责查询执行和数据存储
 
 ## 使用方法
 
-### Doris中创建ODBC的外表
+### 创建 MySQL 外表
+
+```
+CREATE EXTERNAL TABLE example_db.table_mysql
+(
+k1 DATE,
+k2 INT,
+k3 SMALLINT,
+k4 VARCHAR(2048),
+k5 DATETIME
+)
+ENGINE=mysql
+PROPERTIES
+(
+"host" = "127.0.0.1",
+"port" = "8239",
+"user" = "mysql_user",
+"password" = "mysql_passwd",
+"database" = "mysql_db_test",
+"table" = "mysql_table_test"
+)
+```
+
+参数说明：
+
+参数 | 说明
+---|---
+**hosts** | MySQL 数据库 IP
+**port** | MySQL 数据库端口
+**user** | MySQL 数据库的用户名
+**password** | MySQL 数据库的密码
+**database** | MySQL 数据中的数据库名称
+**table** | MySQL 数据库中的表名称
+
+### 创建 ODBC 外表
+
+通过安装对应数据源的 ODBC 驱动（包括 MySQL），可以创建 ODBC 外表并连接。
 
 #### 1. 不使用Resource创建ODBC的外表
 

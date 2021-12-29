@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ODBC of Doris",
+    "title": "MySQL & ODBC External Table"
     "language": "en"
 }
 ---
@@ -25,16 +25,17 @@ under the License.
 -->
 
 
-# ODBC External Table Of Doris
+# MySQL & ODBC External Table
 
-ODBC external table of Doris provides Doris access to external tables through the standard interface for database access (ODBC). The external table eliminates the tedious data import work and enables Doris to have the ability to access all kinds of databases. It solves the data analysis problem of external tables with Doris' OLAP capability.
+Doris supports access to external tables through the standard database access interface (ODBC), which eliminates the need for cumbersome data import and gives Doris the ability to access various databases and solve the data analysis problems of external tables with the help of Doris' own OLAP capabilities.
 
 1. Support various data sources to access Doris
 2. Support Doris query with tables in various data sources to perform more complex analysis operations
 3. Use insert into to write the query results executed by Doris to the external data source
 
+At the same time, for MySQL database, Doris can also directly connect through mariadb-connector without relying on ODBC.
 
-This document mainly introduces the implementation principle and usage of this ODBC external table.
+This document mainly introduces the realization principle and usage method of this function.
 
 ## Glossary
 
@@ -45,7 +46,43 @@ This document mainly introduces the implementation principle and usage of this O
 
 ## How To Use
 
+### Create MySQL External Table
+
+```
+CREATE EXTERNAL TABLE example_db.table_mysql
+(
+k1 DATE,
+k2 INT,
+k3 SMALLINT,
+k4 VARCHAR(2048),
+k5 DATETIME
+)
+ENGINE=mysql
+PROPERTIES
+(
+"host" = "127.0.0.1",
+"port" = "8239",
+"user" = "mysql_user",
+"password" = "mysql_passwd",
+"database" = "mysql_db_test",
+"table" = "mysql_table_test"
+)
+```
+
+Parameter Description:
+
+Parameters | Description
+---|---
+**hosts** | MySQL database IP
+**port** | MySQL database port
+**user** | The username of the MySQL database
+**password** | MySQL database password
+**database** | Database name in MySQL data
+**table** | The name of the table in the MySQL database
+
 ### Create ODBC External Table 
+
+By installing the ODBC driver (including MySQL) corresponding to the data source, you can create an ODBC external table and connect.
 
 #### 1. Creating ODBC external table without resource
 
