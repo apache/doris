@@ -34,10 +34,8 @@ public class MVColumnOneChildPattern implements MVColumnPattern {
             return false;
         }
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-        if (functionName.toLowerCase().equals(AggregateType.SUM.name().toLowerCase()) || functionName.toLowerCase().equals(AggregateType.MAX.name().toLowerCase()) || functionName.toLowerCase().equals(AggregateType.MIN.name().toLowerCase()) || functionName.toLowerCase().equals(FunctionSet.COUNT)) {
-            if (functionCallExpr.isDistinct()) {
-                return false;
-            }
+        if (functionCallExpr.isDistinct()) {
+            return false;
         }
         String exprFnName = functionCallExpr.getFnName().getFunction();
         if (!exprFnName.equalsIgnoreCase(functionName)) {

@@ -201,21 +201,15 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 String functionName = functionCallExpr.getFnName().getFunction();
                 // current version not support count(distinct) function in creating materialized view
                 if (!isReplay) {
-                    for (Map.Entry<String, MVColumnPattern> env : FN_NAME_TO_PATTERN.entrySet()){
-                        if (!env.getValue().match(functionCallExpr)){
-                            throw new AnalysisException(
-                                    "Materialized view does not support distinct function " + functionCallExpr.toSqlImpl());
-                        }
+                    MVColumnPattern mvColumnPattern = FN_NAME_TO_PATTERN.get(functionName.toLowerCase());
+                    if (mvColumnPattern == null) {
+                        throw new AnalysisException(
+                                "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
                     }
-                }
-                MVColumnPattern mvColumnPattern = FN_NAME_TO_PATTERN.get(functionName.toLowerCase());
-                if (mvColumnPattern == null) {
-                    throw new AnalysisException(
-                            "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
-                }
-                if (!mvColumnPattern.match(functionCallExpr)) {
-                    throw new AnalysisException(
-                            "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
+                    if (!mvColumnPattern.match(functionCallExpr)) {
+                        throw new AnalysisException(
+                                "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
+                    }
                 }
                 // check duplicate column
                 List<SlotRef> slots = new ArrayList<>();
