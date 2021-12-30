@@ -569,6 +569,7 @@ module.exports = [
             title: "DML",
             directoryPath: "Data Manipulation/",
             children: [
+              "BEGIN",
               "BROKER LOAD",
               "CANCEL LOAD",
               "CREATE SYNC JOB",
@@ -578,6 +579,7 @@ module.exports = [
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
+              "OUTFILE",
               "PAUSE ROUTINE LOAD",
               "PAUSE SYNC JOB",
               "RESUME ROUTINE LOAD",
