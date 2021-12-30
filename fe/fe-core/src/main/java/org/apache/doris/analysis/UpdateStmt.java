@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 import java.util.Set;
@@ -183,7 +184,7 @@ public class UpdateStmt extends DdlStmt {
         if (whereExpr == null) {
             throw new AnalysisException("Where clause is required");
         }
-        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
         whereExpr.analyze(analyzer);
         if (!whereExpr.getType().equals(Type.BOOLEAN)) {
             throw new AnalysisException("Where clause is not a valid statement return bool");

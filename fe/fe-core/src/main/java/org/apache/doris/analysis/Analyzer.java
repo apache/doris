@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
@@ -41,6 +42,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.InferFiltersRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
 import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
@@ -250,6 +252,34 @@ public class Analyzer {
         // TODO chenhao16, to save conjuncts, which children are constant
         public final Map<TupleId, Set<Expr>> constantConjunct = Maps.newHashMap();
 
+        // map from two table tuple ids to JoinOperator between two tables.
+        // NOTE: first tupleId's position in front of the second tupleId.
+        public final Map<Pair<TupleId, TupleId>, JoinOperator> anyTwoTalesJoinOperator = Maps.newHashMap();
+
+        // slotEqSlotExpr: Record existing and infer equivalent connections
+        public final List<Expr> onSlotEqSlotExpr = new ArrayList<>();
+
+        // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
+        public final Set<Pair<Expr, Expr>> onSlotEqSlotDeDuplication = Sets.newHashSet();
+
+        // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
+        public final List<Expr> onSlotToLiteralExpr = new ArrayList<>();
+
+        // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
+        public final Set<Pair<Expr, Expr>> onSlotToLiteralDeDuplication = Sets.newHashSet();
+
+        // inExpr: Recoud existing and infer expr which in predicate
+        public final List<Expr> onInExpr = new ArrayList<>();
+
+        // inExprDeDuplication: De-Duplication for inExpr
+        public final Set<Expr> onInDeDuplication = Sets.newHashSet();
+
+        // isNullExpr: Record existing and infer not null predicate
+        public final List<Expr> onIsNullExpr = new ArrayList<>();
+
+        //isNullDeDuplication: De-Duplication for isNullExpr
+        public final Set<Expr> onIsNullDeDuplication = Sets.newHashSet();
+
         // map from slot id to the analyzer/block in which it was registered
         public final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
 
@@ -280,6 +310,7 @@ public class Analyzer {
             rules.add(RewriteLikePredicateRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
+            onceRules.add(InferFiltersRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules, onceRules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
@@ -822,6 +853,48 @@ public class Analyzer {
         globalState.semiJoinedTupleIds.put(tid, rhsRef);
     }
 
+    /**
+     * Register the relationship between any two tables
+     */
+    public void registerAnyTwoTalesJoinOperator(Pair<TupleId, TupleId> tids, JoinOperator joinOperator) {
+        if (joinOperator == null) {
+            joinOperator = JoinOperator.INNER_JOIN;
+        }
+        globalState.anyTwoTalesJoinOperator.put(tids, joinOperator);
+    }
+
+    public void registerOnSlotEqSlotExpr(Expr expr) {
+        globalState.onSlotEqSlotExpr.add(expr);
+    }
+
+    public void registerOnSlotEqSlotDeDuplication(Pair<Expr, Expr> pair) {
+        globalState.onSlotEqSlotDeDuplication.add(pair);
+    }
+
+    public void registerOnSlotToLiteralExpr(Expr expr) {
+        globalState.onSlotToLiteralExpr.add(expr);
+    }
+
+    public void registerOnSlotToLiteralDeDuplication(Pair<Expr,Expr> pair) {
+        globalState.onSlotToLiteralDeDuplication.add(pair);
+    }
+
+    public void registerInExpr(Expr expr) {
+        globalState.onInExpr.add(expr);
+    }
+
+    public void registerInDeDuplication(Expr expr) {
+        globalState.onInDeDuplication.add(expr);
+    }
+
+    public void registerOnIsNullExpr(Expr expr) {
+        globalState.onIsNullExpr.add(expr);
+    }
+
+    public void registerOnIsNullDeDuplication(Expr expr) {
+        globalState.onIsNullDeDuplication.add(expr);
+    }
+
     public void registerConjunct(Expr e, TupleId tupleId) throws AnalysisException {
         final List<Expr> exprs = Lists.newArrayList();
         exprs.add(e);
@@ -1143,6 +1216,17 @@ public class Analyzer {
         return globalState.outerJoinedTupleIds.get(id);
     }
 
+    /**
+     * Return JoinOperator between two tables
+     */
+    public JoinOperator getAnyTwoTablesJoinOp(Pair<TupleId, TupleId> tids) {
+        return globalState.anyTwoTalesJoinOperator.get(tids);
+    }
+
+    public boolean isContainTupleIds(Pair<TupleId, TupleId> tids) {
+        return globalState.anyTwoTalesJoinOperator.containsKey(tids);
+    }
+
     public boolean isWhereClauseConjunct(Expr e) {
         return whereClauseConjuncts.contains(e.getId());
     }
@@ -1230,6 +1314,38 @@ public class Analyzer {
             result.add(e);
         }
         return result;
+    }
+
+    public List<Expr> getOnSlotEqSlotExpr() {
+        return new ArrayList<>(globalState.onSlotEqSlotExpr);
+    }
+
+    public Set<Pair<Expr,Expr>> getOnSlotEqSlotDeDuplication() {
+        return Sets.newHashSet(globalState.onSlotEqSlotDeDuplication);
+    }
+
+    public List<Expr> getOnSlotToLiteralExpr() {
+        return new ArrayList<>(globalState.onSlotToLiteralExpr);
+    }
+
+    public Set<Pair<Expr, Expr>> getOnSlotToLiteralDeDuplication() {
+        return Sets.newHashSet(globalState.onSlotToLiteralDeDuplication);
+    }
+
+    public List<Expr> getInExpr() {
+        return new ArrayList<>(globalState.onInExpr);
+    }
+
+    public Set<Expr> getInDeDuplication() {
+        return Sets.newHashSet(globalState.onInDeDuplication);
+    }
+
+    public List<Expr> getOnIsNullExpr() {
+        return new ArrayList<>(globalState.onIsNullExpr);
+    }
+
+    public Set<Expr> getOnIsNullDeDuplication() {
+        return Sets.newHashSet(globalState.onIsNullDeDuplication);
     }
 
     /**
@@ -1679,6 +1795,13 @@ public class Analyzer {
             return false;
         }
         return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+    }
+
+    public boolean enableInferPredicate() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return globalState.context.getSessionVariable().isEnableInferPredicate();
     }
 
     // The cost based join reorder is turned on
