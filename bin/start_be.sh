@@ -16,27 +16,42 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=`dirname "$0"`
-curdir=`cd "$curdir"; pwd`
+curdir=$(dirname "$0")
+curdir=$(
+    cd "$curdir"
+    pwd
+)
 
 OPTS=$(getopt \
-  -n $0 \
-  -o '' \
-  -l 'daemon' \
-  -- "$@")
+    -n $0 \
+    -o '' \
+    -l 'daemon' \
+    -- "$@")
 
 eval set -- "$OPTS"
 
 RUN_DAEMON=0
 while true; do
     case "$1" in
-        --daemon) RUN_DAEMON=1 ; shift ;;
-        --) shift ;  break ;;
-        *) echo "Internal error" ; exit 1 ;;
+    --daemon)
+        RUN_DAEMON=1
+        shift
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        echo "Internal error"
+        exit 1
+        ;;
     esac
 done
 
-export DORIS_HOME=`cd "$curdir/.."; pwd`
+export DORIS_HOME=$(
+    cd "$curdir/.."
+    pwd
+)
 
 # export env variables from be.conf
 #
@@ -45,7 +60,10 @@ export DORIS_HOME=`cd "$curdir/.."; pwd`
 # PID_DIR
 export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
 export LOG_DIR=${DORIS_HOME}/log
-export PID_DIR=`cd "$curdir"; pwd`
+export PID_DIR=$(
+    cd "$curdir"
+    pwd
+)
 
 # set odbc conf path
 export ODBCSYSINI=$DORIS_HOME/conf
@@ -54,8 +72,8 @@ export ODBCSYSINI=$DORIS_HOME/conf
 export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
 
 while read line; do
-    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
-    envline=`eval "echo $envline"`
+    envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
+    envline=$(eval "echo $envline")
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
@@ -79,7 +97,7 @@ pidfile=$PID_DIR/be.pid
 
 if [ -f $pidfile ]; then
     if kill -0 $(cat $pidfile) > /dev/null 2>&1; then
-        echo "Backend running as process `cat $pidfile`. Stop it first."
+        echo "Backend running as process $(cat $pidfile). Stop it first."
         exit 1
     else
         rm $pidfile
@@ -96,7 +114,7 @@ else
 fi
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
-    nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &
+    nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
 else
-    $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null
+    $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null
 fi
