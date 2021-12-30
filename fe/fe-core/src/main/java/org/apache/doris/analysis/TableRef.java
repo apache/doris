@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -463,6 +464,14 @@ public class TableRef implements ParseNode, Writable {
         boolean lhsIsNullable = false;
         boolean rhsIsNullable = false;
 
+        //
+        if (leftTblRef != null) {
+            for (TupleId tupleId : leftTblRef.getAllTableRefIds()) {
+                Pair<TupleId, TupleId> tids = new Pair<>(tupleId, getId());
+                analyzer.registerAnyTwoTalesJoinOperator(tids, joinOp);
+            }
+        }
+
         // at this point, both 'this' and leftTblRef have been analyzed and registered;
         // register the tuple ids of the TableRefs on the nullable side of an outer join
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
@@ -543,7 +552,7 @@ public class TableRef implements ParseNode, Writable {
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
             throws AnalysisException {
         Preconditions.checkState(isAnalyzed);
-        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer);
+        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
     }
 
     private String joinOpToSql() {

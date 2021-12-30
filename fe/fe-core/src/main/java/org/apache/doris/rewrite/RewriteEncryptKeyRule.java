@@ -36,7 +36,7 @@ public class RewriteEncryptKeyRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new RewriteEncryptKeyRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (expr instanceof EncryptKeyRef) {
             // rewrite encryptKey to stringLiteral
             EncryptKey encryptKey = ((EncryptKeyRef) expr).getEncryptKey();

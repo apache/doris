@@ -44,7 +44,7 @@ public class CompoundPredicateWriteRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new CompoundPredicateWriteRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
 
         if (!(expr instanceof CompoundPredicate)) return expr;
         CompoundPredicate cp = (CompoundPredicate) expr;

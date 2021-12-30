@@ -473,3 +473,8 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
   SM4_128_OFB,
   SM4_128_CTR,
 ```
+
+* `enable_infer_predicate`
+
+  用于控制是否进行谓词推导。取值有两种：true 和 false。默认情况下关闭，系统不在进行谓词推导，采用原始的谓词进行相关操作。设置为 true 后，进行谓词扩展。
+
