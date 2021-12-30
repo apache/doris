@@ -222,9 +222,11 @@ under the License.
             (
                 "fs.defaultFS" = "",
                 "hdfs_user"="",
-                "kerb_principal" = "",
-                "kerb_ticket_cache_path" = "",
-                "kerb_token" = ""
+                "dfs.nameservices"="my_ha",
+                "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+                "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+                "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+                "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
             )
             fs.defaultFS: defaultFS
             hdfs_user: hdfs user
