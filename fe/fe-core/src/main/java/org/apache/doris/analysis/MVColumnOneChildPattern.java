@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.FunctionSet;
-
 public class MVColumnOneChildPattern implements MVColumnPattern {
 
     private String functionName;
