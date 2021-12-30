@@ -23,9 +23,10 @@ under the License.
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <groupId>org.apache</groupId>
-        <artifactId>doris-fe-plugins</artifactId>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-plugins</artifactId>
         <version>1.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -34,12 +35,14 @@ under the License.
 
     <dependencies>
         <dependency>
-            <groupId>org.apache</groupId>
-            <artifactId>doris-fe</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe</artifactId>
+            <version>${doris.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.apache</groupId>
-            <artifactId>doris-fe-common</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-common</artifactId>
+            <version>${doris.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
