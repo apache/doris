@@ -61,9 +61,9 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
-            read_options.key_ranges.emplace_back(read_context->lower_bound_keys->at(i),
+            read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
                                                  read_context->is_lower_keys_included->at(i),
-                                                 read_context->upper_bound_keys->at(i),
+                                                 &read_context->upper_bound_keys->at(i),
                                                  read_context->is_upper_keys_included->at(i));
         }
     }
