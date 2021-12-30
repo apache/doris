@@ -198,6 +198,9 @@ private:
     /// The list of all aggregate operations for this exec node.
     std::vector<AggFn*> agg_fns_;
 
+    /// True if get nothing child node, then we can just return in get_next
+    bool has_input_rows;
+
     /// Evaluators for each aggregate function. If this is a grouping aggregation, these
     /// evaluators are only used to create cloned per-partition evaluators. The cloned
     /// evaluators are then used to evaluate the functions. If this is a non-grouping

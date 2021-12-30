@@ -100,6 +100,7 @@ PartitionedAggregationNode::PartitionedAggregationNode(ObjectPool* pool, const T
           output_tuple_desc_(descs.get_tuple_descriptor(output_tuple_id_)),
           needs_finalize_(tnode.agg_node.need_finalize),
           needs_serialize_(false),
+          has_input_rows(false),
           output_partition_(nullptr),
           process_batch_no_grouping_fn_(nullptr),
           process_batch_fn_(nullptr),
@@ -309,18 +310,21 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
         }
 
         SCOPED_TIMER(build_timer_);
-        if (grouping_exprs_.empty()) {
-            if (process_batch_no_grouping_fn_ != nullptr) {
-                RETURN_IF_ERROR(process_batch_no_grouping_fn_(this, &batch));
+        if (batch.num_rows() > 0) {
+            has_input_rows = true;
+            if (grouping_exprs_.empty()) {
+                if (process_batch_no_grouping_fn_ != nullptr) {
+                    RETURN_IF_ERROR(process_batch_no_grouping_fn_(this, &batch));
+                } else {
+                    RETURN_IF_ERROR(ProcessBatchNoGrouping(&batch));
+                }
             } else {
-                RETURN_IF_ERROR(ProcessBatchNoGrouping(&batch));
-            }
-        } else {
-            // There is grouping, so we will do partitioned aggregation.
-            if (process_batch_fn_ != nullptr) {
-                RETURN_IF_ERROR(process_batch_fn_(this, &batch, ht_ctx_.get()));
-            } else {
-                RETURN_IF_ERROR(ProcessBatch<false>(&batch, ht_ctx_.get()));
+                // There is grouping, so we will do partitioned aggregation.
+                if (process_batch_fn_ != nullptr) {
+                    RETURN_IF_ERROR(process_batch_fn_(this, &batch, ht_ctx_.get()));
+                } else {
+                    RETURN_IF_ERROR(ProcessBatch<false>(&batch, ht_ctx_.get()));
+                }
             }
         }
         batch.reset();
@@ -434,7 +438,7 @@ Status PartitionedAggregationNode::GetNextInternal(RuntimeState* state, RowBatch
     if (grouping_exprs_.empty()) {
         // There was no grouping, so evaluate the conjuncts and return the single result row.
         // We allow calling GetNext() after eos, so don't return this row again.
-        if (!singleton_output_tuple_returned_) GetSingletonOutput(row_batch);
+        if (!singleton_output_tuple_returned_ && has_input_rows) GetSingletonOutput(row_batch);
         singleton_output_tuple_returned_ = true;
         *eos = true;
         return Status::OK();
