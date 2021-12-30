@@ -426,7 +426,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            if (analyzer.getContext().getSessionVariable().getPartitionPruneAlgorithmVersion() == 2) {
+            if (analyzer.partitionPruneV2Enabled()) {
                 partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                         partitionInfo.getPartitionColumns(), columnNameToRange);
             } else {
@@ -434,7 +434,7 @@ public class OlapScanNode extends ScanNode {
                         partitionInfo.getPartitionColumns(), columnFilters);
             }
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            if (analyzer.getContext().getSessionVariable().getPartitionPruneAlgorithmVersion() == 2) {
+            if (analyzer.partitionPruneV2Enabled()) {
                 partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
                     columnNameToRange);
             } else {
