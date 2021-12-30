@@ -58,7 +58,7 @@ import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.JdbcException;
 import org.apache.doris.stack.exceptions.ServerException;
-import org.apache.doris.stack.model.request.BeJoinReq;
+import org.apache.doris.stack.model.request.BuildClusterReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
@@ -366,8 +366,6 @@ public class AgentProcessImpl implements AgentProcess {
                         public void run() {
                             try {
                                 String leaderFeHost = waitMasterFeStart(process.getId());
-                                Integer leaderFeQueryPort = getFeQueryPort(leaderFeHost, agentCache.agentPort(leaderFeHost));
-                                joinFe(leaderFeHost, leaderFeQueryPort, start.getHost());
                                 CommandRequest creq = buildStartCmd(ServiceRole.FE, leaderFeHost);
                                 handleAgentTask(execTask, creq);
                             } catch (Exception e) {
@@ -383,9 +381,6 @@ public class AgentProcessImpl implements AgentProcess {
                     @Override
                     public void run() {
                         try {
-                            String aliveFeHost = waitMasterFeStart(process.getId());
-                            Integer aliveFePort = getFeQueryPort(aliveFeHost, agentCache.agentPort(aliveFeHost));
-                            joinBroker(aliveFeHost, aliveFePort, execTask.getHost());
                             CommandRequest creq = buildStartCmd(ServiceRole.BROKER, null);
                             handleAgentTask(execTask, creq);
                         } catch (Exception e) {
@@ -468,45 +463,6 @@ public class AgentProcessImpl implements AgentProcess {
     }
 
     /**
-     * add broker to cluster
-     */
-    private void joinBroker(String aliveFeHost, int aliveFePort, String addBrokerHost) {
-        Integer brokerIpcPort = getBrokerIpcPort(addBrokerHost, agentCache.agentPort(addBrokerHost));
-        Connection connection = null;
-        try {
-            connection = JdbcUtil.getConnection(aliveFeHost, aliveFePort);
-            String sql = "ALTER SYSTEM ADD BROKER broker_name \"%s:%s\"";
-            String joinBrokerSql = String.format(sql, addBrokerHost, brokerIpcPort);
-            JdbcUtil.execute(connection, joinBrokerSql);
-            log.info("execute {}", joinBrokerSql);
-        } catch (SQLException ex) {
-            log.error("add broker to cluster failed:{}", addBrokerHost, ex);
-        } finally {
-            JdbcUtil.closeConn(connection);
-        }
-    }
-
-    /**
-     * add fe to cluster
-     */
-    private void joinFe(String leaderHost, int leaderQueryPort, String addFeHost) {
-        AgentRoleEntity agentRole = agentRoleComponent.queryByHostRole(addFeHost, ServiceRole.FE.name());
-        Integer addFePort = getFeEditLogPort(addFeHost, agentCache.agentPort(addFeHost));
-        Connection connection = null;
-        try {
-            connection = JdbcUtil.getConnection(leaderHost, leaderQueryPort);
-            String sql = "ALTER SYSTEM ADD %s \"%s:%s\"";
-            String joinFeSql = String.format(sql, agentRole.getFeNodeType().toUpperCase(), addFeHost, addFePort);
-            JdbcUtil.execute(connection, joinFeSql);
-            log.info("execute {}", joinFeSql);
-        } catch (SQLException ex) {
-            log.error("add fe to cluster failed:{}", addFeHost, ex);
-        } finally {
-            JdbcUtil.closeConn(connection);
-        }
-    }
-
-    /**
      * get fe http port
      **/
     public Integer getFeQueryPort(String host, Integer port) {
@@ -549,19 +505,14 @@ public class AgentProcessImpl implements AgentProcess {
     }
 
     /**
-     * get alive agent
+     * get fe leader agent,the first start fe task is leader fe
      */
-    public AgentEntity getAliveAgent(int cluserId) {
-        List<AgentRoleEntity> agentRoleEntities = agentRoleComponent.queryAgentByRole(ServiceRole.FE.name(), cluserId);
-        AgentEntity aliveAgent = null;
-        for (AgentRoleEntity agentRole : agentRoleEntities) {
-            aliveAgent = agentCache.agentInfo(agentRole.getHost());
-            if (AgentStatus.RUNNING.equals(aliveAgent.getStatus())) {
-                break;
-            }
-        }
-        Preconditions.checkNotNull(aliveAgent, "no agent alive");
-        return aliveAgent;
+    public AgentEntity getFeLeaderAgent(ProcessInstanceEntity process) {
+        List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasks(process.getId(), TaskTypeEnum.START_FE);
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(taskEntities), "Failed find fe leader");
+        String feLeader = taskEntities.get(0).getHost();
+        AgentEntity feLeaderAgent = agentCache.agentInfo(feLeader);
+        return feLeaderAgent;
     }
 
     /**
@@ -575,28 +526,73 @@ public class AgentProcessImpl implements AgentProcess {
     }
 
     @Override
-    public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
-        Preconditions.checkArgument(ObjectUtils.isNotEmpty(beJoinReq.getHosts()), "not find backends");
+    public void buildCluster(HttpServletRequest request, HttpServletResponse response, BuildClusterReq buildClusterReq) throws Exception {
+        List<String> feHosts = buildClusterReq.getFeHosts();
+        List<String> beHosts = buildClusterReq.getBeHosts();
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(feHosts), "not find Frontend");
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(beHosts), "not find Backend");
+
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        processInstanceComponent.checkProcessFinish(beJoinReq.getProcessId());
-        processInstanceComponent.checkHasUnfinishProcess(userId, beJoinReq.getProcessId());
-        boolean success = taskInstanceComponent.checkTaskSuccess(beJoinReq.getProcessId(), ProcessTypeEnum.START_SERVICE);
+        processInstanceComponent.checkProcessFinish(buildClusterReq.getProcessId());
+        processInstanceComponent.checkHasUnfinishProcess(userId, buildClusterReq.getProcessId());
+        boolean success = taskInstanceComponent.checkTaskSuccess(buildClusterReq.getProcessId(), ProcessTypeEnum.START_SERVICE);
         Preconditions.checkArgument(success, "The service has not been started and completed, and the component cannot be clustered");
 
-        ProcessInstanceEntity process = processInstanceComponent.queryProcessById(beJoinReq.getProcessId());
-        //Query the alive agent that installed fe and get fe's query port
-        AgentEntity aliveAgent = getAliveAgent(process.getClusterId());
-        Integer queryPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
+        ProcessInstanceEntity process = processInstanceComponent.queryProcessById(buildClusterReq.getProcessId());
+        //Query the fe leader agent that installed fe and get fe's query port
+        AgentEntity feLeaderAgent = getFeLeaderAgent(process);
+        Integer queryPort = getFeQueryPort(feLeaderAgent.getHost(), feLeaderAgent.getPort());
         Connection conn = null;
         try {
-            conn = JdbcUtil.getConnection(aliveAgent.getHost(), queryPort);
+            conn = JdbcUtil.getConnection(feLeaderAgent.getHost(), queryPort);
         } catch (SQLException e) {
-            log.error("get connection fail, host {}, port {} :", aliveAgent.getHost(), queryPort, e);
+            log.error("get connection fail, host {}, port {} :", feLeaderAgent.getHost(), queryPort, e);
             throw new JdbcException("Failed to get fe's jdbc connection");
         }
 
+        joinFe(conn, feHosts, feLeaderAgent.getHost());
+        joinBe(conn, beHosts);
+
+        //add broker
+        feHosts.addAll(beHosts);
+        List<String> brokers = feHosts.stream().distinct().collect(Collectors.toList());
+        joinBroker(conn, brokers);
+
+        JdbcUtil.closeConn(conn);
+    }
+
+    /**
+     * add fe to cluster
+     */
+    private void joinFe(Connection connection, List<String> feHosts, String leaderFe) {
+        for (String addFeHost : feHosts) {
+            if (leaderFe.equals(addFeHost)) {
+                continue;
+            }
+            AgentRoleEntity agentRole = agentRoleComponent.queryByHostRole(addFeHost, ServiceRole.FE.name());
+            Integer addFePort = getFeEditLogPort(addFeHost, agentCache.agentPort(addFeHost));
+            try {
+                String sql = "ALTER SYSTEM ADD %s \"%s:%s\"";
+                String joinFeSql = String.format(sql, agentRole.getFeNodeType().toUpperCase(), addFeHost, addFePort);
+                log.info("execute sql {}", joinFeSql);
+                JdbcUtil.execute(connection, joinFeSql);
+            } catch (SQLException ex) {
+                if (ex instanceof SQLSyntaxErrorException) {
+                    log.info("frontend already exist,response:{}", ex.getMessage());
+                    return;
+                }
+                log.error("Failed to add frontend:{}", addFeHost, ex);
+                throw new ServerException(ex.getMessage());
+            }
+        }
+    }
+
+    /**
+     * add be to cluster
+     */
+    private void joinBe(Connection conn, List<String> beHosts) {
         StringBuilder joinBeSb = new StringBuilder();
-        for (String be : beJoinReq.getHosts()) {
+        for (String be : beHosts) {
             Properties beConf = agentRest.roleConfig(be, agentCache.agentPort(be), ServiceRole.BE.name());
             String beHeatPort = beConf.getProperty(Constants.KEY_BE_HEARTBEAT_PORT);
             joinBeSb.append("\"").append(be).append(":").append(beHeatPort).append("\"").append(",");
@@ -604,17 +600,39 @@ public class AgentProcessImpl implements AgentProcess {
         String joinBeStr = joinBeSb.deleteCharAt(joinBeSb.length() - 1).toString();
         String addBe = String.format("ALTER SYSTEM ADD BACKEND %s", joinBeStr);
         try {
-            log.info("execute {}", addBe);
+            log.info("execute sql {}", addBe);
             JdbcUtil.execute(conn, addBe);
         } catch (SQLException e) {
-            if (e instanceof SQLSyntaxErrorException
-                    && StringUtils.isNotBlank(e.getMessage())
-                    && e.getMessage().contains(Constants.BE_EXIST_MSG)) {
+            if (e instanceof SQLSyntaxErrorException) {
                 log.info("backend already exist,response:{}", e.getMessage());
                 return;
             }
-            log.error("Failed to add backend:{}", joinBeStr, e);
+            log.error("Failed to add backends:{}", joinBeStr, e);
             throw new ServerException(e.getMessage());
+        }
+    }
+
+    /**
+     * add broker to cluster
+     */
+    private void joinBroker(Connection connection, List<String> addBrokerHost) {
+        StringBuilder joinBrokerSb = new StringBuilder();
+        for (String broker : addBrokerHost) {
+            Integer brokerIpcPort = getBrokerIpcPort(broker, agentCache.agentPort(broker));
+            joinBrokerSb.append("\"").append(broker).append(":").append(brokerIpcPort).append("\"").append(",");
+        }
+        String joinBrokerStr = joinBrokerSb.deleteCharAt(joinBrokerSb.length() - 1).toString();
+        String addBroker = String.format("ALTER SYSTEM ADD BROKER broker_name %s", joinBrokerStr);
+        try {
+            JdbcUtil.execute(connection, addBroker);
+            log.info("execute sql {}", addBroker);
+        } catch (SQLException ex) {
+            if (ex instanceof SQLSyntaxErrorException) {
+                log.info("broker already exist,response:{}", ex.getMessage());
+                return;
+            }
+            log.error("Failed to add broker:{}", addBrokerHost, ex);
+            throw new ServerException(ex.getMessage());
         }
     }
 

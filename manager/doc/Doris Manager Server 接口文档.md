@@ -315,11 +315,11 @@
 
 **接口功能**
 
-> 组件集群，将BE加入集群
+> 组件集群，执行add fe, add be ,add broker 操作
 
 **URL**
 
-> /api/agent/joinBe
+> /api/agent/buildCluster
 
 **支持格式**
 
@@ -334,7 +334,8 @@
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
 > |processId|true|int|当前安装的流程ID，接口1返回的结果|
-> |hosts    |true    |String   |加入机器列表|
+> |feHosts    |true    |List<String>   |FE列表|
+> |beHosts    |true    |List<String>   |BE列表|
 
 **返回字段**
 
@@ -345,13 +346,14 @@
 
 **接口示例**
 
-> 地址：http://localhost:9601/api/agent/joinBe
+> 地址：http://localhost:9601/api/agent/buildCluster
 
 > 请求参数：
 ``` json
 {
     "processId":1,
-    "hosts":["10.220.147.155"]
+    "feHosts":["10.220.147.155"],
+    "beHosts":["10.220.147.155"]
 }
 ```
 > 返回参数：

@@ -128,6 +128,9 @@ public class ProcessTaskImpl implements ProcessTask {
                 continue;
             }
             TaskInstanceResp taskResp = task.transToModel();
+            if (taskResp.getStatus() == ExecutionStatus.SUBMITTED) {
+                taskResp.setStatus(ExecutionStatus.RUNNING);
+            }
             //set response
             if (task.getStatus().typeIsSuccess()) {
                 taskResp.setResponse(task.getTaskType().getName() + " success");

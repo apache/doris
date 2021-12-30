@@ -21,7 +21,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.stack.model.request.BeJoinReq;
+import org.apache.doris.stack.model.request.BuildClusterReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
@@ -81,13 +81,13 @@ public class AgentController {
     }
 
     /**
-     * join be to cluster
+     * build cluster add backend,add fe,add broker
      */
-    @ApiOperation(value = "join be to cluster")
-    @RequestMapping(value = "/joinBe", method = RequestMethod.POST)
-    public RResult joinBe(HttpServletRequest request, HttpServletResponse response,
-                          @RequestBody BeJoinReq beJoinReq) throws Exception {
-        agentProcess.joinBe(request, response, beJoinReq);
+    @ApiOperation(value = "build cluster")
+    @RequestMapping(value = "/buildCluster", method = RequestMethod.POST)
+    public RResult buildCluster(HttpServletRequest request, HttpServletResponse response,
+                          @RequestBody BuildClusterReq buildClusterReq) throws Exception {
+        agentProcess.buildCluster(request, response, buildClusterReq);
         return RResult.success();
     }
 

@@ -37,6 +37,6 @@ public interface TaskInstanceRepository extends JpaRepository<TaskInstanceEntity
     @Query("select f from TaskInstanceEntity f where f.processId = :processId and host = :host and processType = :processType and taskType = :taskType")
     TaskInstanceEntity queryTask(@Param("processId") int processId, @Param("host") String host, @Param("processType") ProcessTypeEnum processType, @Param("taskType") TaskTypeEnum taskType);
 
-    @Query("select f from TaskInstanceEntity f where f.processId = :processId and taskType = :taskType")
+    @Query("select f from TaskInstanceEntity f where f.processId = :processId and taskType = :taskType order by f.id asc")
     List<TaskInstanceEntity> queryTasks(@Param("processId") int processId, @Param("taskType") TaskTypeEnum taskType);
 }
