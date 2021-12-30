@@ -347,7 +347,11 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx,
     double result = percentile->digest->quantile(quantile);
 
     delete percentile;
-    return DoubleVal(result);
+    if (isnan(result)) {
+        return DoubleVal(result).null();
+    } else {
+        return DoubleVal(result);
+    }
 }
 
 struct AvgState {
