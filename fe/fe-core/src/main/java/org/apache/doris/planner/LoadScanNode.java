@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
@@ -82,7 +83,7 @@ public abstract class LoadScanNode extends ScanNode {
 
         // substitute SlotRef in filter expression
         // where expr must be equal first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
-        Expr newWhereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        Expr newWhereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
         List<SlotRef> slots = Lists.newArrayList();
         newWhereExpr.collect(SlotRef.class, slots);
 

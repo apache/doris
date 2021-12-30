@@ -1326,7 +1326,7 @@ public class SelectStmt extends QueryStmt {
         // Also equal exprs in the statements of subqueries.
         List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
-            whereClause = rewriter.rewrite(whereClause, analyzer);
+            whereClause = rewriter.rewrite(whereClause, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
             whereClause.collect(Subquery.class, subqueryExprs);
 
         }

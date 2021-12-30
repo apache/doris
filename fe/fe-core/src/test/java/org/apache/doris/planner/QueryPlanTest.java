@@ -722,6 +722,8 @@ public class QueryPlanTest {
     public void testJoinPredicateTransitivity() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
+        ConnectContext.get().getSessionVariable().setEnableInferPredicate(true);
+        /*  TODO: commit on_clause and where_clause Cross-identification
         // test left join : left table where binary predicate
         String sql = "select join1.id\n" +
                 "from join1\n" +
@@ -749,14 +751,16 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` >= 1, `join1`.`id` <= 2"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` >= 1, `join2`.`id` <= 2"));
 
+        */
         // test left join: left table join predicate, left table couldn't push down
-        sql = "select *\n from join1\n" +
+        String sql = "select *\n from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
+        /*
         // test left join: right table where predicate.
         // If we eliminate outer join, we could push predicate down to join1 and join2.
         // Currently, we push predicate to join1 and keep join predicate for join2
@@ -766,6 +770,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("other join predicates: `join2`.`id` > 1"));
+        */
 
         // test left join: right table join predicate, only push down right table
         sql = "select *\n from join1\n" +
@@ -775,6 +780,7 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
+        /*
         // test inner join: left table where predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
@@ -782,6 +788,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        */
 
         // test inner join: left table join predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
@@ -791,6 +798,7 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
+        /*
         // test inner join: right table where predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
@@ -798,6 +806,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        */
 
         // test inner join: right table join predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
@@ -828,7 +837,7 @@ public class QueryPlanTest {
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
-        Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test anti join, left table join predicate, left table couldn't push down
         sql = "select *\n from join1\n" +
@@ -845,6 +854,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
+        /*
         // test anti join, left table where predicate, only push to left table
         sql = "select join1.id\n" +
                 "from join1\n" +
@@ -862,6 +872,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        */
     }
 
     @Test

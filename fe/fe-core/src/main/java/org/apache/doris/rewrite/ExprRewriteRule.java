@@ -40,5 +40,5 @@ public interface ExprRewriteRule {
      * changes were made, the transformed Expr is guaranteed to be a different Expr object,
      * so callers can rely on object reference comparison for change detection.
      */
-    Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException;
+    Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException;
 }

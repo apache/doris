@@ -36,7 +36,7 @@ public class RewriteAliasFunctionRule implements ExprRewriteRule{
     public static RewriteAliasFunctionRule INSTANCE = new RewriteAliasFunctionRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (expr instanceof FunctionCallExpr) {
             Function fn = expr.getFn();
             if (fn instanceof AliasFunction) {
