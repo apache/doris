@@ -1394,8 +1394,8 @@ public class SelectStmt extends QueryStmt {
 
         }
         if (havingClause != null) {
-            registerExprId(havingClause);
-            exprMap.put(havingClause.getId().toString(), havingClause);
+            registerExprId(havingClauseAfterAnaylzed);
+            exprMap.put(havingClauseAfterAnaylzed.getId().toString(), havingClauseAfterAnaylzed);
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
         for (Subquery subquery : subqueryExprs) {
@@ -1501,7 +1501,7 @@ public class SelectStmt extends QueryStmt {
             whereClause.collect(Subquery.class, subqueryExprs);
         }
         if (havingClause != null) {
-            havingClause = rewrittenExprMap.get(havingClause.getId().toString());
+            havingClause = rewrittenExprMap.get(havingClauseAfterAnaylzed.getId().toString());
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
 
