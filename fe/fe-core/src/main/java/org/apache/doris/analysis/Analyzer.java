@@ -1757,6 +1757,8 @@ public class Analyzer {
         return schemaTable;
     }
 
+    // TODO: `globalState.context` could be null, refactor return value type to
+    // `Optional<ConnectContext>`.
     public ConnectContext getContext() {
         return globalState.context;
     }
@@ -1802,6 +1804,15 @@ public class Analyzer {
             return false;
         }
         return globalState.context.getSessionVariable().isEnableInferPredicate();
+    }
+
+    // Use V2 version as default implementation.
+    public boolean partitionPruneV2Enabled() {
+        if (globalState.context == null) {
+            return true;
+        } else {
+            return globalState.context.getSessionVariable().getPartitionPruneAlgorithmVersion() == 2;
+        }
     }
 
     // The cost based join reorder is turned on
