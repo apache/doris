@@ -164,7 +164,7 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
 }
 
 OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
-    RemoteEnv* dest_env = dynamic_cast<RemoteEnv*>(Env::get_env(_rowset_path_desc.storage_medium));
+    RemoteEnv* dest_env = dynamic_cast<RemoteEnv*>(Env::get_env(dir_desc.storage_medium));
     std::shared_ptr<StorageBackend> storage_backend = dest_env->get_storage_backend();
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc dst_path_desc = segment_file_path(dir_desc, rowset_id(), i);
