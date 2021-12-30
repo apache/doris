@@ -442,6 +442,18 @@ module.exports = [
             children: ["murmur_hash3_32"],
           },
           {
+            title: "加密和信息摘要函数",
+            directoryPath: "encrypt-digest-functions/",
+            children: [
+              "aes",
+              "md5",
+              "md5sum",
+              "sm4",
+              "sm3",
+              "sm3sum"
+            ],
+          },
+          {
             title: "table functions",
             directoryPath: "table-functions/",
             children: [
@@ -557,6 +569,7 @@ module.exports = [
             title: "DML",
             directoryPath: "Data Manipulation/",
             children: [
+              "BEGIN",
               "BROKER LOAD",
               "CANCEL LOAD",
               "CREATE SYNC JOB",
@@ -566,6 +579,7 @@ module.exports = [
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
+              "OUTFILE",
               "PAUSE ROUTINE LOAD",
               "PAUSE SYNC JOB",
               "RESUME ROUTINE LOAD",

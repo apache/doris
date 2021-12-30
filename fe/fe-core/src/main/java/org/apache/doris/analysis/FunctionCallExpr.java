@@ -46,6 +46,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,7 +55,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
@@ -253,13 +256,26 @@ public class FunctionCallExpr extends Expr {
         boolean isJsonFunction = false;
         int len = children.size();
         List<String> result = Lists.newArrayList();
-        if ((fnName.getFunction().equalsIgnoreCase("json_array")) ||
-                (fnName.getFunction().equalsIgnoreCase("json_object"))) {
+        if (fnName.getFunction().equalsIgnoreCase("json_array") ||
+                fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
             isJsonFunction = true;
         }
+        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
+                fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
+                fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
+                fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+            len = len - 1;
+        }
         for (int i = 0; i < len; ++i) {
-            result.add(children.get(i).toSql());
+            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+                result.add("\'***\'");
+            } else {
+                result.add(children.get(i).toSql());
+            }
         }
         sb.append(Joiner.on(", ").join(result)).append(")");
         if (fnName.getFunction().equalsIgnoreCase("json_quote") || isJsonFunction) {
@@ -584,6 +600,70 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
+        if ((fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))
+                && children.size() == 3) {
+            String blockEncryptionMode = "";
+            Set<String> aesModes = new HashSet<>(Arrays.asList(
+                    "AES_128_ECB",
+                    "AES_192_ECB",
+                    "AES_256_ECB",
+                    "AES_128_CBC",
+                    "AES_192_CBC",
+                    "AES_256_CBC",
+                    "AES_128_CFB",
+                    "AES_192_CFB",
+                    "AES_256_CFB",
+                    "AES_128_CFB1",
+                    "AES_192_CFB1",
+                    "AES_256_CFB1",
+                    "AES_128_CFB8",
+                    "AES_192_CFB8",
+                    "AES_256_CFB8",
+                    "AES_128_CFB128",
+                    "AES_192_CFB128",
+                    "AES_256_CFB128",
+                    "AES_128_CTR",
+                    "AES_192_CTR",
+                    "AES_256_CTR",
+                    "AES_128_OFB",
+                    "AES_192_OFB",
+                    "AES_256_OFB"
+            ));
+            Set<String> sm4Modes = new HashSet<>(Arrays.asList(
+                    "SM4_128_ECB",
+                    "SM4_128_CBC",
+                    "SM4_128_CFB128",
+                    "SM4_128_OFB",
+                    "SM4_128_CTR"));
+
+            if (ConnectContext.get() != null) {
+                blockEncryptionMode = ConnectContext.get().getSessionVariable().getBlockEncryptionMode();
+                if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                        || fnName.getFunction().equalsIgnoreCase("aes_encrypt")) {
+                    if (StringUtils.isAllBlank(blockEncryptionMode)) {
+                        blockEncryptionMode = "AES_128_ECB";
+                    }
+                    if (!aesModes.contains(blockEncryptionMode.toUpperCase())) {
+                        throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
+
+                    }
+                }
+                if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                        || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+                    if (StringUtils.isAllBlank(blockEncryptionMode)) {
+                        blockEncryptionMode = "SM4_128_ECB";
+                    }
+                    if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
+                        throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
+
+                    }
+                }
+            }
+            children.add(new StringLiteral(blockEncryptionMode));
+        }
 
     }
 
@@ -849,6 +929,7 @@ public class FunctionCallExpr extends Expr {
     /**
      * rewrite alias function to real function
      * reset function name, function params and it's children to real function's
+     *
      * @return
      * @throws AnalysisException
      */
@@ -888,6 +969,7 @@ public class FunctionCallExpr extends Expr {
 
     /**
      * replace origin function expr and it's children with input params exprs depending on parameter name
+     *
      * @param parameters
      * @param inputParamsExprs
      * @param oriExpr

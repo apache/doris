@@ -81,7 +81,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         // evaluate `case when expr` when possible
         if (expr instanceof CaseExpr) {
             return CaseExpr.computeCaseExpr((CaseExpr) expr);

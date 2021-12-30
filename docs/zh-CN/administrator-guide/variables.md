@@ -439,3 +439,42 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 * `return_object_data_as_binary`
    用于标识是否在select 结果中返回bitmap/hll 结果。在 select into outfile 语句中，如果导出文件格式为csv 则会将 bimap/hll 数据进行base64编码，如果是parquet 文件格式 将会把数据作为byte array 存储
+* `block_encryption_mode`
+  可以通过block_encryption_mode参数，控制块加密模式，默认值为：空。当使用AES算法加密时相当于`AES_128_ECB`, 当时用SM3算法加密时相当于`SM3_128_ECB`
+  可选值：
+```
+  AES_128_ECB,
+  AES_192_ECB,
+  AES_256_ECB,
+  AES_128_CBC,
+  AES_192_CBC,
+  AES_256_CBC,
+  AES_128_CFB,
+  AES_192_CFB,
+  AES_256_CFB,
+  AES_128_CFB1,
+  AES_192_CFB1,
+  AES_256_CFB1,
+  AES_128_CFB8,
+  AES_192_CFB8,
+  AES_256_CFB8,
+  AES_128_CFB128,
+  AES_192_CFB128,
+  AES_256_CFB128,
+  AES_128_CTR,
+  AES_192_CTR,
+  AES_256_CTR,
+  AES_128_OFB,
+  AES_192_OFB,
+  AES_256_OFB,
+  SM4_128_ECB,
+  SM4_128_CBC,
+  SM4_128_CFB128,
+  SM4_128_OFB,
+  SM4_128_CTR,
+```
+
+* `enable_infer_predicate`
+
+  用于控制是否进行谓词推导。取值有两种：true 和 false。默认情况下关闭，系统不在进行谓词推导，采用原始的谓词进行相关操作。设置为 true 后，进行谓词扩展。
+
