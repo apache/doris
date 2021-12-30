@@ -24,14 +24,14 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>org.apache</groupId>
-        <artifactId>doris-fe</artifactId>
-        <version>3.4.0</version>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+        <artifactId>fe</artifactId>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>fe-core</artifactId>
-    <version>3.4.0</version>
+    <version>${revision}</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -66,10 +66,28 @@ under the License.
         </profile>
     </profiles>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>2.6.2</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
     <dependencies>
         <dependency>
-            <groupId>org.apache</groupId>
-            <artifactId>doris-fe-common</artifactId>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>spark-dpp</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <dependency>
@@ -89,18 +107,12 @@ under the License.
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-ldap</artifactId>
-            <version>2.3.3.RELEASE</version>
         </dependency>
 
         <dependency>
             <groupId>commons-pool</groupId>
             <artifactId>commons-pool</artifactId>
             <version>1.5.1</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache</groupId>
-            <artifactId>spark-dpp</artifactId>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/cglib/cglib -->
@@ -274,6 +286,7 @@ under the License.
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-log4j12</artifactId>
+            <version>1.7.9</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
         <dependency>

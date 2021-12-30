@@ -20,28 +20,59 @@ under the License.
 -->
 
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache</groupId>
+        <artifactId>apache</artifactId>
+        <version>18</version>
+    </parent>
 
-    <groupId>org.apache</groupId>
-    <artifactId>doris-fe</artifactId>
-    <version>3.4.0</version>
+    <groupId>org.apache.doris</groupId>
+    <artifactId>fe</artifactId>
+    <version>${revision}</version>
     <packaging>pom</packaging>
+    <name>Doris FE Project Parent POM</name>
+    <url>https://doris.apache.org/</url>
+    <licenses>
+        <license>
+            <name>Apache 2.0 License</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <scm>
+        <connection>scm:git:git@github.com:apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:git@github.com:apache/incubator-doris.git</developerConnection>
+        <url>scm:git:git@github.com:apache/incubator-doris.git</url>
+        <tag>HEAD</tag>
+    </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/apache/incubator-doris/issues</url>
+    </issueManagement>
+
+    <mailingLists>
+        <mailingList>
+            <name>Dev Mailing List</name>
+            <post>dev@doris.apache.org</post>
+            <subscribe>dev-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+
+        <mailingList>
+            <name>Commits Mailing List</name>
+            <post>commits@doris.apache.org</post>
+            <subscribe>commits-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+    </mailingLists>
 
     <modules>
         <module>fe-common</module>
         <module>spark-dpp</module>
         <module>fe-core</module>
     </modules>
-
-    <name>doris-fe</name>
-    <url>https://github.com/apache/incubator-doris</url>
-
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.2.13.RELEASE</version>
-    </parent>
 
     <properties>
         <doris.home>${basedir}/../</doris.home>
@@ -55,6 +86,7 @@ under the License.
         <hadoop.version>2.8.0</hadoop.version>
         <jmockit.version>1.49</jmockit.version>
         <log4j2.version>2.17.1</log4j2.version>
+        <revision>0.15-SNAPSHOT</revision>
     </properties>
 
     <profiles>
@@ -110,10 +142,6 @@ under the License.
             </repositories>
 
             <pluginRepositories>
-                <pluginRepository>
-                    <id>spring-plugins</id>
-                    <url>https://repo.spring.io/plugins-release/</url>
-                </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>cloudera-public</id>
@@ -126,15 +154,15 @@ under the License.
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>org.apache</groupId>
-                <artifactId>doris-fe-common</artifactId>
-                <version>1.0.0</version>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>fe-common</artifactId>
+                <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>org.apache</groupId>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>spark-dpp</artifactId>
-                <version>1.0.0</version>
+                <version>${project.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/cglib/cglib -->
@@ -748,6 +776,11 @@ under the License.
                 <groupId>hu.webarticum</groupId>
                 <artifactId>tree-printer</artifactId>
                 <version>1.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.hamcrest</groupId>
+                <artifactId>hamcrest</artifactId>
+                <version>2.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
