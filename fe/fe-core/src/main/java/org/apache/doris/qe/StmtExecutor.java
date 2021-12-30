@@ -115,12 +115,12 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.IOException;
 import java.io.StringReader;
