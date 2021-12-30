@@ -97,8 +97,8 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
           }
 
           if(!rowsBuffer.isEmpty){
+            logger.warn("Data that failed to load : " + dorisStreamLoader.listToString(rowsBuffer))
             logger.warn("Failed to load data on BE: {} node ", dorisStreamLoader.getLoadUrlStr)
-            var errMsg = String.format("Failed to load data on BE: %s node and exceeded the max retry times.", dorisStreamLoader.getLoadUrlStr)
             throw new IOException(s"Failed to load data on BE: ${dorisStreamLoader.getLoadUrlStr} node and exceeded the max retry times.")
           }
         }
