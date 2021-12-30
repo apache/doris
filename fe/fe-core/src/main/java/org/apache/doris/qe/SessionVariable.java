@@ -151,6 +151,8 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
+
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
@@ -401,6 +403,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
+    private boolean enableInferPredicate = false;
 
     @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
     public boolean sqlQuoteShowCreate = true;
@@ -856,6 +861,12 @@ public class SessionVariable implements Serializable, Writable {
     public void setReturnObjectDataAsBinary(boolean returnObjectDataAsBinary) {
         this.returnObjectDataAsBinary = returnObjectDataAsBinary;
     }
+
+    public boolean isEnableInferPredicate() {
+        return enableInferPredicate;
+    }
+
+    public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
 
     // Serialize to thrift object
     // used for rest api
