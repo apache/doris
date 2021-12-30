@@ -20,17 +20,54 @@ under the License.
 -->
 
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache</groupId>
+        <artifactId>apache</artifactId>
+        <version>18</version>
+    </parent>
 
-    <groupId>org.apache</groupId>
-    <artifactId>doris-apache-hdfs-broker</artifactId>
-    <version>3.4.0</version>
+    <groupId>org.apache.doris</groupId>
+    <artifactId>apache-hdfs-broker</artifactId>
+    <version>0.15-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>doris-apache-hdfs-broker</name>
-    <url>https://github.com/apache/incubator-doris</url>
+    <name>Doris HDFS Broker</name>
+    <url>https://doris.apache.org/</url>
+    <licenses>
+        <license>
+            <name>Apache 2.0 License</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <scm>
+        <connection>scm:git:git@github.com:apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:git@github.com:apache/incubator-doris.git</developerConnection>
+        <url>scm:git:git@github.com:apache/incubator-doris.git</url>
+        <tag>HEAD</tag>
+    </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/apache/incubator-doris/issues</url>
+    </issueManagement>
 
+    <mailingLists>
+        <mailingList>
+            <name>Dev Mailing List</name>
+            <post>dev@doris.apache.org</post>
+            <subscribe>dev-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+
+        <mailingList>
+            <name>Commits Mailing List</name>
+            <post>commits@doris.apache.org</post>
+            <subscribe>commits-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+    </mailingLists>
     <properties>
         <palo.home>${basedir}/../../</palo.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
