@@ -133,7 +133,7 @@ abstract public class ScanNode extends PlanNode {
                 columnFilters.put(column.getName(), keyFilter);
             }
 
-            if (analyzer.getContext().getSessionVariable().getPartitionPruneAlgorithmVersion() == 2) {
+            if (analyzer.partitionPruneV2Enabled()) {
                 ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
                 if (columnRange != null) {
                     columnNameToRange.put(column.getName(), columnRange);
