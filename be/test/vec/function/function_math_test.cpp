@@ -296,7 +296,7 @@ TEST(MathFunctionTest, negative_test) {
     {
         std::vector<std::any> input_types = {vectorized::TypeIndex::Float64};
 
-        DataSet data_set = {{{0.0123}, -0.0123}, {{90.45}, -90.45}, {{0.0}, 0.0}, {{-60.0}, -60.0}};
+        DataSet data_set = {{{0.0123}, -0.0123}, {{90.45}, -90.45}, {{0.0}, 0.0}, {{-60.0}, 60.0}};
 
         vectorized::check_function<vectorized::DataTypeFloat64, true>(func_name, input_types,
                                                                       data_set);

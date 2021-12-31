@@ -84,6 +84,7 @@ Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             _sorted_blocks[0].skip_num_rows(_offset);
         }
         block->swap(_sorted_blocks[0]);
+        *eos = true;
     } else {
         RETURN_IF_ERROR(merge_sort_read(state, block, eos));
     }
