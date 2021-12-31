@@ -50,7 +50,7 @@ public:
     static doris_udf::IntVal abs(doris_udf::FunctionContext*, const doris_udf::SmallIntVal&);
     static doris_udf::SmallIntVal abs(doris_udf::FunctionContext*, const doris_udf::TinyIntVal&);
 
-    static doris_udf::FloatVal sign(doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
+    static doris_udf::TinyIntVal sign(doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
 
     static doris_udf::DoubleVal sin(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
     static doris_udf::DoubleVal asin(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);

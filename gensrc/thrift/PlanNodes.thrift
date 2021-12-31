@@ -390,6 +390,10 @@ struct THashJoinNode {
   // If true, this join node can (but may choose not to) generate slot filters
   // after constructing the build side that can be applied to the probe side.
   4: optional bool add_probe_filters
+
+  // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
+  // equi-join predicate, only use in vec exec engine
+  5: optional Exprs.TExpr vother_join_conjunct	
 }
 
 struct TMergeJoinNode {
@@ -780,6 +784,7 @@ struct TPlanNode {
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
 
+  // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct
 
   41: optional TTableFunctionNode table_function_node

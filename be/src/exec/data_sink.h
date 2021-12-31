@@ -33,10 +33,12 @@ class ObjectPool;
 class RowBatch;
 class RuntimeProfile;
 class RuntimeState;
-class TPlanExecRequest;
-class TPlanExecParams;
 class TPlanFragmentExecParams;
 class RowDescriptor;
+
+namespace vectorized {
+class Block;
+}
 
 // Superclass of all data sinks.
 class DataSink {
@@ -56,8 +58,11 @@ public:
     // Send a row batch into this sink.
     // eos should be true when the last batch is passed to send()
     virtual Status send(RuntimeState* state, RowBatch* batch) = 0;
-    // virtual Status send(RuntimeState* state, RowBatch* batch, bool eos) = 0;
 
+    // Send a Block into this sink.
+    virtual Status send(RuntimeState* state, vectorized::Block* block) {
+        return Status::NotSupported("Not support send block");
+    };
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should

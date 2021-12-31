@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "exec/es_http_scanner.h"
+#include "vec/exec/ves_http_scanner.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
@@ -56,7 +57,6 @@ protected:
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
-private:
     // Update process status to one failed status,
     // NOTE: Must hold the mutex of this scan node
     bool update_status(const Status& new_status) {
@@ -67,20 +67,8 @@ private:
         return false;
     }
 
-    // Create scanners to do scan job
-    Status start_scanners();
-
-    // Collect all scanners 's status
-    Status collect_scanners_status();
-
     // One scanner worker, This scanner will handle 'length' ranges start from start_idx
-    void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
-
-    // Scan one range
-    Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
-                        const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
-
-    Status build_conjuncts_list();
+    virtual void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
 
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
@@ -92,20 +80,41 @@ private:
     int _max_buffered_batches;
     RuntimeProfile::Counter* _wait_scanner_timer;
 
-    bool _all_scanners_finished;
     Status _process_status;
+
+    std::map<std::string, std::string> _docvalue_context;
+
+    std::condition_variable _queue_reader_cond;
+    std::condition_variable _queue_writer_cond;
+    bool _vectorized = false;
+
+private:
+    // Create scanners to do scan job
+    Status start_scanners();
+
+    // Collect all scanners 's status
+    Status collect_scanners_status();
+
+    // Scan one range
+    Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
+                        const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
+
+    virtual Status scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
+            return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
+    };
+
+    Status build_conjuncts_list();
+
+    bool _all_scanners_finished;
 
     std::vector<std::thread> _scanner_threads;
     std::vector<std::promise<Status>> _scanners_status;
     std::map<std::string, std::string> _properties;
-    std::map<std::string, std::string> _docvalue_context;
     std::map<std::string, std::string> _fields_context;
     std::vector<TScanRangeParams> _scan_ranges;
     std::vector<std::string> _column_names;
 
     std::mutex _batch_queue_lock;
-    std::condition_variable _queue_reader_cond;
-    std::condition_variable _queue_writer_cond;
     std::deque<std::shared_ptr<RowBatch>> _batch_queue;
     std::vector<EsPredicate*> _predicates;
 
