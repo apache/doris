@@ -692,6 +692,7 @@ module.exports = [
       "pull-request",
       "release-process",
       "verify-apache-release",
+      "security",
     ],
   },
 ];
