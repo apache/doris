@@ -143,15 +143,17 @@ public class CreateMaterializedViewStmtTest {
             Assert.fail();
         } catch (AnalysisException e) {
             Assert.assertTrue(
-                    e.getMessage().contains("Materialized view does not support distinct function"));
+                    e.getMessage().contains("The function count must match pattern:count(column)"));
             System.out.print(e.getMessage());
         }
     }
 
     @Test
     public void testAggregateWithFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr,
-                                                              @Injectable SelectStmt selectStmt) throws UserException {
+                                                              @Injectable SelectStmt selectStmt,
+                                                              @Injectable AggregateFunction aggregateFunction) throws UserException {
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", Lists.newArrayList(arithmeticExpr));
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectList selectList = new SelectList();
         SelectListItem selectListItem = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem);
@@ -324,7 +326,8 @@ public class CreateMaterializedViewStmtTest {
                                            @Injectable TableRef tableRef,
                                            @Injectable SelectStmt selectStmt,
                                            @Injectable Column column2,
-                                           @Injectable SlotDescriptor slotDescriptor) throws UserException {
+                                           @Injectable SlotDescriptor slotDescriptor,
+                                           @Injectable AggregateFunction aggregateFunction) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -333,6 +336,7 @@ public class CreateMaterializedViewStmtTest {
         Deencapsulation.setField(slotRef2, "desc", slotDescriptor);
         List<Expr> fnChildren = Lists.newArrayList(slotRef2);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fnChildren);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem2);
         OrderByElement orderByElement1 = new OrderByElement(functionCallExpr, false, false);
@@ -372,7 +376,7 @@ public class CreateMaterializedViewStmtTest {
     }
 
     @Test
-    public void testDuplicateColumn(@Injectable SelectStmt selectStmt) throws UserException {
+    public void testDuplicateColumn(@Injectable SelectStmt selectStmt, @Injectable AggregateFunction aggregateFunction) throws UserException {
         SelectList selectList = new SelectList();
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "k1");
@@ -380,6 +384,7 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem1);
         List<Expr> fnChildren = Lists.newArrayList(slotRef1);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fnChildren);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem2);
 
@@ -405,7 +410,8 @@ public class CreateMaterializedViewStmtTest {
     public void testDuplicateColumn1(@Injectable SlotRef slotRef1,
                                      @Injectable SelectStmt selectStmt,
                                      @Injectable Column column2,
-                                     @Injectable SlotDescriptor slotDescriptor) throws UserException {
+                                     @Injectable SlotDescriptor slotDescriptor,
+                                     @Injectable AggregateFunction aggregateFunction) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -414,9 +420,11 @@ public class CreateMaterializedViewStmtTest {
         Deencapsulation.setField(slotRef2, "desc", slotDescriptor);
         List<Expr> fn1Children = Lists.newArrayList(slotRef2);
         FunctionCallExpr functionCallExpr1 = new FunctionCallExpr("sum", fn1Children);
+        Deencapsulation.setField(functionCallExpr1, "fn", aggregateFunction);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr1, null);
         selectList.addItem(selectListItem2);
         FunctionCallExpr functionCallExpr2 = new FunctionCallExpr("max", fn1Children);
+        Deencapsulation.setField(functionCallExpr2, "fn", aggregateFunction);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr2, null);
         selectList.addItem(selectListItem3);
 
@@ -450,7 +458,8 @@ public class CreateMaterializedViewStmtTest {
                                                          @Injectable TableRef tableRef,
                                                          @Injectable SelectStmt selectStmt,
                                                          @Injectable Column column3,
-                                                         @Injectable SlotDescriptor slotDescriptor) throws UserException {
+                                                         @Injectable SlotDescriptor slotDescriptor,
+                                                         @Injectable AggregateFunction aggregateFunction) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -461,6 +470,7 @@ public class CreateMaterializedViewStmtTest {
         Deencapsulation.setField(functionChild0, "desc", slotDescriptor);
         List<Expr> fn1Children = Lists.newArrayList(functionChild0);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fn1Children);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem3);
         OrderByElement orderByElement1 = new OrderByElement(slotRef1, false, false);
@@ -509,7 +519,8 @@ public class CreateMaterializedViewStmtTest {
                                             @Injectable SelectStmt selectStmt,
                                             @Injectable AggregateInfo aggregateInfo,
                                             @Injectable Column column5,
-                                            @Injectable SlotDescriptor slotDescriptor) throws UserException {
+                                            @Injectable SlotDescriptor slotDescriptor,
+                                            @Injectable AggregateFunction aggregateFunction) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -525,6 +536,7 @@ public class CreateMaterializedViewStmtTest {
         Deencapsulation.setField(functionChild0, "desc", slotDescriptor);
         List<Expr> fn1Children = Lists.newArrayList(functionChild0);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fn1Children);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectListItem selectListItem5 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem5);
         final String columnName1 = "k1";
@@ -1007,7 +1019,8 @@ public class CreateMaterializedViewStmtTest {
                               @Injectable SelectStmt selectStmt,
                               @Injectable AggregateInfo aggregateInfo,
                               @Injectable Column column1,
-                              @Injectable SlotDescriptor slotDescriptor) throws UserException {
+                              @Injectable SlotDescriptor slotDescriptor,
+                              @Injectable AggregateFunction aggregateFunction) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -1019,6 +1032,7 @@ public class CreateMaterializedViewStmtTest {
         Deencapsulation.setField(slotRef, "desc", slotDescriptor);
         List<Expr> children = Lists.newArrayList(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", children);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem3);
         OrderByElement orderByElement1 = new OrderByElement(slotRef1, false, false);
