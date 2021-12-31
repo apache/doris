@@ -316,4 +316,27 @@ One situation is OVERCROWDED, which means that a large amount of unsent data at 
 
 The second is that the packet size of rpc exceeds `max_body_size`. This problem may occur if the query contains a very large String type or a Bitmap type. It can be circumvented by modifying the following BE parameters:
 
-1. `brpc_max_body_size`: The default is 3GB, if necessary, it can be modified to 3GB (in bytes).
+1. `brpc_max_body_size`: The default is 3GB.
+
+### Q22.  The query results of unique key model are inconsistent
+
+In some cases, when users use the same SQL to query a table of a unique key model, inconsistent query results may occur. And the query results always change between 2-3 kinds.
+
+This may be because there are data with the same key but different values in the same batch of imported data, which will lead to inconsistent results between different replicas due to uncertain data replace order.
+
+For example, tables are defined as k1 and v1. A batch of imported data is as follows:
+
+```
+1, "abc"
+1, "def"
+```
+
+Then the result of replica 1 may be '1, "ABC', while the result of replica 2 may be '1," def'. This leads to inconsistent query results.
+
+To ensure the unique data order between different replicas, refer to the  [Sequence Column](../administrator-guide/load-data/sequence-column-manual.md) function.
+
+### Q23. `recoveryTracker should overlap or follow on disk last VLSN of 4,422,880 recoveryFirst= 4,422,882 UNEXPECTED_STATE_FATAL`
+
+Sometimes when restarting the Fe, the above error will occur (usually only in the case of multiple followers), and the difference between the two values in the error is 2. As a result, the Fe startup fails.
+
+This is a bug in bdbje that has not been resolved. In this case, metadata can only be recovered through fault recovery in [metadata operation and maintenance manual](../administrator-guide/operation/metadata-operation.md).
