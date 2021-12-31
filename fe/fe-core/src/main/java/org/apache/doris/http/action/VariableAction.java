@@ -17,7 +17,7 @@
 
 package org.apache.doris.http.action;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.common.Config;
 import org.apache.doris.http.ActionController;
@@ -28,7 +28,6 @@ import org.apache.doris.qe.VariableMgr;
 
 import io.netty.handler.codec.http.HttpMethod;
 
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
