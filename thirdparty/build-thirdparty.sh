@@ -82,7 +82,9 @@ echo "Get params:
 
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/env.sh ]]; then
+    export BUILD_THIRDPARTY_WIP=1
     . ${DORIS_HOME}/env.sh
+    export BUILD_THIRDPARTY_WIP=
 fi
 
 if [[ ! -f ${TP_DIR}/download-thirdparty.sh ]]; then
@@ -226,7 +228,7 @@ build_openssl() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     LIBDIR="lib" \
-    ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared ${OPENSSL_PLATFORM}
+    ./Configure --prefix=$TP_INSTALL_DIR --with-rand-seed=devrandom -zlib -shared ${OPENSSL_PLATFORM}
     make -j $PARALLEL && make install_sw
     # NOTE(zc): remove this dynamic library files to make libcurl static link.
     # If I don't remove this files, I don't known how to make libcurl link static library
@@ -265,7 +267,7 @@ build_protobuf() {
     rm -fr gmock
     mkdir gmock && cd gmock && tar xf ${TP_SOURCE_DIR}/${GTEST_NAME} \
     && mv ${GTEST_SOURCE} gtest && cd $TP_SOURCE_DIR/$PROTOBUF_SOURCE && ./autogen.sh
-    CXXFLAGS="-fPIC -O2 -I ${TP_INCLUDE_DIR}" \
+    CXXFLAGS="-fPIC -O2 -I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
     cd src
@@ -879,7 +881,9 @@ build_xml2() {
     sh autogen.sh
     make distclean
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic --with-python=no
+    CPPLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic --with-python=no --with-lzma=$TP_INSTALL_DIR
     make -j $PARALLEL && make install
 }
 
