@@ -174,7 +174,6 @@ TEST_F(RuntimeFilterTest, runtime_filter_basic_test) {
 }
 
 TEST_F(RuntimeFilterTest, runtime_filter_merge_in_filter_test) {
-    // size_t prob_index = 0;
     SlotRef* expr = _obj_pool.add(new SlotRef(TYPE_INT, 0));
     ExprContext* prob_expr_ctx = _obj_pool.add(new ExprContext(expr));
     ExprContext* build_expr_ctx = _obj_pool.add(new ExprContext(expr));
@@ -223,7 +222,6 @@ TEST_F(RuntimeFilterTest, runtime_filter_merge_in_filter_test) {
 }
 
 TEST_F(RuntimeFilterTest, runtime_filter_ignore_in_filter_test) {
-    // size_t prob_index = 0;
     SlotRef* expr = _obj_pool.add(new SlotRef(TYPE_INT, 0));
     ExprContext* prob_expr_ctx = _obj_pool.add(new ExprContext(expr));
     ExprContext* build_expr_ctx = _obj_pool.add(new ExprContext(expr));
@@ -260,6 +258,267 @@ TEST_F(RuntimeFilterTest, runtime_filter_ignore_in_filter_test) {
     for (TupleRow& row : *rows2) {
         for (ExprContext* ctx : expr_context_list) {
             ASSERT_FALSE(ctx->get_boolean_val(&row).val);
+        }
+    }
+
+    // test null
+    for (ExprContext* ctx : expr_context_list) {
+        TupleRow row;
+        row._tuples[0] = nullptr;
+        ASSERT_FALSE(ctx->get_boolean_val(&row).val);
+    }
+}
+
+TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_in_merge_in_test) {
+    SlotRef* expr = _obj_pool.add(new SlotRef(TYPE_INT, 0));
+    ExprContext* prob_expr_ctx = _obj_pool.add(new ExprContext(expr));
+    ExprContext* build_expr_ctx = _obj_pool.add(new ExprContext(expr));
+
+    TQueryOptions options;
+    options.runtime_filter_max_in_num = 3;
+
+    auto rows1 = create_rows(&_obj_pool, 1, 1);
+    auto rows2 = create_rows(&_obj_pool, 2, 2);
+
+    IRuntimeFilter* runtime_filter =
+            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter, build_expr_ctx, rows1);
+    ASSERT_FALSE(runtime_filter->is_bloomfilter());
+
+    IRuntimeFilter* runtime_filter2 =
+            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter2, build_expr_ctx, rows2);
+    ASSERT_FALSE(runtime_filter2->is_bloomfilter());
+
+    Status status = runtime_filter->merge_from(runtime_filter2->get_wrapper());
+    ASSERT_TRUE(status.ok());
+    ASSERT_FALSE(runtime_filter->is_ignored());
+    ASSERT_FALSE(runtime_filter->is_bloomfilter());
+
+    // get expr context from filter
+
+    std::list<ExprContext*> expr_context_list;
+    ASSERT_TRUE(runtime_filter->get_push_expr_ctxs(&expr_context_list, prob_expr_ctx).ok());
+    ASSERT_FALSE(expr_context_list.empty());
+
+    for (TupleRow& row : *rows1) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+    for (TupleRow& row : *rows2) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+
+    // test null
+    for (ExprContext* ctx : expr_context_list) {
+        TupleRow row;
+        row._tuples[0] = nullptr;
+        ASSERT_FALSE(ctx->get_boolean_val(&row).val);
+    }
+}
+
+TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_in_merge_in_upgrade_test) {
+    SlotRef* expr = _obj_pool.add(new SlotRef(TYPE_INT, 0));
+    ExprContext* prob_expr_ctx = _obj_pool.add(new ExprContext(expr));
+    ExprContext* build_expr_ctx = _obj_pool.add(new ExprContext(expr));
+
+    TQueryOptions options;
+    options.runtime_filter_max_in_num = 2;
+
+    auto rows1 = create_rows(&_obj_pool, 1, 1);
+    auto rows2 = create_rows(&_obj_pool, 2, 2);
+
+    IRuntimeFilter* runtime_filter =
+            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter, build_expr_ctx, rows1);
+    ASSERT_FALSE(runtime_filter->is_bloomfilter());
+
+    IRuntimeFilter* runtime_filter2 =
+            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter2, build_expr_ctx, rows2);
+    ASSERT_FALSE(runtime_filter2->is_bloomfilter());
+
+    Status status = runtime_filter->merge_from(runtime_filter2->get_wrapper());
+    ASSERT_TRUE(status.ok());
+    ASSERT_FALSE(runtime_filter->is_ignored());
+    ASSERT_TRUE(runtime_filter->is_bloomfilter());
+
+    // get expr context from filter
+
+    std::list<ExprContext*> expr_context_list;
+    ASSERT_TRUE(runtime_filter->get_push_expr_ctxs(&expr_context_list, prob_expr_ctx).ok());
+    ASSERT_FALSE(expr_context_list.empty());
+
+    for (TupleRow& row : *rows1) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+    for (TupleRow& row : *rows2) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+
+    // test null
+    for (ExprContext* ctx : expr_context_list) {
+        TupleRow row;
+        row._tuples[0] = nullptr;
+        ASSERT_FALSE(ctx->get_boolean_val(&row).val);
+    }
+}
+
+TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_in_merge_bloom_filter_upgrade_test) {
+    SlotRef* expr = _obj_pool.add(new SlotRef(TYPE_INT, 0));
+    ExprContext* prob_expr_ctx = _obj_pool.add(new ExprContext(expr));
+    ExprContext* build_expr_ctx = _obj_pool.add(new ExprContext(expr));
+
+    TQueryOptions options;
+    options.runtime_filter_max_in_num = 100;
+
+    auto rows1 = create_rows(&_obj_pool, 1, 1);
+    auto rows2 = create_rows(&_obj_pool, 2, 2);
+
+    IRuntimeFilter* runtime_filter =
+            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter, build_expr_ctx, rows1);
+    ASSERT_FALSE(runtime_filter->is_bloomfilter());
+
+    IRuntimeFilter* runtime_filter2 =
+            create_runtime_filter(TRuntimeFilterType::BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter2, build_expr_ctx, rows2);
+    ASSERT_TRUE(runtime_filter2->is_bloomfilter());
+
+    Status status = runtime_filter->merge_from(runtime_filter2->get_wrapper());
+    ASSERT_TRUE(status.ok());
+    ASSERT_FALSE(runtime_filter->is_ignored());
+    ASSERT_TRUE(runtime_filter->is_bloomfilter());
+
+    // get expr context from filter
+
+    std::list<ExprContext*> expr_context_list;
+    ASSERT_TRUE(runtime_filter->get_push_expr_ctxs(&expr_context_list, prob_expr_ctx).ok());
+    ASSERT_FALSE(expr_context_list.empty());
+
+    for (TupleRow& row : *rows1) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+    for (TupleRow& row : *rows2) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+
+    // test null
+    for (ExprContext* ctx : expr_context_list) {
+        TupleRow row;
+        row._tuples[0] = nullptr;
+        ASSERT_FALSE(ctx->get_boolean_val(&row).val);
+    }
+}
+
+TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_bloom_filter_merge_in_test) {
+    SlotRef* expr = _obj_pool.add(new SlotRef(TYPE_INT, 0));
+    ExprContext* prob_expr_ctx = _obj_pool.add(new ExprContext(expr));
+    ExprContext* build_expr_ctx = _obj_pool.add(new ExprContext(expr));
+
+    TQueryOptions options;
+    options.runtime_filter_max_in_num = 3;
+
+    auto rows1 = create_rows(&_obj_pool, 1, 3);
+    auto rows2 = create_rows(&_obj_pool, 4, 4);
+
+    IRuntimeFilter* runtime_filter =
+            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter, build_expr_ctx, rows1);
+    ASSERT_FALSE(runtime_filter->is_bloomfilter());
+    runtime_filter->change_to_bloom_filter();
+    ASSERT_TRUE(runtime_filter->is_bloomfilter());
+
+    IRuntimeFilter* runtime_filter2 =
+            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter2, build_expr_ctx, rows2);
+    ASSERT_FALSE(runtime_filter2->is_bloomfilter());
+
+    Status status = runtime_filter->merge_from(runtime_filter2->get_wrapper());
+    ASSERT_TRUE(status.ok());
+    ASSERT_FALSE(runtime_filter->is_ignored());
+    ASSERT_TRUE(runtime_filter->is_bloomfilter());
+
+    // get expr context from filter
+
+    std::list<ExprContext*> expr_context_list;
+    ASSERT_TRUE(runtime_filter->get_push_expr_ctxs(&expr_context_list, prob_expr_ctx).ok());
+    ASSERT_FALSE(expr_context_list.empty());
+
+    for (TupleRow& row : *rows1) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+    for (TupleRow& row : *rows2) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+
+    // test null
+    for (ExprContext* ctx : expr_context_list) {
+        TupleRow row;
+        row._tuples[0] = nullptr;
+        ASSERT_FALSE(ctx->get_boolean_val(&row).val);
+    }
+}
+
+TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_bloom_filter_merge_bloom_filter_test) {
+    SlotRef* expr = _obj_pool.add(new SlotRef(TYPE_INT, 0));
+    ExprContext* prob_expr_ctx = _obj_pool.add(new ExprContext(expr));
+    ExprContext* build_expr_ctx = _obj_pool.add(new ExprContext(expr));
+
+    TQueryOptions options;
+    options.runtime_filter_max_in_num = 3;
+
+    auto rows1 = create_rows(&_obj_pool, 1, 3);
+    auto rows2 = create_rows(&_obj_pool, 4, 6);
+
+    IRuntimeFilter* runtime_filter =
+            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter, build_expr_ctx, rows1);
+    ASSERT_FALSE(runtime_filter->is_bloomfilter());
+    runtime_filter->change_to_bloom_filter();
+    ASSERT_TRUE(runtime_filter->is_bloomfilter());
+
+    IRuntimeFilter* runtime_filter2 =
+            create_runtime_filter(TRuntimeFilterType::BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    insert(runtime_filter2, build_expr_ctx, rows2);
+    ASSERT_TRUE(runtime_filter2->is_bloomfilter());
+
+    Status status = runtime_filter->merge_from(runtime_filter2->get_wrapper());
+    ASSERT_TRUE(status.ok());
+    ASSERT_FALSE(runtime_filter->is_ignored());
+    ASSERT_TRUE(runtime_filter->is_bloomfilter());
+//    ASSERT_TRUE(runtime_filter->get_profile()->get_info_string("RealRuntimeFilterType") ==
+//                        ::doris::to_string(doris::RuntimeFilterType::BLOOM_FILTER);
+
+    // get expr context from filter
+
+    std::list<ExprContext*> expr_context_list;
+    ASSERT_TRUE(runtime_filter->get_push_expr_ctxs(&expr_context_list, prob_expr_ctx).ok());
+    ASSERT_FALSE(expr_context_list.empty());
+
+    for (TupleRow& row : *rows1) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
+        }
+    }
+    for (TupleRow& row : *rows2) {
+        for (ExprContext* ctx : expr_context_list) {
+            ASSERT_TRUE(ctx->get_boolean_val(&row).val);
         }
     }
 
