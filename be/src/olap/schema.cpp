@@ -103,4 +103,48 @@ Schema::~Schema() {
     }
 }
 
+vectorized::DataTypePtr Schema::get_data_type_ptr(FieldType type) {
+    switch (type) {
+        case OLAP_FIELD_TYPE_TINYINT:
+            return std::make_shared<vectorized::DataTypeInt8>();
+
+        case OLAP_FIELD_TYPE_SMALLINT:
+            return std::make_shared<vectorized::DataTypeInt16>();
+
+        case OLAP_FIELD_TYPE_INT:
+            return std::make_shared<vectorized::DataTypeInt32>();
+
+        case OLAP_FIELD_TYPE_FLOAT:
+            return std::make_shared<vectorized::DataTypeFloat32>();
+
+        case OLAP_FIELD_TYPE_BIGINT:
+            return std::make_shared<vectorized::DataTypeInt64>();
+
+        case OLAP_FIELD_TYPE_LARGEINT:
+            return std::make_shared<vectorized::DataTypeInt128>();
+
+        case OLAP_FIELD_TYPE_DATE:
+            return std::make_shared<vectorized::DataTypeDate>();
+
+        case OLAP_FIELD_TYPE_DATETIME:
+            return std::make_shared<vectorized::DataTypeDateTime>();
+
+        case OLAP_FIELD_TYPE_DOUBLE:
+            return std::make_shared<vectorized::DataTypeFloat64>();
+
+        case OLAP_FIELD_TYPE_CHAR:
+        case OLAP_FIELD_TYPE_VARCHAR:
+        case OLAP_FIELD_TYPE_HLL:
+            return std::make_shared<vectorized::DataTypeString>();
+
+        case OLAP_FIELD_TYPE_DECIMAL:
+            return std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+
+        default:
+            DCHECK(false);
+    }
+    // For llvm complain
+    return nullptr;
+}
+
 } // namespace doris

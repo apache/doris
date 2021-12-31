@@ -43,6 +43,7 @@ class TupleRow;
 class TupleDescriptor;
 class PRowBatch;
 
+
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller
 // can add rows up to that capacity.
@@ -315,7 +316,7 @@ public:
     // we firstly update dest resource, and then reset current resource
     void transfer_resource_ownership(RowBatch* dest);
 
-    void copy_row(const TupleRow* src, TupleRow* dest) const {
+    void copy_row(TupleRow* src, TupleRow* dest) {
         memcpy(dest, src, _num_tuples_per_row * sizeof(Tuple*));
     }
 
@@ -361,6 +362,8 @@ public:
     // Utility function: returns total size of batch.
     static size_t get_batch_size(const TRowBatch& batch);
     static size_t get_batch_size(const PRowBatch& batch);
+
+    vectorized::Block convert_to_vec_block() const;
 
     int num_rows() const { return _num_rows; }
     int capacity() const { return _capacity; }

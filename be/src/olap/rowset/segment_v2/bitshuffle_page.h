@@ -348,6 +348,53 @@ public:
         return Status::OK();
     }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+            *n = 0;
+            return Status::OK();
+        }
+ 
+        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
+ 
+        int begin = _cur_index;
+        int end = _cur_index + max_fetch;
+ 
+        // todo(wb) Try to eliminate type judgment in pagedecoder
+        if (dst->is_column_decimal()) { // decimal non-predicate column
+            for (; begin < end; begin++) {
+                const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
+                int64_t int_value = *(int64_t*)(cur_ptr);
+                int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
+                DecimalV2Value data(int_value, frac_value);
+                dst->insert_data(reinterpret_cast<char*>(&data), 0);
+            }
+        } else if (dst->is_date_type()) {
+            for (; begin < end; begin++) {
+                const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
+                uint64_t value = 0;
+                value = *(unsigned char*)(cur_ptr + 2);
+                value <<= 8;
+                value |= *(unsigned char*)(cur_ptr + 1);
+                value <<= 8;
+                value |= *(unsigned char*)(cur_ptr);
+                DateTimeValue date;
+                date.from_olap_date(value);
+                dst->insert_data(reinterpret_cast<char*>(&date), 0);
+            }
+        } else {
+            // todo(wb) need performance test here, may be batch memory copy?
+            for (; begin < end; begin++) {
+                dst->insert_data((const char*)&_chunk.data[begin * SIZE_OF_TYPE], 0);
+            }
+        }
+
+        *n = max_fetch;
+        _cur_index += max_fetch;
+ 
+        return Status::OK();
+    };
+
     Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
         return next_batch<false>(n, dst);
     }
@@ -393,6 +440,7 @@ private:
     int _size_of_element;
     size_t _cur_index;
     Chunk _chunk;
+    friend class BinaryDictPageDecoder;
 };
 
 } // namespace segment_v2

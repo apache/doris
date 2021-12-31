@@ -66,7 +66,7 @@ public:
         return stub;
     }
 
-    inline std::shared_ptr<PBackendService_Stub> get_stub(const TNetworkAddress& taddr) {
+    virtual std::shared_ptr<PBackendService_Stub> get_stub(const TNetworkAddress& taddr) {
         butil::EndPoint endpoint;
         if (str2endpoint(taddr.hostname.c_str(), taddr.port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << taddr.hostname

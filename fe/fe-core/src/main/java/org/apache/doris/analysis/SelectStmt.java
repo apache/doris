@@ -511,6 +511,11 @@ public class SelectStmt extends QueryStmt {
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
 
+        // Change all outer join tuple to null here after analyze where and from clause
+        // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
+        // the solt desc nullable mark must be corrected to make sure BE exec query right.
+        analyzer.changeAllOuterJoinTupleToNull();
+
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {

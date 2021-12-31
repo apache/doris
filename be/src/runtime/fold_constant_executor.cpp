@@ -28,6 +28,9 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
 #include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
@@ -96,6 +99,66 @@ Status FoldConstantExecutor::fold_constant_expr(
     return Status::OK();
 }
 
+Status FoldConstantExecutor::fold_constant_vexpr(
+        const TFoldConstantParams& params, PConstantExprResult* response) {
+    const auto& expr_map = params.expr_map;
+    auto expr_result_map = response->mutable_expr_result_map();
+
+    TQueryGlobals query_globals = params.query_globals;
+    // init
+    Status status = _init(query_globals);
+    if (UNLIKELY(!status.ok())) {
+        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
+        return status;
+    }
+
+    for (const auto& m : expr_map) {
+        PExprResultMap pexpr_result_map;
+        for (const auto& n : m.second) {
+            vectorized::VExprContext* ctx = nullptr;
+            const TExpr& texpr = n.second;
+            // create expr tree from TExpr
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_pool, texpr, &ctx));
+            // prepare and open context
+            status = _prepare_and_open(ctx);
+            if (UNLIKELY(!status.ok())) {
+                LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
+                return status;
+            }
+
+            vectorized::Block tmp_block;
+            int result_column = -1;
+            // calc vexpr
+            ctx->execute(&tmp_block, &result_column);
+            DCHECK(result_column != -1);
+            PrimitiveType root_type = ctx->root()->type().type;
+            // covert to thrift type
+            TPrimitiveType::type t_type = doris::to_thrift(root_type);
+
+            // collect result
+            PExprResult expr_result;
+            string result;
+            const auto& column_ptr = tmp_block.get_by_position(result_column).column;
+            if (column_ptr->is_nullable() && column_ptr->is_null_at(0)) {
+                expr_result.set_success(false);
+            } else {
+                expr_result.set_success(true);
+                result = _get_result<true>((void *) column_ptr->get_data_at(0).data, ctx->root()->type().type);
+            }
+
+            expr_result.set_content(std::move(result));
+            expr_result.mutable_type()->set_type(t_type);
+            pexpr_result_map.mutable_map()->insert({n.first, expr_result});
+
+            // close context expr
+            ctx->close(_runtime_state.get());
+        }
+        expr_result_map->insert({m.first, pexpr_result_map});
+    }
+
+    return Status::OK();
+}
+
 Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
     // init runtime state, runtime profile
     TPlanFragmentExecParams params;
@@ -128,11 +191,13 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
     return Status::OK();
 }
 
-Status FoldConstantExecutor::_prepare_and_open(ExprContext* ctx) {
+template <typename Context>
+Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
     ctx->prepare(_runtime_state.get(), RowDescriptor(), _mem_tracker);
     return ctx->open(_runtime_state.get());
 }
 
+template <bool is_vec>
 string FoldConstantExecutor::_get_result(void* src, PrimitiveType slot_type){
     switch (slot_type) {
     case TYPE_BOOLEAN: {
@@ -176,10 +241,17 @@ string FoldConstantExecutor::_get_result(void* src, PrimitiveType slot_type){
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        const DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(src);
-        char str[MAX_DTVALUE_STR_LEN];
-        date_value.to_string(str);
-        return str;
+        if constexpr (is_vec) {
+            auto date_value = reinterpret_cast<vectorized::VecDateTimeValue*>(src);
+            char str[MAX_DTVALUE_STR_LEN];
+            date_value->to_string(str);
+            return str;
+        } else {
+            const DateTimeValue date_value = *reinterpret_cast<DateTimeValue *>(src);
+            char str[MAX_DTVALUE_STR_LEN];
+            date_value.to_string(str);
+            return str;
+        }
     }
     case TYPE_DECIMALV2: {
         return reinterpret_cast<DecimalV2Value*>(src)->to_string();

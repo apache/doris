@@ -33,6 +33,8 @@
 #include "util/runtime_profile.h"
 #include "util/uid_util.h" // for print_id
 
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
 class Expr;
 class ExprContext;
@@ -219,6 +221,15 @@ protected:
     /// fails.
     Status release_unused_reservation();
 
+    /// Release all memory of block which got from child. The block
+    // 1. clear mem of valid column get from child, make sure child can reuse the mem
+    // 2. delete and release the column which create by function all and other reason
+    void release_block_memory(vectorized::Block& block, uint16_t child_idx = 0);
+
+    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
+    // and add block rows for profile
+    void reached_limit(vectorized::Block* block, bool* eos);
+
     /// Enable the increase reservation denial probability on 'buffer_pool_client_' based on
     /// the 'debug_action_' set on this node. Returns an error if 'debug_action_param_' is
     /// invalid.
@@ -274,6 +285,8 @@ protected:
     std::vector<Expr*> _conjuncts;
     std::vector<ExprContext*> _conjunct_ctxs;
     std::vector<TupleId> _tuple_ids;
+
+    std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
 
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;

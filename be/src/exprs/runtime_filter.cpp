@@ -373,6 +373,35 @@ public:
             break;
         }
     }
+    void insert(const StringRef& value) {
+        switch (_column_return_type) {
+        case TYPE_DATE:
+        case TYPE_DATETIME: {
+            // DateTime->DateTimeValue
+            vectorized::DateTime date_time =*reinterpret_cast<const vectorized::DateTime*>(value.data);
+            vectorized::VecDateTimeValue vec_date_time_value = binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(date_time);
+            doris::DateTimeValue date_time_value;
+            vec_date_time_value.convert_vec_dt_to_dt(&date_time_value);
+            insert(reinterpret_cast<const void*>(&date_time_value));
+            break;
+        }
+
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_HLL:
+        case TYPE_OBJECT:
+        case TYPE_STRING: {
+            // StringRef->StringValue
+            StringValue data = StringValue(const_cast<char*>(value.data), value.size);
+            insert(reinterpret_cast<const void*>(&data));
+            break;
+        }
+
+        default:
+            insert(reinterpret_cast<const void*>(value.data));
+            break;
+        }
+    }
 
     template <class T>
     Status get_push_context(T* container, RuntimeState* state, ExprContext* prob_expr) {
@@ -782,6 +811,11 @@ void IRuntimeFilter::insert(const void* data) {
     if (!_is_ignored) {
         _wrapper->insert(data);
     }
+}
+
+void IRuntimeFilter::insert(const StringRef& value) {
+    DCHECK(is_producer());
+    _wrapper->insert(value);
 }
 
 Status IRuntimeFilter::publish() {
