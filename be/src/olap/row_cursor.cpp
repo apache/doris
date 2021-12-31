@@ -28,19 +28,6 @@ using std::string;
 using std::vector;
 
 namespace doris {
-RowCursor::RowCursor()
-        : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
-
-RowCursor::~RowCursor() {
-    delete[] _owned_fixed_buf;
-    delete[] _variable_buf;
-    if (_string_field_count > 0 && _long_text_buf != nullptr) {
-        for (int i = 0; i < _string_field_count; ++i) {
-            free(_long_text_buf[i]);
-        }
-        free(_long_text_buf);
-    }
-}
 
 OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
     _variable_len = 0;
@@ -99,7 +86,7 @@ OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema,
     RETURN_NOT_OK(_alloc_buf());
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
-    char** long_text_ptr = _long_text_buf;
+    char** long_text_ptr = (char**)(_variable_buf + _variable_len);
     for (auto cid : _schema->column_ids()) {
         const TabletColumn& column = schema.column(cid);
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
@@ -143,10 +130,8 @@ OLAPStatus RowCursor::init(const TabletSchema& schema, size_t column_count) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    std::vector<uint32_t> columns;
-    for (size_t i = 0; i < column_count; ++i) {
-        columns.push_back(i);
-    }
+    std::vector<uint32_t> columns(column_count);
+    std::iota(columns.begin(), columns.end(), 0);
     RETURN_NOT_OK(_init(schema.columns(), columns));
     return OLAP_SUCCESS;
 }
@@ -159,10 +144,8 @@ OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema, size_t colum
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    std::vector<uint32_t> columns;
-    for (size_t i = 0; i < column_count; ++i) {
-        columns.push_back(i);
-    }
+    std::vector<uint32_t> columns(column_count);
+    std::iota(columns.begin(), columns.end(), 0);
     RETURN_NOT_OK(_init(schema, columns));
     return OLAP_SUCCESS;
 }
@@ -185,7 +168,6 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
 
     std::vector<uint32_t> columns(scan_key_size);
     std::iota(columns.begin(), columns.end(), 0);
-
     RETURN_NOT_OK(_init(schema.columns(), columns));
 
     return _init_scan_key(schema, scan_keys);
@@ -195,12 +177,8 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
                                     const std::vector<std::string>& scan_keys,
                                     const std::shared_ptr<Schema>& shared_schema) {
     size_t scan_key_size = scan_keys.size();
-
-    std::vector<uint32_t> columns;
-    for (size_t i = 0; i < scan_key_size; ++i) {
-        columns.push_back(i);
-    }
-
+    std::vector<uint32_t> columns(scan_key_size);
+    std::iota(columns.begin(), columns.end(), 0);
     RETURN_NOT_OK(_init(shared_schema, columns));
 
     return _init_scan_key(schema, scan_keys);
@@ -218,7 +196,7 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema
     // init slice of char, varchar, hll type
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
-    char** long_text_ptr = _long_text_buf;
+    char** long_text_ptr = (char**)(_variable_buf + _variable_len);
     for (auto cid : _schema->column_ids()) {
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
         if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING) {
@@ -325,25 +303,24 @@ std::string RowCursor::to_string() const {
 }
 OLAPStatus RowCursor::_alloc_buf() {
     // variable_len for null bytes
-    _variable_buf = new (nothrow) char[_variable_len]();
+    size_t len = _variable_len;
+    len += _string_field_count * (sizeof(char*) + DEFAULT_TEXT_LENGTH);
+
+    _variable_buf = new (nothrow) char[len];
     if (_variable_buf == nullptr) {
         OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
         return OLAP_ERR_MALLOC_ERROR;
     }
-    if (_string_field_count > 0) {
-        _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
-        if (_long_text_buf == nullptr) {
-            OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-        for (int i = 0; i < _string_field_count; ++i) {
-            _long_text_buf[i] = (char*)malloc(DEFAULT_TEXT_LENGTH * sizeof(char));
-            if (_long_text_buf[i] == nullptr) {
-                OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
-                return OLAP_ERR_MALLOC_ERROR;
-            }
-        }
+    memset(_variable_buf, 0, _variable_len);
+
+    char** long_text_ptr = (char**)(_variable_buf + _variable_len);
+    char* text_buf = (char*)(long_text_ptr + _string_field_count);
+
+    for (int i = 0; i < _string_field_count; ++i) {
+        long_text_ptr[i] = text_buf;
+        text_buf += DEFAULT_TEXT_LENGTH;
     }
+
     return OLAP_SUCCESS;
 }
 

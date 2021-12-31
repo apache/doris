@@ -36,10 +36,13 @@ class RowCursor {
 public:
     static const int DEFAULT_TEXT_LENGTH = 128;
 
-    RowCursor();
+    RowCursor() = default;
 
     // 遍历销毁field指针
-    ~RowCursor();
+    ~RowCursor() {
+        delete [] _owned_fixed_buf;
+        delete [] _variable_buf;
+    }
 
     // 根据传入schema的创建RowCursor
     OLAPStatus init(const TabletSchema& schema);
@@ -161,13 +164,12 @@ private:
     std::unique_ptr<Schema> _schema;
 
     char* _fixed_buf = nullptr; // point to fixed buf
-    size_t _fixed_len;
+    size_t _fixed_len = 0;
     char* _owned_fixed_buf = nullptr; // point to buf allocated in init function
 
     char* _variable_buf = nullptr;
-    size_t _variable_len;
-    size_t _string_field_count;
-    char** _long_text_buf;
+    size_t _variable_len = 0;
+    size_t _string_field_count = 0;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };
