@@ -50,8 +50,11 @@ public:
     SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema,
                     std::shared_ptr<MemTracker> parent);
     ~SegmentIterator() override;
+
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;
+    Status next_batch(vectorized::Block* block) override;
+
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const { return _segment->id(); }

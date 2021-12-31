@@ -29,6 +29,13 @@
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
 
+#include "vec/core/block.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
@@ -204,7 +211,6 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
 }
 
 Status MysqlResultWriter::_add_one_row(TupleRow* row) {
-    SCOPED_TIMER(_convert_tuple_timer);
     _row_buffer->reset();
     int num_columns = _output_expr_ctxs.size();
     int buf_ret = 0;

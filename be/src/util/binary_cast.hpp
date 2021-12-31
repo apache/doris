@@ -23,7 +23,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "util/types.h"
-
+#include "vec/runtime/vdatetime_value.h"
 namespace doris {
 union TypeConverter {
     uint64_t u64;
@@ -56,6 +56,11 @@ union DateTimeInt128Union {
     ~DateTimeInt128Union() {}
 };
 
+union VecDateTimeInt64Union {
+    doris::vectorized::VecDateTimeValue dt;
+    __int64_t i64;
+    ~VecDateTimeInt64Union() {}
+};
 // similar to reinterpret_cast but won't break strict-aliasing rules
 template <typename From, typename To>
 To binary_cast(From from) {
@@ -66,11 +71,13 @@ To binary_cast(From from) {
     constexpr bool from_decv2_to_packed128 = match_v<From, DecimalV2Value, To, PackedInt128>;
     constexpr bool from_i128_to_dt = match_v<From, __int128_t, To, DateTimeValue>;
     constexpr bool from_dt_to_i128 = match_v<From, DateTimeValue, To, __int128_t>;
+    constexpr bool from_i64_to_vec_dt = match_v<From, __int64_t, To, doris::vectorized::VecDateTimeValue>;
+    constexpr bool from_vec_dt_to_i64 = match_v<From, doris::vectorized::VecDateTimeValue, To, __int64_t>;
     constexpr bool from_i128_to_decv2 = match_v<From, __int128_t, To, DecimalV2Value>;
     constexpr bool from_decv2_to_i128 = match_v<From, DecimalV2Value, To, __int128_t>;
 
     static_assert(from_u64_to_db || from_i64_to_db || from_db_to_i64 || from_db_to_u64 ||
-                  from_decv2_to_packed128 || from_i128_to_dt || from_dt_to_i128 ||
+                  from_decv2_to_packed128 || from_i128_to_dt || from_dt_to_i128 || from_i64_to_vec_dt || from_vec_dt_to_i64 ||
                   from_i128_to_decv2 || from_decv2_to_i128);
 
     if constexpr (from_u64_to_db) {
@@ -99,6 +106,12 @@ To binary_cast(From from) {
     } else if constexpr (from_dt_to_i128) {
         DateTimeInt128Union conv = {.dt = from};
         return conv.i128;
+    } else if constexpr (from_i64_to_vec_dt) {
+        VecDateTimeInt64Union conv = {.i64 = from};
+        return conv.dt;
+    } else if constexpr (from_vec_dt_to_i64) {
+        VecDateTimeInt64Union conv = {.dt = from};
+        return conv.i64;
     } else if constexpr (from_i128_to_decv2) {
         DecimalInt128Union conv;
         conv.i128 = from;

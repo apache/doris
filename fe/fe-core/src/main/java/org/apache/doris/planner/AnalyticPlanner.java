@@ -321,6 +321,7 @@ public class AnalyticPlanner {
                 }
                 // all output slots need to be materialized
                 sortSlotDesc.setIsMaterialized(true);
+                sortSlotDesc.setIsNullable(inputSlotDesc.getIsNullable());
                 sortSmap.put(new SlotRef(inputSlotDesc), new SlotRef(sortSlotDesc));
                 sortSlotExprs.add(new SlotRef(inputSlotDesc));
             }

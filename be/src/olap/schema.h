@@ -100,6 +100,10 @@ public:
 
     ~Schema();
 
+    static vectorized::DataTypePtr get_data_type_ptr(FieldType type);
+
+    const std::vector<Field*>& columns() const { return _cols; }
+
     const Field* column(ColumnId cid) const { return _cols[cid]; }
 
     Field* mutable_column(ColumnId cid) const { return _cols[cid]; }
