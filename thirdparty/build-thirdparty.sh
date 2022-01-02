@@ -200,7 +200,7 @@ build_libevent() {
     CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
     CPPLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DEVENT__DISABLE_TESTS=ON \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DEVENT__LIBRARY_TYPE=STATIC -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DEVENT__DISABLE_TESTS=ON \
     -DEVENT__DISABLE_OPENSSL=ON -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
@@ -346,10 +346,6 @@ build_gperftools() {
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
-    LD_LIBRARY_PATH="${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
-    LD_LIBRARY_PATH="${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR/gperftools --disable-shared --enable-static --disable-libunwind --with-pic --enable-frame-pointers
     make -j $PARALLEL && make install
@@ -636,12 +632,74 @@ build_s2() {
 }
 
 build_bitshuffle() {
+    compiler_cmd=`which ${CC}`
+    compiler_tool_home=`dirname ${compiler_cmd}`
+    compiler_tool_home=`cd "$compiler_tool_home/.."; pwd`
+
+    # find binutils
+    if test -x ${compiler_tool_home}/bin/llvm-objcopy; then
+        export LD_CMD=${compiler_tool_home}/bin/ld.lld
+        export NM_CMD=${compiler_tool_home}/bin/llvm-nm
+        export AR_CMD=${compiler_tool_home}/bin/llvm-ar
+        export OBJCOPY_CMD=${compiler_tool_home}/bin/llvm-objcopy
+    elif test -x ${compiler_tool_home}/bin/ld; then
+        export LD_CMD=${compiler_tool_home}/bin/ld
+        export NM_CMD=${compiler_tool_home}/bin/nm
+        export AR_CMD=${compiler_tool_home}/bin/ar
+        export OBJCOPY_CMD=${compiler_tool_home}/bin/objcopy
+    else
+        export LD_CMD=/usr/bin/ld
+        export NM_CMD=/usr/bin/nm
+        export AR_CMD=/usr/bin/ar
+        export OBJCOPY_CMD=/usr/bin/objcopy
+    fi
     check_if_source_exist $BITSHUFFLE_SOURCE
     cd $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE
     PREFIX=$TP_INSTALL_DIR
+
+    # This library has significant optimizations when built with -mavx2. However,
+    # we still need to support non-AVX2-capable hardware. So, we build it twice,
+    # once with the flag and once without, and use some linker tricks to
+    # suffix the AVX2 symbols with '_avx2'.
+    arches="default avx2"
+    MACHINE_TYPE=$(uname -m)
+    # Becuase aarch64 don't support avx2, disable it.
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        arches="default"
+    fi
+
+    to_link=""
+    for arch in $arches ; do
+        arch_flag=""
+        if [ "$arch" == "avx2" ]; then
+            arch_flag="-mavx2"
+        fi
+        tmp_obj=bitshuffle_${arch}_tmp.o
+        dst_obj=bitshuffle_${arch}.o
+        ${CC} $EXTRA_CFLAGS $arch_flag -std=c99 -I$PREFIX/include/lz4/ -O3 -DNDEBUG -fPIC -c \
+            "src/bitshuffle_core.c" \
+            "src/bitshuffle.c" \
+            "src/iochain.c"
+        # Merge the object files together to produce a combined .o file.
+        ${LD_CMD} -r -o $tmp_obj bitshuffle_core.o bitshuffle.o iochain.o
+        # For the AVX2 symbols, suffix them.
+        if [ "$arch" == "avx2" ]; then
+            # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
+            ${NM_CMD} --defined-only --extern-only $tmp_obj | while read addr type sym ; do
+              echo ${sym} ${sym}_${arch}
+            done > renames.txt
+            ${OBJCOPY_CMD} --redefine-syms=renames.txt $tmp_obj $dst_obj
+        else
+            mv $tmp_obj $dst_obj
+        fi
+        to_link="$to_link $dst_obj"
+    done
+    rm -f libbitshuffle.a
+    ${AR_CMD} rs libbitshuffle.a $to_link
     mkdir -p $PREFIX/include/bitshuffle
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake ${TP_DIR}/cmake/bitshuffle-cmake -DDORIS_HOME=${DORIS_HOME} -DTP_INSTALL_DIR=${TP_INSTALL_DIR} && make install
+    cp libbitshuffle.a $PREFIX/lib/
+    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle.h $PREFIX/include/bitshuffle/bitshuffle.h
+    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle_core.h $PREFIX/include/bitshuffle/bitshuffle_core.h
 }
 
 # croaring bitmap
@@ -851,6 +909,7 @@ build_hdfs3() {
     check_if_source_exist $HDFS3_SOURCE
     cd $TP_SOURCE_DIR/$HDFS3_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ../bootstrap --dependency=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR
     make -j $PARALLEL && make install
 }
