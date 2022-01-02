@@ -220,7 +220,7 @@ build_openssl() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     LIBDIR="lib" \
-    ./Configure --prefix=$TP_INSTALL_DIR --with-rand-seed=devrandom -zlib -shared ${OPENSSL_PLATFORM}
+    ./Configure --prefix=$TP_INSTALL_DIR --with-rand-seed=devrandom -shared ${OPENSSL_PLATFORM}
     make -j $PARALLEL && make install_sw
     # NOTE(zc): remove this dynamic library files to make libcurl static link.
     # If I don't remove this files, I don't known how to make libcurl link static library
@@ -505,8 +505,10 @@ build_rocksdb() {
 
     cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
-    CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC -Wno-deprecated-copy -Wno-shadow -Wno-range-loop-construct -Wno-dangling-gsl -Wno-pessimizing-move" LDFLAGS="-static-libstdc++ -static-libgcc" \
-        PORTABLE=1 make USE_RTTI=1 -j $PARALLEL static_lib
+    CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" \
+    CXXFLAGS="-fPIC -w -Wno-deprecated-copy -Wno-shadow -Wno-range-loop-construct -Wno-dangling-gsl -Wno-pessimizing-move" \
+    LDFLAGS="-static-libstdc++ -static-libgcc" \
+    PORTABLE=1 make USE_RTTI=1 -j $PARALLEL static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
 }

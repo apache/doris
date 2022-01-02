@@ -69,7 +69,6 @@ else
     export JAVA="${JAVA_HOME}/bin/java"
     JAVAP="${JAVA_HOME}/bin/javap"
 fi
->>>>>>> Could not build bitshuffle because it changed synoms
 
 # if is called from build-thirdparty.sh, no need to check these tools
 if test -z "${BUILD_THIRDPARTY_WIP}"; then
