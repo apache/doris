@@ -17,6 +17,8 @@
 
 #include "exprs/iot_functions.h"
 
+#include "common/logging.h"
+
 namespace doris {
 
 struct IoTFirstState {
@@ -92,8 +94,12 @@ DoubleVal IoTFunctions::iot_first_finalize(FunctionContext* ctx, const StringVal
     if (src.is_null) {
         return DoubleVal::null();
     }
-    auto* src_data = reinterpret_cast<IoTFirstState*>(src.ptr);
-    return DoubleVal(src_data->val);
+
+    // skip (ts)
+    uint8_t* ptr = src.ptr + sizeof(int64_t);
+    double val;
+    memcpy(&val, ptr, sizeof(double));
+    return DoubleVal(val);
 }
 
 } // namespace doris
