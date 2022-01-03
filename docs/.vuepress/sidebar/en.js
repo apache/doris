@@ -397,6 +397,8 @@ module.exports = [
               "topn",
               "var_samp",
               "variance",
+              "iot_first",
+              "iot_last",
             ],
           },
           {

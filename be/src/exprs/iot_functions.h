@@ -25,18 +25,19 @@ class IoTFunctions {
 public:
     static void init();
 
-    static void iot_first_init(FunctionContext*, StringVal* dst);
-
     static void iot_first_update(FunctionContext*, const BigIntVal& ts, const DoubleVal& val, StringVal* dst);
-
     static void iot_first_merge(FunctionContext*,const StringVal& src, StringVal* dst);
 
-    static StringVal iot_first_serialize(FunctionContext* ctx, const StringVal& src);
+    static void iot_last_update(FunctionContext*, const BigIntVal& ts, const DoubleVal& val, StringVal* dst);
+    static void iot_last_merge(FunctionContext*,const StringVal& src, StringVal* dst);
 
-    static DoubleVal iot_first_finalize(FunctionContext*, const StringVal& src);
+    // serialize for iot_first() iot_last()
+    static StringVal iot_first_last_serialize(FunctionContext* ctx, const StringVal& src);
+    // finalize for iot_first() iot_last()
+    static DoubleVal iot_first_last_finalize(FunctionContext*, const StringVal& src);
 
 private:
-    static void _init_iot_first_state(FunctionContext* context,
+    static void _init_iot_first_last_state(FunctionContext* context,
             const BigIntVal& ts, const DoubleVal& val,
             StringVal* dst);
 };

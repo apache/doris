@@ -2056,8 +2056,18 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 initNullString,
                 "_ZN5doris12IoTFunctions16iot_first_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9DoubleValEPNS1_9StringValE",
                 "_ZN5doris12IoTFunctions15iot_first_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                "_ZN5doris12IoTFunctions19iot_first_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                "_ZN5doris12IoTFunctions18iot_first_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris12IoTFunctions24iot_first_last_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris12IoTFunctions23iot_first_last_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false));
+
+        // iot_last(bigint, double)
+        addBuiltin(AggregateFunction.createBuiltin("iot_last",
+                Lists.<Type>newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                initNullString,
+                "_ZN5doris12IoTFunctions15iot_last_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9DoubleValEPNS1_9StringValE",
+                "_ZN5doris12IoTFunctions14iot_last_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris12IoTFunctions24iot_first_last_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris12IoTFunctions23iot_first_last_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, false, false));
 
         // analytic functions

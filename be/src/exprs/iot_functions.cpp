@@ -21,21 +21,33 @@
 
 namespace doris {
 
-struct IoTFirstState {
+struct IoTFirstLastState {
     BigIntVal ts;
     DoubleVal val;
+
+    IoTFirstLastState(uint8_t* ptr) {
+        memcpy(&ts.val, ptr, sizeof(int64_t));
+        memcpy(&val.val, ptr + sizeof(int64_t), sizeof(double));
+    }
+
+    void serialize(StringVal* result) {
+        uint8_t* ptr = result->ptr;
+        memcpy(ptr, &(ts.val), sizeof(int64_t));
+        ptr += sizeof(int64_t);
+        memcpy(ptr, &(val.val), sizeof(double));
+    }
 };
 
 void IoTFunctions::init() {}
 
-void IoTFunctions::_init_iot_first_state(FunctionContext* context,
-                                         const BigIntVal& ts, const DoubleVal& val,
-                                         StringVal* dst) {
-    size_t str_len = sizeof(IoTFirstState);
+void IoTFunctions::_init_iot_first_last_state(FunctionContext* context,
+        const BigIntVal& ts, const DoubleVal& val,
+        StringVal* dst) {
+    size_t str_len = sizeof(IoTFirstLastState);
     dst->is_null = false;
     dst->ptr = context->allocate(str_len);
     dst->len = str_len;
-    auto *dst_data = reinterpret_cast<IoTFirstState*>(dst->ptr);
+    auto *dst_data = reinterpret_cast<IoTFirstLastState*>(dst->ptr);
     dst_data->ts = ts;
     dst_data->val = val; 
 }
@@ -48,10 +60,28 @@ void IoTFunctions::iot_first_update(FunctionContext* context, const BigIntVal& t
 
     if (dst->is_null) {
         // first update
-        _init_iot_first_state(context, ts, val, dst);
+        _init_iot_first_last_state(context, ts, val, dst);
     } else {
-        auto* dst_data = reinterpret_cast<IoTFirstState*>(dst->ptr);
+        auto* dst_data = reinterpret_cast<IoTFirstLastState*>(dst->ptr);
         if (val.val < dst_data->val.val) {
+            dst_data->ts = ts;
+            dst_data->val = val; 
+        }
+    }
+}
+
+void IoTFunctions::iot_last_update(FunctionContext* context, const BigIntVal& ts, const DoubleVal& val,
+        StringVal* dst) {
+    if (ts.is_null || val.is_null) {
+        return;
+    }
+
+    if (dst->is_null) {
+        // first update
+        _init_iot_first_last_state(context, ts, val, dst);
+    } else {
+        auto* dst_data = reinterpret_cast<IoTFirstLastState*>(dst->ptr);
+        if (val.val > dst_data->val.val) {
             dst_data->ts = ts;
             dst_data->val = val; 
         }
@@ -62,44 +92,55 @@ void IoTFunctions::iot_first_merge(FunctionContext* ctx, const StringVal& src, S
     if (src.is_null) {
         return;
     }
-    auto* src_data = reinterpret_cast<IoTFirstState*>(src.ptr);
+    IoTFirstLastState src_data(src.ptr);
     if (dst->is_null) {
         // first update
-        _init_iot_first_state(ctx, src_data->ts, src_data->val, dst);
+        _init_iot_first_last_state(ctx, src_data.ts, src_data.val, dst);
     } else {
-        auto* dst_data = reinterpret_cast<IoTFirstState*>(dst->ptr);
-        if (src_data->ts.val < dst_data->ts.val) {
-            dst_data->ts = src_data->ts;
-            src_data->val = src_data->val;
+        auto* dst_data = reinterpret_cast<IoTFirstLastState*>(dst->ptr);
+        if (src_data.ts.val < dst_data->ts.val) {
+            dst_data->ts = src_data.ts;
+            dst_data->val = src_data.val;
         }
     }
 }
 
-StringVal IoTFunctions::iot_first_serialize(FunctionContext* ctx, const StringVal& src) {
+void IoTFunctions::iot_last_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    IoTFirstLastState src_data(src.ptr);
+    if (dst->is_null) {
+        // first update
+        _init_iot_first_last_state(ctx, src_data.ts, src_data.val, dst);
+    } else {
+        auto* dst_data = reinterpret_cast<IoTFirstLastState*>(dst->ptr);
+        if (src_data.ts.val > dst_data->ts.val) {
+            dst_data->ts = src_data.ts;
+            dst_data->val = src_data.val;
+        }
+    }
+}
+
+StringVal IoTFunctions::iot_first_last_serialize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return src;
     }
 
-    auto* src_data = reinterpret_cast<IoTFirstState*>(src.ptr);
-    StringVal result(ctx, sizeof(IoTFirstState));
-    uint8_t* ptr = result.ptr;
-    memcpy(ptr, &(src_data->ts.val), sizeof(int64_t));
-    ptr += sizeof(int64_t);
-    memcpy(ptr, &(src_data->val.val), sizeof(double));
+    auto* src_data = reinterpret_cast<IoTFirstLastState*>(src.ptr);
+    StringVal result(ctx, sizeof(IoTFirstLastState));
+    src_data->serialize(&result);
     ctx->free(src.ptr);
     return result;
 }
 
-DoubleVal IoTFunctions::iot_first_finalize(FunctionContext* ctx, const StringVal& src) {
+DoubleVal IoTFunctions::iot_first_last_finalize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return DoubleVal::null();
     }
 
-    // skip (ts)
-    uint8_t* ptr = src.ptr + sizeof(int64_t);
-    double val;
-    memcpy(&val, ptr, sizeof(double));
-    return DoubleVal(val);
+    auto* src_data = reinterpret_cast<IoTFirstLastState*>(src.ptr);
+    return src_data->val;
 }
 
 } // namespace doris
