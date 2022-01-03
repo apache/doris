@@ -44,6 +44,7 @@
 #include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/topn_function.h"
+#include "exprs/iot_functions.h"
 #include "exprs/utility_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
@@ -265,6 +266,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     HllFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();
+    IoTFunctions::init();
     DummyTableFunctions::init();
 
     LOG(INFO) << CpuInfo::debug_string();
