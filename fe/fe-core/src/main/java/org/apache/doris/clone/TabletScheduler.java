@@ -994,7 +994,7 @@ public class TabletScheduler extends MasterDaemon {
             try {
                 Catalog.getCurrentCatalog().setReplicaStatus(tabletCtx.getTabletId(), chosenReplica.getBackendId(),
                         Replica.ReplicaStatus.BAD);
-                throw new SchedException(Status.FINISHED, "colocate redundant replica is deleted");
+                throw new SchedException(Status.FINISHED, "set slow replica as bad");
             } catch (MetaNotFoundException e) {
                 LOG.warn("set slow replica bad failed:", e);
                 return false;
