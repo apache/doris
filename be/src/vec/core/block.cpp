@@ -51,7 +51,7 @@
 
 namespace doris::vectorized {
 
-inline DataTypePtr get_data_type(const PColumn& pcolumn) {
+inline DataTypePtr create_data_type(const PColumn& pcolumn) {
     switch (pcolumn.type()) {
     case PColumn::UINT8: {
         return std::make_shared<DataTypeUInt8>();
@@ -176,7 +176,7 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
 
 Block::Block(const PBlock& pblock) {
     for (const auto& pcolumn : pblock.columns()) {
-        DataTypePtr type = get_data_type(pcolumn);
+        DataTypePtr type = create_data_type(pcolumn);
         MutableColumnPtr data_column;
         if (pcolumn.is_null_size() > 0) {
             data_column =
