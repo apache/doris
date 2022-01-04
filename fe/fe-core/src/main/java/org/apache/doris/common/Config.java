@@ -1555,4 +1555,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_force_drop_redundant_replica = false;
+
+    /*
+     * auto set the slowest compaction replica's status to bad
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean repair_slow_replica = true;
 }
