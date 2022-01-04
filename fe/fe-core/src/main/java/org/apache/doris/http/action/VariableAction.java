@@ -17,7 +17,6 @@
 
 package org.apache.doris.http.action;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.common.Config;
 import org.apache.doris.http.ActionController;
@@ -25,6 +24,8 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.qe.VariableMgr;
+
+import com.google.common.collect.Lists;
 
 import io.netty.handler.codec.http.HttpMethod;
 
@@ -38,7 +39,7 @@ public class VariableAction extends WebBaseAction {
         super(controller);
     }
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
+    public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET, "/variable", new VariableAction(controller));
     }
 
