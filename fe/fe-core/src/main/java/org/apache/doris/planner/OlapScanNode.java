@@ -176,6 +176,14 @@ public class OlapScanNode extends ScanNode {
         this.forceOpenPreAgg = forceOpenPreAgg;
     }
 
+    public Integer getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public Long getSelectedTabletsNum() {
+        return selectedTabletsNum;
+    }
+
     public Collection<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
     }
