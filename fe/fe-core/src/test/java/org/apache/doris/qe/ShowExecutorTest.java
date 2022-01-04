@@ -596,11 +596,14 @@ public class ShowExecutorTest {
         ShowSqlBlockRuleStmt stmt = new ShowSqlBlockRuleStmt("test_rule");
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
-        Assert.assertEquals(5, resultSet.getMetaData().getColumnCount());
+        Assert.assertEquals(8, resultSet.getMetaData().getColumnCount());
         Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Sql", resultSet.getMetaData().getColumn(1).getName());
         Assert.assertEquals("SqlHash", resultSet.getMetaData().getColumn(2).getName());
-        Assert.assertEquals("Global", resultSet.getMetaData().getColumn(3).getName());
-        Assert.assertEquals("Enable", resultSet.getMetaData().getColumn(4).getName());
+        Assert.assertEquals("PartitionNum", resultSet.getMetaData().getColumn(3).getName());
+        Assert.assertEquals("TabletNum", resultSet.getMetaData().getColumn(4).getName());
+        Assert.assertEquals("Cardinality", resultSet.getMetaData().getColumn(5).getName());
+        Assert.assertEquals("Global", resultSet.getMetaData().getColumn(6).getName());
+        Assert.assertEquals("Enable", resultSet.getMetaData().getColumn(7).getName());
     }
 }
