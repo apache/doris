@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -67,7 +68,8 @@ public class Tablet extends MetaObject implements Writable {
         COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
         COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
-        UNRECOVERABLE   // non of replicas are healthy
+        UNRECOVERABLE,   // non of replicas are healthy
+        REPLICA_COMPACTION_TOO_SLOW // one replica's version count is much more than other replicas;
     }
 
     @SerializedName(value = "id")
@@ -414,6 +416,7 @@ public class Tablet extends MetaObject implements Writable {
 
         Replica needFurtherRepairReplica = null;
         Set<String> hosts = Sets.newHashSet();
+        ArrayList<Long> versions = new ArrayList<>();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendId());
             if (backend == null || !backend.isAlive() || !replica.isAlive() || !hosts.add(backend.getHost())) {
@@ -446,6 +449,8 @@ public class Tablet extends MetaObject implements Writable {
             if (replica.needFurtherRepair() && needFurtherRepairReplica == null) {
                 needFurtherRepairReplica = replica;
             }
+
+            versions.add(replica.getVersionCount());
 
             short curNum = currentAllocMap.getOrDefault(backend.getTag(), (short) 0);
             currentAllocMap.put(backend.getTag(), (short) (curNum + 1));
@@ -528,7 +533,19 @@ public class Tablet extends MetaObject implements Writable {
             return Pair.create(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
-        // 6. healthy
+        // 6. find a replica's version count is much more than others, and drop it
+        if (Config.repair_slow_replica && versions.size() == replicas.size() && versions.size() > 1) {
+            // sort version
+            Collections.sort(versions);
+            // get the max version diff
+            long delta = versions.get(versions.size() - 1) - versions.get(0);
+            double ratio = (double) delta / versions.get(0);
+            if (delta > Replica.MIN_VERSION_DELTA && ratio > Replica.MIN_VERSION_DELTA_RATIO) {
+                return Pair.create(TabletStatus.REPLICA_COMPACTION_TOO_SLOW, TabletSchedCtx.Priority.NORMAL);
+            }
+        }
+
+        // 7. healthy
         return Pair.create(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
     }
 
