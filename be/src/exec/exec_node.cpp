@@ -756,7 +756,7 @@ void ExecNode::reached_limit(vectorized::Block* block, bool* eos) {
     }
 
     _num_rows_returned += block->rows();
-    if (*eos) COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
 /*
