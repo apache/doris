@@ -82,7 +82,7 @@ Status FoldConstantExecutor::fold_constant_expr(
                 expr_result.set_success(false);
             } else {
                 expr_result.set_success(true);
-                result = _get_result(src, ctx->root()->type().type);
+                result = _get_result(src, 0, ctx->root()->type().type);
             }
 
             expr_result.set_content(std::move(result));
@@ -143,7 +143,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(
                 expr_result.set_success(false);
             } else {
                 expr_result.set_success(true);
-                result = _get_result<true>((void *) column_ptr->get_data_at(0).data, ctx->root()->type().type);
+                auto string_ref = column_ptr->get_data_at(0);
+                result = _get_result<true>((void*)string_ref.data, string_ref.size, ctx->root()->type().type);
             }
 
             expr_result.set_content(std::move(result));
@@ -198,7 +199,7 @@ Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
 }
 
 template <bool is_vec>
-string FoldConstantExecutor::_get_result(void* src, PrimitiveType slot_type){
+string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType slot_type){
     switch (slot_type) {
     case TYPE_BOOLEAN: {
         bool val = *reinterpret_cast<const bool*>(src);
@@ -237,6 +238,9 @@ string FoldConstantExecutor::_get_result(void* src, PrimitiveType slot_type){
     case TYPE_STRING:
     case TYPE_HLL:
     case TYPE_OBJECT: {
+        if constexpr (is_vec) {
+            return std::string((char*)src, size);
+        }
         return (reinterpret_cast<StringValue*>(src))->to_string();
     }
     case TYPE_DATE:

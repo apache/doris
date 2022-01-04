@@ -124,7 +124,7 @@ struct ProcessRuntimeFilterBuild {
     ProcessRuntimeFilterBuild(HashJoinNode* join_node) : _join_node(join_node) {}
 
     Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx) {
-        if (_join_node->_runtime_filter_descs.empty() || _join_node->_inserted_rows.empty()) {
+        if (_join_node->_runtime_filter_descs.empty()) {
             return Status::OK();
         }
         VRuntimeFilterSlots* runtime_filter_slots =
@@ -162,7 +162,6 @@ struct ProcessHashTableProbe {
               _probe_block(join_node->_probe_block),
               _probe_index(join_node->_probe_index),
               _probe_raw_ptrs(join_node->_probe_columns),
-              _arena(join_node->_arena),
               _rows_returned_counter(join_node->_rows_returned_counter) {}
 
     // Only process the join with no other join conjunt, because of no other join conjunt
@@ -198,7 +197,7 @@ struct ProcessHashTableProbe {
                                                            _arena)) {nullptr, false}
                             : key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
 
-            if (_probe_index + 4 < _probe_rows)
+            if (_probe_index + 2 < _probe_rows)
                 key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2, _arena);
 
             if (find_result.is_found()) {
@@ -218,7 +217,7 @@ struct ProcessHashTableProbe {
                         if (!_join_node->_is_right_semi_anti) {
                             ++current_offset;
                             for (size_t j = 0; j < right_col_len; ++j) {
-                                auto &column = *mapped.block->get_by_position(j).column;
+                                auto& column = *mapped.block->get_by_position(j).column;
                                 mcol[j + right_col_idx]->insert_from(column, mapped.row_num);
                             }
                         }
@@ -515,7 +514,7 @@ private:
     const Block& _probe_block;
     int& _probe_index;
     ColumnRawPtrs& _probe_raw_ptrs;
-    Arena& _arena;
+    Arena _arena;
 
     ProfileCounter* _rows_returned_counter;
 };
