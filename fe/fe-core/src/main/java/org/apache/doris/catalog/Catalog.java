@@ -7129,6 +7129,10 @@ public class Catalog {
         setReplicaStatusInternal(tabletId, backendId, status, false);
     }
 
+    public void setReplicaStatus(long tabletId, long backendId, ReplicaStatus status) throws MetaNotFoundException {
+        setReplicaStatusInternal(tabletId, backendId, status, false);
+    }
+
     public void replaySetReplicaStatus(SetReplicaStatusOperationLog log) throws MetaNotFoundException {
         setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
     }
