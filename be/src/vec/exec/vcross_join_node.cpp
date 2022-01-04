@@ -135,7 +135,6 @@ Status VCrossJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         }
     }
     dst_columns.clear();
-
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
 
     reached_limit(block, eos);

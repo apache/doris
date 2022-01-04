@@ -47,7 +47,7 @@ private:
     Status _prepare_and_open(Context* ctx);
 
     template <bool is_vec = false>
-    std::string _get_result(void* src, PrimitiveType slot_type);
+    std::string _get_result(void* src, size_t size, PrimitiveType slot_type);
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<MemTracker> _mem_tracker;

@@ -326,9 +326,9 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeString>();
     }
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -336,16 +336,10 @@ public:
         DCHECK_GE(arguments.size(), 1);
 
         if (arguments.size() == 1) {
-            if (block.get_by_position(arguments[0]).column->is_nullable()) {
-                block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
-            } else {
-                block.get_by_position(result).column =
-                        make_nullable(block.get_by_position(arguments[0]).column);
-            }
+            block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
             return Status::OK();
         }
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         int argument_size = arguments.size();
         ColumnPtr argument_columns[argument_size];
 
@@ -355,11 +349,6 @@ public:
         for (int i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-            }
             auto col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
@@ -401,8 +390,7 @@ public:
             res_offset[i] = res_offset[i - 1] + current_length;
         }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res), std::move(null_map));
+        block.get_by_position(result).column = std::move(res);
         return Status::OK();
     }
 };
