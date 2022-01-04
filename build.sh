@@ -44,10 +44,18 @@ export DORIS_HOME=${ROOT}
 #export CC="/data/common/clang-11/bin/clang-wrapper"
 #export CXX="/data/common/clang-11/bin/clang++-wrapper"
 
-export CC="/usr/local/gcc-10.1.0/bin/gcc"
-export CXX="/usr/local/gcc-10.1.0/bin/g++"
+#export CC="/usr/local/gcc-10.1.0/bin/gcc"
+#export CXX="/usr/local/gcc-10.1.0/bin/g++"
 
 . ${DORIS_HOME}/env.sh
+
+if [[ -z ${CC} ]]; then
+    if [[ -z ${DORIS_GCC_HOME} ]]; then
+        DORIS_GCC_HOME=$(dirname $(which gcc))/..
+    fi
+    export CC="${DORIS_GCC_HOME}/bin/gcc"
+    export CXX="${DORIS_GCC_HOME}/bin/g++"
+fi
 
 # Check args
 usage() {
