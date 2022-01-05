@@ -19,9 +19,7 @@
     under the License.
 -->
 
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xmlns="http://maven.apache.org/POM/4.0.0"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>org.apache</groupId>
@@ -41,10 +39,10 @@
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:git@github.com:apache/incubator-doris.git</connection>
-        <developerConnection>scm:git:git@github.com:apache/incubator-doris.git</developerConnection>
-        <url>scm:git:git@github.com:apache/incubator-doris.git</url>
-        <tag>HEAD</tag>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
+        <url>https://github.com/apache/incubator-doris.git</url>
+        <tag>doris-spark-connector-2.3.4-2.11-1.0.0</tag>
     </scm>
     <issueManagement>
         <system>GitHub</system>
@@ -77,6 +75,7 @@
         <maven-source-plugin.version>3.2.1</maven-source-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
+        <project.scm.id>github</project.scm.id>
     </properties>
 
     <profiles>
