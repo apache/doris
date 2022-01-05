@@ -25,7 +25,7 @@ under the License.
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>18</version>
+        <version>23</version>
     </parent>
 
     <groupId>org.apache.doris</groupId>
