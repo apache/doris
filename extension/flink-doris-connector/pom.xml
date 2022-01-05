@@ -28,7 +28,7 @@ under the License.
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>doris-flink-connector</artifactId>
-    <version>${flink.version}-${scala.version}-1.0.0-SNAPSHOT</version>
+    <version>1.11.6-2.12-1.0.0</version>
     <name>Doris Flink Connector</name>
     <url>https://doris.apache.org/</url>
     <licenses>
