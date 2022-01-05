@@ -36,7 +36,7 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>fe</artifactId>
+            <artifactId>fe-core</artifactId>
             <version>${doris.version}</version>
         </dependency>
 

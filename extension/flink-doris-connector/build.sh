@@ -25,22 +25,48 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+usage() {
+  echo "
+  Usage:
+    $0 flink_version scala_version
+  e.g.:
+    $0 1.11.6 2.12
+    $0 1.12.7 2.12
+    $0 1.13.5 2.12
+  "
+  exit 1
+}
+
+if [ $# -ne 2 ]; then
+    usage
+fi
+
+ROOT=$(dirname "$0")
+ROOT=$(
+    cd "$ROOT"
+    pwd
+)
 
 export DORIS_HOME=${ROOT}/../../
 
-. ${DORIS_HOME}/env.sh
+. "${DORIS_HOME}"/env.sh
 
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
-    . ${DORIS_HOME}/custom_env.sh
+    . "${DORIS_HOME}"/custom_env.sh
 fi
 
 # check maven
 MVN_CMD=mvn
-if [[ ! -z ${CUSTOM_MVN} ]]; then
+if [[ -n ${CUSTOM_MVN} ]]; then
     MVN_CMD=${CUSTOM_MVN}
+fi
+
+if [ -z "$1" ]; then
+    export FLINK_VERSION="$1"
+fi
+if [ -z "$2" ]; then
+    export SCALA_VERSION="$2"
 fi
 if ! ${MVN_CMD} --version; then
     echo "Error: mvn is not found"
@@ -50,7 +76,6 @@ export MVN_CMD
 rm -rf output/
 ${MVN_CMD} clean package
 
-
 mkdir -p output/
 cp target/doris-flink-*.jar ./output/
 
@@ -59,4 +84,3 @@ echo "Successfully build Flink-Doris-Connector"
 echo "*****************************************"
 
 exit 0
-

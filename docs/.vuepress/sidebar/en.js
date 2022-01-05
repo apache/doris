@@ -683,6 +683,7 @@ module.exports = [
       "subscribe-mail-list",
       "feedback",
       "how-to-contribute",
+      "how-to-deploy-to-maven",
       "committer-guide",
       "commit-format-specification",
       "pull-request",

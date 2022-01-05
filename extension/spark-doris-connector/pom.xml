@@ -19,18 +19,18 @@
     under the License.
 -->
 
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>18</version>
+        <version>23</version>
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>doris-spark-connector</artifactId>
-    <version>${spark.version}-${scala.version}-SNAPSHOT</version>
+    <version>${spark.version}-${scala.version}-1.0.0-SNAPSHOT</version>
     <name>Doris Spark Connector</name>
     <url>https://doris.apache.org/</url>
     <licenses>
@@ -68,8 +68,8 @@
     </mailingLists>
 
     <properties>
-        <scala.version>2.11</scala.version>
-        <spark.version>2.3.4</spark.version>
+        <scala.version>${env.SCALA_VERSION}</scala.version>
+        <spark.version>${env.SPARK_VERSION}</spark.version>
         <libthrift.version>0.13.0</libthrift.version>
         <arrow.version>5.0.0</arrow.version>
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -103,7 +103,30 @@
                 </pluginRepository>
             </pluginRepositories>
         </profile>
-
+        <profile>
+            <id>spark-version</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+                <property>
+                    <name>!env.SPARK_VERSION</name>
+                </property>
+            </activation>
+            <properties>
+                <env.SPARK_VERSION>2.3.4</env.SPARK_VERSION>
+            </properties>
+        </profile>
+        <profile>
+            <id>scala-version</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+                <property>
+                    <name>!env.SCALA_VERSION</name>
+                </property>
+            </activation>
+            <properties>
+                <env.SCALA_VERSION>2.11</env.SCALA_VERSION>
+            </properties>
+        </profile>
         <!-- for general repository -->
         <profile>
             <id>general-env</id>
@@ -338,9 +361,9 @@
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>${maven-javadoc-plugin.version}</version>
                 <configuration>
+                    <skip>true</skip>
                     <source>8</source>
                     <failOnError>false</failOnError>
-                    <aggregate>true</aggregate>
                 </configuration>
                 <executions>
                     <execution>
