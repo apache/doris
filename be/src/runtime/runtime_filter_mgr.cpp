@@ -156,15 +156,16 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     std::string filter_id = std::to_string(runtime_filter_desc->filter_id);
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options);
+    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, _fragment_instance_id);
     _filter_map.emplace(filter_id, cntVal);
     return Status::OK();
 }
 
-Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
+Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId fragment_instance_id,
                                                 const TRuntimeFilterParams& runtime_filter_params,
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
+    _fragment_instance_id = fragment_instance_id;
     for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
         int filter_id = filterid_to_desc.first;
         const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
@@ -278,6 +279,7 @@ Status RuntimeFilterMergeController::add_entity(
     UniqueId query_id(params.params.query_id);
     std::string query_id_str = query_id.to_string();
     auto iter = _filter_controller_map.find(query_id_str);
+    UniqueId fragment_instance_id = UniqueId(params.params.fragment_instance_id);
 
     if (iter == _filter_controller_map.end()) {
         *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
@@ -285,7 +287,7 @@ Status RuntimeFilterMergeController::add_entity(
         _filter_controller_map[query_id_str] = *handle;
         const TRuntimeFilterParams& filter_params = params.params.runtime_filter_params;
         if (params.params.__isset.runtime_filter_params) {
-            RETURN_IF_ERROR(handle->get()->init(query_id, filter_params, params.query_options));
+            RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params, params.query_options));
         }
     } else {
         *handle = _filter_controller_map[query_id_str].lock();

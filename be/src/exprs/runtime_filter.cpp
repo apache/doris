@@ -321,12 +321,14 @@ public:
             : _tracker(tracker),
               _pool(pool),
               _column_return_type(params->column_return_type),
-              _filter_type(params->filter_type) {}
+              _filter_type(params->filter_type),
+              _fragment_instance_id(params->fragment_instance_id),
+              _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(MemTracker* tracker, ObjectPool* pool, RuntimeFilterType type)
-            : _tracker(tracker), _pool(pool), _filter_type(type) {}
-    // init runtimefilter wrapper
+    RuntimePredicateWrapper(MemTracker* tracker, ObjectPool* pool, RuntimeFilterType type, UniqueId fragment_instance_id, uint32_t filter_id)
+            : _tracker(tracker), _pool(pool), _filter_type(type), _fragment_instance_id(fragment_instance_id), _filter_id(filter_id) {}
+    // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
         _max_in_num = params->max_in_num;
@@ -446,22 +448,30 @@ public:
             if (_is_ignored_in_filter) {
                 break;
             } else if (wrapper->_is_ignored_in_filter) {
+                LOG(INFO) << "fragment instance " << _fragment_instance_id.to_string()
+                          << " ignore merge runtime filter(in filter id "
+                          << _filter_id << ") because: " << *(wrapper->get_ignored_in_filter_msg());
+
                 _is_ignored_in_filter = true;
                 _ignored_in_filter_msg = wrapper->_ignored_in_filter_msg;
+                // release in filter
                 _hybrid_set.reset(create_set(_column_return_type));
                 break;
             }
             // try insert set
             _hybrid_set->insert(wrapper->_hybrid_set.get());
             if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
-                // release in filter
-                _hybrid_set.reset(create_set(_column_return_type));
                 std::stringstream msg;
-                msg << "Ignore runtime filter(in filter) because: in_num("
-                          << _hybrid_set->size() << ") >= max_in_num(" << _max_in_num << ")";
+                msg << "fragment instance " << _fragment_instance_id.to_string()
+                    << " ignore merge runtime filter(in filter id "
+                    << _filter_id << ") because: in_num(" << _hybrid_set->size()
+                    << ") >= max_in_num(" << _max_in_num << ")";
                 _ignored_in_filter_msg = _pool->add(new std::string(msg.str()));
                 _is_ignored_in_filter = true;
-                LOG(INFO) << _ignored_in_filter_msg;
+
+                // release in filter
+                _hybrid_set.reset(create_set(_column_return_type));
+                LOG(INFO) << msg.str();
             }
             break;
         }
@@ -754,6 +764,8 @@ private:
     std::unique_ptr<IBloomFilterFuncBase> _bloomfilter_func;
     bool _is_ignored_in_filter = false;
     std::string *_ignored_in_filter_msg;
+    UniqueId _fragment_instance_id;
+    uint32_t _filter_id;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,
@@ -761,7 +773,8 @@ Status IRuntimeFilter::create(RuntimeState* state, MemTracker* tracker, ObjectPo
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res) {
     *res = pool->add(new IRuntimeFilter(state, tracker, pool));
     (*res)->set_role(role);
-    return (*res)->init_with_desc(desc, query_options, node_id);
+    UniqueId fragment_instance_id(state->fragment_instance_id());
+    return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id);
 }
 
 void IRuntimeFilter::insert(const void* data) {
@@ -846,8 +859,8 @@ void IRuntimeFilter::signal() {
     _effect_timer.reset();
 }
 
-Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc,
-                                      const TQueryOptions* options, int node_id) {
+Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
+                                      UniqueId fragment_instance_id, int node_id) {
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
@@ -871,6 +884,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc,
     RETURN_IF_ERROR(Expr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
 
     RuntimeFilterParams params;
+    params.fragment_instance_id = fragment_instance_id;
+    params.filter_id = _filter_id;
     params.filter_type = _runtime_filter_type;
     params.column_return_type = build_ctx->root()->type().type;
     params.max_in_num = options->runtime_filter_max_in_num;
@@ -916,7 +931,8 @@ template <class T>
 Status IRuntimeFilter::_create_wrapper(const T* param, MemTracker* tracker, ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
-    wrapper->reset(new RuntimePredicateWrapper(tracker, pool, get_type(filter_type)));
+    wrapper->reset(new RuntimePredicateWrapper(tracker, pool, get_type(filter_type),
+                            UniqueId(param->request->fragment_id()), param->request->filter_id()));
 
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
@@ -956,7 +972,7 @@ void IRuntimeFilter::ready_for_publish() {
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
-    if (wrapper->is_ignored_in_filter()) {
+    if (!_is_ignored && wrapper->is_ignored_in_filter()) {
         set_ignored();
         set_ignored_msg(*(wrapper->get_ignored_in_filter_msg()));
     }

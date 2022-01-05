@@ -72,13 +72,16 @@ inline std::string to_string(RuntimeFilterType type) {
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
-    RuntimeFilterParams() : filter_type(RuntimeFilterType::UNKNOWN_FILTER), bloom_filter_size(-1) {}
+    RuntimeFilterParams() : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
+              bloom_filter_size(-1), filter_id(0), fragment_instance_id(0, 0) {}
 
     RuntimeFilterType filter_type;
     PrimitiveType column_return_type;
     // used in bloom filter
     int64_t bloom_filter_size;
     int32_t max_in_num;
+    int32_t filter_id;
+    UniqueId fragment_instance_id;
 };
 
 struct UpdateRuntimeFilterParams {
@@ -172,6 +175,7 @@ public:
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc,
                           const TQueryOptions* options,
+                          UniqueId fragment_id = UniqueId(0, 0),
                           int node_id = -1);
 
     // serialize _wrapper to protobuf
@@ -225,6 +229,7 @@ protected:
     RuntimeState* _state;
     MemTracker* _mem_tracker;
     ObjectPool* _pool;
+    int32_t _fragment_id;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
     RuntimePredicateWrapper* _wrapper;

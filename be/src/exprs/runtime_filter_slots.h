@@ -85,21 +85,25 @@ public:
             if (!runtime_filter->has_remote_target()) {
                 bool exists_in_filter = has_in_filter[runtime_filter->expr_order()];
                 if (is_in_filter && over_max_in_num) {
-                    LOG(INFO) << "Ignore runtime filter(in filter) because: in_num("
-                              << hash_table_size << ") >= max_in_num(" << max_in_num << ")";
+                    LOG(INFO) << "fragment instance " << print_id(state->fragment_instance_id())
+                              << " ignore runtime filter(in filter id " << filter_desc.filter_id
+                              << ") because: in_num(" << hash_table_size
+                              << ") >= max_in_num(" << max_in_num << ")";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 } else if (!is_in_filter && exists_in_filter) {
                     // do not create 'bloom filter' and 'minmax filter' when 'in filter' has created
                     // because in filter is exactly filter, so it is enough to filter data
-                    LOG(INFO) << "Ignore runtime filter(" << to_string(runtime_filter->type())
+                    LOG(INFO) << "fragment instance " << print_id(state->fragment_instance_id())
+                              << " ignore runtime filter(" << to_string(runtime_filter->type())
+                              << " id " << filter_desc.filter_id
                               << ") because: already exists in filter";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
-                std::string msg = fmt::format("in_num({}) >= max_in_num({})",
-                    hash_table_size, max_in_num);
+                std::string msg = fmt::format("fragment instance {} ignore runtime filter(in filter id {}) because: in_num({}) >= max_in_num({})",
+                  print_id(state->fragment_instance_id()), filter_desc.filter_id, hash_table_size, max_in_num);
                 ignore_remote_filter(runtime_filter, msg);
                 continue;
             }

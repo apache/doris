@@ -105,10 +105,10 @@ private:
 // the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
-    RuntimeFilterMergeControllerEntity() : _query_id(0, 0) {}
+    RuntimeFilterMergeControllerEntity() : _query_id(0, 0), _fragment_instance_id(0, 0) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
-    Status init(UniqueId query_id,
+    Status init(UniqueId query_id, UniqueId fragment_instance_id,
                 const TRuntimeFilterParams& runtime_filter_params,
                 const TQueryOptions& query_options);
 
@@ -134,6 +134,7 @@ private:
         std::shared_ptr<ObjectPool> pool;
     };
     UniqueId _query_id;
+    UniqueId _fragment_instance_id;
     // protect _filter_map
     std::mutex _filter_map_mutex;
     // TODO: convert filter id to i32
