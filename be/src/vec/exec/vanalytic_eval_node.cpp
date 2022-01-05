@@ -391,7 +391,7 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     }
 
     //check whether need get column again, maybe same as first init
-    if (start_column != start_next_block_column) {
+    if (start_column.get() != start_next_block_column.get()) {
         start_init_row_num = 0;
         start.block_num = start_block_num;
         start_column = _input_blocks[start.block_num].get_by_position(idx).column;
