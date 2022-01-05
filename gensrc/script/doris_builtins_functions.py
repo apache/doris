@@ -1072,10 +1072,10 @@ visible_functions = [
     # Utility functions
     [['sleep'], 'BOOLEAN', ['INT'],
         '_ZN5doris16UtilityFunctions5sleepEPN9doris_udf15FunctionContextERKNS1_6IntValE',
-        '', '', '', ''],
+        '', '', 'vec', ''],
     [['version'], 'VARCHAR', [],
         '_ZN5doris16UtilityFunctions7versionEPN9doris_udf15FunctionContextE',
-        '', '', '', 'ALWAYS_NOT_NULLABLE'],
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
     # Json functions
     [['get_json_int'], 'INT', ['VARCHAR', 'VARCHAR'],
