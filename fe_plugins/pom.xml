@@ -42,9 +42,9 @@ under the License.
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:git@github.com:apache/incubator-doris.git</connection>
-        <developerConnection>scm:git:git@github.com:apache/incubator-doris.git</developerConnection>
-        <url>scm:git:git@github.com:apache/incubator-doris.git</url>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
         <tag>HEAD</tag>
     </scm>
     <issueManagement>
@@ -75,6 +75,7 @@ under the License.
     <properties>
         <log4j2.version>2.17.1</log4j2.version>
         <doris.version>0.15-SNAPSHOT</doris.version>
+        <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
