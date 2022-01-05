@@ -83,8 +83,8 @@ TEST(GenericIteratorsTest, Union) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_union_iterator(inputs,
-                                   MemTracker::CreateTracker(-1, "UnionIterator", nullptr, false));
+    auto iter = new_union_iterator(std::move(inputs),
+                                   MemTracker::create_tracker(-1, "UnionIterator", nullptr));
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
@@ -124,7 +124,7 @@ TEST(GenericIteratorsTest, Merge) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_merge_iterator(
-            std::move(inputs), MemTracker::CreateTracker(-1, "MergeIterator", nullptr, false), -1);
+            std::move(inputs), MemTracker::create_tracker(-1, "MergeIterator", nullptr), -1);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());

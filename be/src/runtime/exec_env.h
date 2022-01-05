@@ -21,6 +21,7 @@
 #include "common/status.h"
 #include "olap/options.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/mem_tracker_task_pool.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -46,7 +47,7 @@ class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
 class StorageEngine;
-class QueryMemTrackerRegistry;
+class MemTrackerTaskPool;
 class PriorityThreadPool;
 class ReservationTracker;
 class ResultBufferMgr;
@@ -118,9 +119,10 @@ public:
     }
 
     std::shared_ptr<MemTracker> process_mem_tracker() { return _process_mem_tracker; }
-    std::shared_ptr<MemTracker> all_query_mem_tracker() { return _all_query_mem_tracker; }
-    QueryMemTrackerRegistry* query_mem_tracker_registry() {
-        return _query_mem_tracker_registry.get();
+    std::shared_ptr<MemTracker> new_process_mem_tracker() { return _new_process_mem_tracker; }
+    std::shared_ptr<MemTracker> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
+    MemTrackerTaskPool* task_pool_mem_tracker_registry() {
+        return _task_pool_mem_tracker_registry.get();
     }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
@@ -185,13 +187,16 @@ private:
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
     ClientCache<TExtDataSourceServiceClient>* _extdatasource_client_cache = nullptr;
+    ThreadResourceMgr* _thread_mgr = nullptr;
+
     // The ancestor of all trackers in the process. It is the only child of the root tracker.
     // All manually created trackers should specify the process tracker as the parent.
     std::shared_ptr<MemTracker> _process_mem_tracker = nullptr;
+    // TODO(zxy): Will replace _process_mem_tracker in future.
+    std::shared_ptr<MemTracker> _new_process_mem_tracker = nullptr;
     // The ancestor for all querys tracker.
-    std::shared_ptr<MemTracker> _all_query_mem_tracker = nullptr;
-    std::unique_ptr<QueryMemTrackerRegistry> _query_mem_tracker_registry;
-    ThreadResourceMgr* _thread_mgr = nullptr;
+    std::shared_ptr<MemTracker> _query_pool_mem_tracker = nullptr;
+    std::unique_ptr<MemTrackerTaskPool> _task_pool_mem_tracker_registry;
 
     // The following two thread pools are used in different scenarios.
     // _scan_thread_pool is a priority thread pool.

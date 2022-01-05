@@ -59,7 +59,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
-        _mem_tracker->Consume(_tuple_ptrs_size);
+        _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != nullptr);
     } else {
@@ -91,7 +91,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
-        _mem_tracker->Consume(_tuple_ptrs_size);
+        _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != nullptr);
     } else {
@@ -215,6 +215,138 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     }
 }
 
+// TODO: we want our input_batch's tuple_data to come from our (not yet implemented)
+// global runtime memory segment; how do we get thrift to allocate it from there?
+// maybe change line (in Data_types.cc generated from Data.thrift)
+//              xfer += iprot->readString(this->tuple_data[_i9]);
+// to allocated string data in special mempool
+// (change via python script that runs over Data_types.cc)
+RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, MemTracker* tracker)
+        : _mem_tracker(tracker),
+          _has_in_flight_row(false),
+          _num_rows(input_batch.num_rows),
+          _num_uncommitted_rows(0),
+          _capacity(_num_rows),
+          _flush(FlushMode::NO_FLUSH_RESOURCES),
+          _needs_deep_copy(false),
+          _num_tuples_per_row(input_batch.row_tuples.size()),
+          _row_desc(row_desc),
+          _auxiliary_mem_usage(0),
+          _need_to_return(false),
+          _tuple_data_pool(_mem_tracker) {
+    DCHECK(_mem_tracker != nullptr);
+    _tuple_ptrs_size = _num_rows * input_batch.row_tuples.size() * sizeof(Tuple*);
+    DCHECK_GT(_tuple_ptrs_size, 0);
+    // TODO: switch to Init() pattern so we can check memory limit and return Status.
+    if (config::enable_partitioned_aggregation) {
+        _mem_tracker->consume(_tuple_ptrs_size);
+        _tuple_ptrs = (Tuple**)malloc(_tuple_ptrs_size);
+        DCHECK(_tuple_ptrs != nullptr);
+    } else {
+        _tuple_ptrs = (Tuple**)_tuple_data_pool.allocate(_tuple_ptrs_size);
+    }
+
+    char* tuple_data = nullptr;
+    if (input_batch.is_compressed) {
+        // Decompress tuple data into data pool
+        const char* compressed_data = input_batch.tuple_data.c_str();
+        size_t compressed_size = input_batch.tuple_data.size();
+        size_t uncompressed_size = 0;
+        bool success =
+                snappy::GetUncompressedLength(compressed_data, compressed_size, &uncompressed_size);
+        DCHECK(success) << "snappy::GetUncompressedLength failed";
+        tuple_data = (char*)_tuple_data_pool.allocate(uncompressed_size);
+        success = snappy::RawUncompress(compressed_data, compressed_size, tuple_data);
+        DCHECK(success) << "snappy::RawUncompress failed";
+    } else {
+        // Tuple data uncompressed, copy directly into data pool
+        tuple_data = (char*)_tuple_data_pool.allocate(input_batch.tuple_data.size());
+        memcpy(tuple_data, input_batch.tuple_data.c_str(), input_batch.tuple_data.size());
+    }
+
+    // convert input_batch.tuple_offsets into pointers
+    int tuple_idx = 0;
+    for (auto offset : input_batch.tuple_offsets) {
+        if (offset == -1) {
+            _tuple_ptrs[tuple_idx++] = nullptr;
+        } else {
+            _tuple_ptrs[tuple_idx++] = convert_to<Tuple*>(tuple_data + offset);
+        }
+    }
+
+    // Check whether we have slots that require offset-to-pointer conversion.
+    if (!_row_desc.has_varlen_slots()) {
+        return;
+    }
+
+    const auto& tuple_descs = _row_desc.tuple_descriptors();
+
+    // For every unique tuple, convert string offsets contained in tuple data into
+    // pointers. Tuples were serialized in the order we are deserializing them in,
+    // so the first occurrence of a tuple will always have a higher offset than any tuple
+    // we already converted.
+    for (int i = 0; i < _num_rows; ++i) {
+        TupleRow* row = get_row(i);
+        for (size_t j = 0; j < tuple_descs.size(); ++j) {
+            auto desc = tuple_descs[j];
+            if (desc->string_slots().empty() && desc->collection_slots().empty()) {
+                continue;
+            }
+
+            Tuple* tuple = row->get_tuple(j);
+            if (tuple == nullptr) {
+                continue;
+            }
+
+            for (auto slot : desc->string_slots()) {
+                DCHECK(slot->type().is_string_type());
+                StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
+
+                int offset = convert_to<int>(string_val->ptr);
+                string_val->ptr = tuple_data + offset;
+
+                // Why we do this mask? Field len of StringValue is changed from int to size_t in
+                // Doris 0.11. When upgrading, some bits of len sent from 0.10 is random value,
+                // this works fine in version 0.10, however in 0.11 this will lead to an invalid
+                // length. So we make the high bits zero here.
+                string_val->len &= 0x7FFFFFFFL;
+            }
+
+            // copy collection slot
+            for (auto slot_collection : desc->collection_slots()) {
+                DCHECK(slot_collection->type().is_collection_type());
+                CollectionValue* array_val =
+                        tuple->get_collection_slot(slot_collection->tuple_offset());
+
+                int offset = convert_to<int>(array_val->data());
+                array_val->set_data(tuple_data + offset);
+                int null_offset = convert_to<int>(array_val->null_signs());
+                array_val->set_null_signs(convert_to<bool*>(tuple_data + null_offset));
+
+                const TypeDescriptor& item_type = slot_collection->type().children.at(0);
+                if (!item_type.is_string_type()) {
+                    continue;
+                }
+
+                // copy string item
+                for (size_t k = 0; k < array_val->length(); ++k) {
+                    if (array_val->is_null_at(k)) {
+                        continue;
+                    }
+
+                    StringValue* dst_item_v = convert_to<StringValue*>(
+                            (uint8_t*)array_val->data() + k * item_type.get_slot_size());
+
+                    if (dst_item_v->len != 0) {
+                        int offset = convert_to<int>(dst_item_v->ptr);
+                        dst_item_v->ptr = tuple_data + offset;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void RowBatch::clear() {
     if (_cleared) {
         return;
@@ -237,7 +369,7 @@ void RowBatch::clear() {
     if (config::enable_partitioned_aggregation) {
         DCHECK(_tuple_ptrs != nullptr);
         free(_tuple_ptrs);
-        _mem_tracker->Release(_tuple_ptrs_size);
+        _mem_tracker->release(_tuple_ptrs_size);
         _tuple_ptrs = nullptr;
     }
     _cleared = true;

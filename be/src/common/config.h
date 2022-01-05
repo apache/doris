@@ -60,9 +60,6 @@ CONF_mInt64(tc_free_memory_rate, "20");
 //            https://github.com/gperftools/gperftools/issues/1111
 CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 
-// Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
-CONF_mBool(tc_init_hook, "true");
-
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
@@ -598,18 +595,25 @@ CONF_Int32(aws_log_level, "3");
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
+// Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
+CONF_mBool(use_tc_hook, "true");
+
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
-//      RELEASE: 0
-//      DEBUG: 1
+//      OVERVIEW: 0
+//      TASK: 1
+//      INSTANCE: 2
+//      VERBOSE: 3
 // the level equal or lower than mem_tracker_level will show in web page
-CONF_Int16(mem_tracker_level, "0");
+CONF_mInt16(mem_tracker_level, "0");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
 CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
+
+CONF_mBool(memory_leak_detection, "false");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.

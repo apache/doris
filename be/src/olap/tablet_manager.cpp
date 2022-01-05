@@ -73,8 +73,7 @@ static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSha
 }
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(MemTracker::CreateTracker(-1, "TabletMeta", nullptr, false, false,
-                                                 MemTrackerLevel::OVERVIEW)),
+        : _mem_tracker(MemTracker::create_tracker(-1, "TabletMeta", nullptr, MemTrackerLevel::OVERVIEW)),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1),
           _last_update_stat_ms(0) {
@@ -89,7 +88,7 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
 }
 
 TabletManager::~TabletManager() {
-    _mem_tracker->Release(_mem_tracker->consumption());
+    _mem_tracker->release(_mem_tracker->consumption());
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
@@ -204,7 +203,7 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     // TODO: remove multiply 2 of tablet meta mem size
     // Because table schema will copy in tablet, there will be double mem cost
     // so here multiply 2
-    _mem_tracker->Consume(tablet->tablet_meta()->mem_size() * 2);
+    _mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
 
     VLOG_NOTICE << "add tablet to map successfully."
                 << " tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
@@ -1368,7 +1367,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
     }
 
     dropped_tablet->deregister_tablet_from_dir();
-    _mem_tracker->Release(dropped_tablet->tablet_meta()->mem_size() * 2);
+    _mem_tracker->release(dropped_tablet->tablet_meta()->mem_size() * 2);
     return OLAP_SUCCESS;
 }
 

@@ -128,11 +128,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         bytes_limit = _exec_env->process_mem_tracker()->limit();
     }
     // NOTE: this MemTracker only for olap
-    _mem_tracker = MemTracker::CreateTracker(bytes_limit,
-                                             "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
-                                                     print_id(params.fragment_instance_id),
-                                             _exec_env->process_mem_tracker(), true, false,
-                                             MemTrackerLevel::TASK);
+    _mem_tracker =
+            MemTracker::create_tracker(bytes_limit,
+                                       "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
+                                               print_id(params.fragment_instance_id),
+                                       _exec_env->process_mem_tracker(), MemTrackerLevel::INSTANCE);
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
@@ -464,6 +464,8 @@ void PlanFragmentExecutor::_collect_node_statistics() {
 }
 
 void PlanFragmentExecutor::report_profile() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(_runtime_state->query_id()),
+                              _runtime_state->fragment_instance_id());
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(_report_status_cb);
 
@@ -702,7 +704,7 @@ void PlanFragmentExecutor::close() {
 
     // _mem_tracker init failed
     if (_mem_tracker.get() != nullptr) {
-        _mem_tracker->Release(_mem_tracker->consumption());
+        _mem_tracker->release(_mem_tracker->consumption());
     }
     _closed = true;
 }

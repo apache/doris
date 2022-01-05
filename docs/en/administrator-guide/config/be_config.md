@@ -1303,12 +1303,6 @@ Available memory, value range: [0-100]
 
 If the system is found to be in a high-stress scenario and a large number of threads are found in the tcmalloc lock competition phase through the BE thread stack, such as a large number of `SpinLock` related stacks, you can try increasing this parameter to improve system performance. [Reference](https://github.com/gperftools/gperftools/issues/1111)
 
-### `tc_init_hook`
-
-* Type: bool
-* Description: Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
-* Default: true
-
 ### `tc_use_memory_min`
 
 Default：10737418240
@@ -1437,21 +1431,35 @@ The size of the buffer before flashing
   
 * Default: 3
 
+### `use_tc_hook`
+
+* Type: bool
+* Description: Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
+* Default: true
+
 ### `mem_tracker_level`
 
 * Type: int16
 * Description: The level at which MemTracker is displayed on the Web page equal or lower than this level will be displayed on the Web page
   ```
-    RELEASE = 0
-    DEBUG = 1
+    OVERVIEW = 0
+    TASK = 1
+    INSTANCE = 2
+    VERBOSE = 3
   ```
 * Default: 0
 
 ### `mem_tracker_consume_min_size_bytes`
 
 * Type: int32
-* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = (mem_tracker_consume_min_size_bytes * the number of BE threads where the MemTracker is located).
+* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = ( mem_tracker_consume_min_size_bytes * the number of BE threads where the MemTracker is located).
 * Default: 1048576
+
+### `memory_leak_detection`
+
+* Type: bool
+* Description: Whether to start memory leak detection, memory leak occurs when MemTracker is considered to be a negative value, but the actual MemTracker records inaccurately will also cause a negative value, so this feature is in the experimental stage.
+* Default: false
 
 ### `max_segment_num_per_rowset`
 

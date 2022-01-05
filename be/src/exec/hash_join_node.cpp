@@ -30,6 +30,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
@@ -176,6 +177,8 @@ Status HashJoinNode::close(RuntimeState* state) {
 }
 
 void HashJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(state->query_id()),
+                              state->fragment_instance_id());
     status->set_value(construct_hash_table(state));
 }
 

@@ -100,8 +100,7 @@ public:
         DCHECK(buffer != nullptr);
         if (buffer->len == _mgr->max_block_size()) {
             ++_num_pinned_buffers;
-            _tracker->ConsumeLocal(buffer->len, _query_tracker.get());
-            // _tracker->Consume(buffer->len);
+            _tracker->consume(buffer->len, _query_tracker.get());
         }
     }
 
@@ -110,8 +109,7 @@ public:
         if (buffer->len == _mgr->max_block_size()) {
             DCHECK_GT(_num_pinned_buffers, 0);
             --_num_pinned_buffers;
-            _tracker->ReleaseLocal(buffer->len, _query_tracker.get());
-            // _tracker->Release(buffer->len);
+            _tracker->release(buffer->len, _query_tracker.get());
         }
     }
 
@@ -261,7 +259,7 @@ int64_t BufferedBlockMgr2::available_buffers(Client* client) const {
 int64_t BufferedBlockMgr2::remaining_unreserved_buffers() const {
     int64_t num_buffers =
             _free_io_buffers.size() + _unpinned_blocks.size() + _non_local_outstanding_writes;
-    num_buffers += _mem_tracker->SpareCapacity(MemLimit::HARD) / max_block_size();
+    num_buffers += _mem_tracker->spare_capacity() / max_block_size();
     num_buffers -= _unfullfilled_reserved_buffers;
     return num_buffers;
 }
@@ -324,24 +322,24 @@ bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
     }
     int buffers_needed = BitUtil::ceil(size, max_block_size());
     unique_lock<mutex> lock(_lock);
-    Status st = _mem_tracker->TryConsume(size);
+    Status st = _mem_tracker->try_consume(size);
     WARN_IF_ERROR(st, "consume failed");
     if (size < max_block_size() && st) {
         // For small allocations (less than a block size), just let the allocation through.
-        client->_tracker->ConsumeLocal(size, client->_query_tracker.get());
-        // client->_tracker->Consume(size);
+        client->_tracker->consume(size, client->_query_tracker.get());
+        // client->_tracker->consume(size);
         return true;
     }
 
     if (available_buffers(client) + client->_num_tmp_reserved_buffers < buffers_needed) {
         return false;
     }
-    st = _mem_tracker->TryConsume(size);
+    st = _mem_tracker->try_consume(size);
     WARN_IF_ERROR(st, "consume failed");
     if (st) {
         // There was still unallocated memory, don't need to recycle allocated blocks.
-        client->_tracker->ConsumeLocal(size, client->_query_tracker.get());
-        // client->_tracker->Consume(size);
+        client->_tracker->consume(size, client->_query_tracker.get());
+        // client->_tracker->consume(size);
         return true;
     }
 
@@ -386,7 +384,7 @@ bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
         }
         client->_num_tmp_reserved_buffers -= additional_tmp_reservations;
         _unfullfilled_reserved_buffers -= additional_tmp_reservations;
-        _mem_tracker->Release(buffers_acquired * max_block_size());
+        _mem_tracker->release(buffers_acquired * max_block_size());
         return false;
     }
 
@@ -394,21 +392,21 @@ bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
     _unfullfilled_reserved_buffers -= buffers_acquired;
 
     DCHECK_GE(buffers_acquired * max_block_size(), size);
-    _mem_tracker->Release(buffers_acquired * max_block_size());
-    st = _mem_tracker->TryConsume(size);
+    _mem_tracker->release(buffers_acquired * max_block_size());
+    st = _mem_tracker->try_consume(size);
     WARN_IF_ERROR(st, "consume failed");
     if (!st) {
         return false;
     }
-    client->_tracker->ConsumeLocal(size, client->_query_tracker.get());
-    // client->_tracker->Consume(size);
+    client->_tracker->consume(size, client->_query_tracker.get());
+    // client->_tracker->consume(size);
     DCHECK(validate()) << endl << debug_internal();
     return true;
 }
 
 void BufferedBlockMgr2::release_memory(Client* client, int64_t size) {
-    _mem_tracker->Release(size);
-    client->_tracker->ReleaseLocal(size, client->_query_tracker.get());
+    _mem_tracker->release(size);
+    client->_tracker->release(size, client->_query_tracker.get());
 }
 
 void BufferedBlockMgr2::cancel() {
@@ -469,7 +467,7 @@ Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Bloc
 
         if (len > 0 && len < _max_block_size) {
             DCHECK(unpin_block == nullptr);
-            Status st = client->_tracker->TryConsume(len);
+            Status st = client->_tracker->try_consume(len);
             WARN_IF_ERROR(st, "get_new_block failed");
             if (st) {
                 // TODO: Have a cache of unused blocks of size 'len' (0, _max_block_size)
@@ -600,7 +598,7 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
 
     // Free memory resources.
     for (BufferDescriptor* buffer : _all_io_buffers) {
-        _mem_tracker->Release(buffer->len);
+        _mem_tracker->release(buffer->len);
         delete[] buffer->buffer;
     }
     DCHECK_EQ(_mem_tracker->consumption(), 0);
@@ -954,7 +952,7 @@ void BufferedBlockMgr2::delete_block(Block* block) {
         if (block->_buffer_desc->len != _max_block_size) {
             // Just delete the block for now.
             delete[] block->_buffer_desc->buffer;
-            block->_client->_tracker->Release(block->_buffer_desc->len);
+            block->_client->_tracker->release(block->_buffer_desc->len);
             delete block->_buffer_desc;
             block->_buffer_desc = nullptr;
         } else {
@@ -1094,7 +1092,7 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
 Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor** buffer_desc) {
     *buffer_desc = nullptr;
 
-    Status st = _mem_tracker->TryConsume(_max_block_size);
+    Status st = _mem_tracker->try_consume(_max_block_size);
     WARN_IF_ERROR(st, "try to allocate a new buffer failed");
     // First, try to allocate a new buffer.
     if (_free_io_buffers.size() < _block_write_threshold && st) {
@@ -1262,8 +1260,8 @@ string BufferedBlockMgr2::debug_internal() const {
        << "  Num available buffers: " << remaining_unreserved_buffers() << endl
        << "  Total pinned buffers: " << _total_pinned_buffers << endl
        << "  Unfullfilled reserved buffers: " << _unfullfilled_reserved_buffers << endl
-       << "  Remaining memory: " << _mem_tracker->SpareCapacity(MemLimit::HARD)
-       << " (#blocks=" << (_mem_tracker->SpareCapacity(MemLimit::HARD) / _max_block_size) << ")"
+       << "  Remaining memory: " << _mem_tracker->spare_capacity()
+       << " (#blocks=" << (_mem_tracker->spare_capacity() / _max_block_size) << ")"
        << endl
        << "  Block write threshold: " << _block_write_threshold;
     return ss.str();
@@ -1295,7 +1293,7 @@ void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile,
     _integrity_check_timer = ADD_TIMER(_profile.get(), "TotalIntegrityCheckTime");
 
     // Create a new mem_tracker and allocate buffers.
-    _mem_tracker = MemTracker::CreateTracker(mem_limit, "BufferedBlockMgr2", parent_tracker);
+    _mem_tracker = MemTracker::create_tracker(mem_limit, "BufferedBlockMgr2", parent_tracker);
 
     _initialized = true;
 }

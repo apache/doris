@@ -58,7 +58,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
           _is_using_mmap(false),
           _is_data_loaded(false),
           _buffer_size(0),
-          _tracker(MemTracker::CreateTracker(-1, "SegmentReader:" + file, parent_tracker, false)),
+          _tracker(MemTracker::create_tracker(-1, "SegmentReader:" + file, parent_tracker)),
           _mem_pool(new MemPool(_tracker.get())),
           _shared_buffer(nullptr),
           _lru_cache(lru_cache),
@@ -87,7 +87,7 @@ SegmentReader::~SegmentReader() {
     _file_handler.close();
 
     if (_is_data_loaded && _runtime_state != nullptr) {
-        MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers());
+        MemTracker::batch_consume(_buffer_size * -1, _runtime_state->mem_trackers());
     }
 
     for (auto& it : _streams) {
@@ -250,8 +250,7 @@ OLAPStatus SegmentReader::seek_to_block(uint32_t first_block, uint32_t last_bloc
         }
 
         if (_runtime_state != nullptr) {
-            MemTracker::update_limits(_buffer_size, _runtime_state->mem_trackers());
-            if (MemTracker::limit_exceeded(_runtime_state->mem_trackers())) {
+            if (!MemTracker::batch_consume(_buffer_size, _runtime_state->mem_trackers())) {
                 return OLAP_ERR_FETCH_MEMORY_EXCEEDED;
             }
         }
@@ -837,7 +836,7 @@ OLAPStatus SegmentReader::_reset_readers() {
     for (std::map<StreamName, ReadOnlyFileStream*>::iterator it = _streams.begin();
          it != _streams.end(); ++it) {
         if (_runtime_state != nullptr) {
-            MemTracker::update_limits(-1 * it->second->get_buffer_size(),
+            MemTracker::batch_consume(-1 * it->second->get_buffer_size(),
                                       _runtime_state->mem_trackers());
         }
         delete it->second;
@@ -851,7 +850,7 @@ OLAPStatus SegmentReader::_reset_readers() {
             continue;
         }
         if (_runtime_state != nullptr) {
-            MemTracker::update_limits(-1 * (*it)->get_buffer_size(),
+            MemTracker::batch_consume(-1 * (*it)->get_buffer_size(),
                                       _runtime_state->mem_trackers());
         }
         delete (*it);

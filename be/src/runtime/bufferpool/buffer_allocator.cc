@@ -22,6 +22,7 @@
 #include "common/atomic.h"
 #include "common/config.h"
 #include "runtime/bufferpool/system_allocator.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/cpu_info.h"
 #include "util/pretty_printer.h"
@@ -220,6 +221,7 @@ Status BufferPool::BufferAllocator::Allocate(ClientHandle* client, int64_t len,
     COUNTER_UPDATE(client->impl_->counters().cumulative_allocations, 1);
 
     RETURN_IF_ERROR(AllocateInternal(len, buffer));
+    thread_local_ctx.consume_mem(len);
     DCHECK(buffer->is_open());
     buffer->client_ = client;
     return Status::OK();
@@ -245,7 +247,9 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
     const int current_core = CpuInfo::get_current_core();
     // Fast path: recycle a buffer of the correct size from this core's arena.
     FreeBufferArena* current_core_arena = per_core_arenas_[current_core].get();
-    if (current_core_arena->PopFreeBuffer(len, buffer)) return Status::OK();
+    if (current_core_arena->PopFreeBuffer(len, buffer)) {
+        return Status::OK();
+    }
 
     // Fast-ish path: allocate a new buffer if there is room in 'system_bytes_remaining_'.
     int64_t delta = DecreaseBytesRemaining(len, true, &system_bytes_remaining_);
@@ -264,7 +268,9 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
             // Each core should start searching from a different point to avoid hot-spots.
             int other_core = numa_node_cores[(numa_node_core_idx + i) % numa_node_cores.size()];
             FreeBufferArena* other_core_arena = per_core_arenas_[other_core].get();
-            if (other_core_arena->PopFreeBuffer(len, buffer)) return Status::OK();
+            if (other_core_arena->PopFreeBuffer(len, buffer)) {
+                return Status::OK();
+            }
         }
 
         /*
@@ -298,7 +304,11 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
     }
     // We have headroom to allocate a new buffer at this point.
     DCHECK_EQ(delta, len);
-    Status status = system_allocator_->Allocate(len, buffer);
+    Status status;
+    {
+        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
+        status = system_allocator_->Allocate(len, buffer);
+    }
     if (!status.ok()) {
         system_bytes_remaining_.add(len);
         return status;
@@ -375,6 +385,7 @@ void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     handle.client_ = nullptr; // Buffer is no longer associated with a client.
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
+    thread_local_ctx.release_mem(handle.len());
     arena->AddFreeBuffer(std::move(handle));
 }
 
@@ -420,6 +431,7 @@ int BufferPool::BufferAllocator::GetFreeListSize(int core, int64_t len) {
 
 int64_t BufferPool::BufferAllocator::FreeToSystem(std::vector<BufferHandle>&& buffers) {
     int64_t bytes_freed = 0;
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     for (BufferHandle& buffer : buffers) {
         bytes_freed += buffer.len();
         // Ensure that the memory is unpoisoned when it's next allocated by the system.

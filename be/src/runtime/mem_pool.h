@@ -86,18 +86,12 @@ class MemTracker;
 /// At this point p.total_allocated_bytes_ would be 0.
 /// The one remaining (empty) chunk is released:
 ///    delete p;
+//
+// 存在pool的申请和释放在不同线程被调用。
 class MemPool {
 public:
     /// 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
-    MemPool(MemTracker* mem_tracker)
-            : current_chunk_idx_(-1),
-              next_chunk_size_(INITIAL_CHUNK_SIZE),
-              total_allocated_bytes_(0),
-              total_reserved_bytes_(0),
-              peak_allocated_bytes_(0),
-              mem_tracker_(mem_tracker) {
-        DCHECK(mem_tracker != nullptr);
-    }
+    MemPool(MemTracker* mem_tracker);
 
     /// Frees all chunks of memory and subtracts the total allocated bytes
     /// from the registered limits.
@@ -279,6 +273,8 @@ private:
     /// The current and peak memory footprint of this pool. This is different from
     /// total allocated_bytes_ since it includes bytes in chunks that are not used.
     MemTracker* mem_tracker_;
+
+    std::shared_ptr<MemTracker> new_mem_tracker_;
 };
 
 // Stamp out templated implementations here so they're included in IR module

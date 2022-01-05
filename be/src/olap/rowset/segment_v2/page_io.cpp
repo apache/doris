@@ -26,6 +26,7 @@
 #include "olap/fs/block_manager.h"
 #include "olap/page_cache.h"
 #include "util/block_compression.h"
+#include "runtime/thread_context.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
@@ -139,7 +140,11 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     // hold compressed page at first, reset to decompressed page later
-    std::unique_ptr<char[]> page(new char[page_size]);
+    std::unique_ptr<char[]> page;
+    {
+        // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
+        page.reset(new char[page_size]);
+    }
     Slice page_slice(page.get(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
@@ -170,8 +175,11 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
             return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
-        std::unique_ptr<char[]> decompressed_page(
-                new char[footer->uncompressed_size() + footer_size + 4]);
+        std::unique_ptr<char[]> decompressed_page;
+        {
+            // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
+            decompressed_page.reset(new char[footer->uncompressed_size() + footer_size + 4]);
+        }
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);
@@ -185,8 +193,11 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         // append footer and footer size
         memcpy(decompressed_body.data + decompressed_body.size, page_slice.data + body_size,
                footer_size + 4);
-        // free memory of compressed page
-        page = std::move(decompressed_page);
+        {
+            // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
+            // free memory of compressed page
+            page = std::move(decompressed_page);
+        }
         page_slice = Slice(page.get(), footer->uncompressed_size() + footer_size + 4);
         opts.stats->uncompressed_bytes_read += page_slice.size;
     } else {

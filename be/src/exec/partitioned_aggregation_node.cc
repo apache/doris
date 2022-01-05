@@ -409,7 +409,7 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
                     "Cannot perform aggregation at node with id $0."
                     " Failed to allocate $1 output bytes.",
                     _id, sv->len);
-            return pool->mem_tracker()->MemLimitExceeded(state_, details, sv->len);
+            return pool->mem_tracker()->mem_limit_exceeded(state_, details, sv->len);
         }
         memcpy(new_ptr, sv->ptr, sv->len);
         sv->ptr = new_ptr;
@@ -932,7 +932,7 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
             << ", Limit: " << pool->mem_tracker()->limit() << ". "
             << "You can change the limit by session variable exec_mem_limit.";
         string details = Substitute(str.str(), _id, tuple_data_size);
-        *status = pool->mem_tracker()->MemLimitExceeded(state_, details, tuple_data_size);
+        *status = pool->mem_tracker()->mem_limit_exceeded(state_, details, tuple_data_size);
         return nullptr;
     }
     memset(tuple_data, 0, fixed_size);

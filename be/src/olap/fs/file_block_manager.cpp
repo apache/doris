@@ -368,8 +368,8 @@ Status FileReadableBlock::readv(uint64_t offset, const Slice* results, size_t re
 FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts)
         : _env(DCHECK_NOTNULL(env)),
           _opts(std::move(opts)),
-          _mem_tracker(MemTracker::CreateTracker(-1, "FileBlockManager", _opts.parent_mem_tracker,
-                    false, false, MemTrackerLevel::OVERVIEW)) {
+          _mem_tracker(MemTracker::create_tracker(-1, "FileBlockManager", _opts.parent_mem_tracker,
+                                                  MemTrackerLevel::OVERVIEW)) {
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }

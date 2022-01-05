@@ -188,7 +188,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
-    _mem_tracker = MemTracker::CreateTracker(-1, "FoldConstantExpr", _runtime_state->instance_mem_tracker());
+    _mem_tracker = MemTracker::create_tracker(-1, "FoldConstantExpr", _runtime_state->instance_mem_tracker());
     _mem_pool.reset(new MemPool(_mem_tracker.get()));
 
     return Status::OK();

@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    if (doris::config::tc_init_hook) {
+    if (doris::config::use_tc_hook) {
         init_hook();
     }
 
@@ -290,7 +290,7 @@ int main(int argc, char** argv) {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_current_mem();
 #endif
-        doris::ExecEnv::GetInstance()->query_mem_tracker_registry()->deregister_query_mem_tracker();
+        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_query_mem_tracker();
         sleep(10);
     }
 

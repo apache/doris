@@ -203,11 +203,11 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = MemTracker::CreateTracker(_runtime_profile.get(), -1,
-                                             "ExecNode:" + _runtime_profile->name(),
-                                             state->instance_mem_tracker());
-    _expr_mem_tracker = MemTracker::CreateTracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
-                                                  _mem_tracker);
+    _mem_tracker = MemTracker::create_tracker(-1, "ExecNode:" + _runtime_profile->name(),
+                                              state->instance_mem_tracker(),
+                                              MemTrackerLevel::VERBOSE, _runtime_profile.get());
+    _expr_mem_tracker = MemTracker::create_tracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
+                                                   _mem_tracker);
     _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
 
     if (_vconjunct_ctx_ptr) {

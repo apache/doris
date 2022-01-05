@@ -542,7 +542,7 @@ public:
     ~DiskIoMgr();
 
     // Initialize the IoMgr. Must be called once before any of the other APIs.
-    Status init(const std::shared_ptr<MemTracker>& process_mem_tracker);
+    Status init(const int64_t mem_limit);
 
     // Allocates tracking structure for a request context.
     // Register a new request context which is returned in *request_context.
@@ -691,8 +691,8 @@ private:
     // Pool to allocate BufferDescriptors.
     ObjectPool _pool;
 
-    // Process memory tracker; needed to account for io buffers.
-    std::shared_ptr<MemTracker> _process_mem_tracker;
+    // account for io buffers.
+    std::shared_ptr<MemTracker> _disk_io_mem_tracker;
 
     // Number of worker(read) threads per disk. Also the max depth of queued
     // work to the disk.

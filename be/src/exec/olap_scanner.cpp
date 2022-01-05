@@ -48,10 +48,9 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
-          _mem_tracker(MemTracker::CreateTracker(
+          _mem_tracker(MemTracker::create_tracker(
                   runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
-                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::VERBOSE)) {
-}
+                  runtime_state->fragment_mem_tracker(), MemTrackerLevel::VERBOSE)) {}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,

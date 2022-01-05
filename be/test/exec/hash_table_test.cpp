@@ -47,8 +47,8 @@ namespace doris {
 class HashTableTest : public testing::Test {
 public:
     HashTableTest() {
-        _tracker = MemTracker::CreateTracker(-1, "root");
-        _pool_tracker = MemTracker::CreateTracker(-1, "mem-pool", _tracker);
+        _tracker = MemTracker::create_tracker(-1, "root");
+        _pool_tracker = MemTracker::create_tracker(-1, "mem-pool", _tracker);
         _mem_pool.reset(new MemPool(_pool_tracker.get()));
         _state = _pool.add(new RuntimeState(TQueryGlobals()));
         _state->init_instance_mem_tracker();
@@ -196,7 +196,7 @@ TEST_F(HashTableTest, SetupTest) {
 // The hash table is rehashed a few times and the scans/finds are tested again.
 TEST_F(HashTableTest, BasicTest) {
     std::shared_ptr<MemTracker> hash_table_tracker =
-            MemTracker::CreateTracker(-1, "hash-table-basic-tracker", _tracker);
+            MemTracker::create_tracker(-1, "hash-table-basic-tracker", _tracker);
 
     TupleRow* build_rows[5];
     TupleRow* scan_rows[5] = {0};
@@ -260,7 +260,7 @@ TEST_F(HashTableTest, BasicTest) {
 // This tests makes sure we can scan ranges of buckets
 TEST_F(HashTableTest, ScanTest) {
     std::shared_ptr<MemTracker> hash_table_tracker =
-            MemTracker::CreateTracker(-1, "hash-table-scan-tracker", _tracker);
+            MemTracker::create_tracker(-1, "hash-table-scan-tracker", _tracker);
 
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
@@ -314,7 +314,7 @@ TEST_F(HashTableTest, GrowTableTest) {
     int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::CreateTracker(1024 * 1024, "hash-table-grow-tracker", _tracker);
+            MemTracker::create_tracker(1024 * 1024, "hash-table-grow-tracker", _tracker);
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
@@ -357,7 +357,7 @@ TEST_F(HashTableTest, GrowTableTest2) {
     int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::CreateTracker(1024 * 1024 * 1024, "hash-table-grow2-tracker", _tracker);
+            MemTracker::create_tracker(1024 * 1024 * 1024, "hash-table-grow2-tracker", _tracker);
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;

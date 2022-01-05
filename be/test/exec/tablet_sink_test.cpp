@@ -57,7 +57,7 @@ public:
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_buffer_reservation = new ReservationTracker();
-        _env->_query_mem_tracker_registry.reset(new QueryMemTrackerRegistry());
+        _env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
         ThreadPoolBuilder("SendBatchThreadPool")
                 .set_min_threads(1)
                 .set_max_threads(5)

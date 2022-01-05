@@ -775,7 +775,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(nullptr, details, val_size);
+                return tuple_pool->mem_tracker()->mem_limit_exceeded(nullptr, details, val_size);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;

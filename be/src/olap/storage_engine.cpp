@@ -112,10 +112,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
-          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "AutoCompaction", nullptr, false,
-                                                            false, MemTrackerLevel::OVERVIEW)),
-          _tablet_mem_tracker(MemTracker::CreateTracker(-1, "TabletHeader", nullptr, false, false,
-                                                        MemTrackerLevel::OVERVIEW)),
+          _compaction_mem_tracker(MemTracker::create_tracker(-1, "AutoCompaction", nullptr,
+                                                             MemTrackerLevel::OVERVIEW)),
+          _tablet_mem_tracker(MemTracker::create_tracker(-1, "TabletHeader", nullptr,
+                                                         MemTrackerLevel::OVERVIEW)),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -134,7 +134,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
         return _compaction_mem_tracker->consumption();
         // We can get each compaction's detail usage
-        // LOG(INFO) << _compaction_mem_tracker=>LogUsage(2);
+        // LOG(INFO) << _compaction_mem_tracker=>log_usage(2);
     });
 }
 

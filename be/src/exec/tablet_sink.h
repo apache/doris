@@ -365,7 +365,7 @@ private:
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
-    void _send_batch_process();
+    void _send_batch_process(RuntimeState* state);
 
 protected:
     friend class NodeChannel;

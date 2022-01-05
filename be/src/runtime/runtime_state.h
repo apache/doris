@@ -407,7 +407,7 @@ private:
     // The query mem tracker must be released after the _instance_mem_tracker.
     std::shared_ptr<MemTracker> _query_mem_tracker;
     // TODO(zxy): Will replace _query_mem_tracker in future.
-    std::shared_ptr<MemTracker> _hook_query_mem_tracker;
+    std::shared_ptr<MemTracker> _new_query_mem_tracker;
 
     // Memory usage of this fragment instance
     std::shared_ptr<MemTracker> _instance_mem_tracker;

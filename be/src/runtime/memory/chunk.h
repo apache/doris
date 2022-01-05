@@ -22,6 +22,8 @@
 
 namespace doris {
 
+class MemTracker;
+
 // A chunk of continuous memory.
 // Almost all files depend on this struct, and each modification
 // will result in recompilation of all files. So, we put it in a
@@ -30,6 +32,7 @@ struct Chunk {
     uint8_t* data = nullptr;
     size_t size = 0;
     int core_id = -1;
+    std::shared_ptr<MemTracker> mem_tracker = nullptr;
 };
 
 } // namespace doris

@@ -101,7 +101,7 @@ NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool,
 
 NewAggFnEvaluator::~NewAggFnEvaluator() {
     if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->Release(_total_mem_consumption);
+        _mem_tracker->release(_total_mem_consumption);
     }
     DCHECK(closed_);
 }

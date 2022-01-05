@@ -31,8 +31,7 @@ void SegmentLoader::create_global_instance(size_t capacity) {
 }
 
 SegmentLoader::SegmentLoader(size_t capacity)
-        : _mem_tracker(MemTracker::CreateTracker(capacity, "SegmentLoader", nullptr, true, true,
-                                                 MemTrackerLevel::OVERVIEW)) {
+        : _mem_tracker(MemTracker::create_tracker(capacity, "SegmentLoader", nullptr, MemTrackerLevel::OVERVIEW)) {
     _cache = std::unique_ptr<Cache>(
             new_typed_lru_cache("SegmentCache", capacity, LRUCacheType::NUMBER, _mem_tracker));
 }

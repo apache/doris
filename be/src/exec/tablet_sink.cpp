@@ -29,6 +29,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
@@ -248,7 +249,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled && _parent->_mem_tracker->AnyLimitExceeded(MemLimit::HARD) &&
+    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() &&
            _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
@@ -704,8 +705,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
     _mem_tracker =
-            MemTracker::CreateTracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
-                                      state->instance_mem_tracker(), true, false);
+            MemTracker::create_tracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
+                                      state->instance_mem_tracker());
 
     SCOPED_TIMER(_profile->total_time_counter());
 
@@ -839,8 +840,8 @@ Status OlapTableSink::open(RuntimeState* state) {
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
-            "OlapTableSink", "send_batch_process", [this]() { this->_send_batch_process(); },
-            &_sender_thread));
+            "OlapTableSink", "send_batch_process",
+            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
 
     return Status::OK();
 }
@@ -1209,8 +1210,10 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
     return Status::OK();
 }
 
-void OlapTableSink::_send_batch_process() {
+void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(state->query_id()),
+                              state->fragment_instance_id());
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {

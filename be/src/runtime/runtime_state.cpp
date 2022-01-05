@@ -36,6 +36,7 @@
 #include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/mem_tracker_task_pool.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/cpu_info.h"
@@ -207,32 +208,24 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     bool has_query_mem_tracker = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
     int64_t bytes_limit = has_query_mem_tracker ? _query_options.mem_limit : -1;
-    // we do not use global query-map  for now, to avoid mem-exceeded different fragments
-    // running on the same machine.
-    // TODO(lingbin): open it later. note that open with BufferedBlockMgr's BlockMgrsMap
-    // at the same time.
-
-    // _query_mem_tracker = MemTracker::get_query_mem_tracker(
-    //         query_id, bytes_limit, _exec_env->process_mem_tracker());
-
     auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
     mem_tracker_counter->set(bytes_limit);
 
     _query_mem_tracker =
-            MemTracker::CreateTracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
-                                      _exec_env->process_mem_tracker(), true, false);
+            MemTracker::create_tracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
+                                       _exec_env->process_mem_tracker(), MemTrackerLevel::INSTANCE);
 #ifdef BE_TEST
-    if (ExecEnv::GetInstance()->query_mem_tracker_registry() == nullptr) {
-        _hook_query_mem_tracker =
-                _exec_env->query_mem_tracker_registry()->register_query_mem_tracker(
+    if (ExecEnv::GetInstance()->task_pool_mem_tracker_registry() == nullptr) {
+        _new_query_mem_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
                         print_id(query_id), bytes_limit);
     }
 #else
-    _hook_query_mem_tracker = _exec_env->query_mem_tracker_registry()->register_query_mem_tracker(
+    _new_query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
             print_id(query_id), bytes_limit);
 #endif
-    _instance_mem_tracker =
-            MemTracker::CreateTracker(&_profile, -1, "RuntimeState:instance:", _query_mem_tracker);
+    _instance_mem_tracker = MemTracker::create_tracker(
+            -1, "RuntimeState:instance:", _query_mem_tracker, MemTrackerLevel::INSTANCE, &_profile);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
@@ -262,13 +255,13 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 }
 
 Status RuntimeState::init_instance_mem_tracker() {
-    _instance_mem_tracker = MemTracker::CreateTracker(-1, "RuntimeState");
+    _instance_mem_tracker = MemTracker::create_tracker(-1, "RuntimeState");
     return Status::OK();
 }
 
 Status RuntimeState::init_buffer_poolstate() {
     ExecEnv* exec_env = ExecEnv::GetInstance();
-    int64_t mem_limit = _query_mem_tracker->GetLowestLimit(MemLimit::HARD);
+    int64_t mem_limit = _query_mem_tracker->get_lowest_limit();
     int64_t max_reservation;
     if (query_options().__isset.buffer_pool_limit && query_options().buffer_pool_limit > 0) {
         max_reservation = query_options().buffer_pool_limit;
@@ -367,10 +360,10 @@ Status RuntimeState::set_mem_limit_exceeded(MemTracker* tracker, int64_t failed_
            << " without exceeding limit." << std::endl;
     }
 
-    // if (_exec_env->process_mem_tracker()->LimitExceeded()) {
-    //     ss << _exec_env->process_mem_tracker()->LogUsage();
+    // if (_exec_env->process_mem_tracker()->limit_exceeded()) {
+    //     ss << _exec_env->process_mem_tracker()->log_usage();
     // } else {
-    //     ss << _query_mem_tracker->LogUsage();
+    //     ss << _query_mem_tracker->log_usage();
     // }
     // log_error(ErrorMsg(TErrorCode::GENERAL, ss.str()));
     log_error(ss.str());

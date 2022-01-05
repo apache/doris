@@ -44,7 +44,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _mem_tracker(new MemTracker()),
 #else
           _mem_tracker(
-                  MemTracker::CreateTracker(-1, "BaseScanner:" + std::to_string(state->load_job_id()),
+                  MemTracker::create_tracker(-1, "BaseScanner:" + std::to_string(state->load_job_id()),
                                             state->instance_mem_tracker())),
 #endif
           _mem_pool(_mem_tracker.get()),

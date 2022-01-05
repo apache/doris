@@ -150,7 +150,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->target_info = *target_info;
     cntVal->pool.reset(new ObjectPool());
-    cntVal->tracker = MemTracker::CreateTracker();
+    cntVal->tracker = MemTracker::create_tracker();
     cntVal->filter = cntVal->pool->add(
             new IRuntimeFilter(nullptr, cntVal->tracker.get(), cntVal->pool.get()));
 

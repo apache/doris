@@ -51,14 +51,14 @@ Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id, const Table
         : _path_desc(path_desc), _segment_id(segment_id),
           _tablet_schema(tablet_schema) {
 #ifndef BE_TEST
-    _mem_tracker = MemTracker::CreateTracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);
+    _mem_tracker = MemTracker::create_tracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
 #else
-    _mem_tracker = MemTracker::CreateTracker(-1, "Segment", nullptr, false);
+    _mem_tracker = MemTracker::create_tracker(-1, "Segment", nullptr);
 #endif
 }
 
 Segment::~Segment() {
-    _mem_tracker->Release(_mem_tracker->consumption());
+    _mem_tracker->release(_mem_tracker->consumption());
 }
 
 Status Segment::_open() {
@@ -128,7 +128,7 @@ Status Segment::_parse_footer() {
         return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
                                                       _path_desc.filepath, file_size, 12 + footer_length));
     }
-    _mem_tracker->Consume(footer_length);
+    _mem_tracker->consume(footer_length);
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -172,7 +172,7 @@ Status Segment::_load_index() {
         DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
         DCHECK(footer.has_short_key_page_footer());
 
-        _mem_tracker->Consume(body.get_size());
+        _mem_tracker->consume(body.get_size());
         _sk_index_decoder.reset(new ShortKeyIndexDecoder);
         return _sk_index_decoder->parse(body, footer.short_key_page_footer());
     });
@@ -214,7 +214,7 @@ Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> pa
                         tablet_column.has_default_value(), tablet_column.default_value(),
                         tablet_column.is_nullable(), type_info, tablet_column.length()));
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "DefaultColumnIterator", parent, false);
+        iter_opts.mem_tracker = MemTracker::create_tracker(-1, "DefaultColumnIterator", parent);
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();

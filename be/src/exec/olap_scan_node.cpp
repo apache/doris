@@ -1332,6 +1332,8 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(state->query_id()),
+                              state->fragment_instance_id());
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1502,8 +1504,10 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    thread_local_ctx.attach(ThreadContext::QUERY, print_id(scanner->runtime_state()->query_id()),
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(scanner->runtime_state()->query_id()),
                             _runtime_state->fragment_instance_id());
+    // thread_local_ctx.attach(ThreadContext::QUERY, print_id(scanner->runtime_state()->query_id()),
+    //                         _runtime_state->fragment_instance_id());
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
@@ -1513,7 +1517,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         _scan_batch_added_cv.notify_one();
         _scan_thread_exit_cv.notify_one();
         LOG(INFO) << "Scan thread cancelled, cause query done, scan thread started to exit";
-        thread_local_ctx.detach();
+        // thread_local_ctx.detach();
         return;
     }
     int64_t wait_time = scanner->update_wait_worker_timer();
@@ -1663,7 +1667,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // and transfer thread
     _scan_batch_added_cv.notify_one();
     _scan_thread_exit_cv.notify_one();
-    thread_local_ctx.detach();
+    // thread_local_ctx.detach();
 }
 
 Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
