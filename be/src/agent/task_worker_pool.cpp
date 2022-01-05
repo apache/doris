@@ -235,7 +235,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 
     std::string type_str;
     EnumToString(TTaskType, task_type, type_str);
-    LOG(INFO) << "submitting task. type=" << type_str << ", signature=" << signature;
+    VLOG_CRITICAL << "submitting task. type=" << type_str << ", signature=" << signature;
 
     if (_register_task_info(task_type, signature)) {
         // Set the receiving time of task so that we can determine whether it is timed out later
@@ -256,7 +256,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 
 void TaskWorkerPool::notify_thread() {
     _worker_thread_condition_variable.notify_one();
-    LOG(INFO) << "notify task worker pool: " << _name;
+    VLOG_CRITICAL << "notify task worker pool: " << _name;
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -291,11 +291,11 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
         AgentStatus client_status = _master_client->finish_task(finish_task_request, &result);
 
         if (client_status == DORIS_SUCCESS) {
-            LOG(INFO) << "finish task success.";
             break;
         } else {
             DorisMetrics::instance()->finish_task_requests_failed->increment(1);
-            LOG(WARNING) << "finish task failed. status_code=" << result.status.status_code;
+            LOG(WARNING) << "finish task failed. type=" << to_string(finish_task_request.task_type) << ", signature="
+                         << finish_task_request.signature <<  ", status_code=" << result.status.status_code;
             try_time += 1;
         }
         sleep(config::sleep_one_second);

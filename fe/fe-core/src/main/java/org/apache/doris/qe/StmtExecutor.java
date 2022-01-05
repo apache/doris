@@ -109,7 +109,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -1286,12 +1285,7 @@ public class StmtExecutor implements ProfileWriter {
                     return;
                 }
 
-                if (loadedRows == 0 && filteredRows == 0) {
-                    // if no data, just abort txn and return ok
-                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
-                            insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-                    context.getState().setOk();
-                } else if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                         context.getSessionVariable().getInsertVisibleTimeoutMs())) {
@@ -1333,19 +1327,9 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             // Go here, which means:
-            // 1. transaction aborted for no data inserted into table, or
-            // 2. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 3. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 3 cases
-
-            String message = "";
-            if (txnStatus == TransactionStatus.ABORTED) {
-                message = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
-                errMsg = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
-            } else if (throwable != null) {
-                message = throwable.getMessage();
-            }
-
+            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
+            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
+            // we will record the load job info for these 2 cases
             txnId = insertStmt.getTransactionId();
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
@@ -1355,7 +1339,7 @@ public class StmtExecutor implements ProfileWriter {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        message,
+                        throwable == null ? "" : throwable.getMessage(),
                         coord.getTrackingUrl());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
