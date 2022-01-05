@@ -28,7 +28,7 @@
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>doris-spark-connector</artifactId>
-    <version>${spark.version}-${scala.version}</version>
+    <version>${spark.version}-${scala.version}-1.0.0-SNAPSHOT</version>
     <name>Doris Spark Connector</name>
     <url>https://doris.apache.org/</url>
     <licenses>
