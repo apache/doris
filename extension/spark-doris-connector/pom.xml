@@ -28,7 +28,7 @@
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>doris-spark-connector</artifactId>
-    <version><version>${spark.version}-${scala.version}</version>
+    <version>${spark.version}-${scala.version}</version>
     <name>Doris Spark Connector</name>
     <url>https://doris.apache.org/</url>
     <licenses>
@@ -39,8 +39,8 @@
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:https://git@github.com:apache/incubator-doris.git</connection>
-        <developerConnection>scm:git:https://git@github.com:apache/incubator-doris.git</developerConnection>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
         <url>https://github.com/apache/incubator-doris.git</url>
         <tag>doris-spark-connector-3.1.2-2.12-1.0.0</tag>
     </scm>
