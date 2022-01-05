@@ -286,9 +286,9 @@ OLAPStatus AlphaRowsetReader::_pull_first_block(AlphaMergeContext* merge_ctx) {
     merge_ctx->key_range_index++;
     while (merge_ctx->key_range_index < _key_range_size) {
         status = merge_ctx->column_data->prepare_block_read(
-                _current_read_context->lower_bound_keys->at(merge_ctx->key_range_index),
+                &_current_read_context->lower_bound_keys->at(merge_ctx->key_range_index),
                 _current_read_context->is_lower_keys_included->at(merge_ctx->key_range_index),
-                _current_read_context->upper_bound_keys->at(merge_ctx->key_range_index),
+                &_current_read_context->upper_bound_keys->at(merge_ctx->key_range_index),
                 _current_read_context->is_upper_keys_included->at(merge_ctx->key_range_index),
                 &(merge_ctx->row_block));
         if (status == OLAP_ERR_DATA_EOF) {
