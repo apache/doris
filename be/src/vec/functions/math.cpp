@@ -455,6 +455,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPositive>();
     factory.register_function<FunctionSin>();
     factory.register_function<FunctionSqrt>();
+    factory.register_alias("sqrt", "dsqrt");
     factory.register_function<FunctionTan>();
     factory.register_function<FunctionFloor>();
     factory.register_alias("floor", "dfloor");
