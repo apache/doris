@@ -273,7 +273,6 @@ private:
     /// The current and peak memory footprint of this pool. This is different from
     /// total allocated_bytes_ since it includes bytes in chunks that are not used.
     MemTracker* mem_tracker_;
-
     std::shared_ptr<MemTracker> new_mem_tracker_;
 };
 

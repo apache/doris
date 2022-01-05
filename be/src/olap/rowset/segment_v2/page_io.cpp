@@ -26,7 +26,6 @@
 #include "olap/fs/block_manager.h"
 #include "olap/page_cache.h"
 #include "util/block_compression.h"
-#include "runtime/thread_context.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
@@ -48,7 +47,7 @@ Status PageIO::compress_page_body(const BlockCompressionCodec* codec, double min
             Slice compressed_slice(buf);
             RETURN_IF_ERROR(codec->compress(body, &compressed_slice));
             buf.resize(compressed_slice.get_size());
-    
+
             double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
             // return compressed body only when it saves more than min_space_saving
             if (space_saving > 0 && space_saving >= min_space_saving) {
@@ -117,8 +116,10 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
-    StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath, opts.page_pointer.offset);
-    if (opts.use_page_cache && cache->is_cache_available(opts.type) && cache->lookup(cache_key, &cache_handle, opts.type)) {
+    StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath,
+                                         opts.page_pointer.offset);
+    if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
+        cache->lookup(cache_key, &cache_handle, opts.type)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
         opts.stats->cached_pages_num++;
@@ -140,11 +141,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     // hold compressed page at first, reset to decompressed page later
-    std::unique_ptr<char[]> page;
-    {
-        // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
-        page.reset(new char[page_size]);
-    }
+    std::unique_ptr<char[]> page(new char[page_size]);
     Slice page_slice(page.get(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
@@ -175,11 +172,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
             return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
-        std::unique_ptr<char[]> decompressed_page;
-        {
-            // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
-            decompressed_page.reset(new char[footer->uncompressed_size() + footer_size + 4]);
-        }
+        std::unique_ptr<char[]> decompressed_page(
+                new char[footer->uncompressed_size() + footer_size + 4]);
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);
@@ -193,11 +187,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         // append footer and footer size
         memcpy(decompressed_body.data + decompressed_body.size, page_slice.data + body_size,
                footer_size + 4);
-        {
-            // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
-            // free memory of compressed page
-            page = std::move(decompressed_page);
-        }
+        // free memory of compressed page
+        page = std::move(decompressed_page);
         page_slice = Slice(page.get(), footer->uncompressed_size() + footer_size + 4);
         opts.stats->uncompressed_bytes_read += page_slice.size;
     } else {

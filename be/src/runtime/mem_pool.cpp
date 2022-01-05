@@ -44,7 +44,7 @@ MemPool::MemPool(MemTracker* mem_tracker)
           total_allocated_bytes_(0),
           total_reserved_bytes_(0),
           peak_allocated_bytes_(0),
-        //   new_mem_tracker_(thread_local_ctx.thread_mem_tracker()),
+          new_mem_tracker_(thread_local_ctx.thread_mem_tracker()),
           mem_tracker_(mem_tracker) {
     DCHECK(mem_tracker != nullptr);
 }
@@ -57,11 +57,9 @@ MemPool::~MemPool() {
     int64_t total_bytes_released = 0;
     for (auto& chunk : chunks_) {
         total_bytes_released += chunk.chunk.size;
-        ChunkAllocator::instance()->free(chunk.chunk, new_mem_tracker_);
+        ChunkAllocator::instance()->free(chunk.chunk);
     }
     mem_tracker_->release(total_bytes_released);
-    // DCHECK(new_mem_tracker_ == thread_local_ctx.thread_mem_tracker());
-    // new_mem_tracker_->release(total_bytes_released);
     DorisMetrics::instance()->memory_pool_bytes_total->increment(-total_bytes_released);
 }
 
@@ -79,7 +77,7 @@ void MemPool::free_all() {
     int64_t total_bytes_released = 0;
     for (auto& chunk : chunks_) {
         total_bytes_released += chunk.chunk.size;
-        ChunkAllocator::instance()->free(chunk.chunk, new_mem_tracker_);
+        ChunkAllocator::instance()->free(chunk.chunk);
     }
     chunks_.clear();
     next_chunk_size_ = INITIAL_CHUNK_SIZE;
@@ -88,8 +86,6 @@ void MemPool::free_all() {
     total_reserved_bytes_ = 0;
 
     mem_tracker_->release(total_bytes_released);
-    // DCHECK(new_mem_tracker_ == thread_local_ctx.thread_mem_tracker());
-    // new_mem_tracker_->release(total_bytes_released);
     DorisMetrics::instance()->memory_pool_bytes_total->increment(-total_bytes_released);
 }
 
@@ -131,22 +127,18 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
     }
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
-    // DCHECK(new_mem_tracker_ == thread_local_ctx.thread_mem_tracker());
     if (check_limits) {
         Status st = mem_tracker_->try_consume(chunk_size);
-        // Status st2 = new_mem_tracker_->try_consume(chunk_size);
         WARN_IF_ERROR(st, "try to allocate a new buffer failed");
         if (!st) return false;
     } else {
         mem_tracker_->consume(chunk_size);
-        // new_mem_tracker_->consume(chunk_size);
     }
 
     // Allocate a new chunk. Return early if allocate fails.
     Chunk chunk;
-    if (!ChunkAllocator::instance()->allocate(chunk_size, &chunk, new_mem_tracker_)) {
+    if (!ChunkAllocator::instance()->allocate(chunk_size, &chunk)) {
         mem_tracker_->release(chunk_size);
-        // new_mem_tracker_->release(chunk_size);
         return false;
     }
     ASAN_POISON_MEMORY_REGION(chunk.data, chunk_size);
@@ -187,6 +179,8 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
     int64_t total_transferred_bytes = 0;
     for (auto i = src->chunks_.begin(); i != end_chunk; ++i) {
         total_transferred_bytes += i->chunk.size;
+        i->chunk.mem_tracker->transfer_to(new_mem_tracker_, i->chunk.size);
+        i->chunk.mem_tracker = new_mem_tracker_;
     }
     src->total_reserved_bytes_ -= total_transferred_bytes;
     total_reserved_bytes_ += total_transferred_bytes;
@@ -196,24 +190,6 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
         src->mem_tracker_->release(total_transferred_bytes);
         mem_tracker_->consume(total_transferred_bytes);
     }
-    // if (src->new_mem_tracker_ != new_mem_tracker_) {
-    //     // if (task_type_ == "QUERY" && src->task_type() == "UNKNOWN") {
-    //     //     thread_local_ctx.consume_mem(total_transferred_bytes);
-    //     // }
-    //     // if (mem_tracker_->GetQueryMemTracker() != nullptr &&
-    //     //     src->mem_tracker_->GetQueryMemTracker() == nullptr) {
-    //     //     thread_local_ctx.consume_mem(total_transferred_bytes);
-    //     // }
-    //     // if ((new_mem_tracker_.lock()->GetQueryMemTracker() != nullptr &&
-    //     //      src->new_mem_tracker_.lock()->GetQueryMemTracker() == nullptr) ||
-    //     //     (new_mem_tracker_.lock()->GetQueryMemTracker() == nullptr &&
-    //     //      src->new_mem_tracker_.lock()->GetQueryMemTracker() != nullptr)) {
-    //     //     new_mem_tracker_.lock()->consume(total_transferred_bytes);
-    //     //     src->new_mem_tracker_.lock()->release(total_transferred_bytes);
-    //     // }
-    //     new_mem_tracker_->consume(total_transferred_bytes);
-    //     src->new_mem_tracker_->release(total_transferred_bytes);
-    // }
 
     // insert new chunks after current_chunk_idx_
     auto insert_chunk = chunks_.begin() + current_chunk_idx_ + 1;
@@ -248,16 +224,21 @@ void MemPool::exchange_data(MemPool* other) {
     std::swap(total_reserved_bytes_, other->total_reserved_bytes_);
     std::swap(peak_allocated_bytes_, other->peak_allocated_bytes_);
     std::swap(chunks_, other->chunks_);
+    
+    for (auto i = chunks_.begin(); i != chunks_.end(); ++i) {
+        i->chunk.mem_tracker->transfer_to(new_mem_tracker_, i->chunk.size);
+        i->chunk.mem_tracker = new_mem_tracker_;
+    }
+    for (auto i = other->chunks_.begin(); i != other->chunks_.end(); ++i) {
+        i->chunk.mem_tracker->transfer_to(other->new_mem_tracker_, i->chunk.size);
+        i->chunk.mem_tracker = other->new_mem_tracker_;
+    }
 
     // update MemTracker
     if (other->mem_tracker_ != mem_tracker_) {
         mem_tracker_->consume(delta_size);
         other->mem_tracker_->release(delta_size);
     }
-    // if (other->new_mem_tracker_ != new_mem_tracker_) {
-    //     new_mem_tracker_->consume(delta_size);
-    //     other->new_mem_tracker_->release(delta_size);
-    // }
 }
 
 std::string MemPool::debug_string() {

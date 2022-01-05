@@ -25,6 +25,17 @@
 
 namespace doris {
 
+typedef void (*ERRCALLBACK)();
+
+struct ConsumeErrCallBackInfo {
+    std::string action_name;
+    bool cancel_task;
+    ERRCALLBACK call_back_func;
+
+    ConsumeErrCallBackInfo(std::string action_name, bool cancel_task, ERRCALLBACK call_back_func)
+            : action_name(action_name), cancel_task(cancel_task), call_back_func(call_back_func) {}
+};
+
 // TCMalloc new/delete Hook is counted in the memory_tracker of the current thread.
 //
 // In the original design, the MemTracker consume method is called before the memory is allocated.
@@ -45,6 +56,10 @@ public:
     void detach();
 
     std::weak_ptr<MemTracker> update_tracker(std::weak_ptr<MemTracker> mem_tracker);
+    std::shared_ptr<ConsumeErrCallBackInfo> update_consume_err_call_back(
+            const std::string& action_name, bool cancel_task, ERRCALLBACK call_back_func);
+    std::shared_ptr<ConsumeErrCallBackInfo> update_consume_err_call_back(
+            std::shared_ptr<ConsumeErrCallBackInfo> consume_err_call_back);
 
     // Note that, If call the memory allocation operation in TCMalloc new/delete Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
@@ -53,28 +68,12 @@ public:
 
     void noncache_consume();
 
-    void transfer_to(std::shared_ptr<MemTracker> dst_tracker, int64_t size) {
-        DCHECK(!_mem_tracker.expired());
-        if (dst_tracker != nullptr) {
-            _mem_tracker.lock()->release(size);
-            dst_tracker->consume(size);
-        }
-    }
-
-    void transfer_in(std::shared_ptr<MemTracker> source_tracker, int64_t size) {
-        DCHECK(!_mem_tracker.expired());
-        if (source_tracker != nullptr) {
-            source_tracker->release(size);
-            _mem_tracker.lock()->consume(size);
-        }
-    }
-
     std::weak_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void stop_mem_tracker() { _stop_mem_tracker = true; }
     void start_mem_tracker() { _stop_mem_tracker = false; }
 
 private:
-    void exceeded_cancel_query(std::shared_ptr<MemTracker> query_mem_tracker);
+    void exceeded_cancel_query();
 
     void exceeded(Status st, int64_t mem_usage);
 
@@ -92,6 +91,8 @@ private:
     // In some cases, we want to turn off thread automatic memory statistics, manually call consume.
     // In addition, when ~RootTracker, TCMalloc delete hook release RootTracker will crash.
     bool _stop_mem_tracker = false;
+
+    std::shared_ptr<ConsumeErrCallBackInfo> _consume_err_call_back;
 
     std::string _query_id;
     TUniqueId _fragment_instance_id;

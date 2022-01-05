@@ -86,7 +86,7 @@ public:
     // Gets a shared_ptr to the "root" tracker, creating it if necessary.
     static std::shared_ptr<MemTracker> get_root_tracker();
 
-    // Increases consumption of this tracker and its ancestors by 'bytes'. 
+    // Increases consumption of this tracker and its ancestors by 'bytes'.
     // up to (but not including) end_tracker.
     // This is useful if we want to move tracking between trackers that share a common (i.e. end_tracker)
     // ancestor. This happens when we want to update tracking on a particular mem tracker but the consumption
@@ -182,6 +182,12 @@ public:
         return Status::OK();
     }
 
+    /// Transfer 'bytes' of consumption from this tracker to 'dst', updating
+    /// all ancestors up to the first shared ancestor. Must not be used if
+    /// 'dst' has a limit, or an ancestor with a limit, that is not a common
+    /// ancestor with the tracker, because this does not check memory limits.
+    void transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes);
+
     // Returns true if a valid limit of this tracker or one of its ancestors is exceeded.
     MemTracker* limit_exceeded_tracker() const {
         for (const auto& tracker : _limit_trackers) {
@@ -192,9 +198,7 @@ public:
         return nullptr;
     }
 
-    bool any_limit_exceeded() const {
-        return limit_exceeded_tracker() != nullptr;
-    }
+    bool any_limit_exceeded() const { return limit_exceeded_tracker() != nullptr; }
 
     // Returns the maximum consumption that can be made without exceeding the limit on
     // this tracker or any of its parents. Returns int64_t::max() if there are no
@@ -253,6 +257,9 @@ public:
     /// If 'state' is non-nullptr, logs the error to 'state'.
     Status mem_limit_exceeded(RuntimeState* state, const std::string& details = std::string(),
                               int64_t failed_allocation = 0) WARN_UNUSED_RESULT;
+
+    // If an ancestor of this tracker is a Task MemTracker, return that tracker. Otherwise return nullptr.
+    MemTracker* get_task_mem_tracker();
 
     std::string debug_string() {
         std::stringstream msg;
@@ -316,9 +323,6 @@ private:
                     << tracker->log_usage();
         }
     }
-
-    // If an ancestor of this tracker is a Task MemTracker, return that tracker. Otherwise return nullptr.
-    MemTracker* get_task_mem_tracker();
 
     // Creates the root tracker.
     static void create_root_tracker();

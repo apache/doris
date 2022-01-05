@@ -24,10 +24,17 @@
 
 #define SCOPED_ATTACH_TASK_THREAD(type, task_id, fragment_instance_id) \
     auto VARNAME_LINENUM(attach_task_thread) = AttachTaskThread(type, task_id, fragment_instance_id)
-#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
-    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker) // type,
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker, action_name, cancel_work) \
+    auto VARNAME_LINENUM(switch_tracker) =                                            \
+            SwitchThreadMemTracker(mem_tracker, action_name, cancel_work)
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_CB(mem_tracker, action_name, cancel_work, \
+                                                  err_call_back_func)                    \
+    auto VARNAME_LINENUM(switch_tracker) =                                               \
+            SwitchThreadMemTracker(mem_tracker, action_name, cancel_work, err_call_back_func)
 #define SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER() \
-    auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker()
+    auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker(true)
+#define GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER() \
+    auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker(false)
 
 namespace doris {
 
@@ -94,17 +101,28 @@ public:
     std::shared_ptr<MemTracker> thread_mem_tracker() {
         return _thread_mem_tracker_mgr->mem_tracker().lock();
     }
-    std::weak_ptr<MemTracker> update_mem_tracker(std::weak_ptr<MemTracker> mem_tracker) {
+    std::weak_ptr<MemTracker> update_thread_tracker(std::weak_ptr<MemTracker> mem_tracker) {
         return _thread_mem_tracker_mgr->update_tracker(mem_tracker);
     }
-    void transfer_to_external_tracker(std::shared_ptr<MemTracker> dst_tracker, int64_t size) {
-        _thread_mem_tracker_mgr->transfer_to(dst_tracker, size);
+    std::shared_ptr<ConsumeErrCallBackInfo> update_thread_tracker_call_back(
+            const std::string& action_name, bool cancel_task, ERRCALLBACK err_call_back_func) {
+        return _thread_mem_tracker_mgr->update_consume_err_call_back(action_name, cancel_task,
+                                                                     err_call_back_func);
     }
-    void transfer_in_thread_tracker(std::shared_ptr<MemTracker> source_tracker, int64_t size) {
-        _thread_mem_tracker_mgr->transfer_in(source_tracker, size);
+    std::shared_ptr<ConsumeErrCallBackInfo> update_thread_tracker_call_back(
+            std::shared_ptr<ConsumeErrCallBackInfo> tracker_call_back) {
+        return _thread_mem_tracker_mgr->update_consume_err_call_back(tracker_call_back);
     }
-    void start_mem_tracker() { _thread_mem_tracker_mgr->start_mem_tracker(); }
-    void stop_mem_tracker() { _thread_mem_tracker_mgr->stop_mem_tracker(); }
+    void start_mem_tracker() {
+        if (_thread_mem_tracker_mgr != nullptr) {
+            _thread_mem_tracker_mgr->start_mem_tracker();
+        }
+    }
+    void stop_mem_tracker() {
+        if (_thread_mem_tracker_mgr != nullptr) {
+            _thread_mem_tracker_mgr->stop_mem_tracker();
+        }
+    }
 
 private:
     std::thread::id _thread_id;
@@ -152,21 +170,37 @@ public:
 
 class SwitchThreadMemTracker {
 public:
-    explicit SwitchThreadMemTracker(std::shared_ptr<MemTracker> new_mem_tracker) {
-        _old_mem_tracker = thread_local_ctx.update_mem_tracker(new_mem_tracker);
+    explicit SwitchThreadMemTracker(std::shared_ptr<MemTracker> mem_tracker,
+                                    const std::string& action_name = std::string(),
+                                    bool cancel_work = true,
+                                    ERRCALLBACK err_call_back_func = nullptr) {
+        _old_mem_tracker = thread_local_ctx.update_thread_tracker(mem_tracker);
+        _old_tracker_call_back = thread_local_ctx.update_thread_tracker_call_back(
+                action_name, cancel_work, err_call_back_func);
     }
 
-    ~SwitchThreadMemTracker() { thread_local_ctx.update_mem_tracker(_old_mem_tracker); }
+    ~SwitchThreadMemTracker() {
+        thread_local_ctx.update_thread_tracker(_old_mem_tracker);
+        thread_local_ctx.update_thread_tracker_call_back(_old_tracker_call_back);
+    }
 
 private:
     std::weak_ptr<MemTracker> _old_mem_tracker;
+    std::shared_ptr<ConsumeErrCallBackInfo> _old_tracker_call_back;
 };
 
 class StopThreadMemTracker {
 public:
-    explicit StopThreadMemTracker() { thread_local_ctx.stop_mem_tracker(); }
+    explicit StopThreadMemTracker(const bool scope = true) : _scope(scope) {
+        thread_local_ctx.stop_mem_tracker();
+    }
 
-    ~StopThreadMemTracker() { thread_local_ctx.start_mem_tracker(); }
+    ~StopThreadMemTracker() {
+        if (_scope == true) thread_local_ctx.start_mem_tracker();
+    }
+
+private:
+    bool _scope;
 };
 
 } // namespace doris

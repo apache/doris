@@ -1458,7 +1458,7 @@ The size of the buffer before flashing
 ### `memory_leak_detection`
 
 * Type: bool
-* Description: Whether to start memory leak detection, memory leak occurs when MemTracker is considered to be a negative value, but the actual MemTracker records inaccurately will also cause a negative value, so this feature is in the experimental stage.
+* Description: Whether to start memory leak detection, when MemTracker is a negative value, it is considered that a memory leak has occurred, but the actual MemTracker records inaccurately will also cause a negative value, so this feature is in the experimental stage.
 * Default: false
 
 ### `max_segment_num_per_rowset`

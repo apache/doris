@@ -1477,7 +1477,7 @@ webserver默认工作线程数
 ### `memory_leak_detection`
 
 * 类型: bool
-* 描述: 是否启动内存泄漏检测，认为 MemTracker 为负值时发生内存泄漏，但实际 MemTracker 记录不准确时也会导致负值，所以这个功能处于实验阶段。
+* 描述: 是否启动内存泄漏检测，当 MemTracker 为负值时认为发生了内存泄漏，但实际 MemTracker 记录不准确时也会导致负值，所以这个功能处于实验阶段。
 * 默认值: false
 
 ### `max_segment_num_per_rowset`

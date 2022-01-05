@@ -94,7 +94,6 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
         reset_parent = get_root_tracker();
     }
 
-    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     std::shared_ptr<MemTracker> tracker(
             new MemTracker(byte_limit, reset_label, reset_parent,
                            level > reset_parent->_level ? level : reset_parent->_level, profile));
@@ -131,6 +130,8 @@ void MemTracker::Init() {
 }
 
 MemTracker::~MemTracker() {
+    // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
+    if (_label == "Root") GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER();
     if (parent()) {
         if (consumption() != 0) {
             memory_leak_check(this);
@@ -149,8 +150,24 @@ MemTracker::~MemTracker() {
             _child_tracker_it = _parent->_child_trackers.end();
         }
     }
-    // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
-    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
+}
+
+void MemTracker::transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes) {
+    DCHECK_EQ(_all_trackers.back(), dst->_all_trackers.back()) << "Must have same ancestor";
+    // Find the common ancestor and update trackers between 'this'/'dst' and
+    // the common ancestor. This logic handles all cases, including the
+    // two trackers being the same or being ancestors of each other because
+    // 'all_trackers_' includes the current tracker.
+    int ancestor_idx = _all_trackers.size() - 1;
+    int dst_ancestor_idx = dst->_all_trackers.size() - 1;
+    while (ancestor_idx > 0 && dst_ancestor_idx > 0 &&
+           _all_trackers[ancestor_idx - 1] == dst->_all_trackers[dst_ancestor_idx - 1]) {
+        --ancestor_idx;
+        --dst_ancestor_idx;
+    }
+    MemTracker* common_ancestor = _all_trackers[ancestor_idx];
+    release(bytes, common_ancestor);
+    dst->consume(bytes, common_ancestor);
 }
 
 // Calling this on the query tracker results in output like:
@@ -184,10 +201,10 @@ std::string MemTracker::log_usage(int max_recursive_depth, int64_t* logged_consu
 
     std::string detail =
             "MemTracker log_usage Label: {}, Limit: {}, Total: {}, Peak: {}, Exceeded: {}";
-    fmt::format(detail, _label, PrettyPrinter::print(_limit, TUnit::BYTES),
-                PrettyPrinter::print(curr_consumption, TUnit::BYTES),
-                PrettyPrinter::print(peak_consumption, TUnit::BYTES),
-                limit_exceeded() ? "true" : "false");
+    detail = fmt::format(detail, _label, PrettyPrinter::print(_limit, TUnit::BYTES),
+                         PrettyPrinter::print(curr_consumption, TUnit::BYTES),
+                         PrettyPrinter::print(peak_consumption, TUnit::BYTES),
+                         limit_exceeded() ? "true" : "false");
 
     // This call does not need the children, so return early.
     if (max_recursive_depth == 0) return detail;
@@ -238,10 +255,11 @@ Status MemTracker::mem_limit_exceeded(RuntimeState* state, const std::string& de
     std::string detail =
             "Memory exceed limit. details: {}, Label: {}, could not allocate size {} without "
             "exceeding limit on backend: {}, Memory left in process limit: {}, by fragment: {}.";
-    fmt::format(detail, details, _label, PrettyPrinter::print(failed_allocation_size, TUnit::BYTES),
-                BackendOptions::get_localhost(),
-                PrettyPrinter::print(process_tracker->spare_capacity(), TUnit::BYTES),
-                print_id(state->fragment_instance_id()));
+    detail = fmt::format(
+            detail, details, _label, PrettyPrinter::print(failed_allocation_size, TUnit::BYTES),
+            BackendOptions::get_localhost(),
+            PrettyPrinter::print(process_tracker->spare_capacity(), TUnit::BYTES),
+            state != nullptr ? print_id(state->fragment_instance_id()) : std::string());
     Status status = Status::MemoryLimitExceeded(detail);
     if (state != nullptr) state->log_error(detail);
 

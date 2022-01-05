@@ -118,8 +118,8 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
           _arenas(CpuInfo::get_max_num_cores()) {
     _chunk_allocator_mem_tracker =
             MemTracker::create_tracker(static_cast<int64_t>(reserve_limit), "ChunkAllocator",
-                                      nullptr, MemTrackerLevel::OVERVIEW);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker);
+                                       nullptr, MemTrackerLevel::OVERVIEW);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker, "ChunkAllocator", false);
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
@@ -134,24 +134,19 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_cost_ns);
 }
 
-bool ChunkAllocator::allocate(size_t size, Chunk* chunk, std::shared_ptr<MemTracker> caller_tracker) {
+bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
     // fast path: allocate from current core arena
     chunk->mem_tracker = thread_local_ctx.thread_mem_tracker();
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker);
-    thread_local_ctx.transfer_to_external_tracker(chunk->mem_tracker, size);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker, "ChunkAllocator", false);
+    thread_local_ctx.thread_mem_tracker()->transfer_to(chunk->mem_tracker, size);
     int core_id = CpuInfo::get_current_core();
     chunk->size = size;
     chunk->core_id = core_id;
-    
 
     if (_arenas[core_id]->pop_free_chunk(size, &chunk->data)) {
         DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
-        // thread_local_ctx.transfer_in_thread_tracker(_chunk_allocator_mem_tracker, size);
-        // thread_local_ctx.transfer_to_external_tracker(chunk->mem_tracker, size);
-        // thread_local_ctx.transfer_to_external_tracker(caller_tracker, size);
-        // thread_local_ctx.consume_mem(size);
         return true;
     }
     if (_reserved_bytes > size) {
@@ -164,10 +159,6 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk, std::shared_ptr<MemTrac
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
-                // thread_local_ctx.transfer_to_external_tracker(chunk->mem_tracker, size);
-                // thread_local_ctx.transfer_in_thread_tracker(_chunk_allocator_mem_tracker, size);
-                // thread_local_ctx.transfer_to_external_tracker(caller_tracker, size);
-                // thread_local_ctx.consume_mem(size);
                 return true;
             }
         }
@@ -178,29 +169,23 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk, std::shared_ptr<MemTrac
         SCOPED_RAW_TIMER(&cost_ns);
         // allocate from system allocator
         chunk->data = SystemAllocator::allocate(size);
-        // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker);
-        // _chunk_allocator_mem_tracker->consume(size);
     }
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);
     if (chunk->data == nullptr) {
-        thread_local_ctx.transfer_in_thread_tracker(chunk->mem_tracker, size);
+        chunk->mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), size);
         return false;
     }
-    // thread_local_ctx.transfer_to_external_tracker(chunk->mem_tracker, size);
-    // thread_local_ctx.transfer_in_thread_tracker(_chunk_allocator_mem_tracker, size);
-    // thread_local_ctx.transfer_to_external_tracker(caller_tracker, size);
-    // thread_local_ctx.consume_mem(size);
     return true;
 }
 
-void ChunkAllocator::free(Chunk& chunk, std::shared_ptr<MemTracker> caller_tracker) {
+void ChunkAllocator::free(Chunk& chunk) {
     if (chunk.core_id == -1) {
         return;
     }
     DCHECK(chunk.mem_tracker != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker);
-    thread_local_ctx.transfer_in_thread_tracker(chunk.mem_tracker, chunk.size);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker, "ChunkAllocator", false);
+    chunk.mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), chunk.size);
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -210,13 +195,7 @@ void ChunkAllocator::free(Chunk& chunk, std::shared_ptr<MemTracker> caller_track
             {
                 SCOPED_RAW_TIMER(&cost_ns);
                 SystemAllocator::free(chunk.data, chunk.size);
-                // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker);
-                // _chunk_allocator_mem_tracker->release(chunk.size);
             }
-            // thread_local_ctx.release_mem(chunk.size);
-            // chunk.mem_tracker->transfer_to(_chunk_allocator_mem_tracker, chunk.size);
-            // thread_local_ctx.transfer_in_thread_tracker(chunk.mem_tracker, chunk.size);
-            // thread_local_ctx.transfer_in_thread_tracker(caller_tracker, chunk.size);
             chunk_pool_system_free_count->increment(1);
             chunk_pool_system_free_cost_ns->increment(cost_ns);
 
@@ -226,10 +205,6 @@ void ChunkAllocator::free(Chunk& chunk, std::shared_ptr<MemTracker> caller_track
 
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
     chunk.mem_tracker = nullptr;
-    // thread_local_ctx.transfer_in_thread_tracker(chunk.mem_tracker, chunk.size);
-    // chunk.mem_tracker->transfer_to(_chunk_allocator_mem_tracker, chunk.size);
-    // thread_local_ctx.transfer_in_thread_tracker(caller_tracker, chunk.size);
-    // thread_local_ctx.release_mem(chunk.size);
 }
 
 bool ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {

@@ -613,6 +613,9 @@ CONF_mInt16(mem_tracker_level, "0");
 // Increasing this value will cause MemTracker statistics to be inaccurate.
 CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 
+// When MemTracker is a negative value, it is considered that a memory leak has occurred,
+// but the actual MemTracker records inaccurately will also cause a negative value,
+// so this feature is in the experimental stage.
 CONF_mBool(memory_leak_detection, "false");
 
 // The version information of the tablet will be stored in the memory
