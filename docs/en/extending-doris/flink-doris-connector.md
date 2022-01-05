@@ -34,8 +34,9 @@ Flink Doris Connector can support read and write data stored in Doris through Fl
 
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
-| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
+| 1.11.6-2.12-xx | 1.11.x | 0.13+  | 8    | 2.12  |
+| 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
+| 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
 
 **For Flink 1.13.x version adaptation issues**
 
@@ -63,7 +64,7 @@ Execute following command in dir `extension/flink-doris-connector/`:
 2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
 
 ```bash
-sh build.sh
+sh build.sh 1.11.6 2.12 # flink 1.11.6 scala 2.12
 ```
 
 After successful compilation, the file `doris-flink-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
@@ -78,6 +79,21 @@ conf/fe.conf
 ```
 enable_http_server_v2 = true
 ```
+## Using Maven
+
+Add Dependency
+
+```
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>doris-flink-connector</artifactId>
+  <version>1.11.6-2.12-SNAPSHOT</version>
+</dependency>
+```
+
+**Remarks**
+
+`1.11.6 ` can be substitute with `1.12.7` or `1.13.5` base on flink version you are using 
 
 
 ## How to use
