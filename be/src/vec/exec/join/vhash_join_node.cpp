@@ -133,7 +133,7 @@ struct ProcessRuntimeFilterBuild {
 
         RETURN_IF_ERROR(runtime_filter_slots->init(state, hash_table_ctx.hash_table.get_size()));
 
-        if (!runtime_filter_slots->empty()) {
+        if (!runtime_filter_slots->empty() && !_join_node->_inserted_rows.empty()) {
             {
                 SCOPED_TIMER(_join_node->_push_compute_timer);
                 runtime_filter_slots->insert(_join_node->_inserted_rows);

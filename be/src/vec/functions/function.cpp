@@ -66,7 +66,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
                         null_map_column->clone_resized(null_map_column->size());
             } else {
                 MutableColumnPtr mutable_result_null_map_column =
-                        (*std::move(result_null_map_column)).mutate();
+                        (*std::move(result_null_map_column)).assume_mutable();
 
                 NullMap& result_null_map =
                         assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();

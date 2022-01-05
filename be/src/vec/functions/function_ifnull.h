@@ -42,6 +42,9 @@ public:
     bool use_default_implementation_for_constants() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (!arguments[0]->is_nullable() && arguments[1]->is_nullable()) {
+            return reinterpret_cast<const DataTypeNullable*>(arguments[1].get())->get_nested_type();
+        }
         return arguments[1];
     }
 
@@ -55,42 +58,42 @@ public:
             block.get_by_position(result).column = block.get_by_position(arguments[1]).column;
             return Status::OK();
         }
-        const ColumnWithTypeAndName new_result_column {
-            block.get_by_position(result),
+
+        ColumnWithTypeAndName null_column_arg0 {
+            nullptr, std::make_shared<DataTypeUInt8>(),""
         };
-        const ColumnWithTypeAndName new_column {
-            col_left,
+        ColumnWithTypeAndName nested_column_arg0 {
+            nullptr, col_left.type, ""
         };
+
         /// implement isnull(col_left) logic
         if (auto* nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {
-            block.get_by_position(arguments[0]).column = nullable->get_null_map_column_ptr();
+            null_column_arg0.column = nullable->get_null_map_column_ptr();
+            nested_column_arg0.column = nullable->get_nested_column_ptr();
+            nested_column_arg0.type = reinterpret_cast<const DataTypeNullable*>(
+                    nested_column_arg0.type.get())->get_nested_type();
         } else {
             block.get_by_position(result).column = col_left.column;
             return Status::OK();
         }
         const ColumnsWithTypeAndName if_columns
         {
-            block.get_by_position(arguments[0]),
+            null_column_arg0,
             block.get_by_position(arguments[1]),
-            new_column,
+            nested_column_arg0
         };
 
         Block temporary_block(
-                {block.get_by_position(arguments[0]),
-                 block.get_by_position(arguments[1]),
-                 new_column,
-                 new_result_column
+                {
+                        null_column_arg0,
+                        block.get_by_position(arguments[1]),
+                        nested_column_arg0,
+                        block.get_by_position(result),
                 });
-        auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns, make_nullable(new_result_column.type));
+
+        auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns, block.get_by_position(result).type);
         func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count);
-        /// need to handle nullable type and not nullable type differently,
-        /// because `IF` function always return nullable type, but result type is not always
-        if (block.get_by_position(result).type->is_nullable()) {
-            block.get_by_position(result).column = temporary_block.get_by_position(3).column;
-        } else {
-            auto cols = check_and_get_column<ColumnNullable>(temporary_block.get_by_position(3).column.get());
-            block.replace_by_position(result, std::move(cols->get_nested_column_ptr()));
-        }
+        block.get_by_position(result).column = temporary_block.get_by_position(3).column;
         return Status::OK();
     }
 };
