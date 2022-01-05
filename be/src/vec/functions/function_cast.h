@@ -1110,7 +1110,7 @@ private:
                 const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
 
                 /// May happen in fuzzy tests. For debug purpose.
-                if (!tmp_res.column) {
+                if (!tmp_res.column.get()) {
                     return Status::RuntimeError(fmt::format(
                             "Couldn't convert {} to {} in prepare_remove_nullable wrapper.",
                             block.get_by_position(arguments[0]).type->get_name(),
