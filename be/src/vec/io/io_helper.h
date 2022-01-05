@@ -126,7 +126,7 @@ inline void write_string_binary(const StringRef& s, BufferWritable& buf) {
 }
 
 inline void write_string_binary(const char* s, BufferWritable& buf) {
-    write_string_binary(StringRef{s}, buf);
+    write_string_binary(StringRef {s}, buf);
 }
 
 template <typename Type>
@@ -288,53 +288,15 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
 
 template <typename T>
 bool read_int_text_impl(T& x, ReadBuffer& buf) {
-    bool negative = false;
-    std::make_unsigned_t<T> res = 0;
-    if (buf.eof()) {
+    StringParser::ParseResult result;
+    x = StringParser::string_to_int<T>(buf.position(), buf.count(), &result);
+
+    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
         return false;
     }
 
-    while (!buf.eof()) {
-        switch (*buf.position()) {
-        case '+':
-            break;
-        case '-':
-            if (std::is_signed_v<T>)
-                negative = true;
-            else {
-                return false;
-            }
-            break;
-        case '0':
-            [[fallthrough]];
-        case '1':
-            [[fallthrough]];
-        case '2':
-            [[fallthrough]];
-        case '3':
-            [[fallthrough]];
-        case '4':
-            [[fallthrough]];
-        case '5':
-            [[fallthrough]];
-        case '6':
-            [[fallthrough]];
-        case '7':
-            [[fallthrough]];
-        case '8':
-            [[fallthrough]];
-        case '9':
-            res *= 10;
-            res += *buf.position() - '0';
-            break;
-        default:
-            x = negative ? -res : res;
-            return true;
-        }
-        ++buf.position();
-    }
-
-    x = negative ? -res : res;
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
     return true;
 }
 
