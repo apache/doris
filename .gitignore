@@ -69,5 +69,6 @@ samples/doris-demo/*/target
 
 # ignore vscode project file
 .vscode
+be/.devcontainer/
 
 derby.log
