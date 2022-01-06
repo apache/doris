@@ -41,9 +41,9 @@ under the License.
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:git@github.com:apache/incubator-doris.git</connection>
-        <developerConnection>scm:git:git@github.com:apache/incubator-doris.git</developerConnection>
-        <url>scm:git:git@github.com:apache/incubator-doris.git</url>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
         <tag>HEAD</tag>
     </scm>
     <issueManagement>
@@ -76,6 +76,7 @@ under the License.
         <maven-source-plugin.version>3.2.1</maven-source-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
+        <project.scm.id>github</project.scm.id>
     </properties>
 
     <profiles>
