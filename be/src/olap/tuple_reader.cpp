@@ -82,7 +82,7 @@ OLAPStatus TupleReader::init(const ReaderParams& read_params) {
     if (_optimize_for_single_rowset(rs_readers)) {
         if (_tablet->keys_type() == AGG_KEYS) {
             if (_aggregation) {
-                _next_row_func = &Reader::_agg_key_next_row;
+                _next_row_func = &TupleReader::_agg_key_next_row;
             } else {
                 _next_row_func = &Reader::_direct_agg_key_next_row;
             }
