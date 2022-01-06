@@ -1,6 +1,6 @@
 ## Proposed changes
 
-Close related #issue (replace it with issue number if it exists).
+Close #issue (replace it with issue number if it exists).
 
 Describe the overview of changes, and introduce why we need it.
 
@@ -9,23 +9,22 @@ Describe the overview of changes, and introduce why we need it.
 What types of changes does your code introduce to Doris?
 _Put an `x` in the boxes that apply_
 
-- [ ] Bugfix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation Update (if none of the other choices apply)
-- [ ] Code refactor (Modify the code structure, format the code, etc...)
-- [ ] Optimization. Including functional usability improvements and performance improvements.
-- [ ] Dependency. Such as changes related to third-party components.
+- [ ] Bugfix
+- [ ] New feature
+- [ ] Incompatible change
+- [ ] Documentation Update
+- [ ] Code refactor
+- [ ] Optimization
+- [ ] Dependency (Such as changes related to third-party components)
 - [ ] Other.
 
 ## Checklist
 
 _Put an `x` in the boxes that apply. You can also fill these out after creating the PR. If you're unsure about any of them, don't hesitate to ask. We're here to help! This is simply a reminder of what we are going to look for before merging your code._
 
-- [ ] I have created an issue on (Fix #ISSUE) and described the bug/feature there in detail
-- [ ] Compiling and unit tests pass locally with my changes
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] If these changes need document changes, I have updated the document
+- [ ] Compiling and unit tests pass on your own machine
+- [ ] Added tests to prove it works
+- [ ] Updated the document if it's needed
 - [ ] Any dependent changes have been merged
 
 ## Further comments
