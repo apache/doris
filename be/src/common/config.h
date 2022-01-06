@@ -665,6 +665,13 @@ CONF_Int32(max_minidump_file_size_mb, "200");
 // Doris will only keep latest 10 minidump files by default.
 CONF_Int32(max_minidump_file_number, "10");
 
+// For compatibility, if kafka_api_version_request set to false, the fallback version kafka_broker_version_fallback will be used.
+CONF_String(kafka_api_version_request, "true");
+
+// Valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+// Any other value >= 0.10, such as 0.10.2.1, set kafka_api_version_request to true.
+CONF_String(kafka_broker_version_fallback, "0.9.0");
+
 } // namespace config
 
 } // namespace doris
