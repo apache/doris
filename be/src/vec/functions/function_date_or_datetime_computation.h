@@ -434,11 +434,11 @@ struct CurrentDateImpl {
 
 template<typename FunctionName>
 struct CurrentTimeImpl {
-    using ReturnType = DataTypeInt64;
+    using ReturnType = DataTypeFloat64;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, size_t result,
                           size_t input_rows_count) {
-        auto col_to = ColumnVector<Int64>::create();
+        auto col_to = ColumnVector<Float64>::create();
         VecDateTimeValue dtv;
         if (dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
                               context->impl()->state()->timezone_obj())) {

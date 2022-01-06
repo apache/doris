@@ -27,6 +27,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -194,6 +195,12 @@ public class FoldConstantsRule implements ExprRewriteRule {
                               Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
             throws AnalysisException {
         if (expr.isConstant()) {
+            if (VectorizedUtil.isVectorized()) {
+                Function fn = expr.getFn();
+                if (fn != null && (fn.functionName().equalsIgnoreCase("curtime") ||
+                        fn.functionName().equalsIgnoreCase("current_time")))
+                    return;
+            }
             // Do not constant fold cast(null as dataType) because we cannot preserve the
             // cast-to-types and that can lead to query failures, e.g., CTAS
             if (expr instanceof CastExpr) {
@@ -216,7 +223,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 getInfoFnExpr(expr, infoFnMap);
                 return;
             }
-            constExprMap.put(expr.getId().toString(),expr.treeToThrift());
+            constExprMap.put(expr.getId().toString(), expr.treeToThrift());
             oriConstMap.put(expr.getId().toString(), expr);
         } else {
             recursiveGetChildrenConstExpr(expr, constExprMap, oriConstMap, analyzer, sysVarMap, infoFnMap);
