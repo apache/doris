@@ -127,9 +127,11 @@ Status FoldConstantExecutor::fold_constant_vexpr(
             }
 
             vectorized::Block tmp_block;
+            tmp_block.insert({vectorized::ColumnUInt8::create(1),
+                    std::make_shared<vectorized::DataTypeUInt8>(), ""});
             int result_column = -1;
             // calc vexpr
-            ctx->execute(&tmp_block, &result_column);
+            RETURN_IF_ERROR(ctx->execute(&tmp_block, &result_column));
             DCHECK(result_column != -1);
             PrimitiveType root_type = ctx->root()->type().type;
             // covert to thrift type
@@ -139,7 +141,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(
             PExprResult expr_result;
             string result;
             const auto& column_ptr = tmp_block.get_by_position(result_column).column;
-            if (column_ptr->is_nullable() && column_ptr->is_null_at(0)) {
+            if (column_ptr->is_null_at(0)) {
                 expr_result.set_success(false);
             } else {
                 expr_result.set_success(true);
@@ -194,7 +196,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
 
 template <typename Context>
 Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
-    ctx->prepare(_runtime_state.get(), RowDescriptor(), _mem_tracker);
+    RETURN_IF_ERROR(ctx->prepare(_runtime_state.get(), RowDescriptor(), _mem_tracker));
     return ctx->open(_runtime_state.get());
 }
 

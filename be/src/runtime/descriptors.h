@@ -381,7 +381,6 @@ public:
     int get_row_size() const;
 
     int num_materialized_slots() const {
-        DCHECK(_num_materialized_slots != 0);
         return _num_materialized_slots;
     }
 
