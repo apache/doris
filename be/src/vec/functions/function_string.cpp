@@ -774,8 +774,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLTrim>();
     factory.register_function<FunctionRTrim>();
     factory.register_function<FunctionTrim>();
-    factory.register_function<FunctionSubstring<Substr3Imp>>();
-    factory.register_function<FunctionSubstring<Substr2Imp>>();
+    factory.register_function<FunctionSubstring<Substr3Impl>>();
+    factory.register_function<FunctionSubstring<Substr2Impl>>();
     factory.register_function<FunctionLeft>();
     factory.register_function<FunctionRight>();
     factory.register_function<FunctionNullOrEmpty>();
@@ -792,12 +792,18 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSplitPart>();
     factory.register_function<FunctionStringMd5sum>();
     factory.register_function<FunctionStringParseUrl>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
     factory.register_alias(SubstringUtil::name, "substr");
     factory.register_alias(FunctionToLower::name, "lcase");
+    factory.register_alias(FunctionToUpper::name, "ucase");
     factory.register_alias(FunctionStringMd5sum::name, "md5");
+    factory.register_alias(FunctionStringUTF8Length::name, "character_length");
 }
 
 } // namespace doris::vectorized

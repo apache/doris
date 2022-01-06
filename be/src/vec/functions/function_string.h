@@ -24,9 +24,12 @@
 #include <string_view>
 
 #include "exprs/anyval_util.h"
+#include "exprs/math_functions.h"
+#include "exprs/string_functions.h"
 #include "runtime/string_value.hpp"
 #include "util/md5.h"
 #include "util/url_parser.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
@@ -211,7 +214,7 @@ public:
     }
 };
 
-struct Substr3Imp {
+struct Substr3Impl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
                 std::make_shared<DataTypeInt32>()};
@@ -225,7 +228,7 @@ struct Substr3Imp {
     }
 };
 
-struct Substr2Imp {
+struct Substr2Impl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
     }
@@ -1034,6 +1037,131 @@ public:
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+};
+
+template <typename Impl>
+class FunctionMoneyFormat : public IFunction {
+public:
+    static constexpr auto name = "money_format";
+    static FunctionPtr create() { return std::make_shared<FunctionMoneyFormat<Impl>>(); }
+    String get_name() const override { return name; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+struct MoneyFormatDoubleImpl {
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        auto res_column = ColumnString::create();
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+
+        auto data_column = assert_cast<const ColumnVector<Float64>*>(argument_column.get());
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+
+        for (int i = 0; i < input_rows_count; i++) {
+            double value =
+                    MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
+            StringVal str = StringFunctions::do_money_format(context, fmt::format("{:.2f}", value));
+            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+        }
+
+        block.replace_by_position(result, std::move(res_column));
+        return Status::OK();
+    }
+};
+
+struct MoneyFormatInt64Impl {
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt64>()}; }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        auto res_column = ColumnString::create();
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+
+        auto data_column = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+
+        for (int i = 0; i < input_rows_count; i++) {
+            Int64 value = data_column->get_element(i);
+            StringVal str = StringFunctions::do_money_format<Int64, 26>(context, value);
+            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+        }
+
+        block.replace_by_position(result, std::move(res_column));
+        return Status::OK();
+    }
+};
+
+struct MoneyFormatInt128Impl {
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt128>()}; }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        auto res_column = ColumnString::create();
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+
+        auto data_column = assert_cast<const ColumnVector<Int128>*>(argument_column.get());
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+
+        for (int i = 0; i < input_rows_count; i++) {
+            Int128 value = data_column->get_element(i);
+            StringVal str = StringFunctions::do_money_format<Int128, 52>(context, value);
+            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+        }
+
+        block.replace_by_position(result, std::move(res_column));
+        return Status::OK();
+    }
+};
+
+struct MoneyFormatDecimalImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        auto res_column = ColumnString::create();
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+
+        auto data_column =
+                reinterpret_cast<const ColumnDecimal<Decimal128>*>(argument_column.get());
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+
+        for (int i = 0; i < input_rows_count; i++) {
+            DecimalV2Val value = DecimalV2Val(data_column->get_element(i));
+
+            DecimalV2Value rounded(0);
+            DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
+
+            StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                    context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
+
+            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+        }
+
+        block.replace_by_position(result, std::move(res_column));
         return Status::OK();
     }
 };
