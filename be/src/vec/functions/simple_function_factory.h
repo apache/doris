@@ -64,6 +64,7 @@ void register_function_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
+void register_function_coalesce(SimpleFunctionFactory& factory);
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = std::unordered_map<std::string, Creator>;
@@ -176,6 +177,7 @@ public:
             register_function_like(instance);
             register_function_regexp(instance);
             register_function_random(instance);
+            register_function_coalesce(instance);
         });
         return instance;
     }
