@@ -1,21 +1,14 @@
-## Proposed changes
+<!--
+!!!! Please Add Type in the PR header !!!!
+CN: http://doris.incubator.apache.org/master/zh-CN/community/commit-format-specification.html#commit-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83
+EN: http://doris.incubator.apache.org/master/en/community/commit-format-specification.html#commit-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83
+-->
+
+# Proposed changes
 
 Close #issue (replace it with issue number if it exists).
 
 Describe the overview of changes, and introduce why we need it.
-
-## Types of changes
-
-_Put an `x` in the boxes that apply. You can also fill these out after creating the PR._
-
-- [ ] Bugfix
-- [ ] New feature
-- [ ] Incompatible change
-- [ ] Documentation Update
-- [ ] Code refactor
-- [ ] Optimization
-- [ ] Dependency (Such as changes related to third-party components)
-- [ ] Other.
 
 ## Checklist
 
@@ -25,6 +18,8 @@ _Put an `x` in the boxes that apply. You can also fill these out after creating 
 - [ ] Added tests to prove it works
 - [ ] Updated the document if it's needed
 - [ ] Any dependent changes have been merged
+- [ ] Not an incompatible change
+- [ ] Updating necessary documentation 
 
 ## Further comments
 
