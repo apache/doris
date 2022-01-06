@@ -47,7 +47,7 @@ public:
 
     // this batch must belong to a index in one transaction
     Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+                     PTabletWriterAddBatchResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
