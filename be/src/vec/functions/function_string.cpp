@@ -293,7 +293,7 @@ struct HexStringImpl {
                 dst_data_ptr++;
                 offset++;
             } else {
-                VStringFunctions::hex_encode(source, srclen, reinterpret_cast<char *>(dst_data_ptr));
+                VStringFunctions::hex_encode(source, srclen, reinterpret_cast<char*>(dst_data_ptr));
                 dst_data_ptr[srclen * 2] = '\0';
                 dst_data_ptr += (srclen * 2 + 1);
                 offset += (srclen * 2 + 1);
@@ -513,9 +513,9 @@ struct AesEncryptImpl {
             int cipher_len = l_size + 16;
             char p[cipher_len];
 
-            int outlen =
-                    EncryptionUtil::encrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
-                                     (unsigned char*)r_raw, r_size, NULL, true, (unsigned char*)p);
+            int outlen = EncryptionUtil::encrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
+                                                 (unsigned char*)r_raw, r_size, NULL, true,
+                                                 (unsigned char*)p);
             if (outlen < 0) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
             } else {
@@ -553,9 +553,9 @@ struct AesDecryptImpl {
             int cipher_len = l_size;
             char p[cipher_len];
 
-            int outlen =
-                    EncryptionUtil::decrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
-                                     (unsigned char*)r_raw, r_size, NULL, true, (unsigned char*)p);
+            int outlen = EncryptionUtil::decrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
+                                                 (unsigned char*)r_raw, r_size, NULL, true,
+                                                 (unsigned char*)p);
             if (outlen < 0) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
             } else {
@@ -774,7 +774,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLTrim>();
     factory.register_function<FunctionRTrim>();
     factory.register_function<FunctionTrim>();
-    factory.register_function<FunctionSubstring>();
+    factory.register_function<FunctionSubstring<Substr3Imp>>();
+    factory.register_function<FunctionSubstring<Substr2Imp>>();
     factory.register_function<FunctionLeft>();
     factory.register_function<FunctionRight>();
     factory.register_function<FunctionNullOrEmpty>();
@@ -794,7 +795,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
-    factory.register_alias(FunctionSubstring::name, "substr");
+    factory.register_alias(SubstringUtil::name, "substr");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionStringMd5sum::name, "md5");
 }

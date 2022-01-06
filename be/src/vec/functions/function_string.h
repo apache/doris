@@ -88,25 +88,9 @@ struct StringOP {
     }
 };
 
-class FunctionSubstring : public IFunction {
-public:
+struct SubstringUtil {
     static constexpr auto name = "substring";
-    static FunctionPtr create() { return std::make_shared<FunctionSubstring>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 3; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
-    }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        substring_execute(block, arguments, result, input_rows_count);
-        return Status::OK();
-    }
     static void substring_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                                   size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
@@ -201,12 +185,89 @@ private:
     }
 };
 
-class FunctionLeft : public FunctionSubstring {
+template <typename Impl>
+class FunctionSubstring : public IFunction {
+public:
+    static constexpr auto name = SubstringUtil::name;
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionSubstring<Impl>>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+struct Substr3Imp {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
+                std::make_shared<DataTypeInt32>()};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        SubstringUtil::substring_execute(block, arguments, result, input_rows_count);
+        return Status::OK();
+    }
+};
+
+struct Substr2Imp {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        auto params = ColumnInt32::create(input_rows_count);
+        auto& strlen_data = params->get_data();
+
+        auto str_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
+            str_col = nullable->get_nested_column_ptr();
+        }
+        auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+        }
+
+        block.insert({std::move(params), std::make_shared<DataTypeInt32>(), "strlen"});
+
+        ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
+
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        return Status::OK();
+    }
+};
+
+class FunctionLeft : public IFunction {
 public:
     static constexpr auto name = "left";
     static FunctionPtr create() { return std::make_shared<FunctionLeft>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -219,17 +280,23 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
-        FunctionSubstring::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
 
-class FunctionRight : public FunctionSubstring {
+class FunctionRight : public IFunction {
 public:
     static constexpr auto name = "right";
     static FunctionPtr create() { return std::make_shared<FunctionRight>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -275,7 +342,7 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        FunctionSubstring::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
