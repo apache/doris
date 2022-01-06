@@ -686,7 +686,7 @@ For compatibility, if kafka_api_version_request set to false, the fallback versi
 
 ### `kafka_broker_version_fallback`
 
-Default：0.9.0
+Default：0.10.0
 
 Valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0. Any other value >= 0.10, such as 0.10.2.1, set kafka_api_version_request to true.
 
