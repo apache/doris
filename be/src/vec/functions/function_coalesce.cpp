@@ -41,38 +41,12 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypes filtered_args;
         for (const auto& arg : arguments) {
-            if (arg->only_null()) {
-                continue;
-            }
-
-            filtered_args.push_back(arg);
             if (!arg->is_nullable()) {
-                break;
+                return arg;
             }
         }
-
-        DataTypes remaining_args;
-        for (size_t i = 0; i < filtered_args.size(); ++i) {
-            if (i + 1 == filtered_args.size()) {
-                remaining_args.push_back(filtered_args[i]);
-            } else {
-                remaining_args.push_back(remove_nullable(filtered_args[i]));
-            }
-        }
-
-        if (remaining_args.empty()) {
-            return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeNothing>());
-        } else if (remaining_args.size() == 1) {
-            return remaining_args.front();
-        } else {
-            auto res = get_least_supertype(remaining_args);
-            if (res->is_nullable() && !remaining_args.back()->is_nullable()) {
-                res = remove_nullable(res);
-            }
-            return res;
-        }
+        return arguments[0];
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -130,6 +104,7 @@ public:
             auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
             auto* res = res_map.data();
 
+            //TODO: if need to imporve performance in the feature, here it's could SIMD
             for (size_t j = 0; j < input_rows_count && remaining_rows; ++j) {
                 if (res[j] && null_map_data[j]) {
                     null_map_data[j] = 0;
@@ -138,9 +113,11 @@ public:
                 }
             }
         }
-
-        //According to the record results, fill in result one by one, 
-        //because the string does not support random position writing
+        //TODO: According to the record results, fill in result one by one, 
+        //that's fill in result use different methods for different types,
+        //because now the string types does not support random position writing,
+        //But other type could, so could check one column, and fill the not null value in result column,
+        //and then next column, this method may result in higher CPU cache
         for (int row = 0; row < input_rows_count; ++row) {
             if (record_idx[row] == -1) {
                 result_column->insert_default();
