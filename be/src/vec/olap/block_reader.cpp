@@ -27,9 +27,6 @@
 
 namespace doris::vectorized {
 
-BlockReader::BlockReader()
-        : _next_row {nullptr, -1, false} {}
-
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
         AggregateFunctionPtr function = _agg_functions[i];
@@ -312,7 +309,7 @@ void BlockReader::_copy_agg_data() {
     }
 
     for (auto idx : _agg_columns_idx) {
-        auto dst_column = _stored_data_columns[idx];
+        auto& dst_column = _stored_data_columns[idx];
         if (_stored_has_string_tag[idx]) {
             //string type should replace ordered
             for (int i = 0; i < _stored_row_ref.size(); i++) {

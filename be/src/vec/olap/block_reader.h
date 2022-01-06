@@ -34,8 +34,6 @@ namespace vectorized {
 
 class BlockReader final : public Reader {
 public:
-    BlockReader();
-
     ~BlockReader();
 
     // Initialize BlockReader with tablet, data version and fetch range.
@@ -88,7 +86,7 @@ private:
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
     VCollectIterator _vcollect_iter;
-    IteratorRowRef _next_row;
+    IteratorRowRef _next_row{nullptr, -1, false};
 
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
@@ -97,7 +95,7 @@ private:
     std::vector<int> _agg_columns_idx;
     std::vector<int> _return_columns_loc;
 
-    int _batch_size;
+    int _batch_size = 0;
 
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
