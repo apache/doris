@@ -31,6 +31,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_bitmap.cpp
   aggregate_functions/aggregate_function_reader.cpp
   aggregate_functions/aggregate_function_window.cpp
+  aggregate_functions/aggregate_function_stddev.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   columns/collator.cpp
   columns/column.cpp

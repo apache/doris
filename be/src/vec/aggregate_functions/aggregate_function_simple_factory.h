@@ -98,6 +98,14 @@ public:
         }
     }
 
+    void register_alias(const std::string& name, const std::string& alias, bool nullable = false) {
+        if(nullable) {
+            nullable_aggregate_functions[alias] = nullable_aggregate_functions[name];
+        } else {
+            aggregate_functions[alias] = aggregate_functions[name];
+        }
+    }
+
 public:
     static AggregateFunctionSimpleFactory& instance();
 };
