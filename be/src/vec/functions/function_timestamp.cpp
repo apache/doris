@@ -177,9 +177,7 @@ struct UnixTimeStampImpl {
 };
 
 struct UnixTimeStampDateImpl {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDate>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeDate>()}; }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
         return make_nullable(std::make_shared<DataTypeInt32>());
@@ -226,14 +224,13 @@ struct UnixTimeStampDateImpl {
 
 struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDateTime>()};
+        return {std::make_shared<DataTypeDateTime>()};
     }
 };
 
 struct UnixTimeStampStrImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeString>(),
-                std::make_shared<vectorized::DataTypeString>()};
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
@@ -293,8 +290,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionUnixTimestamp<Impl>>(); }
 
     String get_name() const override { return name; }
-
-    bool is_variadic() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 

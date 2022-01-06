@@ -95,14 +95,19 @@ public:
     }
 
     void register_alias(const std::string& name, const std::string& alias) {
-        function_creators[alias] = function_creators[name];
+        function_alias[alias] = name;
     }
 
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
                                  const DataTypePtr& return_type) {
         std::string key_str = name;
+
+        if (function_alias.count(name)) {
+            key_str = function_alias[name];
+        }
+
         // if function is variadic, added types_str as key
-        if (function_variadic_set.count(name)) {
+        if (function_variadic_set.count(key_str)) {
             for (auto& arg : arguments) {
                 key_str.append(arg.type->is_nullable()
                                        ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
@@ -123,6 +128,7 @@ public:
 private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
+    std::unordered_map<std::string, std::string> function_alias;
 
     template <typename Function>
     static FunctionBuilderPtr createDefaultFunction() {
