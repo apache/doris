@@ -87,7 +87,7 @@ OLAPStatus TupleReader::init(const ReaderParams& read_params) {
                 _next_row_func = &TupleReader::_direct_agg_key_next_row;
             }
         } else {
-            _next_row_func = &Reader::_direct_next_row;
+            _next_row_func = &TupleReader::_direct_next_row;
         }
         return OLAP_SUCCESS;
     }
