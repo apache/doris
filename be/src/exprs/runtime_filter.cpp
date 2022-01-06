@@ -767,11 +767,11 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, int node_i
 }
 
 Status IRuntimeFilter::serialize(PMergeFilterRequest* request, void** data, int* len) {
-    return _serialize(request, data, len);
+    return serialize(request, data, len);
 }
 
 Status IRuntimeFilter::serialize(PPublishFilterRequest* request, void** data, int* len) {
-    return _serialize(request, data, len);
+    return serialize(request, data, len);
 }
 
 Status IRuntimeFilter::create_wrapper(const MergeRuntimeFilterParams* param, MemTracker* tracker,
@@ -830,7 +830,7 @@ Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
 }
 
 template <class T>
-Status IRuntimeFilter::_serialize(T* request, void** data, int* len) {
+Status IRuntimeFilter::serialize(T* request, void** data, int* len) {
     request->set_filter_type(get_type(_runtime_filter_type));
 
     if (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER) {

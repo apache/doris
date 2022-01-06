@@ -204,7 +204,7 @@ protected:
     void to_protobuf(PMinMaxFilter* filter);
 
     template <class T>
-    Status _serialize(T* request, void** data, int* len);
+    Status serialize(T* request, void** data, int* len);
 
     template <class T>
     static Status _create_wrapper(const T* param, MemTracker* tracker, ObjectPool* pool,

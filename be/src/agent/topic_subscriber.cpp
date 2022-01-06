@@ -18,6 +18,7 @@
 #include "agent/topic_subscriber.h"
 
 #include "common/logging.h"
+#include <mutex>
 
 namespace doris {
 

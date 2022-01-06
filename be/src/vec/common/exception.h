@@ -26,6 +26,7 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
+#include <optional>
 
 #include "common/status.h"
 
