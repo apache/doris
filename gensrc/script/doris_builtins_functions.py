@@ -825,7 +825,7 @@ visible_functions = [
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
-        '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', '', 'ALWAYS_NULLABLE'],
+        '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -947,7 +947,7 @@ visible_functions = [
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
-        '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', '', 'ALWAYS_NULLABLE'],
+        '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
