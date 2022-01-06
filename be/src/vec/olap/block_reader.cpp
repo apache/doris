@@ -261,9 +261,9 @@ OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
 }
 
 void BlockReader::_insert_data_normal(MutableColumns& columns) {
+    auto block = _next_row.block;
     for (auto idx : _normal_columns) {
-        columns[idx]->insert_from(
-                *_next_row.block->get_by_position(idx).column, _next_row.row_pos);
+        columns[idx]->insert_from(*block->get_by_position(idx).column, _next_row.row_pos);
     }
 }
 
@@ -312,18 +312,19 @@ void BlockReader::_copy_agg_data() {
     }
 
     for (auto idx : _agg_columns_idx) {
+        auto dst_column = _stored_data_columns[idx];
         if (_stored_has_string_tag[idx]) {
             //string type should replace ordered
             for (int i = 0; i < _stored_row_ref.size(); i++) {
                 auto& ref = _stored_row_ref[i];
-                _stored_data_columns[idx]->replace_column_data(
+                dst_column->replace_column_data(
                         *ref.block->get_by_position(idx).column, ref.row_pos, i);
             }
         } else {
             for (auto& it : temp_ref_map) {
+                auto& src_column = *it.first->get_by_position(idx).column;
                 for (auto& pos : it.second) {
-                    _stored_data_columns[idx]->replace_column_data(
-                            *it.first->get_by_position(idx).column, pos.first, pos.second);
+                    dst_column->replace_column_data(src_column, pos.first, pos.second);
                 }
             }
         }
