@@ -272,7 +272,7 @@ struct HexStringName {
 
 struct HexStringImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeString>()};
+        return {std::make_shared<DataTypeString>()};
     }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,

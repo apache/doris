@@ -561,7 +561,7 @@ public:
         }
         return Status::OK();
     }
-}; // namespace doris::vectorized
+};
 
 class FunctionStringRepeat : public IFunction {
 public:
