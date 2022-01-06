@@ -129,6 +129,7 @@ int VOlapTableSink::_validate_data(doris::RuntimeState* state, doris::vectorized
 
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
+        block->get_by_position(i).column = block->get_by_position(i).column->convert_to_full_column_if_const();
         const auto& column = block->get_by_position(i).column;
 
         if (desc->is_nullable() && desc->type() == TYPE_OBJECT) {
