@@ -301,9 +301,17 @@ std::string RowCursor::to_string() const {
 
     return result;
 }
+
 OLAPStatus RowCursor::_alloc_buf() {
     // variable_len for null bytes
     size_t len = _variable_len;
+    /*
+     * calc buf len in advance, and then alloc the whole buf by new char[len]
+     * the beginning _variable_len of the _variable_buf is for Slice 
+     * followed by the pointer array[_string_field_count], each item pointer to the text_buf
+     * followed by the text buf as the last part of _variable_buf
+     * do as this can reduce calling new times, the buf is continuous, it's a common idiom 
+     * */
     len += _string_field_count * (sizeof(char*) + DEFAULT_TEXT_LENGTH);
 
     _variable_buf = new (nothrow) char[len];
