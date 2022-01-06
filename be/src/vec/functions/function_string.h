@@ -202,7 +202,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool is_variadic() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_constants() const override { return true; }
 
