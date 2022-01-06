@@ -87,13 +87,13 @@ private:
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
-    std::unique_ptr<VCollectIterator> _collect_iter;
+    VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row;
 
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
 
-    std::vector<int> _normal_columns_idx; // key column on agg mode, all column on uniq mode
+    std::vector<int> _normal_columns; // key column on agg mode, all column on uniq mode
     std::vector<int> _agg_columns_idx;
     std::vector<int> _return_columns_loc;
 
@@ -110,7 +110,6 @@ private:
     std::vector<bool> _stored_has_string_tag;
 
     bool _eof = false;
-    bool _agg_inited = false;
 
     OLAPStatus (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool,
                                                 ObjectPool* agg_pool, bool* eof) = nullptr;
