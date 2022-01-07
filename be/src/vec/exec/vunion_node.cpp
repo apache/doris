@@ -195,6 +195,15 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     if (!mem_reuse) {
         block->swap(mblock.to_block());
     }
+
+    // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
+    // the const expr will be in output expr cause the union node return a empty block. so here we
+    // need add one row to make sure the union node exec const expr return at least one row
+    if (block->rows() == 0) {
+        block->insert({vectorized::ColumnUInt8::create(1),
+                    std::make_shared<vectorized::DataTypeUInt8>(), ""});
+    }
+
     return Status::OK();
 }
 

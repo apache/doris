@@ -109,7 +109,7 @@ public:
     std::string debug_string();
 
 private:
-    void _copy_data_to_column(int cid, vectorized::MutableColumnPtr& mutable_column_ptr);
+    Status _copy_data_to_column(int cid, vectorized::MutableColumnPtr& mutable_column_ptr);
 
     Schema _schema;
     size_t _capacity;
