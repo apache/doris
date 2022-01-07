@@ -6,9 +6,11 @@ EN: http://doris.incubator.apache.org/master/en/community/commit-format-specific
 
 # Proposed changes
 
-Close #issue (replace it with issue number if it exists).
+Issue Number: close #xxx
 
-Describe the overview of changes, and introduce why we need it.
+Problem Summary:
+
+Describe the overview of changes:
 
 ## Checklist
 
