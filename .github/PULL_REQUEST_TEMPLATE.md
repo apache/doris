@@ -1,10 +1,3 @@
-<!--
-!!!! Please Add Type in the PR header like [fix] !!!!
-[Tag] will generate labels for this PR
-CN: http://doris.incubator.apache.org/master/zh-CN/community/commit-format-specification.html#commit-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83
-EN: http://doris.incubator.apache.org/master/en/community/commit-format-specification.html#commit-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83
--->
-
 # Proposed changes
 
 Issue Number: close #xxx
