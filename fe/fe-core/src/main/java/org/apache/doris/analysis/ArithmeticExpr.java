@@ -267,6 +267,33 @@ public class ArithmeticExpr extends Expr {
         }
     }
 
+    private boolean castIfHaveSameType(Type t1, Type t2, Type target) throws AnalysisException {
+        if (t1 == target || t2 == target) {
+            castChild(target, 0);
+            castChild(target, 1);
+            return true;
+        }
+        return false;
+    }
+
+    private void castUpperInteger(Type t1, Type t2) throws AnalysisException {
+        if (!t1.isIntegerType() || !t2.isIntegerType()) {
+            return;
+        }
+        if (castIfHaveSameType(t1, t2, Type.BIGINT)) {
+            return;
+        }
+        if (castIfHaveSameType(t1, t2, Type.INT)) {
+            return;
+        }
+        if (castIfHaveSameType(t1, t2, Type.SMALLINT)) {
+            return;
+        }
+        if (castIfHaveSameType(t1, t2, Type.TINYINT)) {
+            return;
+        }
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (VectorizedUtil.isVectorized()) {
@@ -319,6 +346,9 @@ public class ArithmeticExpr extends Expr {
                 case SUBTRACT:
                     if (t1.isDecimalV2() || t2.isDecimalV2()) {
                         castBinaryOp(findCommonType(t1, t2));
+                    }
+                    if (isConstant()) {
+                        castUpperInteger(t1, t2);
                     }
                 case MOD:
                     if (t1.isDecimalV2() || t2.isDecimalV2()) {
