@@ -679,17 +679,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 BloomFilter/Min/Max等统计信息缓存的容量
 
-### `kafka_api_version_request`
-
-默认值：true
-
-为了兼容性，如果 kafka_api_version_request 设置为 false，将使用回退版本 kafka_broker_version_fallback。
-
 ### `kafka_broker_version_fallback`
 
 默认值：0.10.0
 
-有效值为：0.9.0、0.8.2、0.8.1、0.8.0。 任何其他值 >= 0.10，例如 0.10.2.1，将 kafka_api_version_request 设置为 true。
+如果依赖的 kafka 版本低于routine load依赖的 kafka 客户端版本, 将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0、0.8.2、0.8.1、0.8.0。
 
 ### `load_data_reserve_hours`
 
