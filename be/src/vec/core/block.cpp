@@ -646,7 +646,8 @@ void Block::clear_column_data(int column_size) noexcept {
         }
     }
     for (auto& d : data) {
-        (*std::move(d.column)).mutate()->clear();
+        DCHECK(d.column->use_count() == 1);
+        (*std::move(d.column)).assume_mutable()->clear();
     }
 }
 
@@ -691,7 +692,8 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
 
-        MutableColumnPtr mutable_holder = (*std::move(nested_column)).mutate();
+        MutableColumnPtr mutable_holder = nested_column->use_count() == 1 ?
+                nested_column->assume_mutable() : nested_column->clone_resized(nested_column->size());
 
         ColumnUInt8* concrete_column = typeid_cast<ColumnUInt8*>(mutable_holder.get());
         if (!concrete_column) {

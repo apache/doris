@@ -56,6 +56,7 @@ TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());
 TIME_FUNCTION_IMPL(DayOfMonthImpl, dayofmonth, day());
 TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
+// TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
 TIME_FUNCTION_IMPL(ToYearWeekImpl, yearweek, year_week(mysql_week_mode(0)));
 struct ToDateImpl {
@@ -92,7 +93,7 @@ struct DayNameImpl {
             res_data[offset - 1] = 0;
         } else {
             auto len = strlen(day_name);
-            memcpy_small_allow_read_write_overflow15(&res_data[offset], day_name, len);
+            memcpy(&res_data[offset], day_name, len);
             offset += len + 1;
             res_data[offset - 1] = 0;
         }
@@ -113,8 +114,8 @@ struct MonthNameImpl {
             res_data[offset - 1] = 0;
         } else {
             auto len = strlen(month_name);
-            memcpy_small_allow_read_write_overflow15(&res_data[offset], month_name, len);
-            offset += len + 1;
+            memcpy(&res_data[offset], month_name, len);
+            offset += (len + 1);
             res_data[offset - 1] = 0;
         }
         return offset;
@@ -148,6 +149,7 @@ struct DateFormatImpl {
     }
 };
 
+// TODO: This function should be depend on argments not always nullable
 struct FromUnixTimeImpl {
     using FromType = Int32;
 
