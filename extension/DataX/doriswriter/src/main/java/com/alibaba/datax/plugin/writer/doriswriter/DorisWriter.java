@@ -55,11 +55,7 @@ public class DorisWriter extends Writer {
         @Override
         public void init() {
             this.keys = new Key(super.getPluginJobConf());
-            if (keys.DEFAULT_FORMAT.equalsIgnoreCase(this.keys.getFormat())) {
-                this.rowCodec = new DorisJsonCodec(this.keys.getColumns());
-            } else {
-                throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR, "Only support json format");
-            }
+            this.rowCodec = new DorisJsonCodec(this.keys.getColumns());
             this.dorisWriterEmitter = new DorisWriterEmitter(keys);
         }
 
@@ -93,7 +89,7 @@ public class DorisWriter extends Writer {
                 // trigger buffer
                 if (batchCount >= this.keys.getBatchRows() || batchByteSize >= this.keys.getBatchByteSize()) {
                     // generate doris stream load label
-                    flush(flushBatch, batchCount, batchByteSize);
+                    flush(flushBatch);
                     // clear buffer
                     batchCount = 0;
                     batchByteSize = 0L;
@@ -102,11 +98,11 @@ public class DorisWriter extends Writer {
             } // end of while
 
             if (flushBatch.getSize() > 0) {
-                flush(flushBatch, batchCount, batchByteSize);
+                flush(flushBatch);
             }
         }
 
-        private void flush(DorisFlushBatch flushBatch, long batchCount, long batchByteSize) {
+        private void flush(DorisFlushBatch flushBatch) {
             final String label = getStreamLoadLabel();
             flushBatch.setLabel(label);
             dorisWriterEmitter.doStreamLoad(flushBatch);

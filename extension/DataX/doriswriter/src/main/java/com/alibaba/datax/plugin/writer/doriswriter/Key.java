@@ -46,7 +46,6 @@ public class Key implements Serializable {
     public static final String MAX_BATCH_BYTE_SIZE = "maxBatchByteSize";
     public static final String LABEL_PREFIX = "labelPrefix";
     public static final String LINE_DELIMITER = "lineDelimiter";
-    public static final String FORMAT = "format";
     public static final String CONNECT_TIMEOUT = "connectTimeout";
     private final Configuration options;
     private final String lineDelimiterDesc;
@@ -55,7 +54,6 @@ public class Key implements Serializable {
     private static final long DEFAULT_MAX_BATCH_BYTE_SIZE = 100 * 1024 * 1024; // 100MB
     private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    public static final String DEFAULT_FORMAT = "json";
     private static final int DEFAULT_CONNECT_TIMEOUT = -1;
 
     public Key(final Configuration options) {
@@ -126,10 +124,6 @@ public class Key implements Serializable {
 
     public String getLineDelimiter() {
         return this.options.getString(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
-    }
-
-    public String getFormat() {
-        return this.options.getString(FORMAT, DEFAULT_FORMAT);
     }
 
     public int getConnectTimeout() {

@@ -26,9 +26,11 @@ import java.util.Map;
 
 // Convert DataX data to json
 public class DorisJsonCodec extends DorisCodec {
+    private Map<String, Object> rowMap;
 
     public DorisJsonCodec(final List<String> fieldNames) {
         super(fieldNames);
+        this.rowMap = new HashMap<>(this.fieldNames.size());
     }
 
     @Override
@@ -36,7 +38,8 @@ public class DorisJsonCodec extends DorisCodec {
         if (null == this.fieldNames) {
             return "";
         }
-        final Map<String, Object> rowMap = new HashMap<String, Object>(this.fieldNames.size());
+
+        rowMap.clear();
         int idx = 0;
         for (final String fieldName : this.fieldNames) {
             rowMap.put(fieldName, this.convertColumn(row.getColumn(idx)));

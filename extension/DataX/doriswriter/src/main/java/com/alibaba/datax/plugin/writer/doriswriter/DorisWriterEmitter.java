@@ -196,13 +196,10 @@ public class DorisWriterEmitter {
             httpPut.setHeader(HttpHeaders.EXPECT, "100-continue");
             httpPut.setHeader(HttpHeaders.AUTHORIZATION, this.getBasicAuthHeader(this.keys.getUsername(), this.keys.getPassword()));
             httpPut.setHeader("label", flushBatch.getLabel());
-            httpPut.setHeader("format", this.keys.getFormat());
+            httpPut.setHeader("format", "json");
             httpPut.setHeader("line_delimiter", this.keys.getLineDelimiterDesc());
-
-            if (keys.DEFAULT_FORMAT.equalsIgnoreCase(this.keys.getFormat())) {
-                httpPut.setHeader("read_json_by_line", "true");
-                httpPut.setHeader("fuzzy_parse", "true");
-            }
+            httpPut.setHeader("read_json_by_line", "true");
+            httpPut.setHeader("fuzzy_parse", "true");
 
             // Use ByteArrayEntity instead of StringEntity to handle Chinese correctly
             httpPut.setEntity(new ByteArrayEntity(flushBatch.getData().toString().getBytes()));

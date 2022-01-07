@@ -164,12 +164,6 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
   - 必选：否
   - 默认值：`\n`
   
-* **format**
-
-  - 描述：导入数据的格式, 目前支持json。
-  - 必选：否
-  - 默认值：`json`
-  
 * **loadProps**
 
   - 描述：StreamLoad 的请求参数，详情参照StreamLoad介绍页面。
