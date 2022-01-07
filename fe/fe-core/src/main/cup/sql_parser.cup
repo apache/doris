@@ -18,10 +18,12 @@
 package org.apache.doris.analysis;
 
 import java.math.BigDecimal;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
@@ -261,7 +263,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
-    KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
+    KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW, KW_SIGNED,
     KW_SKEW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
@@ -398,7 +400,12 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
-nonterminal HashMap<String, String> select_hints_list, opt_select_hints;
+nonterminal Map<String, Map<String, String>> opt_select_hints;
+nonterminal Map<String, Map<String, String>> query_hints;
+nonterminal Map.Entry<String, Map<String, String>> query_hint;
+nonterminal Map<String, String> query_hint_parameters;
+nonterminal Map.Entry<String, String> query_hint_parameter;
+nonterminal String query_hint_parameter_key;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
@@ -3851,16 +3858,65 @@ select_clause ::=
     :}
     ;
 
-select_hints_list ::=
-    select_hints_list:map COMMA variable_name:k equal literal_or_ident:v
+query_hint_parameter_key ::=
+    literal:k
     {:
-        map.put(k, v);
+        RESULT = k.getStringValue();
+    :}
+    | variable_name:k
+    {:
+        RESULT = k;
+    :}
+    ;
+
+query_hint_parameter ::=
+    query_hint_parameter_key:k
+    {:
+        RESULT = new AbstractMap.SimpleEntry<String, String>(k, null);
+    :}
+    | query_hint_parameter_key:k equal literal_or_ident:v
+    {:
+        RESULT = new AbstractMap.SimpleEntry<String, String>(k, v);
+    :}
+    ;
+
+
+query_hint_parameters ::=
+    query_hint_parameters:map COMMA query_hint_parameter:kv
+    {:
+        map.put(kv.getKey(), kv.getValue());
         RESULT = map;
     :}
-    | variable_name:k equal literal_or_ident:v
+    |  query_hint_parameter:kv
     {:
-        HashMap<String, String> map = new HashMap<String, String>();
-        map.put(k, v);
+        Map<String, String> map = new HashMap<>();
+        map.put(kv.getKey(), kv.getValue());
+        RESULT = map;
+    :}
+    |
+    {:
+        RESULT = new HashMap<String, String>();
+    :}
+    ;
+
+query_hint ::=
+    ident:k LPAREN query_hint_parameters:v RPAREN
+    {:
+        RESULT = new AbstractMap.SimpleEntry<String, Map<String, String>>(k.toLowerCase(Locale.ROOT), v);
+    :}
+    ;
+
+query_hints ::=
+    query_hints:map query_hint:kv
+    {:
+        map.computeIfAbsent(kv.getKey(), k -> new HashMap<>());
+        map.get(kv.getKey()).putAll(kv.getValue());
+        RESULT = map;
+    :}
+    | query_hint:kv
+    {:
+        Map<String, Map<String, String>> map = new HashMap<>();
+        map.put(kv.getKey(), kv.getValue());
         RESULT = map;
     :}
     ;
@@ -3877,7 +3933,7 @@ literal_or_ident ::=
     ;
 
 opt_select_hints ::=
-    COMMENTED_PLAN_HINT_START KW_SET_VAR LPAREN select_hints_list:map RPAREN COMMENTED_PLAN_HINT_END
+    COMMENTED_PLAN_HINT_START query_hints:map COMMENTED_PLAN_HINT_END
     {:
         RESULT = map;
     :}
