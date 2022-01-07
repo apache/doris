@@ -9,21 +9,18 @@ EN: http://doris.incubator.apache.org/master/en/community/commit-format-specific
 
 Issue Number: close #xxx
 
-Problem Summary:
+## Problem Summary:
 
-Describe the overview of changes:
+Describe the overview of changes.
 
-## Checklist
+## Checklist(Requried)
 
-_Put an `x` in the boxes that apply. You can also fill these out after creating the PR._
-
-- [ ] Compiling and unit tests pass on your own machine
-- [ ] Added tests to prove it works
-- [ ] Updated the document if it's needed
-- [ ] Any dependent changes have been merged
-- [ ] Not an incompatible change
-- [ ] Updating necessary documentation 
+1. Does it affect the original behavior: (Yes/No/I Don't know)
+2. Has unit tests been added: (Yes/No/No Need)
+3. Has document been added or modified: (Yes/No/No Need)
+4. Does it need to update dependencies: (Yes/No)
+5. Are there any changes that cannot be rolled back: (Yes/No)
 
 ## Further comments
 
-If this is a relatively large or complex change, kick off the discussion at dev@doris.apache.org by explaining why you chose the solution you did and what alternatives you considered, etc...
+If this is a relatively large or complex change, kick off the discussion at [dev@doris.apache.org](mailto:dev@doris.apache.org) by explaining why you chose the solution you did and what alternatives you considered, etc...
