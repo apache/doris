@@ -98,8 +98,9 @@ public class ExprRewriter {
     }
 
     private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
+        Expr originExpr = expr.clone();
         Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
-        if (rewrittenExpr != expr) {
+        if (rewrittenExpr != originExpr) {
             numChanges_++;
         }
         return rewrittenExpr;
