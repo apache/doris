@@ -1060,96 +1060,75 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+        auto res_column = ColumnString::create();
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+        auto data_column = assert_cast<const typename Impl::ColumnType*>(argument_column.get());
+
+        Impl::execute(context, result_column, data_column, input_rows_count);
+
+        block.replace_by_position(result, std::move(res_column));
+        return Status::OK();
     }
 };
 
 struct MoneyFormatDoubleImpl {
+    using ColumnType = ColumnVector<Float64>;
+
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
-                               size_t input_rows_count) {
-        auto res_column = ColumnString::create();
-        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
-
-        auto data_column = assert_cast<const ColumnVector<Float64>*>(argument_column.get());
-        auto result_column = assert_cast<ColumnString*>(res_column.get());
-
-        for (int i = 0; i < input_rows_count; i++) {
+    static void execute(FunctionContext* context, ColumnString* result_column,
+                          const ColumnType* data_column, size_t input_rows_count) {
+        for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
             StringVal str = StringFunctions::do_money_format(context, fmt::format("{:.2f}", value));
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
-
-        block.replace_by_position(result, std::move(res_column));
-        return Status::OK();
     }
 };
 
 struct MoneyFormatInt64Impl {
+    using ColumnType = ColumnVector<Int64>;
+
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt64>()}; }
 
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
-                               size_t input_rows_count) {
-        auto res_column = ColumnString::create();
-        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
-
-        auto data_column = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
-        auto result_column = assert_cast<ColumnString*>(res_column.get());
-
-        for (int i = 0; i < input_rows_count; i++) {
+    static void execute(FunctionContext* context, ColumnString* result_column,
+                          const ColumnType* data_column, size_t input_rows_count) {
+        for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
             StringVal str = StringFunctions::do_money_format<Int64, 26>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
-
-        block.replace_by_position(result, std::move(res_column));
-        return Status::OK();
     }
 };
 
 struct MoneyFormatInt128Impl {
+    using ColumnType = ColumnVector<Int128>;
+
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt128>()}; }
 
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
-                               size_t input_rows_count) {
-        auto res_column = ColumnString::create();
-        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
-
-        auto data_column = assert_cast<const ColumnVector<Int128>*>(argument_column.get());
-        auto result_column = assert_cast<ColumnString*>(res_column.get());
-
-        for (int i = 0; i < input_rows_count; i++) {
+    static void execute(FunctionContext* context, ColumnString* result_column,
+                          const ColumnType* data_column, size_t input_rows_count) {
+        for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
             StringVal str = StringFunctions::do_money_format<Int128, 52>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
-
-        block.replace_by_position(result, std::move(res_column));
-        return Status::OK();
     }
 };
 
 struct MoneyFormatDecimalImpl {
+    using ColumnType = ColumnDecimal<Decimal128>;
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)};
     }
 
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
-                               size_t input_rows_count) {
-        auto res_column = ColumnString::create();
-        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
-
-        auto data_column =
-                reinterpret_cast<const ColumnDecimal<Decimal128>*>(argument_column.get());
-        auto result_column = assert_cast<ColumnString*>(res_column.get());
-
-        for (int i = 0; i < input_rows_count; i++) {
+    static void execute(FunctionContext* context, ColumnString* result_column,
+                          const ColumnType* data_column, size_t input_rows_count) {
+        for (size_t i = 0; i < input_rows_count; i++) {
             DecimalV2Val value = DecimalV2Val(data_column->get_element(i));
 
             DecimalV2Value rounded(0);
@@ -1160,9 +1139,6 @@ struct MoneyFormatDecimalImpl {
 
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
-
-        block.replace_by_position(result, std::move(res_column));
-        return Status::OK();
     }
 };
 
