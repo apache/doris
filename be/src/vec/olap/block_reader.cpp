@@ -94,11 +94,11 @@ void BlockReader::_init_agg_state() {
 
         // create aggregate function
         DataTypes argument_types;
-        argument_types.push_back(_next_row.block->get_data_types()[idx]);
+        argument_types.push_back(_next_row.block->get_data_type(idx));
         Array params;
         AggregateFunctionPtr function = AggregateFunctionSimpleFactory::instance().get(
                 agg_name, argument_types, params,
-                _next_row.block->get_data_types()[idx]->is_nullable());
+                _next_row.block->get_data_type(idx)->is_nullable());
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
 
