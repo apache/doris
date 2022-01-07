@@ -130,6 +130,11 @@ public:
     Names get_names() const;
     DataTypes get_data_types() const;
 
+    DataTypePtr get_data_type(size_t index) const { 
+        CHECK(index < data.size());
+        return data[index].type; 
+    }
+
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
@@ -204,7 +209,7 @@ public:
     static Status filter_block(Block* block, int filter_conlumn_id, int column_to_keep);
 
     static inline void erase_useless_column(Block* block, int column_to_keep) {
-        for (size_t i = block->columns() - 1; i >= column_to_keep; --i) {
+        for (int i = block->columns() - 1; i >= column_to_keep; --i) {
             block->erase(i);
         }
     }
