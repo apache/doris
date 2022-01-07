@@ -71,3 +71,11 @@ jobs:
             optimize
             optimizer
           labels: area/optimizer
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            chore
+            build
+            ci
+          labels: area/build
