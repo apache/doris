@@ -105,10 +105,6 @@ protected:
         return *this;
     }
 
-    unsigned int use_count() const {
-        return ref_counter.load();
-    }
-
     void add_ref() {
         ++ref_counter;
     }
@@ -264,6 +260,10 @@ protected:
 
 public:
     using MutablePtr = mutable_ptr<Derived>;
+
+    unsigned int use_count() const {
+        return ref_counter.load();
+    }
 
 protected:
     template <typename T>

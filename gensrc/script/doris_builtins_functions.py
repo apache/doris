@@ -139,14 +139,14 @@ visible_functions = [
         '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['from_unixtime'], 'VARCHAR', ['INT'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf15FunctionContextERKNS1_6IntValE',
-        '', '', 'vec', ''],
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValERKNS1_9StringValE',
         '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
         '15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
-        '15FunctionContextENS2_18FunctionStateScopeE', 'vec', ''],
+        '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
     [['from_unixtime'], 'VARCHAR', ['INT', 'STRING'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValERKNS1_9StringValE',
@@ -175,7 +175,7 @@ visible_functions = [
         '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['to_days'], 'INT', ['DATE'],
         '_ZN5doris18TimestampFunctions7to_daysEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
-        '', '', 'vec', ''],
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
 
      [['year'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4yearEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
@@ -525,9 +525,9 @@ visible_functions = [
 
     # Math builtin functions
     [['pi'], 'DOUBLE', [],
-        '_ZN5doris13MathFunctions2piEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NULLABLE'],
+        '_ZN5doris13MathFunctions2piEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['e'], 'DOUBLE', [],
-        '_ZN5doris13MathFunctions1eEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NULLABLE'],
+        '_ZN5doris13MathFunctions1eEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
     [['abs'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
