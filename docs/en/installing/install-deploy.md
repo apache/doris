@@ -179,9 +179,9 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
     **instructions**
     
-    * 1./home/disk1/doris.HDD,50 capacity limit is 50GB, HDD;
-    * 2./home/disk2/doris.SSD,1 capacity limit is 1GB, SSD;
-    * 3./home/disk2/doris capacity limit is disk capacity, HDD(default)
+    * 1./home/disk1/doris.HDD,50, indicates capacity limit is 50GB, HDD;
+    * 2./home/disk2/doris.SSD,1, indicates  capacity limit is 1GB, SSD;
+    * 3./home/disk2/doris, indicates capacity limit is disk capacity, HDD(default)
     
     eg.2: 
     
