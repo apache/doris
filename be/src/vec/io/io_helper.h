@@ -54,19 +54,9 @@ inline Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
 }
 
 inline std::string int128_to_string(__int128_t value) {
-    char buffer[128];
-    char* d = std::end(buffer);
-    do {
-        --d;
-        *d = "0123456789"[value % 10];
-        value /= 10;
-    } while (value != 0);
-    if (value < 0) {
-        --d;
-        *d = '-';
-    }
-    int len = std::end(buffer) - d;
-    return std::string(d, len);
+    fmt::memory_buffer buffer;
+    fmt::format_to(buffer, "{}", value);
+    return std::string(buffer.data(), buffer.size());
 }
 
 inline std::string int128_to_string(UInt128 value) {
@@ -84,7 +74,7 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
     if (scale) {
         whole_part = value / decimal_scale_multiplier<T>(scale);
     }
-    if constexpr (std::is_same<T, __int128_t>::value || std::is_same<T, UInt128>::value) {
+    if constexpr (std::is_same<T, __int128_t>::value) {
         ostr << int128_to_string(whole_part);
     } else {
         ostr << whole_part;
