@@ -19,6 +19,7 @@ jobs:
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             doc
             docs
@@ -26,6 +27,7 @@ jobs:
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             vec
             vectorization
@@ -35,12 +37,14 @@ jobs:
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             community
           labels: area/community
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             improvement
             enhancement
@@ -49,24 +53,28 @@ jobs:
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             feature
           labels: kind/feature
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             routine-load
           labels: area/routine load
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             refactor
           labels: kind/refactor
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             optimize
             optimizer
@@ -74,6 +82,7 @@ jobs:
 
       - uses: fregante/title-to-labels-action@v1
         with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           keywords: |
             chore
             build
