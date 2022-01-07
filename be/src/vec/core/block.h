@@ -129,7 +129,11 @@ public:
 
     Names get_names() const;
     DataTypes get_data_types() const;
-    DataTypePtr get_data_type(size_t index) const { return index < data.size() ? data[index].type : nullptr; }
+
+    DataTypePtr get_data_type(size_t index) const { 
+        CHECK(index < data.size());
+        return data[index].type; 
+    }
 
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
