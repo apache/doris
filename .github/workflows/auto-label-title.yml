@@ -1,0 +1,73 @@
+name: Add label according to title
+
+on:
+  pull_request:
+    types: [opened, edited]
+
+jobs:
+  Label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          keywords: |
+            fix
+            bug
+            bugfix
+          labels: kind/bug
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            doc
+            docs
+          labels: kind/documentation
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            vec
+            vectorization
+            vectorized
+            vectorize
+          labels: vectorization
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            community
+          labels: area/community
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            improvement
+            enhancement
+            enhance
+          labels: kind/enhancement
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            feature
+          labels: kind/feature
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            routine-load
+          labels: area/routine load
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            refactor
+          labels: kind/refactor
+
+      - uses: fregante/title-to-labels-action@v1
+        with:
+          keywords: |
+            optimize
+            optimizer
+          labels: area/optimizer
