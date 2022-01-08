@@ -123,7 +123,7 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
         for (int j = 0; j < read_params.return_columns.size(); ++j) {
             if (read_params.return_columns[j] == cid) {
                 if (j < _tablet->num_key_columns() || _tablet->keys_type() != AGG_KEYS) {
-                    _normal_columns.emplace_back(i);
+                    _normal_columns_idx.emplace_back(j);
                 } else {
                     _agg_columns_idx.emplace_back(j);
                 }
@@ -259,8 +259,8 @@ OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
 
 void BlockReader::_insert_data_normal(MutableColumns& columns) {
     auto block = _next_row.block;
-    for (auto idx : _normal_columns) {
-        columns[idx]->insert_from(*block->get_by_position(idx).column, _next_row.row_pos);
+    for (auto idx : _normal_columns_idx) {
+        columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column, _next_row.row_pos);
     }
 }
 

@@ -91,7 +91,7 @@ private:
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
 
-    std::vector<int> _normal_columns; // key column on agg mode, all column on uniq mode
+    std::vector<int> _normal_columns_idx; // key column on agg mode, all column on uniq mode
     std::vector<int> _agg_columns_idx;
     std::vector<int> _return_columns_loc;
 
