@@ -558,7 +558,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         List<Long> allBackendIds = infoService.getClusterBackendIds(cluster, false);
         List<Long> availableBeIds = Lists.newArrayList();
         for (Long backendId : allBackendIds) {
-            if (checkBackendAvailable(backendId, tag, excludedBeIds, infoService, 0)) {
+            if (checkBackendAvailable(backendId, tag, excludedBeIds, infoService, Config.colocate_group_relocate_delay_second)) {
                 availableBeIds.add(backendId);
             }
         }
