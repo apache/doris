@@ -67,7 +67,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
 }
 
 Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
-                              google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+                              PTabletWriterAddBatchResult* response) {
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
@@ -91,7 +91,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
 
     // 3. add batch to tablets channel
     if (request.has_row_batch()) {
-        RETURN_IF_ERROR(channel->add_batch(request));
+        RETURN_IF_ERROR(channel->add_batch(request, response));
     }
 
     // 4. handle eos
@@ -100,7 +100,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         bool finished = false;
         RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
                                        &finished, request.partition_ids(),
-                                       tablet_vec));
+                                       response->mutable_tablet_vec()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);

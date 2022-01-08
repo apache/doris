@@ -144,9 +144,10 @@ private:
     std::function<void(const T&, bool)> success_handler;
 };
 
+class IndexChannel;
 class NodeChannel {
 public:
-    NodeChannel(OlapTableSink* parent, int64_t index_id, int64_t node_id, int32_t schema_hash);
+    NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id, int32_t schema_hash);
     ~NodeChannel() noexcept;
 
     // called before open, used to add tablet located in this backend
@@ -215,7 +216,7 @@ private:
 
 private:
     OlapTableSink* _parent = nullptr;
-    int64_t _index_id = -1;
+    IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
     int32_t _schema_hash = 0;
     std::string _load_info;
@@ -276,7 +277,7 @@ public:
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
-    Status add_row(Tuple* tuple, int64_t tablet_id);
+    void add_row(Tuple* tuple, int64_t tablet_id);
 
     Status add_row(BlockRow& block_row, int64_t tablet_id);
 
@@ -286,20 +287,33 @@ public:
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch) {
+    void mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id = -1) {
         const auto& it = _tablets_by_channel.find(ch->node_id());
         if (it == _tablets_by_channel.end()) {
             return;
         }
-        for (const auto tablet_id : it->second) {
-            _failed_channels[tablet_id].insert(ch->node_id());
+
+        {
+            std::lock_guard<SpinLock> l(_fail_lock); 
+            if (tablet_id == -1) {
+                for (const auto the_tablet_id : it->second) {
+                    _failed_channels[the_tablet_id].insert(ch->node_id());
+                    _failed_channels_msgs.emplace(the_tablet_id, err);
+                }
+            } else {
+                _failed_channels[tablet_id].insert(ch->node_id());
+                _failed_channels_msgs.emplace(tablet_id, err);
+            }
         }
     }
-    bool has_intolerable_failure();
+
+    Status check_intolerable_failure();
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
 private:
+    friend class NodeChannel;
+
     OlapTableSink* _parent;
     int64_t _index_id;
     int32_t _schema_hash;
@@ -310,8 +324,13 @@ private:
     std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
     // from backend channel to tablet_id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
+
+    // lock to protect _failed_channels and _failed_channels_msgs
+    mutable SpinLock _fail_lock;
     // key is tablet_id, value is a set of failed node id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
+    // key is tablet_id, value is error message
+    std::unordered_map<int64_t, std::string> _failed_channels_msgs;
 };
 
 // Write data to Olap Table.
