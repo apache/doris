@@ -408,6 +408,11 @@ struct TTabletCommitInfo {
     2: required i64 backendId
 }
 
+struct TErrorTabletInfo {
+    1: required i64 tabletId
+    2: required string msg
+}
+
 enum TLoadType {
     MANUL_LOAD,
     ROUTINE_LOAD,

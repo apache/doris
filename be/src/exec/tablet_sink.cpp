@@ -371,6 +371,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
                                             std::make_move_iterator(_tablet_commit_infos.begin()),
                                             std::make_move_iterator(_tablet_commit_infos.end()));
+
+        _index_channel->set_error_tablet_in_state(state);    
         return Status::OK();
     }
 
@@ -589,6 +591,18 @@ Status IndexChannel::check_intolerable_failure() {
         }
     }
     return Status::OK();
+}
+
+void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
+    std::vector<TErrorTabletInfo>& error_tablet_infos = state->error_tablet_infos();
+
+    std::lock_guard<SpinLock> l(_fail_lock); 
+    for (const auto& it : _failed_channels_msgs) {
+        TErrorTabletInfo error_info;
+        error_info.tabletId = it.first;
+        error_info.msg = it.second;
+        error_tablet_infos.emplace_back(error_info);
+    }
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,

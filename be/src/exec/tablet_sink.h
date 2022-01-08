@@ -309,6 +309,9 @@ public:
 
     Status check_intolerable_failure();
 
+	// set error tablet info in runtime state, so that it can be returned to FE.
+	void set_error_tablet_in_state(RuntimeState* state);
+
     size_t num_node_channels() const { return _node_channels.size(); }
 
 private:
