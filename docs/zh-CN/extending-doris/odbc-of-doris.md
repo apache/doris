@@ -153,6 +153,68 @@ set enable_odbc_transcation = true;
 
 事务保证了ODBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
 
+## 数据库ODBC版本对应关系
+
+### Centos操作系统
+
+使用的unixODBC版本是：2.3.1，Doris 0.15，centos 7.9，全部使用yum方式安装。
+
+#### 1.mysql
+
+| Mysql版本 | Mysql ODBC版本 |
+| --------- | -------------- |
+| 8.0.27    | 8.0.27,8.026   |
+| 5.7.36    | 5.3.11,5.3.13  |
+| 5.6.51    | 5.3.11,5.3.13  |
+| 5.5.62    | 5.3.11,5.3.13  |
+
+#### 2.PostgreSQL
+
+PostgreSQL的yum 源 rpm包地址：
+
+```
+https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+```
+
+这里面包含PostgreSQL从9.x 到 14.x的全部版本，包括对应的ODBC版本，可以根据需要选择安装。
+
+| PostgreSQL版本 | PostgreSQL ODBC版本          |
+| -------------- | ---------------------------- |
+| 12.9           | postgresql12-odbc-13.02.0000 |
+| 13.5           | postgresql13-odbc-13.02.0000 |
+| 14.1           | postgresql14-odbc-13.02.0000 |
+| 9.6.24         | postgresql96-odbc-13.02.0000 |
+| 10.6           | postgresql10-odbc-13.02.0000 |
+| 11.6           | postgresql11-odbc-13.02.0000 |
+
+#### 3.Oracle
+
+待补充
+
+## Ubuntu操作系统
+
+使用的unixODBC版本是：2.3.4，Doris 0.15，Ubuntu 20.04
+
+#### 1.Mysql
+
+| Mysql版本 | Mysql ODBC版本 |
+| --------- | -------------- |
+| 8.0.27    | 8.0.11,5.3.13  |
+
+目前只测试了这一个版本其他版本测试后补充
+
+#### 2.PostgreSQL
+
+| PostgreSQL版本 | PostgreSQL ODBC版本 |
+| -------------- | ------------------- |
+| 12.9           | psqlodbc-12.02.0000 |
+
+其他版本只要下载和数据库大版本相符合的ODBC驱动版本，问题不大，这块后续会持续补充其他版本在Ubuntu系统下的测试结果。
+
+#### 3.Oracle
+
+待补充
+
 
 ## 类型匹配
 
