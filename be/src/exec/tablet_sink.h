@@ -196,6 +196,7 @@ public:
     }
 
     int64_t node_id() const { return _node_id; }
+    std::string host() const { return _node_info.host; }
     std::string name() const { return _name; }
 
     Status none_of(std::initializer_list<bool> vars);
@@ -204,10 +205,7 @@ public:
     void clear_all_batches();
 
     std::string channel_info() const {
-        // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
-        //             But I don't know why. so here I print node_info->id instead of node_info->host
-        //             to avoid BE crash. It needs further observation.
-        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.id,
+        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
                            _node_info.brpc_port);
     }
 
@@ -287,26 +285,7 @@ public:
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id = -1) {
-        const auto& it = _tablets_by_channel.find(ch->node_id());
-        if (it == _tablets_by_channel.end()) {
-            return;
-        }
-
-        {
-            std::lock_guard<SpinLock> l(_fail_lock); 
-            if (tablet_id == -1) {
-                for (const auto the_tablet_id : it->second) {
-                    _failed_channels[the_tablet_id].insert(ch->node_id());
-                    _failed_channels_msgs.emplace(the_tablet_id, err);
-                }
-            } else {
-                _failed_channels[tablet_id].insert(ch->node_id());
-                _failed_channels_msgs.emplace(tablet_id, err);
-            }
-        }
-    }
-
+    void mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
 	// set error tablet info in runtime state, so that it can be returned to FE.
@@ -334,6 +313,7 @@ private:
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
     // key is tablet_id, value is error message
     std::unordered_map<int64_t, std::string> _failed_channels_msgs;
+    Status _intolerable_failure_status = Status::OK();
 };
 
 // Write data to Olap Table.
