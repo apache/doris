@@ -158,7 +158,7 @@ IntVal TimestampFunctions::week_day(FunctionContext* context, const DateTimeVal&
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     if (ts_value.is_valid_date()) {
-        return IntVal(ts_value.weekday());;
+        return IntVal(ts_value.weekday());
     }
     return IntVal::null();
 }
