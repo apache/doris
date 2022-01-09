@@ -524,6 +524,35 @@ public class SelectStmtTest {
     }
 
     @Test
+    public void testSelectHints() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        // hint with integer literal parameter
+        String sql = "select /*+ common_hint(1) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with float literal parameter
+        sql = "select /*+ common_hint(1.1) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with string literal parameter
+        sql = "select /*+ common_hint(\"string\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with key value parameter
+        sql = "select /*+ common_hint(k = \"v\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with multi-parameters
+        sql = "select /*+ common_hint(1, 1.1, \"string\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // multi-hints
+        sql = "select /*+ common_hint(1) another_hint(2) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+    }
+
+    @Test
     public void testSelectHintSetVar() throws Exception {
         String sql = "SELECT sleep(3);";
         Planner planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
