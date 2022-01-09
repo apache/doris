@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class Settings {
-    private static Logger logger = LoggerFactory.getLogger(Settings.class);
+    private final static Logger logger = LoggerFactory.getLogger(Settings.class);
 
     public abstract String getProperty(String name);
 
