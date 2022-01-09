@@ -390,10 +390,10 @@ http {
     include /etc/nginx/conf.d/*.conf;
     #include /etc/nginx/custom/*.conf;
     upstream  doris.com {
-       server    172.22.197.238:8030 weight=3;
-       server    172.22.197.239:8030 weight=4;
-       server    172.22.197.240:8030 weight=4;
-       ip_hash;
+      server    172.22.197.238:8030 weight=3;
+      server    172.22.197.239:8030 weight=4;
+      server    172.22.197.240:8030 weight=4;
+      ip_hash;
     }
 
     server {
