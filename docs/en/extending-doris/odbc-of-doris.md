@@ -192,7 +192,24 @@ This contains all versions of PostgreSQL from 9.x to 14.x, including the corresp
 
 #### 3. Oracle
 
-To be added
+#### 
+
+| Oracle版本                                                   | Oracle ODBC版本                            |
+| ------------------------------------------------------------ | ------------------------------------------ |
+| Oracle Database 11g Enterprise Edition Release 11.2.0.1.0 - 64bit Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 12c Standard Edition Release 12.2.0.1.0 - 64bit Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 21c Enterprise Edition Release 21.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+
+Oracle ODBC driver version download address:
+
+```
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-devel-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-odbc-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-basic-19.13.0.0.0-2.x86_64.rpm
+```
 
 ## Ubuntu operating system
 
@@ -216,7 +233,22 @@ For other versions, as long as you download the ODBC driver version that matches
 
 #### 3. Oracle
 
-To be added
+The same as the Oracle database and ODBC correspondence of the Centos operating system, and the following method is used to install the rpm package under ubuntu.
+
+In order to install rpm packages under ubuntu, we also need to install an alien, which is a tool that can convert rpm packages into deb installation packages
+
+````
+sudo apt-get install alien
+````
+
+Then execute the installation of the above four packages
+
+````
+sudo alien -i oracle-instantclient19.13-basic-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i oracle-instantclient19.13-devel-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i oracle-instantclient19.13-odbc-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
+````
 
 ## Data type mapping
 

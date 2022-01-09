@@ -189,7 +189,22 @@ https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-r
 
 #### 3.Oracle
 
-待补充
+| Oracle版本                                                   | Oracle ODBC版本                            |
+| ------------------------------------------------------------ | ------------------------------------------ |
+| Oracle Database 11g Enterprise Edition Release 11.2.0.1.0 - 64bit Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 12c Standard Edition Release 12.2.0.1.0 - 64bit Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 21c Enterprise Edition Release 21.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+
+Oracle ODBC驱动版本下载地址：
+
+```
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-devel-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-odbc-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-basic-19.13.0.0.0-2.x86_64.rpm
+```
 
 ## Ubuntu操作系统
 
@@ -213,7 +228,22 @@ https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-r
 
 #### 3.Oracle
 
-待补充
+同上Centos操作系统的Oracle数据库及ODBC对应关系，在ubuntu下安装rpm软件包使用下面方式。
+
+为了在ubuntu下可以进行安装rpm包，我们还需要安装一个alien，这是一个可以将rpm包转换成deb安装包的工具
+
+```
+sudo apt-get install alien
+```
+
+然后执行安装上面四个包
+
+```
+sudo alien -i  oracle-instantclient19.13-basic-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i  oracle-instantclient19.13-devel-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i  oracle-instantclient19.13-odbc-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i  oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
+```
 
 
 ## 类型匹配
