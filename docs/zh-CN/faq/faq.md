@@ -341,7 +341,7 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 
 这是 bdbje 的一个 bug，尚未解决。遇到这种情况，只能通过 [元数据运维手册](../administrator-guide/operation/metadata-operation.md) 中的 故障恢复 进行操作来恢复元数据了。
 
-### Q24. 多个FE，在使用Nginx实现web UI负载均衡的时候，登录不进去的情况
+### Q24. 多个FE，在使用Nginx实现web UI负载均衡时，无法登录
 
 Doris 可以部署多个FE，在访问Web UI的时候，如果使用Nginx进行负载均衡，因为Session问题会出现不停的提示要重新登录，这个问题其实是Session共享的问题，Nginx提供了集中Session共享的解决方案，这里我们使用的是nginx中的ip_hash技术，ip_hash能够将某个ip的请求定向到同一台后端，这样一来这个ip下的某个客户端和某个后端就能建立起稳固的session，ip_hash是在upstream配置中定义的：
 

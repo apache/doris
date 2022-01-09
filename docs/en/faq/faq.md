@@ -341,7 +341,7 @@ Sometimes when restarting the Fe, the above error will occur (usually only in th
 
 This is a bug in bdbje that has not been resolved. In this case, metadata can only be recovered through fault recovery in [metadata operation and maintenance manual](../administrator-guide/operation/metadata-operation.md).
 
-### Q24. Multiple FEs, when using Nginx to implement web UI load balancing, the login cannot be entered
+### Q24. Multiple FEs cannot log in when using Nginx to implement web UI load balancing
 
 Doris can deploy multiple FEs. When accessing the Web UI, if you use Nginx for load balancing, you will be prompted to log in again because of Session problems. This problem is actually a session sharing problem. Nginx provides centralized session sharing. The solution, here we use the ip_hash technology in nginx, ip_hash can direct the request of a certain ip to the same backend, so that a certain client and a certain backend under this ip can establish a stable The session, ip_hash is defined in the upstream configuration:
 
