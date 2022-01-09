@@ -464,14 +464,18 @@ const int64_t HUB_MAX_ERROR_NUM = 10;
 
 void RuntimeState::export_load_error(const std::string& err_msg) {
     if (_error_hub == nullptr) {
-        if (_load_error_hub_info == nullptr) {
-            return;
-        }
-        Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
-                                             _error_log_file_path, &_error_hub);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
-            return;
+        std::lock_guard<std::mutex> lock(_create_error_hub_lock);
+        if (_error_hub == nullptr) {
+            if (_load_error_hub_info == nullptr) {
+                return;
+            }
+
+            Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
+                                                 _error_log_file_path, &_error_hub);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
+                return;
+            }
         }
     }
 
