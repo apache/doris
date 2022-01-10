@@ -81,7 +81,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
         LOG.info("Register a new table[{}] to database[{}]", identifier.name(), db.getFullName());
     }
 
-    public void deRegisterDb(Database db) {
+    public void deregisterdb(Database db) {
         dbToTableIdentifiers.remove(db);
         dbToTableToCreationRecord.remove(db.getFullName());
         LOG.info("DeRegister database[{}]", db.getFullName());
@@ -150,34 +150,37 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
 
     private void addTableCreationRecord(String db, String table, String status, String createTime, String errorMsg) {
         writeLock();
-        while (isQueueFull()) {
-            IcebergTableCreationRecord record = tableCreationRecordQueue.poll();
-            if (record != null) {
-                String recordDb = record.getDb();
-                String recordTable = record.getTable();
-                Map<String, IcebergTableCreationRecord> tableRecords = dbToTableToCreationRecord.get(recordDb);
-                Iterator<Map.Entry<String, IcebergTableCreationRecord>> tableRecordsIterator = tableRecords.entrySet().iterator();
-                while (tableRecordsIterator.hasNext()) {
-                    String t = tableRecordsIterator.next().getKey();
-                    if (t.equals(recordTable)) {
-                        tableRecordsIterator.remove();
-                        break;
+        try {
+            while (isQueueFull()) {
+                IcebergTableCreationRecord record = tableCreationRecordQueue.poll();
+                if (record != null) {
+                    String recordDb = record.getDb();
+                    String recordTable = record.getTable();
+                    Map<String, IcebergTableCreationRecord> tableRecords = dbToTableToCreationRecord.get(recordDb);
+                    Iterator<Map.Entry<String, IcebergTableCreationRecord>> tableRecordsIterator = tableRecords.entrySet().iterator();
+                    while (tableRecordsIterator.hasNext()) {
+                        String t = tableRecordsIterator.next().getKey();
+                        if (t.equals(recordTable)) {
+                            tableRecordsIterator.remove();
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        IcebergTableCreationRecord record = new IcebergTableCreationRecord(db, table, status, createTime, errorMsg);
-        tableCreationRecordQueue.offer(record);
+            IcebergTableCreationRecord record = new IcebergTableCreationRecord(db, table, status, createTime, errorMsg);
+            tableCreationRecordQueue.offer(record);
 
-        if (!dbToTableToCreationRecord.containsKey(db)) {
-            dbToTableToCreationRecord.put(db, new ConcurrentHashMap<>());
+            if (!dbToTableToCreationRecord.containsKey(db)) {
+                dbToTableToCreationRecord.put(db, new ConcurrentHashMap<>());
+            }
+            Map<String, IcebergTableCreationRecord> tableToRecord = dbToTableToCreationRecord.get(db);
+            if (!tableToRecord.containsKey(table)) {
+                tableToRecord.put(table, record);
+            }
+        } finally {
+            writeUnlock();
         }
-        Map<String, IcebergTableCreationRecord> tableToRecord = dbToTableToCreationRecord.get(db);
-        if (!tableToRecord.containsKey(table)) {
-            tableToRecord.put(table, record);
-        }
-        writeUnlock();
     }
 
     public List<IcebergTableCreationRecord> getTableCreationRecordByDb(String db) {

@@ -37,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.apache.doris.catalog.IcebergProperty.ICEBERG_CATALOG_TYPE;
 import static org.apache.doris.catalog.IcebergProperty.ICEBERG_DATABASE;
@@ -53,12 +54,24 @@ public class IcebergCatalogMgr {
     private static final String PROPERTY_MISSING_MSG = "Iceberg %s is null. " +
             "Please add properties('%s'='xxx') when create iceberg database.";
 
+    // hive metastore uri -> iceberg catalog
+    // used to cache iceberg catalogs
+    private static final ConcurrentHashMap<String, IcebergCatalog> metastoreUriToCatalog = new ConcurrentHashMap();
+
     // TODO:(qjl) We'll support more types of Iceberg catalog.
     public enum CatalogType {
         HIVE_CATALOG
     }
 
     public static IcebergCatalog getCatalog(IcebergProperty icebergProperty) throws DdlException {
+        String uri = icebergProperty.getHiveMetastoreUris();
+        if (!metastoreUriToCatalog.containsKey(uri)) {
+            metastoreUriToCatalog.put(uri, createCatalog(icebergProperty));
+        }
+        return metastoreUriToCatalog.get(uri);
+    }
+
+    private static IcebergCatalog createCatalog(IcebergProperty icebergProperty) throws DdlException {
         CatalogType type = CatalogType.valueOf(icebergProperty.getCatalogType());
         IcebergCatalog catalog;
         switch (type) {

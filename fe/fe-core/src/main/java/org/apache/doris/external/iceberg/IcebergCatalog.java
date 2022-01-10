@@ -47,13 +47,13 @@ public interface IcebergCatalog {
      * Load a table
      * @param tableIdentifier
      */
-    Table loadTable(TableIdentifier tableIdentifier);
+    Table loadTable(TableIdentifier tableIdentifier) throws DorisIcebergException;
 
     /**
      * Return all the identifiers under this db.
      * @param db
      */
-    List<TableIdentifier> listTables(String db);
+    List<TableIdentifier> listTables(String db) throws DorisIcebergException;
 
     /**
      * Checks whether the database exists.

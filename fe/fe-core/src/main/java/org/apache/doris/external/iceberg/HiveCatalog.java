@@ -58,13 +58,25 @@ public class HiveCatalog implements IcebergCatalog {
     }
 
     @Override
-    public Table loadTable(TableIdentifier tableIdentifier) {
-        return hiveCatalog.loadTable(tableIdentifier);
+    public Table loadTable(TableIdentifier tableIdentifier) throws DorisIcebergException {
+        try {
+            return hiveCatalog.loadTable(tableIdentifier);
+        } catch (Exception e) {
+            LOG.warn("Failed to load table[{}] from database[{}], with error: {}",
+                    tableIdentifier.name(), tableIdentifier.namespace(), e.getMessage());
+            throw new DorisIcebergException(String.format("Failed to load table[%s] from database[%s]",
+                    tableIdentifier.name(), tableIdentifier.namespace()), e);
+        }
     }
 
     @Override
-    public List<TableIdentifier> listTables(String db) {
-        return hiveCatalog.listTables(Namespace.of(db));
+    public List<TableIdentifier> listTables(String db) throws DorisIcebergException {
+        try {
+            return hiveCatalog.listTables(Namespace.of(db));
+        } catch (Exception e) {
+            LOG.warn("Failed to list table in database[{}], with error: {}", db, e.getMessage());
+            throw new DorisIcebergException(String.format("Failed to list table in database[%s]", db), e);
+        }
     }
 
     @Override
