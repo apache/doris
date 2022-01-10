@@ -91,7 +91,7 @@ public class HashJoinNode extends PlanNode {
             if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
                     || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)){
+            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
                 tupleIds.addAll(inner.getTupleIds());
             } else {
                 tupleIds.addAll(outer.getTupleIds());
@@ -105,7 +105,7 @@ public class HashJoinNode extends PlanNode {
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
             Preconditions.checkArgument(eqJoinPredicate instanceof BinaryPredicate);
             BinaryPredicate eqJoin = (BinaryPredicate) eqJoinPredicate;
-            if (eqJoin.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+            if (VectorizedUtil.isVectorized() && eqJoin.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
                 Preconditions.checkArgument(eqJoin.getChildren().size() == 2);
                 if (!eqJoin.getChild(0).isNullable() || !eqJoin.getChild(1).isNullable()) {
                     eqJoin.setOp(BinaryPredicate.Operator.EQ);
