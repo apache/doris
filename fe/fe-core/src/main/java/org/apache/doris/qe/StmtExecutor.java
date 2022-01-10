@@ -81,7 +81,9 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -107,7 +109,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -115,12 +116,12 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -357,8 +358,17 @@ public class StmtExecutor implements ProfileWriter {
                         context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                         return;
                     }
-                    // limitations: partitionNum, tabletNum, cardinality
+                    // limitations: partition_num, tablet_num, cardinality
+                    List<ScanNode> scanNodeList = planner.getScanNodes();
+                    for (ScanNode scanNode : scanNodeList) {
+                        if (scanNode instanceof OlapScanNode) {
+                            OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitaions(olapScanNode.getSelectedPartitionNum().longValue(),
+                                        olapScanNode.getSelectedTabletsNum(), olapScanNode.getCardinality(), analyzer.getQualifiedUser());
+                        }
+                    }
                 }
+
                 MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i++) {
@@ -1275,12 +1285,7 @@ public class StmtExecutor implements ProfileWriter {
                     return;
                 }
 
-                if (loadedRows == 0 && filteredRows == 0) {
-                    // if no data, just abort txn and return ok
-                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
-                            insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-                    context.getState().setOk();
-                } else if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                         context.getSessionVariable().getInsertVisibleTimeoutMs())) {
@@ -1322,19 +1327,9 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             // Go here, which means:
-            // 1. transaction aborted for no data inserted into table, or
-            // 2. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 3. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 3 cases
-
-            String message = "";
-            if (txnStatus == TransactionStatus.ABORTED) {
-                message = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
-                errMsg = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
-            } else if (throwable != null) {
-                message = throwable.getMessage();
-            }
-
+            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
+            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
+            // we will record the load job info for these 2 cases
             txnId = insertStmt.getTransactionId();
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
@@ -1344,7 +1339,7 @@ public class StmtExecutor implements ProfileWriter {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        message,
+                        throwable == null ? "" : throwable.getMessage(),
                         coord.getTrackingUrl());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);

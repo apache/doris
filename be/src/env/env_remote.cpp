@@ -158,13 +158,17 @@ private:
 
 Status RemoteEnv::init_conf() {
     std::map<std::string, std::string> storage_prop;
-    storage_prop[S3_AK] = doris::config::s3_ak;
-    storage_prop[S3_SK] = doris::config::s3_sk;
-    storage_prop[S3_ENDPOINT] = doris::config::s3_endpoint;
-    storage_prop[S3_REGION] = doris::config::s3_region;
-    storage_prop[S3_MAX_CONN_SIZE] = std::to_string(doris::config::s3_max_conn);
-    storage_prop[S3_REQUEST_TIMEOUT_MS] = std::to_string(doris::config::s3_request_timeout_ms);
-    storage_prop[S3_CONN_TIMEOUT_MS] = std::to_string(doris::config::s3_conn_timeout_ms);
+    if (doris::config::default_remote_storage_s3_ak.empty() || doris::config::default_remote_storage_s3_sk.empty()
+            || doris::config::default_remote_storage_s3_endpoint.empty() || doris::config::default_remote_storage_s3_region.empty()) {
+        return Status::OK();
+    }
+    storage_prop[S3_AK] = doris::config::default_remote_storage_s3_ak;
+    storage_prop[S3_SK] = doris::config::default_remote_storage_s3_sk;
+    storage_prop[S3_ENDPOINT] = doris::config::default_remote_storage_s3_endpoint;
+    storage_prop[S3_REGION] = doris::config::default_remote_storage_s3_region;
+    storage_prop[S3_MAX_CONN_SIZE] = std::to_string(doris::config::default_remote_storage_s3_max_conn);
+    storage_prop[S3_REQUEST_TIMEOUT_MS] = std::to_string(doris::config::default_remote_storage_s3_request_timeout_ms);
+    storage_prop[S3_CONN_TIMEOUT_MS] = std::to_string(doris::config::default_remote_storage_s3_conn_timeout_ms);
 
     if (ClientFactory::is_s3_conf_valid(storage_prop)) {
         _storage_backend.reset(new S3StorageBackend(storage_prop));

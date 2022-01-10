@@ -629,7 +629,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         }
         exec_state->cancel_before_execute();
         return Status::InternalError(strings::Substitute(
-                "Put planfragment to thread pool failed. err = $0", st.get_error_msg()));
+                "Put planfragment to thread pool failed. err = $0, BE: $1",
+                st.get_error_msg(), BackendOptions::get_localhost()));
     }
 
     return Status::OK();

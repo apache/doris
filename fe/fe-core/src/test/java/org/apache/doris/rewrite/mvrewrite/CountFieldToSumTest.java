@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 
+import org.apache.doris.rewrite.ExprRewriter;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -59,7 +60,7 @@ public class CountFieldToSumTest {
         };
         CountFieldToSum countFieldToSum = new CountFieldToSum();
         try {
-            Expr rewrittenExpr = countFieldToSum.apply(functionCallExpr, analyzer);
+            Expr rewrittenExpr = countFieldToSum.apply(functionCallExpr, analyzer, ExprRewriter.ClauseType.OTHER_CLAUSE);
             Assert.assertTrue(rewrittenExpr instanceof FunctionCallExpr);
             Assert.assertEquals(FunctionSet.COUNT, ((FunctionCallExpr) rewrittenExpr).getFnName().getFunction());
         } catch (AnalysisException e) {

@@ -103,21 +103,44 @@ public class AggregateFunction extends Function {
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,
+                             Type retType, Type intermediateType, boolean hasVarArgs) {
+        super(fnName, argTypes, retType, hasVarArgs);
+        this.intermediateType = (intermediateType != null && intermediateType.equals(retType)) ? null : intermediateType;
+        ignoresDistinct = false;
+        isAnalyticFn = false;
+        isAggregateFn = true;
+        returnsNonNullOnEmpty = false;
+    }
+
+    public static AggregateFunction createBuiltin(String name,
+                                                  List<Type> argTypes, Type retType, Type intermediateType,
+                                                  boolean ignoresDistinct,
+                                                  boolean isAnalyticFn,
+                                                  boolean returnsNonNullOnEmpty) {
+        return createBuiltin(name, argTypes, retType, intermediateType, false, ignoresDistinct, isAnalyticFn, returnsNonNullOnEmpty);
+    }
+
+    public static AggregateFunction createBuiltin(String name,
+                                                  List<Type> argTypes, Type retType, Type intermediateType,
+                                                  boolean hasVarArgs, boolean ignoresDistinct,
+                                                  boolean isAnalyticFn,
+                                                  boolean returnsNonNullOnEmpty) {
+        AggregateFunction fn = new AggregateFunction(new FunctionName(name), argTypes, retType, intermediateType, hasVarArgs);
+        fn.setBinaryType(TFunctionBinaryType.BUILTIN);
+        fn.ignoresDistinct = ignoresDistinct;
+        fn.isAnalyticFn = isAnalyticFn;
+        fn.isAggregateFn = true;
+        fn.returnsNonNullOnEmpty = returnsNonNullOnEmpty;
+        return fn;
+    }
+
+    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
                              Type retType, Type intermediateType,
                              HdfsURI location, String updateFnSymbol, String initFnSymbol,
                              String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
                              String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
         this(fnName, argTypes, retType, intermediateType, false, location, updateFnSymbol, initFnSymbol, serializeFnSymbol,
                 mergeFnSymbol, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, vectorized);
-    }
-
-    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
-                             Type retType, Type intermediateType, boolean hasVarArgs,
-                             HdfsURI location, String updateFnSymbol, String initFnSymbol,
-                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
-                             String removeFnSymbol, String finalizeFnSymbol) {
-        this(fnName, argTypes, retType, intermediateType, hasVarArgs, location, updateFnSymbol, initFnSymbol, serializeFnSymbol,
-                mergeFnSymbol, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, false);
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,

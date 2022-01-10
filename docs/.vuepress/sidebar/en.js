@@ -563,6 +563,7 @@ module.exports = [
             title: "Data Manipulation",
             directoryPath: "Data Manipulation/",
             children: [
+              "BEGIN",
               "BROKER LOAD",
               "CANCEL DELETE",
               "CANCEL LABEL",
@@ -575,6 +576,7 @@ module.exports = [
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
+              "OUTFILE",
               "PAUSE ROUTINE LOAD",
               "PAUSE SYNC JOB",
               "RESTORE TABLET",
@@ -653,7 +655,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
-	"docker-dev",
+        "docker-dev",
         "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
@@ -681,11 +683,13 @@ module.exports = [
       "subscribe-mail-list",
       "feedback",
       "how-to-contribute",
+      "how-to-deploy-to-maven",
       "committer-guide",
       "commit-format-specification",
       "pull-request",
       "release-process",
       "verify-apache-release",
+      "security",
     ],
   },
 ]
