@@ -95,7 +95,9 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
     return Status::OK();
 }
 
-void RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColumnPtr& origin_column) {
+Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColumnPtr& origin_column) {
+    constexpr auto MAX_SIZE_OF_VEC_STRING = 1024l * 1024;
+
     auto* column = origin_column.get();
     bool nullable_mark_array[_selected_size];
 
@@ -164,6 +166,24 @@ void RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColumnP
                 uint16_t row_idx = _selection_vector[j];
                 auto slice = reinterpret_cast<const Slice*>(column_block(cid).cell_ptr(row_idx));
                 column_string->insert_data(slice->data, slice->size);
+            } else {
+                column_string->insert_default();
+            }
+        }
+        break;
+    }
+    case OLAP_FIELD_TYPE_STRING: {
+        auto column_string = assert_cast<vectorized::ColumnString*>(column);
+
+        for (uint16_t j = 0; j < _selected_size; ++j) {
+            if (!nullable_mark_array[j]) {
+                uint16_t row_idx = _selection_vector[j];
+                auto slice = reinterpret_cast<const Slice*>(column_block(cid).cell_ptr(row_idx));
+                if (LIKELY(slice->size <= MAX_SIZE_OF_VEC_STRING)) {
+                    column_string->insert_data(slice->data, slice->size);
+                } else {
+                    return Status::NotSupported("Not support string len over than 1MB in vec engine.");
+                }
             } else {
                 column_string->insert_default();
             }
@@ -286,13 +306,15 @@ void RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColumnP
         DCHECK(false) << "Invalid type in RowBlockV2:" << _schema.column(cid)->type();
     }
     }
+
+    return Status::OK();
 }
 
 Status RowBlockV2::convert_to_vec_block(vectorized::Block* block) {
     for (int i = 0; i < _schema.column_ids().size(); ++i) {
         auto cid = _schema.column_ids()[i];
         auto column = (*std::move(block->get_by_position(i).column)).assume_mutable();
-        _copy_data_to_column(cid, column);
+        RETURN_IF_ERROR(_copy_data_to_column(cid, column));
     }
     _pool->clear();
     return Status::OK();
