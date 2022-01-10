@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -162,11 +163,15 @@ public class CoordinatorTest extends Coordinator {
         tupleIdArrayList.add(testTupleId);
 
         ArrayList<Expr> testJoinexprs = new ArrayList<>();
-        BinaryPredicate binaryPredicate = new BinaryPredicate();
+
+        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, new BoolLiteral(true),
+                        new BoolLiteral(true));
         testJoinexprs.add(binaryPredicate);
 
         HashJoinNode hashJoinNode = new HashJoinNode(testPlanNodeId, new EmptySetNode(testPlanNodeId, tupleIdArrayList),
-                new EmptySetNode(testPlanNodeId, tupleIdArrayList), new TableRef(), testJoinexprs, new ArrayList<>());
+                        new EmptySetNode(testPlanNodeId, tupleIdArrayList), new TableRef(), testJoinexprs,
+                        new ArrayList<>());
+
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
                 new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
 
