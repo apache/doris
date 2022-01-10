@@ -322,3 +322,38 @@ outputFormat.close();
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## An example of using Flink CDC to access Doris (supports insert/update/delete events)
+```sql
+CREATE TABLE cdc_mysql_source (
+  id int
+  ,name VARCHAR
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+-- Support delete event synchronization (sink.enable-delete='true'), requires Doris table to enable batch delete function
+CREATE TABLE doris_sink (
+id INT,
+name STRING
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.strip_outer_array' = 'true',
+  'sink.enable-delete' = 'true'
+);
+
+insert into doris_sink select id,name from cdc_mysql_source;
+```

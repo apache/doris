@@ -323,3 +323,38 @@ outputFormat.close();
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## 使用Flink CDC接入Doris示例（支持insert/update/delete事件）
+```sql
+CREATE TABLE cdc_mysql_source (
+  id int
+  ,name VARCHAR
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+-- 支持删除事件同步(sink.enable-delete='true'),需要Doris表开启批量删除功能
+CREATE TABLE doris_sink (
+id INT,
+name STRING
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.strip_outer_array' = 'true',
+  'sink.enable-delete' = 'true'
+);
+
+insert into doris_sink select id,name from cdc_mysql_source;
+```
