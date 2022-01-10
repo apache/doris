@@ -87,7 +87,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
         LOG.info("DeRegister database[{}]", db.getFullName());
     }
 
-    public void deRegisterTable(Database db, IcebergTable table) {
+    public void deregisterTable(Database db, IcebergTable table) {
         if (dbToTableIdentifiers.containsKey(db)) {
             TableIdentifier identifier = TableIdentifier.of(table.getIcebergDb(), table.getIcebergTbl());
             Map<TableIdentifier, IcebergProperty> identifierToProperties = dbToTableIdentifiers.get(db);

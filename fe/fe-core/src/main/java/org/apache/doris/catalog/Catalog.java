@@ -4663,7 +4663,7 @@ public class Catalog {
             ((OlapTable) table).dropAllTempPartitions();
         } else if (table.getType() == TableType.ICEBERG) {
             // drop Iceberg database table creation record
-            icebergTableCreationRecordMgr.deRegisterTable(db, (IcebergTable) table);
+            icebergTableCreationRecordMgr.deregisterTable(db, (IcebergTable) table);
         }
 
         db.dropTable(table.getName());
