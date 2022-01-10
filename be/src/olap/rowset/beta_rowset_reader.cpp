@@ -204,7 +204,11 @@ OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
 
         {
             SCOPED_RAW_TIMER(&_stats->block_convert_ns);
-            _input_block->convert_to_vec_block(block);
+            auto s = _input_block->convert_to_vec_block(block);
+            if (UNLIKELY(!s.ok())) {
+                LOG(WARNING) << "failed to read next block: " << s.to_string();
+                return OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE;
+            }
         }
         is_first = false;
     } while (block->rows() < _context->runtime_state->batch_size()); // here we should keep block.rows() < batch_size
