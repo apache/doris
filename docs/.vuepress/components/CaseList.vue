@@ -53,7 +53,10 @@ export default {
     data() {
       const lang = this.$lang
       const homePages = this.$site.pages.filter(page => page.title === 'Home')
-      const currentHomePage = homePages.find(page => page.path.indexOf(lang) > -1)
+      const currentHomePage = homePages.find(page => {
+        const pageLang = page.path.indexOf('zh-CN') > -1 ? 'zh-CN' : 'en'
+        return pageLang === lang
+      })
       return currentHomePage.frontmatter
     },
   }
