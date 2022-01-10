@@ -526,9 +526,9 @@ CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 CONF_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
-CONF_Int64(brpc_max_body_size, "209715200");
+CONF_Int64(brpc_max_body_size, "3147483648");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
+CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 // Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
 // through brpc, this will be faster and avoid the error of Request length overflow.
 CONF_mBool(transfer_data_by_brpc_attachment, "false");
@@ -643,13 +643,13 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 CONF_mInt32(segment_cache_capacity, "1000000");
 
 // s3 config
-CONF_String(s3_ak, "");
-CONF_String(s3_sk, "");
-CONF_String(s3_endpoint, "");
-CONF_String(s3_region, "");
-CONF_mInt32(s3_max_conn, "50");
-CONF_mInt32(s3_request_timeout_ms, "3000");
-CONF_mInt32(s3_conn_timeout_ms, "1000");
+CONF_String(default_remote_storage_s3_ak, "");
+CONF_String(default_remote_storage_s3_sk, "");
+CONF_String(default_remote_storage_s3_endpoint, "");
+CONF_String(default_remote_storage_s3_region, "");
+CONF_mInt32(default_remote_storage_s3_max_conn, "50");
+CONF_mInt32(default_remote_storage_s3_request_timeout_ms, "3000");
+CONF_mInt32(default_remote_storage_s3_conn_timeout_ms, "1000");
 // Set to true to disable the minidump feature.
 CONF_Bool(disable_minidump , "false");
 

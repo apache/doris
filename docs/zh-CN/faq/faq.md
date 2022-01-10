@@ -311,13 +311,33 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 
 一种情况是 OVERCROWDED，即表示 rpc 源端有大量未发送的数据超过了阈值。BE 有两个参数与之相关：
 
-1. `brpc_socket_max_unwritten_bytes`：默认 64MB，如果未发送数据超过这个值，则会报错。可以适当修改这个值以避免 OVERCROWDED 错误。（但这个治标不治本，本质上还是有拥塞发生）。
+1. `brpc_socket_max_unwritten_bytes`：默认 1GB，如果未发送数据超过这个值，则会报错。可以适当修改这个值以避免 OVERCROWDED 错误。（但这个治标不治本，本质上还是有拥塞发生）。
 2. `tablet_writer_ignore_eovercrowded`：默认为 false。如果设为true，则 Doris 会忽略导入过程中出现的 OVERCROWDED 错误。这个参数主要为了避免导入失败，以提高导入的稳定性。
 
 第二种是 rpc 的包大小超过 max_body_size。如果查询中带有超大 String 类型，或者 bitmap 类型时，可能出现这个问题。可以通过修改以下 BE 参数规避：
 
-1. `brpc_max_body_size`：默认200MB，如果有必要，可以修改为 3GB（单位字节）。
+1. `brpc_max_body_size`：默认 3GB.
 
+### Q22. Unique Key 模型查询结果不一致
 
+某些情况下，当用户使用相同的 SQL 查询一个 Unique Key 模型的表时，可能会出现多次查询结果不一致的现象。并且查询结果总在 2-3 种之间变化。
 
+这可能是因为，在同一批导入数据中，出现了 key 相同但 value 不同的数据，这会导致，不同副本间，因数据覆盖的先后顺序不确定而产生的结果不一致的问题。
+
+比如表定义为 k1, v1。一批次导入数据如下：
+
+```
+1, "abc"
+1, "def"
+```
+
+那么可能副本1 的结果是 `1, "abc"`，而副本2 的结果是 `1, "def"`。从而导致查询结果不一致。
+
+为了确保不同副本之间的数据先后顺序唯一，可以参考 [Sequence Column](../administrator-guide/load-data/sequence-column-manual.md) 功能。
+
+### Q23. `recoveryTracker should overlap or follow on disk last VLSN of 4,422,880 recoveryFirst= 4,422,882 UNEXPECTED_STATE_FATAL`
+
+有时重启 FE，会出现如上错误（通常只会出现在多 Follower 的情况下）。并且错误中的两个数值相差2。导致 FE 启动失败。
+
+这是 bdbje 的一个 bug，尚未解决。遇到这种情况，只能通过 [元数据运维手册](../administrator-guide/operation/metadata-operation.md) 中的 故障恢复 进行操作来恢复元数据了。
 

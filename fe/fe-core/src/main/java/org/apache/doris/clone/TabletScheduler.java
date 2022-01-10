@@ -39,6 +39,7 @@ import org.apache.doris.clone.TabletSchedCtx.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -588,6 +589,9 @@ public class TabletScheduler extends MasterDaemon {
                 case COLOCATE_REDUNDANT:
                     handleColocateRedundant(tabletCtx);
                     break;
+                case REPLICA_COMPACTION_TOO_SLOW:
+                    handleReplicaTooSlow(tabletCtx);
+                    break;
                 case UNRECOVERABLE:
                     throw new SchedException(Status.UNRECOVERABLE, "tablet is unrecoverable");
                 default:
@@ -642,7 +646,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be != null && be.isAlive() && replica.isAlive()) {
+            if (be != null && be.isScheduleAvailable() && replica.isAlive()) {
                 Short num = currentAllocMap.getOrDefault(be.getTag(), (short) 0);
                 currentAllocMap.put(be.getTag(), (short) (num + 1));
             }
@@ -949,7 +953,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /**
-     * Just delete replica which does not located in colocate backends set.
+     * Just delete replica which does not locate in colocate backends set.
      * return true if delete one replica, otherwise, return false.
      */
     private boolean handleColocateRedundant(TabletSchedCtx tabletCtx) throws SchedException {
@@ -964,6 +968,39 @@ public class TabletScheduler extends MasterDaemon {
             throw new SchedException(Status.FINISHED, "colocate redundant replica is deleted");
         }
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to delete any colocate redundant replicas");
+    }
+
+    /**
+     * remove the replica which has the most version count, and much more than others
+     * return true if delete one replica, otherwise, return false.
+     */
+    private boolean handleReplicaTooSlow(TabletSchedCtx tabletCtx) throws SchedException {
+        Replica chosenReplica = null;
+        Replica minReplica = null;
+        long maxVersionCount = -1;
+        long minVersionCount = Integer.MAX_VALUE;
+        for (Replica replica : tabletCtx.getReplicas()) {
+            if (replica.getVersionCount() > maxVersionCount) {
+                maxVersionCount = replica.getVersionCount();
+                chosenReplica = replica;
+            }
+            if (replica.getVersionCount() < minVersionCount) {
+                minVersionCount = replica.getVersionCount();
+                minReplica = replica;
+            }
+        }
+
+        if (chosenReplica != null && !chosenReplica.equals(minReplica) && minReplica.isAlive()) {
+            try {
+                Catalog.getCurrentCatalog().setReplicaStatus(tabletCtx.getTabletId(), chosenReplica.getBackendId(),
+                        Replica.ReplicaStatus.BAD);
+                throw new SchedException(Status.FINISHED, "set slow replica as bad");
+            } catch (MetaNotFoundException e) {
+                LOG.warn("set slow replica bad failed:", e);
+                return false;
+            }
+        }
+        return false;
     }
 
     private void deleteReplicaInternal(TabletSchedCtx tabletCtx, Replica replica, String reason, boolean force) throws SchedException {
@@ -1003,9 +1040,9 @@ public class TabletScheduler extends MasterDaemon {
 
         if (force) {
             // send the delete replica task.
-            // also this may not be necessary, but delete it will make things simpler.
-            // NOTICE: only delete the replica from meta may not work. sometimes we can depends on tablet report
-            // to delete these replicas, but in FORCE_REDUNDANT case, replica may be added to meta again in report
+            // also, this may not be necessary, but delete it will make things simpler.
+            // NOTICE: only delete the replica from meta may not work. sometimes we can depend on tablet report
+            // deleting these replicas, but in FORCE_REDUNDANT case, replica may be added to meta again in report
             // process.
             sendDeleteReplicaTask(replica.getBackendId(), tabletCtx.getTabletId(), tabletCtx.getSchemaHash());
         }

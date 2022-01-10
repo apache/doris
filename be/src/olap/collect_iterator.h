@@ -24,7 +24,7 @@
 
 namespace doris {
 
-class Reader;
+class TabletReader;
 class RowCursor;
 
 class CollectIterator {
@@ -32,7 +32,7 @@ public:
     ~CollectIterator();
 
     // Hold reader point to get reader params
-    void init(Reader* reader);
+    void init(TabletReader* reader);
 
     OLAPStatus add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -125,7 +125,7 @@ private:
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {
     public:
-        Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader);
+        Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader);
 
         OLAPStatus init() override;
 
@@ -148,7 +148,7 @@ private:
         RowsetReaderSharedPtr _rs_reader;
         const RowCursor* _current_row = nullptr;  // It points to the returned row
         bool _is_delete = false;
-        Reader* _reader = nullptr;
+        TabletReader* _reader = nullptr;
         RowCursor _row_cursor;  // It points to rows inside `_row_block`, maybe not returned
         RowBlock* _row_block = nullptr;
     };
@@ -213,7 +213,7 @@ private:
     bool _reverse = false;
 
     // Hold reader point to access read params, such as fetch conditions.
-    Reader* _reader = nullptr;
+    TabletReader* _reader = nullptr;
 };
 
 } // namespace doris

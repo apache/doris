@@ -32,6 +32,7 @@
 
 #include "exprs/bloomfilter_predicate.h"
 #include "olap/column_predicate.h"
+#include "olap/collect_iterator.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
@@ -48,57 +49,55 @@ class RowBlock;
 class CollectIterator;
 class RuntimeState;
 
-// Params for Reader,
-// mainly include tablet, data version and fetch range.
-struct ReaderParams {
-    TabletSharedPtr tablet;
-    ReaderType reader_type = READER_QUERY;
-    bool aggregation = false;
-    bool need_agg_finalize = true;
-    // 1. when read column data page:
-    //     for compaction, schema_change, check_sum: we don't use page cache
-    //     for query and config::disable_storage_page_cache is false, we use page cache
-    // 2. when read column index page
-    //     if config::disable_storage_page_cache is false, we use page cache
-    bool use_page_cache = false;
-    Version version = Version(-1, 0);
+class TabletReader {
+    struct KeysParam {
+        std::string to_string() const;
 
-    std::vector<OlapTuple> start_key;
-    std::vector<OlapTuple> end_key;
-    bool start_key_include = false;
-    bool end_key_include = false;
-
-    std::vector<TCondition> conditions;
-    std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
-
-    // The ColumnData will be set when using Merger, eg Cumulative, BE.
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    std::vector<uint32_t> return_columns;
-    RuntimeProfile* profile = nullptr;
-    RuntimeState* runtime_state = nullptr;
-
-    void check_validation() const;
-
-    std::string to_string() const;
-};
-
-struct KeysParam {
-    ~KeysParam();
-
-    std::string to_string() const;
-
-    std::vector<RowCursor*> start_keys;
-    std::vector<RowCursor*> end_keys;
-    bool start_key_include = false;
-    bool end_key_include = false;
-};
-
-class Reader {
+        std::vector<RowCursor> start_keys;
+        std::vector<RowCursor> end_keys;
+        bool start_key_include = false;
+        bool end_key_include = false;
+    };
 public:
-    Reader();
-    virtual ~Reader();
+    // Params for Reader,
+    // mainly include tablet, data version and fetch range.
+    struct ReaderParams {
+        TabletSharedPtr tablet;
+        ReaderType reader_type = READER_QUERY;
+        bool aggregation = false;
+        bool need_agg_finalize = true;
+        // 1. when read column data page:
+        //     for compaction, schema_change, check_sum: we don't use page cache
+        //     for query and config::disable_storage_page_cache is false, we use page cache
+        // 2. when read column index page
+        //     if config::disable_storage_page_cache is false, we use page cache
+        bool use_page_cache = false;
+        Version version = Version(-1, 0);
 
-    // Initialize Reader with tablet, data version and fetch range.
+        std::vector<OlapTuple> start_key;
+        std::vector<OlapTuple> end_key;
+        bool start_key_include = false;
+        bool end_key_include = false;
+
+        std::vector<TCondition> conditions;
+        std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
+
+        // The ColumnData will be set when using Merger, eg Cumulative, BE.
+        std::vector<RowsetReaderSharedPtr> rs_readers;
+        std::vector<uint32_t> return_columns;
+        RuntimeProfile* profile = nullptr;
+        RuntimeState* runtime_state = nullptr;
+
+        void check_validation() const;
+
+        std::string to_string() const;
+    };
+
+    TabletReader() = default;
+
+    virtual ~TabletReader();
+
+    // Initialize TabletReader with tablet, data version and fetch range.
     virtual OLAPStatus init(const ReaderParams& read_params);
 
     // Read next row with aggregation.
@@ -192,14 +191,14 @@ protected:
     bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
 
-    std::unique_ptr<CollectIterator> _collect_iter;
+    CollectIterator _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 
     uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;
 
-    DISALLOW_COPY_AND_ASSIGN(Reader);
+    DISALLOW_COPY_AND_ASSIGN(TabletReader);
 };
 
 } // namespace doris

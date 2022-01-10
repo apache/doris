@@ -20,8 +20,8 @@
 # This script is used to build Doris used in Baidu
 
 ##############################################################
-# the script generates src/be/src/common/version.h and 
-# fe/src/main/java/org/apache/doris/common/Version.java which 
+# the script generates src/be/src/common/version.h and
+# fe/src/main/java/org/apache/doris/common/Version.java which
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
@@ -30,39 +30,40 @@ build_version="trunk"
 unset LANG
 unset LC_CTYPE
 
-user=`whoami`
-date=`date +"%a, %d %b %Y %H:%M:%S %Z"`
-hostname=`hostname`
+user=$(whoami)
+date=$(date +"%a, %d %b %Y %H:%M:%S %Z")
+hostname=$(hostname)
 
-cwd=`pwd`
+cwd=$(pwd)
 
-if [ -z ${DORIS_HOME+x} ]
-then
-    ROOT=`dirname "$0"`
-    ROOT=`cd "$ROOT"; pwd`
+if [ -z ${DORIS_HOME+x} ]; then
+    ROOT=$(dirname "$0")
+    ROOT=$(
+        cd "$ROOT"
+        pwd
+    )
     DORIS_HOME=${ROOT}/../..
     echo "DORIS_HOME: ${DORIS_HOME}"
 fi
 
 if [[ -z ${DORIS_TEST_BINARY_DIR} ]]; then
     if [ -e ${DORIS_HOME}/fe/fe-core/target/generated-sources/build/org/apache/doris/common/Version.java \
-         -a -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then
+        -a -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then
         exit
     fi
 fi
 
 cd ${DORIS_HOME}
 if [ -d .svn ]; then
-    revision=`svn info | sed -n -e 's/Last Changed Rev: \(.*\)/\1/p'`
+    revision=$(svn info | sed -n -e 's/Last Changed Rev: \(.*\)/\1/p')
     short_revision="${revision}"
-    url=`svn info | sed -n -e 's/^URL: \(.*\)/\1/p'`
-    if echo ${url} | grep '\/tags\/' > /dev/null
-    then
-        build_version="`echo ${url} | sed 's/.*_\([0-9-]\+\)_PD_BL.*/\1/g' | sed 's/-/\./g'`"
+    url=$(svn info | sed -n -e 's/^URL: \(.*\)/\1/p')
+    if echo ${url} | grep '\/tags\/' > /dev/null; then
+        build_version="$(echo ${url} | sed 's/.*_\([0-9-]\+\)_PD_BL.*/\1/g' | sed 's/-/\./g')"
     fi
 elif [ -d .git ]; then
-    revision=`git log -1 --pretty=format:"%H"`
-    short_revision=`git log -1 --pretty=format:"%h"`
+    revision=$(git log -1 --pretty=format:"%H")
+    short_revision=$(git log -1 --pretty=format:"%h")
     url="git://${hostname}${DORIS_HOME}"
 else
     revision="Unknown"
@@ -77,15 +78,19 @@ build_short_hash="${short_revision}"
 build_time="${date}"
 build_info="${user}@${hostname}"
 
-java_cmd=
-if [[ (-n "$JAVA_HOME") && (-x "$JAVA_HOME/bin/java") ]]; then
-    java_cmd="$JAVA_HOME/bin/java"
+if [ -z "$JAVA_HOME" ]; then
+    java_cmd=$(which java)
 else
-    echo "JAVA_HOME is not set, or java bin is not found"
-    exit -1
+    java_cmd="$JAVA_HOME/bin/java"
 fi
 
-java_version_str=`$java_cmd -fullversion 2>&1`
+if [ ! -x "$java_cmd" ]; then
+    echo "The JAVA_HOME environment variable is not defined correctly"
+    echo "This environment variable is needed to run this program"
+    echo "NB: JAVA_HOME should point to a JDK not a JRE"
+    exit 1
+fi
+java_version_str=$($java_cmd -fullversion 2>&1)
 java_version_str=$(echo $java_version_str | sed -e 's/"/\\"/g')
 
 echo "get java cmd: $java_cmd"
@@ -93,7 +98,7 @@ echo "get java version: $java_version_str"
 
 VERSION_PACKAGE="${DORIS_HOME}/fe/fe-core/target/generated-sources/build/org/apache/doris/common"
 mkdir -p ${VERSION_PACKAGE}
-cat >"${VERSION_PACKAGE}/Version.java" <<EOF
+cat > "${VERSION_PACKAGE}/Version.java" << EOF
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -140,7 +145,7 @@ EOF
 
 GEN_CPP_DIR=${DORIS_HOME}/gensrc/build/gen_cpp/
 mkdir -p ${GEN_CPP_DIR}
-cat >"${GEN_CPP_DIR}/version.h" <<EOF
+cat > "${GEN_CPP_DIR}/version.h" << EOF
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information

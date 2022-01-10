@@ -2093,3 +2093,9 @@ Only for Master FE: true
 
 If set to true, the system will immediately drop redundant replicas in the tablet scheduling logic. This may cause some load jobs that are writing to the corresponding replica to fail, but it will speed up the balance and repair speed of the tablet.
 When there are a large number of replicas waiting to be balanced or repaired in the cluster, you can try to set this config to speed up the balance and repair of replicas at the expense of partial load success rate.
+
+### repair_slow_replica
+Default: true
+IsMutable：true
+MasterOnly: true
+If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version difference between the fastest and slowest replica exceeds 100, and the difference exceeds 30% of the fastest replica

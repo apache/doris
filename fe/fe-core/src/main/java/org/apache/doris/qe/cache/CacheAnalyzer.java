@@ -150,7 +150,7 @@ public class CacheAnalyzer {
 
         @Override
         public int compareTo(CacheTable table) {
-            return (int) (table.latestTime - this.latestTime);
+            return Long.compare(table.latestTime, this.latestTime);
         }
 
         public void Debug() {

@@ -35,7 +35,7 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
 
     TupleReader reader;
-    ReaderParams reader_params;
+    TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;

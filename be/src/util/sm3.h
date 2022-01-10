@@ -15,23 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdint.h>
+#pragma once
+
+#define SM3_DIGEST_LENGTH 32
+
+#include <openssl/evp.h>
+
+#include <string>
 
 namespace doris {
 
-enum AesMode { AES_128_ECB, AES_192_ECB, AES_256_ECB, AES_128_CBC, AES_192_CBC, AES_256_CBC };
-
-enum AesState { AES_SUCCESS = 0, AES_BAD_DATA = -1 };
-
-class AesUtil {
+class SM3Digest {
 public:
-    static int encrypt(AesMode mode, const unsigned char* source, uint32_t source_length,
-                       const unsigned char* key, uint32_t key_length, const unsigned char* iv,
-                       bool padding, unsigned char* encrypt);
+    SM3Digest();
 
-    static int decrypt(AesMode mode, const unsigned char* encrypt, uint32_t encrypt_length,
-                       const unsigned char* key, uint32_t key_length, const unsigned char* iv,
-                       bool padding, unsigned char* decrypt_content);
+    void update(const void* data, size_t length);
+    void digest();
+
+    const std::string& hex() const { return _hex; }
+
+private:
+    EVP_MD_CTX* _ctx;
+    const EVP_MD* _md;
+
+    std::string _hex;
 };
 
 } // namespace doris

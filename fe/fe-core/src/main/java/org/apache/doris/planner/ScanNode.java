@@ -17,13 +17,18 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
+
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -38,9 +43,11 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Representation of the common elements of all scan nodes.
@@ -48,8 +55,12 @@ import java.util.Map;
 abstract public class ScanNode extends PlanNode {
     private final static Logger LOG = LogManager.getLogger(ScanNode.class);
     protected final TupleDescriptor desc;
+    // Use this if partition_prune_algorithm_version is 1.
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+    // Use this if partition_prune_algorithm_version is 2.
+    protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
+    protected Analyzer analyzer;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc.getId().asList(), planNodeName);
@@ -59,6 +70,7 @@ abstract public class ScanNode extends PlanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        this.analyzer = analyzer;
         // materialize conjuncts in where
         analyzer.materializeSlots(conjuncts);
     }
@@ -75,7 +87,9 @@ abstract public class ScanNode extends PlanNode {
         return result;
     }
 
-    public TupleDescriptor getTupleDesc() { return desc; }
+    public TupleDescriptor getTupleDesc() {
+        return desc;
+    }
 
     public void setSortColumn(String column) {
         sortColumn = column;
@@ -111,10 +125,147 @@ abstract public class ScanNode extends PlanNode {
             if (null == slotDesc) {
                 continue;
             }
+            // Set `columnFilters` all the time because `DistributionPruner` also use this.
+            // Maybe we could use `columnNameToRange` for `DistributionPruner` and
+            // only create `columnFilters` when `partition_prune_algorithm_version` is 1.
             PartitionColumnFilter keyFilter = createPartitionFilter(slotDesc, conjuncts);
             if (null != keyFilter) {
                 columnFilters.put(column.getName(), keyFilter);
             }
+
+            if (analyzer.partitionPruneV2Enabled()) {
+                ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
+                if (columnRange != null) {
+                    columnNameToRange.put(column.getName(), columnRange);
+                }
+            }
+
+        }
+    }
+
+    private ColumnRange createColumnRange(SlotDescriptor desc,
+                                          List<Expr> conjuncts) {
+        ColumnRange result = ColumnRange.create();
+        for (Expr expr : conjuncts) {
+            if (!expr.isBound(desc.getId())) {
+                continue;
+            }
+
+            if (expr instanceof CompoundPredicate &&
+                ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
+                // Try to get column filter from disjunctive predicates.
+                List<Expr> disjunctivePredicates = PredicateUtils.splitDisjunctivePredicates(expr);
+                if (disjunctivePredicates.isEmpty()) {
+                    continue;
+                }
+
+                List<Range<ColumnBound>> disjunctiveRanges = Lists.newArrayList();
+                Set<Boolean> hasIsNull = Sets.newHashSet();
+                boolean allMatch = disjunctivePredicates.stream().allMatch(e -> {
+                    ColumnRanges ranges = expressionToRanges(e, desc);
+                    switch (ranges.type) {
+                        case IS_NULL:
+                            hasIsNull.add(true);
+                            return true;
+                        case CONVERT_SUCCESS:
+                            disjunctiveRanges.addAll(ranges.ranges);
+                            return true;
+                        case CONVERT_FAILURE:
+                        default:
+                            return false;
+
+                    }
+                });
+                if (allMatch && !(disjunctiveRanges.isEmpty() && hasIsNull.isEmpty())) {
+                    result.intersect(disjunctiveRanges);
+                    result.setHasDisjunctiveIsNull(!hasIsNull.isEmpty());
+                }
+            } else {
+                // Try to get column filter from conjunctive predicates.
+                ColumnRanges ranges = expressionToRanges(expr, desc);
+                switch (ranges.type) {
+                    case IS_NULL:
+                        result.setHasConjunctiveIsNull(true);
+                        break;
+                    case CONVERT_SUCCESS:
+                        result.intersect(ranges.ranges);
+                    case CONVERT_FAILURE:
+                    default:
+                        break;
+                }
+            }
+        }
+        return result;
+    }
+
+    private ColumnRanges expressionToRanges(Expr expr,
+                                            SlotDescriptor desc) {
+        if (expr instanceof IsNullPredicate) {
+            IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
+            if (isNullPredicate.isSlotRefChildren() && !isNullPredicate.isNotNull()) {
+                return ColumnRanges.createIsNull();
+            }
+        }
+
+        List<Range<ColumnBound>> result = Lists.newArrayList();
+        if (expr instanceof BinaryPredicate) {
+            BinaryPredicate binPred = (BinaryPredicate) expr;
+            Expr slotBinding = binPred.getSlotBinding(desc.getId());
+
+            if (slotBinding == null || !slotBinding.isConstant() ||
+                !(slotBinding instanceof LiteralExpr)) {
+                return ColumnRanges.createFailure();
+            }
+
+            LiteralExpr value = (LiteralExpr) slotBinding;
+            switch (binPred.getOp()) {
+                case EQ:
+                    ColumnBound bound = ColumnBound.of(value);
+                    result.add(Range.closed(bound, bound));
+                    break;
+                case LE:
+                    result.add(Range.atMost(ColumnBound.of(value)));
+                    break;
+                case LT:
+                    result.add(Range.lessThan(ColumnBound.of(value)));
+                    break;
+                case GE:
+                    result.add(Range.atLeast(ColumnBound.of(value)));
+                    break;
+                case GT:
+                    result.add(Range.greaterThan(ColumnBound.of(value)));
+                    break;
+                case NE:
+                    ColumnBound b = ColumnBound.of(value);
+                    result.add(Range.greaterThan(b));
+                    result.add(Range.lessThan(b));
+                    break;
+                default:
+                    break;
+            }
+        } else if (expr instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) expr;
+            if (!inPredicate.isLiteralChildren() || inPredicate.isNotIn()) {
+                return ColumnRanges.createFailure();
+            }
+
+            if (!(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
+                // If child(0) of the in predicate is not a SlotRef,
+                // then other children of in predicate should not be used as a condition for partition prune.
+                return ColumnRanges.createFailure();
+            }
+
+            for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
+                ColumnBound bound =
+                    ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
+                result.add(Range.closed(bound, bound));
+            }
+        }
+
+        if (result.isEmpty()) {
+            return ColumnRanges.createFailure();
+        } else {
+            return ColumnRanges.create(result);
         }
     }
 
@@ -124,14 +275,15 @@ abstract public class ScanNode extends PlanNode {
             if (!expr.isBound(desc.getId())) {
                 continue;
             }
+
             if (expr instanceof BinaryPredicate) {
                 BinaryPredicate binPredicate = (BinaryPredicate) expr;
-                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
-                if (slotBinding == null || !slotBinding.isConstant()) {
+                if (binPredicate.getOp() == BinaryPredicate.Operator.NE) {
                     continue;
                 }
-                if (binPredicate.getOp() == BinaryPredicate.Operator.NE
-                        || !(slotBinding instanceof LiteralExpr)) {
+
+                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
+                if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                     continue;
                 }
 
@@ -193,9 +345,45 @@ abstract public class ScanNode extends PlanNode {
                 partitionColumnFilter.setUpperBound(nullLiteral, true);
                 break;
             }
+
         }
         LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
         return partitionColumnFilter;
+    }
+
+    private static class ColumnRanges {
+        enum Type {
+            // Expression is `is null` predicate.
+            IS_NULL,
+            // Succeed to convert expression to ranges.
+            CONVERT_SUCCESS,
+            // Failed to convert expression to ranges.
+            CONVERT_FAILURE
+        }
+
+        final Type type;
+        final List<Range<ColumnBound>> ranges;
+
+        private ColumnRanges(Type type, List<Range<ColumnBound>> ranges) {
+            this.type = type;
+            this.ranges = ranges;
+        }
+
+        private static final ColumnRanges IS_NULL = new ColumnRanges(Type.IS_NULL, null);
+
+        private static final ColumnRanges CONVERT_FAILURE = new ColumnRanges(Type.CONVERT_FAILURE, null);
+
+        public static ColumnRanges createIsNull() {
+            return IS_NULL;
+        }
+
+        public static ColumnRanges createFailure() {
+            return CONVERT_FAILURE;
+        }
+
+        public static ColumnRanges create(List<Range<ColumnBound>> ranges) {
+            return new ColumnRanges(Type.CONVERT_SUCCESS, ranges);
+        }
     }
 
     @Override

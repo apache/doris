@@ -51,6 +51,18 @@ public class SqlBlockRule implements Writable {
     @SerializedName(value = "sqlHash")
     private String sqlHash;
 
+    // partitionNum will be scanned
+    @SerializedName(value = "partitionNum")
+    private Long partitionNum;
+
+    // tabletNum will be scanned
+    @SerializedName(value = "tabletNum")
+    private Long tabletNum;
+
+    // cardinality
+    @SerializedName(value = "cardinality")
+    private Long cardinality;
+
     // whether effective global
     @SerializedName(value = "global")
     private Boolean global;
@@ -65,10 +77,13 @@ public class SqlBlockRule implements Writable {
         this.name = name;
     }
 
-    public SqlBlockRule(String name, String sql, String sqlHash, Boolean global, Boolean enable) {
+    public SqlBlockRule(String name, String sql, String sqlHash, Long partitionNum, Long tabletNum, Long cardinality, Boolean global, Boolean enable) {
         this.name = name;
         this.sql = sql;
         this.sqlHash = sqlHash;
+        this.partitionNum = partitionNum;
+        this.tabletNum = tabletNum;
+        this.cardinality = cardinality;
         this.global = global;
         this.enable = enable;
         if (StringUtils.isNotEmpty(sql)) {
@@ -77,11 +92,11 @@ public class SqlBlockRule implements Writable {
     }
 
     public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.isGlobal(), stmt.isEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(), stmt.getTabletNum(), stmt.getCardinality(), stmt.isGlobal(), stmt.isEnable());
     }
 
     public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getGlobal(), stmt.getEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(), stmt.getTabletNum(), stmt.getCardinality(), stmt.getGlobal(), stmt.getEnable());
     }
 
     public String getName() {
@@ -98,6 +113,18 @@ public class SqlBlockRule implements Writable {
 
     public String getSqlHash() {
         return sqlHash;
+    }
+
+    public Long getPartitionNum() {
+        return partitionNum;
+    }
+
+    public Long getTabletNum() {
+        return tabletNum;
+    }
+
+    public Long getCardinality() {
+        return cardinality;
     }
 
     public Boolean getGlobal() {
@@ -120,6 +147,18 @@ public class SqlBlockRule implements Writable {
         this.sqlHash = sqlHash;
     }
 
+    public void setPartitionNum(Long partitionNum) {
+        this.partitionNum = partitionNum;
+    }
+
+    public void setTabletNum(Long tabletNum) {
+        this.tabletNum = tabletNum;
+    }
+
+    public void setCardinality(Long cardinality) {
+        this.cardinality = cardinality;
+    }
+
     public void setGlobal(Boolean global) {
         this.global = global;
     }
@@ -129,7 +168,11 @@ public class SqlBlockRule implements Writable {
     }
 
     public List<String> getShowInfo() {
-        return Lists.newArrayList(this.name, this.sql, this.sqlHash, String.valueOf(this.global), String.valueOf(this.enable));
+        return Lists.newArrayList(this.name, this.sql, this.sqlHash,
+                this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
+                this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
+                this.cardinality == null ? "0" : Long.toString(this.cardinality),
+                String.valueOf(this.global), String.valueOf(this.enable));
     }
 
     @Override

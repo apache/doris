@@ -52,7 +52,7 @@ doriswriter 插件依赖的 DataX 代码中的一些模块。而这些模块并�
 
     doriswriter 插件帮助文档在这里：`doriswriter/doc`
 
-2. `init_env.sh`
+2. `init-env.sh`
 
     这个脚本主要用于构建 DataX 开发环境，他主要进行了以下操作：
     
@@ -67,7 +67,7 @@ doriswriter 插件依赖的 DataX 代码中的一些模块。而这些模块并�
 
 ### 编译
 
-1. 运行 `init_env.sh`
+1. 运行 `init-env.sh`
 2. 按需修改 `DataX/doriswriter` 中的代码。
 3. 编译 doriswriter：
 
