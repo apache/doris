@@ -48,9 +48,16 @@ if (GLIBC_COMPATIBILITY)
         list(APPEND glibc_compatibility_sources musl/getentropy.c)
     endif()
 
+    list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c)
+
     # Need to omit frame pointers to match the performance of glibc
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer")
 
+    # NOTE(amos): getrandom is hard to interpose since we build thirdparty deps
+    # without glibc-compatibility. Also sanitizers might generate getrandom
+    # libcalls. Workaround: Use object file so that linker will always take a
+    # look at its symbol table.
+    add_library(glibc-compatibility-getrandom OBJECT musl/getrandom.c)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
 
     if (COMPILER_CLANG)
@@ -60,6 +67,7 @@ if (GLIBC_COMPATIBILITY)
     endif ()
 
     target_include_directories(glibc-compatibility PRIVATE ${musl_arch_include_dir})
+    target_include_directories(glibc-compatibility-getrandom PRIVATE ${musl_arch_include_dir})
 
     message (STATUS "Some symbols from glibc will be replaced for compatibility")
 else()
