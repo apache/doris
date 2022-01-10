@@ -678,6 +678,12 @@ Default：10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
 
+### `kafka_broker_version_fallback`
+
+Default：0.10.0
+
+If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+
 ### `load_data_reserve_hours`
 
 Default：4（hour）
