@@ -16,93 +16,35 @@
 # under the License.
 #
 
-name: Add label according to title automatically
+name: Add label automatically based on PR title
 
 on:
   pull_request:
     types: [opened, edited]
 
 jobs:
-  Label:
+  auto-filling-pull-request:
     runs-on: ubuntu-latest
     steps:
-      - uses: fregante/title-to-labels-action@v1
+      - name: Add labels based on PR title
+        uses: jackwener/set-label-based-on-pr-title@v1.2
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            fix
-            bug
-            bugfix
-          labels: kind/bug
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            doc
-            docs
-          labels: kind/documentation
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            vec
-            vectorization
-            vectorized
-            vectorize
-          labels: vectorization
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            community
-          labels: area/community
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            improvement
-            enhancement
-            enhance
-          labels: kind/enhancement
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            feature
-          labels: kind/feature
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            routine-load
-          labels: area/routine load
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            refactor
-          labels: kind/refactor
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            optimize
-            optimizer
-          labels: area/optimizer
-
-      - uses: fregante/title-to-labels-action@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          keywords: |
-            chore
-            build
-            ci
-          labels: area/build
+          words: >-
+            [fix];
+            [feature];
+            [routine-load];
+            [docs];
+            [vectorized];
+            [improvement];
+            [refactor];
+            [community]
+          labels: >-
+            kind/bug;
+            kind/feature;
+            area/routine-load;
+            kind/documentation;
+            vectorization;
+            kind/enhancement;
+            kind/refactor;
+            area/community
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
