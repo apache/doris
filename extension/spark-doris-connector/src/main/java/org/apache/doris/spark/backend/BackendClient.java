@@ -45,7 +45,7 @@ import org.slf4j.LoggerFactory;
  * Client to request Doris BE
  */
 public class BackendClient {
-    private static Logger logger = LoggerFactory.getLogger(BackendClient.class);
+    private final static Logger logger = LoggerFactory.getLogger(BackendClient.class);
 
     private Routing routing;
 

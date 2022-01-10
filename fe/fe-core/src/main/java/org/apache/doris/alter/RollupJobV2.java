@@ -809,6 +809,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         CreateMaterializedViewStmt stmt = null;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
+            stmt.setIsReplay(true);
             stmt.analyze(analyzer);
         } catch (Exception e) {
             // Under normal circumstances, the stmt will not fail to analyze.

@@ -56,13 +56,12 @@ OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
     }
 
     _fixed_len = _schema->schema_size();
-    _fixed_buf = new (nothrow) char[_fixed_len];
+    _fixed_buf = new (nothrow) char[_fixed_len]();
     if (_fixed_buf == nullptr) {
         LOG(WARNING) << "Fail to malloc _fixed_buf.";
         return OLAP_ERR_MALLOC_ERROR;
     }
     _owned_fixed_buf = _fixed_buf;
-    memset(_fixed_buf, 0, _fixed_len);
 
     return OLAP_SUCCESS;
 }
@@ -326,12 +325,11 @@ std::string RowCursor::to_string() const {
 }
 OLAPStatus RowCursor::_alloc_buf() {
     // variable_len for null bytes
-    _variable_buf = new (nothrow) char[_variable_len];
+    _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
         OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
         return OLAP_ERR_MALLOC_ERROR;
     }
-    memset(_variable_buf, 0, _variable_len);
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
         if (_long_text_buf == nullptr) {

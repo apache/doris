@@ -28,7 +28,66 @@ under the License.
 
 在Doris的使用、开发过程中，经常会遇到需要对Doris进行调试的场景，这里介绍一些常用的调试工具。
 
-## 环境准备
+## FE 调试
+
+FE 是 Java 进程。这里只列举一下简单常用的 java 调试命令。
+
+1. 统计当前内存使用明细
+
+    ```
+    jmap -histo:live pid > 1.jmp
+    ```
+
+    该命令可以列举存活的对象的内存占用并排序。（pid 换成 FE 进程 id）
+
+    ```
+     num     #instances         #bytes  class name
+    ----------------------------------------------
+       1:         33528       10822024  [B
+       2:         80106        8662200  [C
+       3:           143        4688112  [Ljava.util.concurrent.ForkJoinTask;
+       4:         80563        1933512  java.lang.String
+       5:         15295        1714968  java.lang.Class
+       6:         45546        1457472  java.util.concurrent.ConcurrentHashMap$Node
+       7:         15483        1057416  [Ljava.lang.Object;
+    ```
+
+    可以通过这个方法查看目前存活对象占用的总内存（在文件最后），以及分析哪些对象占用了更多的内存。
+
+    注意，这个方法因指定了 `:live`，因此会触发 FullGC。
+
+2. 查看 JVM 内存使用
+
+    ```
+    jstat -gcutil pid 1000 1000
+    ```
+
+    该命令可以滚动查看当前 JVM 各区域的内存使用情况。（pid 换成 FE 进程 id）
+
+    ```
+      S0     S1     E      O      M     CCS    YGC     YGCT    FGC    FGCT     GCT
+      0.00   0.00  22.61   3.03  95.74  92.77     68    1.249     5    0.794    2.043
+      0.00   0.00  22.61   3.03  95.74  92.77     68    1.249     5    0.794    2.043
+      0.00   0.00  22.61   3.03  95.74  92.77     68    1.249     5    0.794    2.043
+      0.00   0.00  22.92   3.03  95.74  92.77     68    1.249     5    0.794    2.043
+      0.00   0.00  22.92   3.03  95.74  92.77     68    1.249     5    0.794    2.043
+    ```
+
+    其中主要关注 Old区（O）的占用百分比（如示例中为 3%）。如果占用过高，则可能出现 OOM 或 FullGC。
+
+3. 打印 FE 线程堆栈
+
+    ```
+    jstack -l pid > 1.js
+    ```
+
+    该命令可以打印当前 FE 的线程堆栈。（pid 换成 FE 进程 id）。
+
+    `-l` 参数会同时检测是否有死锁。该方法可以查看 FE 线程运行情况，是否有死锁，哪里卡住了等问题。
+
+## BE 调试
+
+### 环境准备
 
 [pprof](https://github.com/google/pprof): 来自gperftools，用于将gperftools所产生的内容转化成便于人可以阅读的格式，比如pdf, svg, text等.
 
@@ -38,11 +97,11 @@ under the License.
 
 [FlameGraph](https://github.com/brendangregg/FlameGraph): 可视化工具，用于将perf的输出以火焰图的形式展示出来。
 
-## 内存
+### 内存
 
 对于内存的调试一般分为两个方面。一个是内存使用的总量是否合理，内存使用量过大一方面可能是由于系统存在内存泄露，另一方面可能是因为程序内存使用不当。其次就是是否存在内存越界、非法访问的问题，比如程序访问一个非法地址的内存，使用了未初始化内存等。对于内存方面的调试我们一般使用如下几种方式来进行问题追踪。
 
-### 查看日志
+#### 查看日志
 
 当发现内存使用量过大的时候，我们可以先查看be.out日志，看看是否有大内存申请。由于Doris当前使用的TCMalloc管理内存，那么遇到大内存申请时，都会将申请的堆栈打印到be.out文件中，一般的表现形式如下：
 
@@ -64,7 +123,7 @@ $ addr2line -e lib/palo_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x
 thread.cpp:?
 ```
 
-### HEAP PROFILE
+#### HEAP PROFILE
 
 有时内存的申请并不是大内存的申请导致，而是通过小内存不断的堆积导致的。那么就没有办法通过查看日志定位到具体的申请信息，那么就需要通过其他方式来获得信息。
 
@@ -111,7 +170,7 @@ pprof --svg lib/palo_be /tmp/doris_be.hprof.0012.heap > heap.svg
 
 **注意：开启这个选项是要影响程序的执行性能的，请慎重对线上的实例开启**
 
-### pprof remote server
+#### pprof remote server
 
 HEAP PROFILE虽然能够获得全部的内存使用信息，但是也有比较受限的地方。1. 需要重启BE进行。2. 需要一直开启这个命令，导致对整个进程的性能造成影响。
 
@@ -138,7 +197,7 @@ Total: 1296.4 MB
 
 这个命令的输出与HEAP PROFILE的输出及查看方式一样，这里就不再详细说明。这个命令只有在执行的过程中才会开启统计，相比HEAP PROFILE对于进程性能的影响有限。
 
-### LSAN
+#### LSAN
 
 [LSAN](https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer)是一个地址检查工具，GCC已经集成。在我们编译代码的时候开启相应的编译选项，就能够开启这个功能。当程序发生可以确定的内存泄露时，会将泄露堆栈打印。Doris BE已经集成了这个工具，只需要在编译的时候使用如下的命令进行编译就能够生成带有内存泄露检测版本的BE二进制
 
@@ -175,7 +234,7 @@ SUMMARY: LeakSanitizer: 1024 byte(s) leaked in 1 allocation(s).
 
 **注意：如果开启了LSAN开关的话，tcmalloc就会被自动关闭**
 
-### ASAN
+#### ASAN
 
 除了内存使用不合理、泄露以外。有的时候也会发生内存访问非法地址等错误。这个时候我们可以借助[ASAN](https://github.com/google/sanitizers/wiki/AddressSanitizer)来辅助我们找到问题的原因。与LSAN一样，ASAN也集成在了GCC中。Doris通过如下的方式进行编译就能够开启这个功能
 
@@ -228,11 +287,11 @@ cat be.out | python asan_symbolize.py | c++filt
 
 通过上述的命令，我们就能够获得可读的堆栈信息了。
 
-## CPU
+### CPU
 
 当系统的CPU Idle很低的时候，说明系统的CPU已经成为了主要瓶颈，这个时候就需要分析一下当前的CPU使用情况。对于Doris的BE可以有如下两种方式来分析Doris的CPU瓶颈。
 
-### pprof
+#### pprof
 
 由于Doris内部已经集成了并兼容了GPerf的REST接口，那么用户可以通过`pprof`工具来分析远程的Doris BE。具体的使用方式如下：
 
@@ -244,7 +303,7 @@ pprof --svg --seconds=60 http://be_host:be_webport/pprof/profile > be.svg
 
 ![CPU Pprof](/images/cpu-pprof-demo.png)
 
-### perf + flamegragh
+#### perf + flamegragh
 
 这个是相当通用的一种CPU分析方式，相比于`pprof`，这种方式必须要求能够登陆到分析对象的物理机上。但是相比于pprof只能定时采点，perf是能够通过不同的事件来完成堆栈信息采集的。具体的的使用方式如下：
 
