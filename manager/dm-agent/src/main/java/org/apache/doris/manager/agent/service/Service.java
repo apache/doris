@@ -17,7 +17,9 @@
 
 package org.apache.doris.manager.agent.service;
 
+import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.exception.AgentException;
+import org.apache.doris.manager.agent.register.AgentContext;
 import org.apache.doris.manager.common.domain.ServiceRole;
 
 import java.io.File;
@@ -63,6 +65,25 @@ public abstract class Service {
     }
 
     public abstract boolean isHealth();
+
+    public abstract String serviceProcessKeyword();
+
+    public boolean processExist() {
+        String comm = AgentContext.getAgentInstallDir() + "/bin/process_exist.sh " + serviceProcessKeyword();
+        String[] commands = {"/bin/bash", "-c", comm};
+
+        int exitVal = AgentConstants.TASK_ERROR_CODE_DEFAULT;
+        try {
+            Process proc = Runtime.getRuntime().exec(commands);
+            exitVal = proc.waitFor();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return exitVal == AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE;
+    }
 
     public void load() {
         doLoad();

@@ -62,4 +62,9 @@ public class BrokerService extends Service {
         }
         return true;
     }
+
+    @Override
+    public String serviceProcessKeyword() {
+        return AgentConstants.PROCESS_KEYWORD_BROKER;
+    }
 }

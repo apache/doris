@@ -138,4 +138,9 @@ public class BeService extends Service {
             }
         }
     }
+
+    @Override
+    public String serviceProcessKeyword() {
+        return AgentConstants.PROCESS_KEYWORD_BE;
+    }
 }
