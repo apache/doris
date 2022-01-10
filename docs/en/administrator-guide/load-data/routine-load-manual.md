@@ -85,7 +85,7 @@ Currently we only support routine load from the Kafka system. This section detai
 
 1. Support unauthenticated Kafka access and Kafka clusters certified by SSL.
 2. The supported message format is csv text or json format. Each message is a line in csv format, and the end of the line does not contain a ** line break.
-3. Only Kafka 0.10.0.0 or above is supported.
+3. Kafka 0.10.0.0 (inclusive) or above is supported by default. If you want to use Kafka versions below 0.10.0.0 (0.9.0, 0.8.2, 0.8.1, 0.8.0), you need to modify the configuration of be, set the value of kafka_broker_version_fallback to be the older version, or directly set the value of property.broker.version.fallback to the old version when creating routine load. The cost of the old version is that some of the new features of routine load may not be available, such as setting the offset of the kafka partition by time.
 
 ### Create a routine load task
 
