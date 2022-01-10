@@ -34,8 +34,6 @@ namespace vectorized {
 
 class BlockReader final : public Reader {
 public:
-    BlockReader();
-
     ~BlockReader();
 
     // Initialize BlockReader with tablet, data version and fetch range.
@@ -87,8 +85,8 @@ private:
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
-    std::unique_ptr<VCollectIterator> _collect_iter;
-    IteratorRowRef _next_row;
+    VCollectIterator _vcollect_iter;
+    IteratorRowRef _next_row{nullptr, -1, false};
 
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
@@ -97,7 +95,7 @@ private:
     std::vector<int> _agg_columns_idx;
     std::vector<int> _return_columns_loc;
 
-    int _batch_size;
+    int _batch_size = 0;
 
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
@@ -110,7 +108,6 @@ private:
     std::vector<bool> _stored_has_string_tag;
 
     bool _eof = false;
-    bool _agg_inited = false;
 
     OLAPStatus (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool,
                                                 ObjectPool* agg_pool, bool* eof) = nullptr;
