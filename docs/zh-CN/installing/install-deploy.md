@@ -178,8 +178,8 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
     **说明**
 
-    - /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
-    - /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+    - /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
+    - /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
     - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
     
     示例2如下：
