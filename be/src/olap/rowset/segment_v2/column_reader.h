@@ -319,6 +319,9 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
+
+    uint32_t* _dict_start_offset_array = nullptr;
+    uint32_t* _dict_len_array = nullptr;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
