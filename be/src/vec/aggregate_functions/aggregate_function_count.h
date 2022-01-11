@@ -50,6 +50,11 @@ public:
         ++data(place).count;
     }
 
+    void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
+            const IColumn** columns, Arena* arena, bool has_null) override {
+        this->data(place).count += (batch_end - batch_begin + 1);
+    }
+
     void reset(AggregateDataPtr place) const override {
         this->data(place).count = 0;
     }

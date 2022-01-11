@@ -47,6 +47,53 @@ struct AggregateFunctionSumData {
     T get() const { return sum; }
 };
 
+template <typename Int32> inline
+void simd_sum_int32(const Int32* columns, size_t begin, size_t end, Int32& sum)
+{
+    sum = 0;
+    int d = (end - begin + 1);
+    int n = d / 4;
+    int m = d % 4;
+
+    __m128i* addr = (__m128i*)(&columns[begin]);
+    __m128i sse_sum = _mm_setzero_si128();
+
+    for (int i = 0; i < n; ++i) {
+        sse_sum = _mm_add_epi32(sse_sum, _mm_load_si128(addr++));
+    }
+
+    for (int i = 0; i < m; ++i) {
+        sum += ((Int32*)addr)[i];
+    }
+
+    sse_sum = _mm_hadd_epi32(sse_sum, sse_sum);
+    sse_sum = _mm_hadd_epi32(sse_sum, sse_sum);
+    sum += _mm_cvtsi128_si32(sse_sum); // [SSE2] 返回低32位
+}
+
+template <typename Int64> inline
+void simd_sum_int64(const Int64* columns, size_t begin, size_t end, Int64& sum)
+{
+    sum = 0;
+    int d = (end - begin + 1);
+    int n = d / 4;
+    int m = d % 4;
+
+    __m256i* addr = (__m256i*)(&columns[begin]);
+    __m256i sse_sum = _mm256_setzero_si256();
+    for (int i = 0; i < n; ++i) {
+        sse_sum = _mm256_add_epi64(sse_sum, _mm256_lddqu_si256(addr++));
+    }
+
+    for (int i = 0; i < m; ++i) {
+        sum += ((Int64*)addr)[i];
+    }
+
+    Int64 x[4];
+    _mm256_store_si256((__m256i*)x, sse_sum);
+    sum += x[0] + x[1] + x[2] + x[3];
+}
+
 /// Counts the sum of the numbers.
 template <typename T, typename TResult, typename Data>
 class AggregateFunctionSum final
@@ -81,6 +128,25 @@ public:
              Arena*) const override {
         const auto& column = static_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
+    }
+
+    void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
+            const IColumn** columns, Arena* arena, bool has_null) override {
+        Data& data = this->data(place);
+        const auto& column = static_cast<const ColVecType&>(*columns[0]);
+        if constexpr (std::is_same_v<T, Int32> && std::is_same_v<T, TResult>) {
+            simd_sum_int32(&column.get_element(0), batch_begin, batch_end, data.sum);
+        } else if constexpr (std::is_same_v<T, UInt32> && std::is_same_v<T, TResult>) {
+            simd_sum_int32(&column.get_element(0), batch_begin, batch_end, data.sum);
+        } else if constexpr (std::is_same_v<T, Int64> && std::is_same_v<T, TResult>) {
+            simd_sum_int64(&column.get_element(0), batch_begin, batch_end, data.sum);
+        } else if constexpr (std::is_same_v<T, UInt64> && std::is_same_v<T, TResult>) {
+            simd_sum_int64(&column.get_element(0), batch_begin, batch_end, data.sum);
+        } else {
+            for (size_t i = batch_begin; i <= batch_end; ++i) {
+                data.add(column.get_element(i));
+            }
+        }
     }
     
     void reset(AggregateDataPtr place) const override {
