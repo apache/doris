@@ -71,23 +71,16 @@ public:
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
                              const Array& parameters, const bool result_is_nullable = false) {
-        bool nullable = false;
+        AggregateFunctions* functions = &aggregate_functions;
         for (const auto& type : argument_types) {
             if (type->is_nullable()) {
-                nullable = true;
+                functions = &nullable_aggregate_functions;
+                break;
             }
         }
-        if (nullable) {
-            return nullable_aggregate_functions.find(name) == nullable_aggregate_functions.end()
-                           ? nullptr
-                           : nullable_aggregate_functions[name](name, argument_types, parameters,
-                                                                result_is_nullable);
-        } else {
-            return aggregate_functions.find(name) == aggregate_functions.end()
-                           ? nullptr
-                           : aggregate_functions[name](name, argument_types, parameters,
-                                                       result_is_nullable);
-        }
+
+        auto x = functions->find(name);
+        return x == functions->end() ? nullptr : x->second(name, argument_types, parameters, result_is_nullable);
     }
 
     void register_function(const std::string& name, const Creator& creator, bool nullable = false) {
@@ -98,7 +91,6 @@ public:
         }
     }
 
-public:
     static AggregateFunctionSimpleFactory& instance();
 };
 }; // namespace doris::vectorized
