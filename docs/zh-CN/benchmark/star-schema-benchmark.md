@@ -104,7 +104,7 @@ sh gen-ssb-data.sh -s 100 -c 100
     select count(*) from part;
     select count(*) from customer;
     select count(*) from supplier;
-    select count(*) from date;
+    select count(*) from dates;
     select count(*) from lineorder;
     ```
     
