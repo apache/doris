@@ -334,6 +334,17 @@ under the License.
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
                 <version>0.13.0</version>
+                <exclusions>
+                    <!-- thrift 0.13 depends on httpclient 4.5.10, should exclude it -->
+                    <exclusion>
+                        <artifactId>httpclient</artifactId>
+                        <groupId>org.apache.httpcomponents</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>httpcore</artifactId>
+                        <groupId>org.apache.httpcomponents</groupId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
@@ -698,9 +709,13 @@ under the License.
                         <artifactId>servlet-api</artifactId>
                         <groupId>javax.servlet</groupId>
                     </exclusion>
+                    <!-- https://github.com/aws/aws-sdk-java/issues/1032 -->
+                    <exclusion>
+                        <artifactId>com.amazonaws</artifactId>
+                        <groupId>aws-java-sdk-s3</groupId>
+                    </exclusion>
                 </exclusions>
             </dependency>
-
 
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -783,6 +798,25 @@ under the License.
                 <artifactId>hamcrest</artifactId>
                 <version>2.1</version>
             </dependency>
+
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>4.5.13</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpcore</artifactId>
+                <version>4.4.15</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-s3</artifactId>
+                <version>1.11.95</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
