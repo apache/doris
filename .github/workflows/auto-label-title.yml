@@ -32,19 +32,50 @@ jobs:
           words: >-
             [fix];
             [feature];
-            [routine-load];
-            [docs];
-            [vectorized];
             [improvement];
+            [docs];
+            [typo];
             [refactor];
-            [community]
+            [performance];
+            [test];
+            [chore];
+            [revert];
+            [community];
+            
+            [vectorized];
+            
+            (planner);
+            (storage);
+            (stream-load);
+            (broker-load);
+            (routine-load);
+            (export);
+            (spark-connector);
+            (datax);
+            (config)
+
           labels: >-
             kind/bug;
             kind/feature;
-            area/routine-load;
-            kind/documentation;
-            vectorization;
             kind/enhancement;
+            kind/documentation;
+            kind/typo;
             kind/refactor;
-            area/community
+            Performance;
+            area/build;
+            kind/revert;
+            area/community;
+
+            vectorization;
+
+            area/sql/planner;
+            area/storage;
+            area/load;
+            area/load;
+            area/routine-load;
+            area/export;
+            area/spark-connector;
+            area/datax;
+            area/config
+
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
