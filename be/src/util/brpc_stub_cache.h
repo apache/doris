@@ -47,7 +47,7 @@ namespace doris {
 class BrpcStubCache {
 public:
     BrpcStubCache();
-    ~BrpcStubCache();
+    virtual ~BrpcStubCache();
 
     inline std::shared_ptr<PBackendService_Stub> get_stub(const butil::EndPoint& endpoint) {
         auto stub_ptr = _stub_map.find(endpoint);
