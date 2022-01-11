@@ -47,6 +47,7 @@ struct AggregateFunctionSumData {
     T get() const { return sum; }
 };
 
+#ifdef __AVX2__
 template <typename Int32> inline
 void simd_sum_int32(const Int32* columns, size_t begin, size_t end, Int32& sum)
 {
@@ -93,6 +94,7 @@ void simd_sum_int64(const Int64* columns, size_t begin, size_t end, Int64& sum)
     _mm256_store_si256((__m256i*)x, sse_sum);
     sum += x[0] + x[1] + x[2] + x[3];
 }
+#endif
 
 /// Counts the sum of the numbers.
 template <typename T, typename TResult, typename Data>
@@ -134,6 +136,7 @@ public:
             const IColumn** columns, Arena* arena, bool has_null) override {
         Data& data = this->data(place);
         const auto& column = static_cast<const ColVecType&>(*columns[0]);
+#ifdef __AVX2__
         if constexpr (std::is_same_v<T, Int32> && std::is_same_v<T, TResult>) {
             simd_sum_int32(&column.get_element(0), batch_begin, batch_end, data.sum);
         } else if constexpr (std::is_same_v<T, UInt32> && std::is_same_v<T, TResult>) {
@@ -143,10 +146,13 @@ public:
         } else if constexpr (std::is_same_v<T, UInt64> && std::is_same_v<T, TResult>) {
             simd_sum_int64(&column.get_element(0), batch_begin, batch_end, data.sum);
         } else {
+#endif
             for (size_t i = batch_begin; i <= batch_end; ++i) {
                 data.add(column.get_element(i));
             }
+#ifdef __AVX2__
         }
+#endif
     }
     
     void reset(AggregateDataPtr place) const override {
