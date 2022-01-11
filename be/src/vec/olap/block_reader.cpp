@@ -306,11 +306,9 @@ void BlockReader::_update_agg_data(MutableColumns& columns) {
 }
 
 void BlockReader::_copy_agg_data() {
-    phmap::flat_hash_map<const Block*, std::vector<std::pair<int16_t, int16_t>>> temp_ref_map;
-
     for (int i = 0; i < _stored_row_ref.size(); i++) {
         auto& ref = _stored_row_ref[i];
-        temp_ref_map[ref.block].emplace_back(ref.row_pos, i);
+        _temp_ref_map[ref.block].emplace_back(ref.row_pos, i);
     }
 
     for (auto idx : _agg_columns_idx) {
@@ -323,7 +321,7 @@ void BlockReader::_copy_agg_data() {
                                                 ref.row_pos, i);
             }
         } else {
-            for (auto& it : temp_ref_map) {
+            for (auto& it : _temp_ref_map) {
                 auto& src_column = *it.first->get_by_position(idx).column;
                 for (auto& pos : it.second) {
                     dst_column->replace_column_data(src_column, pos.first, pos.second);
@@ -332,6 +330,9 @@ void BlockReader::_copy_agg_data() {
         }
     }
 
+    for (auto& it : _temp_ref_map) {
+        it.second.clear();
+    }
     _stored_row_ref.clear();
 }
 
