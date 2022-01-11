@@ -533,6 +533,11 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-s3</artifactId>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -672,6 +677,7 @@ under the License.
             <artifactId>hadoop-hdfs</artifactId>
             <scope>provided</scope>
         </dependency>
+
     </dependencies>
 
     <build>
