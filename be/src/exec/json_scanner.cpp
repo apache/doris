@@ -669,12 +669,14 @@ bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPoo
 
     for (size_t i = 0; i < column_num; i++) {
         rapidjson::Value* json_values = nullptr;
+        bool wrap_explicitly = false;
         if (LIKELY(i < _parsed_jsonpaths.size())) {
             json_values = JsonFunctions::get_json_array_from_parsed_json(
-                    _parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator());
+                    _parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator(), &wrap_explicitly);
         }
 
         if (json_values == nullptr) {
+            LOG(INFO) << "cmy _write_values_by_jsonpath null";
             // not match in jsondata.
             if (slot_descs[i]->is_nullable()) {
                 tuple->set_null(slot_descs[i]->null_indicator_offset());
@@ -689,9 +691,10 @@ bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPoo
                 break;
             }
         } else {
+            LOG(INFO) << "cmy _write_values_by_jsonpath isarray: " << json_values->Size();
             CHECK(json_values->IsArray());
-            CHECK(json_values->Size() >= 1);
-            if (json_values->Size() == 1) {
+            //CHECK(wrap_explicitly && json_values->Size() >= 1);
+            if (json_values->Size() == 1 && wrap_explicitly) {
                 // NOTICE1: JsonFunctions::get_json_array_from_parsed_json() will wrap the single json object with an array.
                 // so here we unwrap the array to get the real element.
                 // if json_values' size > 1, it means we just match an array, not a wrapped one, so no need to unwrap.

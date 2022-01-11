@@ -364,15 +364,16 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
 
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::string& json_path, rapidjson::Value* document,
-        rapidjson::Document::AllocatorType& mem_allocator) {
+        rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
     std::vector<JsonPath> vec;
     parse_json_paths(json_path, &vec);
-    return get_json_array_from_parsed_json(vec, document, mem_allocator);
+    return get_json_array_from_parsed_json(vec, document, mem_allocator, wrap_explicitly);
 }
 
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
-        rapidjson::Document::AllocatorType& mem_allocator) {
+        rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
+    *wrap_explicitly = false;
     if (!parsed_paths[0].is_valid) {
         return nullptr;
     }
@@ -389,12 +390,15 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
 
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
     if (root == nullptr || root == document) { // not found
+        LOG(INFO) << "cmy get_json_array_from_parsed_json null";
         return nullptr;
     } else if (!root->IsArray()) {
+        LOG(INFO) << "cmy get_json_array_from_parsed_json not array";
         rapidjson::Value* array_obj = nullptr;
         array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
         array_obj->SetArray();
         array_obj->PushBack(*root, mem_allocator);
+        *wrap_explicitly = true;
         return array_obj;
     }
     return root;

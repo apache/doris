@@ -106,13 +106,13 @@ public:
      */
     static rapidjson::Value* get_json_array_from_parsed_json(
             const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
-            rapidjson::Document::AllocatorType& mem_allocator);
+            rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly);
 
     // this is only for test, it will parse the json path inside,
     // so that we can easily pass a json path as string.
     static rapidjson::Value* get_json_array_from_parsed_json(
             const std::string& jsonpath, rapidjson::Value* document,
-            rapidjson::Document::AllocatorType& mem_allocator);
+            rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly);
 
     static rapidjson::Value* get_json_object_from_parsed_json(
             const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
