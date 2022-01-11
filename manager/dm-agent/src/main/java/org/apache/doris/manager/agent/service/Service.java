@@ -17,6 +17,8 @@
 
 package org.apache.doris.manager.agent.service;
 
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.agent.register.AgentContext;
@@ -27,6 +29,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.Properties;
 
+@Slf4j
 public abstract class Service {
     protected ServiceRole serviceRole = null;
     protected String installDir = null;
@@ -69,11 +72,12 @@ public abstract class Service {
     public abstract String serviceProcessKeyword();
 
     public boolean processExist() {
-        String comm = AgentContext.getAgentInstallDir() + "/bin/process_exist.sh " + serviceProcessKeyword();
+        String comm = AgentConstants.BASH_BIN + AgentContext.getAgentInstallDir() + "/bin/process_exist.sh " + serviceProcessKeyword();
         String[] commands = {"/bin/bash", "-c", comm};
 
         int exitVal = AgentConstants.TASK_ERROR_CODE_DEFAULT;
         try {
+            log.info("execute command:{}", StringUtils.join(commands, " "));
             Process proc = Runtime.getRuntime().exec(commands);
             exitVal = proc.waitFor();
         } catch (InterruptedException e) {
@@ -81,7 +85,7 @@ public abstract class Service {
         } catch (IOException e) {
             e.printStackTrace();
         }
-
+        log.info("execute exit code:{}", exitVal);
         return exitVal == AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE;
     }
 
