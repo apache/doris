@@ -390,14 +390,13 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
 
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
     if (root == nullptr || root == document) { // not found
-        LOG(INFO) << "cmy get_json_array_from_parsed_json null";
         return nullptr;
     } else if (!root->IsArray()) {
-        LOG(INFO) << "cmy get_json_array_from_parsed_json not array";
         rapidjson::Value* array_obj = nullptr;
         array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
         array_obj->SetArray();
         array_obj->PushBack(*root, mem_allocator);
+        // set `wrap_explicitly` to true, so that the caller knows that this Array is wrapped actively.
         *wrap_explicitly = true;
         return array_obj;
     }

@@ -264,6 +264,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
 
                     Tuple* child_tuple = _cur_child_tuple_row->get_tuple(child_rowdesc.get_tuple_idx(child_tuple_desc->id()));
                     if (_output_slot_ids[parent_slot_desc->id()] && !child_tuple->is_null(child_slot_desc->null_indicator_offset())) {
+                        // only write child slot if it is selected and not null.
                         void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
                         RawValue::write(child_tuple->get_slot(child_slot_desc->tuple_offset()), dest_slot, parent_slot_desc->type(), row_batch->tuple_data_pool());
                         tuple_ptr->set_not_null(parent_slot_desc->null_indicator_offset());
