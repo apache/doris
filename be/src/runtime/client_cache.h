@@ -104,6 +104,9 @@ private:
     using ClientCacheMap = std::unordered_map<TNetworkAddress, std::list<void*>>;
     ClientCacheMap _client_cache;
 
+    // if cache not found, set client_key as nullptr
+    void _get_client_from_cache(const TNetworkAddress& hostport, void** client_key);
+
     // Map from client key back to its associated ThriftClientImpl transport
     using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
     ClientMap _client_map;
