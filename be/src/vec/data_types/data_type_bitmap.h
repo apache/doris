@@ -18,6 +18,7 @@
 #pragma once
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -27,6 +28,7 @@ public:
     DataTypeBitMap() = default;
     ~DataTypeBitMap() override = default;
 
+    using ColumnType = ColumnBitmap;
     using FieldType = BitmapValue;
 
     std::string do_get_name() const override { return get_family_name(); }

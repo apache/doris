@@ -88,8 +88,8 @@ class DataTypeDecimal final : public IDataType {
     static_assert(IsDecimalNumber<T>);
 
 public:
-    using FieldType = T;
     using ColumnType = ColumnDecimal<T>;
+    using FieldType = T;
 
     static constexpr bool is_parametric = true;
 

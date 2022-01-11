@@ -28,6 +28,7 @@ namespace doris::vectorized {
 
 class DataTypeString final : public IDataType {
 public:
+    using ColumnType = ColumnString;
     using FieldType = String;
     static constexpr bool is_parametric = false;
 
@@ -47,7 +48,9 @@ public:
     bool have_subtypes() const override { return false; }
     bool is_comparable() const override { return true; }
     bool can_be_compared_with_collation() const override { return true; }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override { return true; }
+    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
+        return true;
+    }
     bool is_categorial() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
     bool can_be_inside_low_cardinality() const override { return true; }
