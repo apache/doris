@@ -1166,8 +1166,8 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 
   `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
 
-  * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
-  * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+  * /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
+  * /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
   * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
   
   示例2如下：
