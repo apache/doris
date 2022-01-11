@@ -91,7 +91,7 @@ public class HashJoinNode extends PlanNode {
             if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
                     || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)){
+            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
                 tupleIds.addAll(inner.getTupleIds());
             } else {
                 tupleIds.addAll(outer.getTupleIds());

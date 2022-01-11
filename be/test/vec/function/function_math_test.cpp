@@ -306,9 +306,9 @@ TEST(MathFunctionTest, negative_test) {
         std::vector<std::any> input_types = {vectorized::TypeIndex::Int32};
 
         DataSet data_set = {{{(int32_t)3}, (int32_t)-3},
-                            {{(int32_t)-3}, (int32_t)-3},
+                            {{(int32_t)-3}, (int32_t)3},
                             {{(int32_t)0}, (int32_t)0},
-                            {{(int32_t)-60}, (int32_t)-60}};
+                            {{(int32_t)-60}, (int32_t)60}};
 
         vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types,
                                                                     data_set);
@@ -344,12 +344,8 @@ TEST(MathFunctionTest, round_test) {
     {
         std::vector<std::any> input_types = {vectorized::TypeIndex::Float64};
 
-        DataSet data_set = {{{30.1}, (int64_t)30},
-                            {{90.6}, (int64_t)91},
-                            {{Null()}, Null()},
-                            {{0.0}, (int64_t)0},
-                            {{-1.1}, (int64_t)-1},
-                            {{-60.7}, (int64_t)-61}};
+        DataSet data_set = {{{30.1}, (int64_t)30}, {{90.6}, (int64_t)91}, {{Null()}, Null()},
+                            {{0.0}, (int64_t)0},   {{-1.1}, (int64_t)-1}, {{-60.7}, (int64_t)-61}};
 
         vectorized::check_function<vectorized::DataTypeInt64, true>(func_name, input_types,
                                                                     data_set);
@@ -358,12 +354,8 @@ TEST(MathFunctionTest, round_test) {
         std::vector<std::any> input_types = {vectorized::TypeIndex::Float64,
                                              vectorized::TypeIndex::Int32};
 
-        DataSet data_set = {{{3.1415926, 2}, 3.14},
-                            {{3.1415926, 3}, 3.142},
-                            {{Null(), -2}, Null()},
-                            {{193.0, -2}, 200.0},
-                            {{193.0, -1}, 190.0},
-                            {{193.0, -3}, 0.0}};
+        DataSet data_set = {{{3.1415926, 2}, 3.14}, {{3.1415926, 3}, 3.142}, {{Null(), -2}, Null()},
+                            {{193.0, -2}, 200.0},   {{193.0, -1}, 190.0},    {{193.0, -3}, 0.0}};
 
         vectorized::check_function<vectorized::DataTypeFloat64, true>(func_name, input_types,
                                                                       data_set);
@@ -375,9 +367,9 @@ TEST(MathFunctionTest, bin_test) {
 
     std::vector<std::any> input_types = {vectorized::TypeIndex::Int64};
 
-    DataSet data_set = {{{(int64_t) 10}, std::string("1010")},
-                        {{(int64_t) 1}, std::string("1")},
-                        {{(int64_t) 0}, std::string("0")},
+    DataSet data_set = {{{(int64_t)10}, std::string("1010")},
+                        {{(int64_t)1}, std::string("1")},
+                        {{(int64_t)0}, std::string("0")},
                         {{Null()}, Null()}};
 
     vectorized::check_function<vectorized::DataTypeString, true>(func_name, input_types, data_set);
@@ -385,7 +377,7 @@ TEST(MathFunctionTest, bin_test) {
 
 TEST(MathFunctionTest, hex_test) {
     std::string func_name = "hex"; // hex(int)
-    
+
     std::vector<std::any> input_types = {vectorized::TypeIndex::Int64};
 
     DataSet data_set = {{{Null()}, Null()},
@@ -413,8 +405,9 @@ TEST(MathFunctionTest, random_test) {
 
     for (const auto& data : data_set) {
         DataSet data_line = {data};
-        vectorized::check_function<vectorized::DataTypeFloat64, true>(func_name, input_types, data_line);
-     }
+        vectorized::check_function<vectorized::DataTypeFloat64, true>(func_name, input_types,
+                                                                      data_line);
+    }
 }
 
 } // namespace doris

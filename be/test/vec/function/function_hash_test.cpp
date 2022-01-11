@@ -33,20 +33,21 @@ TEST(HashFunctionTest, murmur_hash_3_test) {
     {
         std::vector<std::any> input_types = {vectorized::TypeIndex::String};
 
-        DataSet data_set = {{{Null()}, Null()},
-                            {{std::string("hello")}, (int32_t) 1321743225}};
+        DataSet data_set = {{{Null()}, Null()}, {{std::string("hello")}, (int32_t)1321743225}};
 
-        vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types, data_set);
+        vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types,
+                                                                    data_set);
     };
 
     {
         std::vector<std::any> input_types = {vectorized::TypeIndex::String,
                                              vectorized::TypeIndex::String};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world")}, (int32_t) 984713481},
+        DataSet data_set = {{{std::string("hello"), std::string("world")}, (int32_t)984713481},
                             {{std::string("hello"), Null()}, Null()}};
 
-        vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types, data_set);
+        vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types,
+                                                                    data_set);
     };
 
     {
@@ -54,10 +55,12 @@ TEST(HashFunctionTest, murmur_hash_3_test) {
                                              vectorized::TypeIndex::String,
                                              vectorized::TypeIndex::String};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")}, (int32_t) -666935433},
+        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
+                             (int32_t)-666935433},
                             {{std::string("hello"), std::string("world"), Null()}, Null()}};
 
-        vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types, data_set);
+        vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types,
+                                                                    data_set);
     };
 }
 
@@ -68,19 +71,22 @@ TEST(HashFunctionTest, murmur_hash_2_test) {
         std::vector<std::any> input_types = {vectorized::TypeIndex::String};
 
         DataSet data_set = {{{Null()}, Null()},
-                            {{std::string("hello")}, (uint64_t) 2191231550387646743}};
+                            {{std::string("hello")}, (uint64_t)2191231550387646743ull}};
 
-        vectorized::check_function<vectorized::DataTypeUInt64, true>(func_name, input_types, data_set);
+        vectorized::check_function<vectorized::DataTypeUInt64, true>(func_name, input_types,
+                                                                     data_set);
     };
 
     {
         std::vector<std::any> input_types = {vectorized::TypeIndex::String,
                                              vectorized::TypeIndex::String};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world")}, (uint64_t) 11978658642541747642l},
-                            {{std::string("hello"), Null()}, Null()}};
+        DataSet data_set = {
+                {{std::string("hello"), std::string("world")}, (uint64_t)11978658642541747642ull},
+                {{std::string("hello"), Null()}, Null()}};
 
-        vectorized::check_function<vectorized::DataTypeUInt64, true>(func_name, input_types, data_set);
+        vectorized::check_function<vectorized::DataTypeUInt64, true>(func_name, input_types,
+                                                                     data_set);
     };
 
     {
@@ -88,10 +94,12 @@ TEST(HashFunctionTest, murmur_hash_2_test) {
                                              vectorized::TypeIndex::String,
                                              vectorized::TypeIndex::String};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")}, (uint64_t) 1367324781703025231},
+        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
+                             (uint64_t)1367324781703025231ull},
                             {{std::string("hello"), std::string("world"), Null()}, Null()}};
 
-        vectorized::check_function<vectorized::DataTypeUInt64, true>(func_name, input_types, data_set);
+        vectorized::check_function<vectorized::DataTypeUInt64, true>(func_name, input_types,
+                                                                     data_set);
     };
 }
 
