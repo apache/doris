@@ -86,7 +86,7 @@ private:
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
     VCollectIterator _vcollect_iter;
-    IteratorRowRef _next_row{nullptr, -1, false};
+    IteratorRowRef _next_row {nullptr, -1, false};
 
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
@@ -106,6 +106,8 @@ private:
 
     std::vector<bool> _stored_has_null_tag;
     std::vector<bool> _stored_has_string_tag;
+
+    phmap::flat_hash_map<const Block*, std::vector<std::pair<int16_t, int16_t>>> _temp_ref_map;
 
     bool _eof = false;
 
