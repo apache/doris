@@ -93,6 +93,7 @@ private:
 
     std::vector<int> _normal_columns_idx; // key column on agg mode, all column on uniq mode
     std::vector<int> _agg_columns_idx;
+    phmap::flat_hash_map<int,int>_real_columns_idx;
     std::vector<int> _return_columns_loc;
 
     int _batch_size = 0;

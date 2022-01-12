@@ -84,7 +84,8 @@ void BlockReader::_init_agg_state() {
 
     auto& tablet_schema = tablet()->tablet_schema();
     for (auto idx : _agg_columns_idx) {
-        FieldAggregationMethod agg_method = tablet_schema.column(idx).aggregation();
+        FieldAggregationMethod agg_method =
+                tablet_schema.column(_real_columns_idx[idx]).aggregation();
         std::string agg_name =
                 TabletColumn::get_string_by_aggregation_type(agg_method) + agg_reader_suffix;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
@@ -130,6 +131,7 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
                     _normal_columns_idx.emplace_back(j);
                 } else {
                     _agg_columns_idx.emplace_back(j);
+                    _real_columns_idx[j] = cid;
                 }
                 _return_columns_loc[j] = i;
                 break;
