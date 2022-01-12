@@ -73,7 +73,7 @@ private:
     OLAPStatus _init_collect_iter(const ReaderParams& read_params,
                                   std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
 
-    void _init_agg_state();
+    void _init_agg_state(const ReaderParams& read_params);
 
     void _insert_data_normal(MutableColumns& columns);
 
@@ -81,7 +81,7 @@ private:
 
     void _update_agg_data(MutableColumns& columns);
 
-    void _copy_agg_data();
+    size_t _copy_agg_data();
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 

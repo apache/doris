@@ -21,18 +21,18 @@
 #include "vec/core/block.h"
 
 #include <fmt/format.h>
+#include <snappy.h>
+
 #include <iomanip>
 #include <iterator>
 #include <memory>
-#include <snappy.h>
 
 #include "common/status.h"
 #include "gen_cpp/data.pb.h"
 #include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "runtime/row_batch.h"
-
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -692,8 +692,10 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
 
-        MutableColumnPtr mutable_holder = nested_column->use_count() == 1 ?
-                nested_column->assume_mutable() : nested_column->clone_resized(nested_column->size());
+        MutableColumnPtr mutable_holder =
+                nested_column->use_count() == 1
+                        ? nested_column->assume_mutable()
+                        : nested_column->clone_resized(nested_column->size());
 
         ColumnUInt8* concrete_column = typeid_cast<ColumnUInt8*>(mutable_holder.get());
         if (!concrete_column) {
@@ -769,8 +771,8 @@ void Block::serialize(RowBatch* output_batch, const RowDescriptor& row_desc) {
     }
 }
 
-doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool* pool,
-        int row, int column_offset, bool padding_char) {
+doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool* pool, int row,
+                                     int column_offset, bool padding_char) {
     auto dst = reinterpret_cast<doris::Tuple*>(pool->allocate(desc.byte_size()));
 
     for (int i = 0; i < desc.slots().size(); ++i) {
@@ -787,8 +789,9 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
 
         if (!slot_desc->type().is_string_type() && !slot_desc->type().is_date_type()) {
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), data_ref.data, data_ref.size);
-        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT){
-            memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), (const void*)(&data_ref), sizeof(data_ref));
+        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT) {
+            memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), (const void*)(&data_ref),
+                   sizeof(data_ref));
             // Copy the content of string
             if (padding_char && slot_desc->type() == TYPE_CHAR) {
                 // serialize the content of string
@@ -800,7 +803,8 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
             } else {
                 auto str_ptr = pool->allocate(data_ref.size);
                 memcpy(str_ptr, data_ref.data, data_ref.size);
-                dst->get_string_slot(slot_desc->tuple_offset())->ptr = reinterpret_cast<char *>(str_ptr);
+                dst->get_string_slot(slot_desc->tuple_offset())->ptr =
+                        reinterpret_cast<char*>(str_ptr);
             }
         } else if (slot_desc->type() == TYPE_OBJECT) {
             auto bitmap_value = (BitmapValue*)(data_ref.data);
@@ -812,7 +816,8 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
             bitmap_value->write(string_slot->ptr);
             string_slot->len = size;
         } else {
-            VecDateTimeValue ts = *reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data_ref.data);
+            VecDateTimeValue ts =
+                    *reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data_ref.data);
             DateTimeValue dt;
             ts.convert_vec_dt_to_dt(&dt);
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), &dt, sizeof(DateTimeValue));
@@ -903,7 +908,7 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
     auto temp_block = std::make_unique<Block>();
     for (const auto& d : data) {
         auto column = d.type->create_column();
-        column->insert_many_defaults(size);
+        column->resize(size);
         temp_block->insert({std::move(column), d.type, d.name});
     }
     return temp_block;
