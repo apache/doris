@@ -52,8 +52,8 @@ public:
         if (auto* nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(input_rows_count);
-            const auto& src_data = nullable->get_null_map_data();
-            auto& res_data = assert_cast<ColumnUInt8&>(*res_column).get_data();
+            const auto* __restrict src_data = nullable->get_null_map_data().data();
+            auto* __restrict res_data = assert_cast<ColumnUInt8&>(*res_column).get_data().data();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] = !src_data[i];
