@@ -36,6 +36,8 @@ agent/, doris manger agent
         agent_stop.sh, doris manger agent stop script
         install_be.sh, doris be install script
         install_fe.sh, doris fe install script
+        install_broker.sh, doris broker install script
+        process_exist.sh, doris process detection script
     lib/
         dm-agent.jar, executable package of doris manger agent
 server/, doris manger server
@@ -99,12 +101,3 @@ user name: Admin
 password: Admin@123
 (Case sensitive)
 ```
-
-### Step3: install agent service
-After decompressing the tar package in the second step, there will be a directory called agent. copy the agent directory to the
-machine where the agent service is installed,
-```
-$ sh bin/agent_start.sh --agent ${agentIp} --server ${serverIp}:8080
-```
-${agentIp} is the IP of the machine where the agent is located, ${serverIp} is the IP of the machine where the manager server is located
-
