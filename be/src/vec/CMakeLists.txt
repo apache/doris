@@ -108,6 +108,7 @@ set(VEC_FILES
   functions/functions_logical.cpp
   functions/function_case.cpp
   functions/function_cast.cpp
+  functions/function_conv.cpp
   functions/function_string.cpp
   functions/function_timestamp.cpp
   functions/function_utility.cpp

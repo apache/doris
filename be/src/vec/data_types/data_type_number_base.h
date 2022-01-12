@@ -35,6 +35,7 @@ class DataTypeNumberBase : public IDataType {
 
 public:
     static constexpr bool is_parametric = false;
+    using ColumnType = ColumnVector<T>;
     using FieldType = T;
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
@@ -53,7 +54,9 @@ public:
     bool is_value_represented_by_number() const override { return true; }
     bool is_value_represented_by_integer() const override;
     bool is_value_represented_by_unsigned_integer() const override;
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override { return true; }
+    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
+        return true;
+    }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return sizeof(T); }
     bool is_categorial() const override { return is_value_represented_by_integer(); }
