@@ -451,6 +451,11 @@ module.exports = [
             children: ["murmur_hash3_32"],
           },
           {
+            title: "Math Functions",
+            directoryPath: "math-functions/",
+            children: ["conv"],
+          },
+          {
             title: "table functions",
             directoryPath: "table-functions/",
             children: [
