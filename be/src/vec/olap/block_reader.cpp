@@ -78,7 +78,7 @@ OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
     return OLAP_SUCCESS;
 }
 
-void BlockReader::_init_agg_state() {
+void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     _stored_data_block = _next_row.block->create_same_struct_block(_batch_size);
     _stored_data_columns = _stored_data_block->mutate_columns();
 
@@ -86,7 +86,7 @@ void BlockReader::_init_agg_state() {
     _stored_has_string_tag.resize(_stored_data_columns.size());
 
     for (auto idx : _agg_columns_idx) {
-        FieldAggregationMethod agg_method = tablet()->tablet_schema().column(idx).aggregation();
+        FieldAggregationMethod agg_method = tablet()->tablet_schema().column(read_params.origin_return_columns->at(_return_columns_loc[idx])).aggregation();
         std::string agg_name =
                 TabletColumn::get_string_by_aggregation_type(agg_method) + agg_reader_suffix;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
@@ -159,6 +159,7 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
         break;
     case KeysType::AGG_KEYS:
         _next_block_func = &BlockReader::_agg_key_next_block;
+        _init_agg_state(read_params);
         break;
     default:
         DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
@@ -191,7 +192,7 @@ OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, Obj
     }
 
     if (!_agg_inited) {
-        _init_agg_state();
+        //_init_agg_state();
         _agg_inited = true;
     }
 
