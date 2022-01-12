@@ -72,6 +72,10 @@ OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
 }
 
 void BlockReader::_init_agg_state() {
+    if (_eof) {
+        return;
+    }
+
     _stored_data_block = _next_row.block->create_same_struct_block(_batch_size);
     _stored_data_columns = _stored_data_block->mutate_columns();
 
@@ -260,7 +264,8 @@ OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
 void BlockReader::_insert_data_normal(MutableColumns& columns) {
     auto block = _next_row.block;
     for (auto idx : _normal_columns_idx) {
-        columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column, _next_row.row_pos);
+        columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column,
+                                                       _next_row.row_pos);
     }
 }
 
@@ -270,7 +275,7 @@ void BlockReader::_append_agg_data(MutableColumns& columns) {
 
     // execute aggregate when have `batch_size` column or some ref invalid soon
     bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
-    if (_stored_row_ref.size() == _batch_size || is_last) {
+    if (is_last || _stored_row_ref.size() == _batch_size) {
         _update_agg_data(columns);
     }
 }
@@ -301,11 +306,9 @@ void BlockReader::_update_agg_data(MutableColumns& columns) {
 }
 
 void BlockReader::_copy_agg_data() {
-    phmap::flat_hash_map<const Block*, std::vector<std::pair<int16_t, int16_t>>> temp_ref_map;
-
     for (int i = 0; i < _stored_row_ref.size(); i++) {
         auto& ref = _stored_row_ref[i];
-        temp_ref_map[ref.block].emplace_back(ref.row_pos, i);
+        _temp_ref_map[ref.block].emplace_back(ref.row_pos, i);
     }
 
     for (auto idx : _agg_columns_idx) {
@@ -314,11 +317,11 @@ void BlockReader::_copy_agg_data() {
             //string type should replace ordered
             for (int i = 0; i < _stored_row_ref.size(); i++) {
                 auto& ref = _stored_row_ref[i];
-                dst_column->replace_column_data(
-                        *ref.block->get_by_position(idx).column, ref.row_pos, i);
+                dst_column->replace_column_data(*ref.block->get_by_position(idx).column,
+                                                ref.row_pos, i);
             }
         } else {
-            for (auto& it : temp_ref_map) {
+            for (auto& it : _temp_ref_map) {
                 auto& src_column = *it.first->get_by_position(idx).column;
                 for (auto& pos : it.second) {
                     dst_column->replace_column_data(src_column, pos.first, pos.second);
@@ -327,6 +330,9 @@ void BlockReader::_copy_agg_data() {
         }
     }
 
+    for (auto& it : _temp_ref_map) {
+        it.second.clear();
+    }
     _stored_row_ref.clear();
 }
 

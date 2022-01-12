@@ -259,6 +259,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     }
     _scan_cpu_timer->update(cpu_watch.elapsed_time());
     _scanner_wait_worker_timer->update(wait_time);
+
+    std::unique_lock<std::mutex> l(_scan_blocks_lock);
     _running_thread--;
 
     // The transfer thead will wait for `_running_thread==0`, to make sure all scanner threads won't access class members.
