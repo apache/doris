@@ -176,8 +176,9 @@ public:
     /// Check that size of null map equals to size of nested column.
     void check_consistency() const;
 
-    bool has_null() const override {
-        size_t size = get_null_map_data().size();
+    bool has_null() const override { return has_null(get_null_map_data().size()); }
+
+    bool has_null(size_t size) const override {
         const UInt8* null_pos = get_null_map_data().data();
         const UInt8* null_pos_end = get_null_map_data().data() + size;
 #ifdef __SSE2__

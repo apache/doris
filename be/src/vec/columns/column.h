@@ -336,6 +336,9 @@ public:
     // true iff column has null element
     virtual bool has_null() const { return false; }
 
+    // true iff column has null element [0,size)
+    virtual bool has_null(size_t size) const { return false; }
+
     /// It's a special kind of column, that contain single value, but is not a ColumnConst.
     virtual bool is_dummy() const { return false; }
 
