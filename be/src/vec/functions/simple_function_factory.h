@@ -65,10 +65,11 @@ void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
+
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
-    using FunctionCreators = std::unordered_map<std::string, Creator>;
-    using FunctionIsVariadic = std::unordered_set<std::string>;
+    using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
+    using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
 
 public:
     void register_function(const std::string& name, Creator ptr) {
