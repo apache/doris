@@ -73,7 +73,7 @@ private:
     OLAPStatus _init_collect_iter(const ReaderParams& read_params,
                                   std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
 
-    void _init_agg_state();
+    void _init_agg_state(const ReaderParams& read_params);
 
     void _insert_data_normal(MutableColumns& columns);
 
@@ -93,7 +93,6 @@ private:
 
     std::vector<int> _normal_columns_idx; // key column on agg mode, all column on uniq mode
     std::vector<int> _agg_columns_idx;
-    phmap::flat_hash_map<int,int>_real_columns_idx;
     std::vector<int> _return_columns_loc;
 
     int _batch_size = 0;
