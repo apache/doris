@@ -285,11 +285,11 @@ void BlockReader::_append_agg_data(MutableColumns& columns) {
 
 void BlockReader::_update_agg_data(MutableColumns& columns) {
     // copy data to stored block
-    _copy_agg_data();
+    size_t copy_size = _copy_agg_data();
 
     // calculate has_null_tag
     for (auto idx : _agg_columns_idx) {
-        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null();
+        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(copy_size);
     }
 
     // calculate aggregate and insert
@@ -308,8 +308,10 @@ void BlockReader::_update_agg_data(MutableColumns& columns) {
     _agg_data_counters.clear();
 }
 
-void BlockReader::_copy_agg_data() {
-    for (int i = 0; i < _stored_row_ref.size(); i++) {
+size_t BlockReader::_copy_agg_data() {
+    size_t copy_size = _stored_row_ref.size();
+
+    for (size_t i = 0; i < copy_size; i++) {
         auto& ref = _stored_row_ref[i];
         _temp_ref_map[ref.block].emplace_back(ref.row_pos, i);
     }
@@ -318,7 +320,7 @@ void BlockReader::_copy_agg_data() {
         auto& dst_column = _stored_data_columns[idx];
         if (_stored_has_string_tag[idx]) {
             //string type should replace ordered
-            for (int i = 0; i < _stored_row_ref.size(); i++) {
+            for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
                 dst_column->replace_column_data(*ref.block->get_by_position(idx).column,
                                                 ref.row_pos, i);
@@ -337,6 +339,8 @@ void BlockReader::_copy_agg_data() {
         it.second.clear();
     }
     _stored_row_ref.clear();
+
+    return copy_size;
 }
 
 void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end, bool is_close) {

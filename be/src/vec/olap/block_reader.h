@@ -81,7 +81,7 @@ private:
 
     void _update_agg_data(MutableColumns& columns);
 
-    void _copy_agg_data();
+    size_t _copy_agg_data();
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
