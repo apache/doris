@@ -24,18 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Seatunnel
-最新版本的[Seatunnel (waterdrop)](https://interestinglab.github.io/seatunnel-docs/#/) 已经支持Doris的连接器,seatunnel 可以用过Spark引擎和Flink引擎同步数据至Doirs中.
+# SeaTunnel
+最新版本的[SeaTunnel (原 waterdrop )](https://interestinglab.github.io/seatunnel-docs/#/) 已经支持 Doris 的连接器, SeaTunnel 可以用过 Spark 引擎和 Flink 引擎同步数据至 Doris 中.
 
-事实上,Seatunnel通过Stream load方式同步数据,性能强劲,欢迎大家使用
+事实上, SeaTunnel 通过 Stream Load 方式同步数据,性能强劲,欢迎大家使用
 
-#安装 Seatunnel
-[Seatunnel安装链接](https://interestinglab.github.io/seatunnel-docs/#/zh-cn/v2/flink/installation)
+#安装 SeaTunnel
+[SeaTunnel 安装链接](https://interestinglab.github.io/seatunnel-docs/#/zh-cn/v2/flink/installation)
 
 ## Spark Sink Doris
 
 ### 插件代码
-Spark Sink Doris的插件代码在[这里](https://github.com/InterestingLab/seatunnel/tree/dev/seatunnel-connectors/plugin-spark-sink-doris)
+Spark Sink Doris 的插件代码在[这里](https://github.com/InterestingLab/seatunnel/tree/dev/seatunnel-connectors/plugin-spark-sink-doris)
 ### 参数列表
 | 参数名 | 参数类型 | 是否必要 | 默认值 | 引擎类型 |
 | --- | --- | --- | --- | --- |
@@ -49,37 +49,37 @@ Spark Sink Doris的插件代码在[这里](https://github.com/InterestingLab/sea
 
 `fenodes [string]`
 
-Dioris Fe节点地址:8030
+Doris Fe节点地址:8030
 
 
 `database [string]`
 
-写入Doris的库名
+写入 Doris 的库名
 
 `table [string]`
 
-写入Doris的表名
+写入 Doris 的表名
 
 `user [string]`
 
-Doris访问用户
+Doris 访问用户
 
 `password [string]`
 
-Doris访问用户密码
+Doris 访问用户密码
 
 `batch_size [string]`
 
-Spark通过Stream_load方式写入,每个批次提交条数
+Spark 通过 Stream Load 方式写入,每个批次提交条数
 
 `doris. [string]`
 
-Stream_load方式写入的Http参数优化,在官网参数前加上'Doris.'前缀
+Stream Load 方式写入的 Http 参数优化,在官网参数前加上'Doris.'前缀
 
-[更多stream_load参数配置](https://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
+[更多 Stream Load 参数配置](https://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
 
 ### Examples
-Hive迁移数据至Doris
+Hive 迁移数据至 Doris
 ```
 env{
   spark.app.name = "hive2doris-template"
