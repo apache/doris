@@ -443,6 +443,11 @@ module.exports = [
             children: ["murmur_hash3_32"],
           },
           {
+            title: "数学函数",
+            directoryPath: "math-functions/",
+            children: ["conv"],
+          },
+          {
             title: "加密和信息摘要函数",
             directoryPath: "encrypt-digest-functions/",
             children: [
