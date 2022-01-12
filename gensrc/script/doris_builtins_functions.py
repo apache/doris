@@ -627,13 +627,13 @@ visible_functions = [
 
     [['conv'], 'VARCHAR', ['BIGINT', 'TINYINT', 'TINYINT'],
             '_ZN5doris13MathFunctions8conv_intEPN9doris_udf'
-            '15FunctionContextERKNS1_9BigIntValERKNS1_10TinyIntValES9_', '', '', '', ''],
+            '15FunctionContextERKNS1_9BigIntValERKNS1_10TinyIntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['conv'], 'VARCHAR', ['VARCHAR', 'TINYINT', 'TINYINT'],
             '_ZN5doris13MathFunctions11conv_stringEPN9doris_udf'
-            '15FunctionContextERKNS1_9StringValERKNS1_10TinyIntValES9_', '', '', '', ''],
+            '15FunctionContextERKNS1_9StringValERKNS1_10TinyIntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['conv'], 'VARCHAR', ['STRING', 'TINYINT', 'TINYINT'],
             '_ZN5doris13MathFunctions11conv_stringEPN9doris_udf'
-            '15FunctionContextERKNS1_9StringValERKNS1_10TinyIntValES9_', '', '', '', ''],
+            '15FunctionContextERKNS1_9StringValERKNS1_10TinyIntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
     [['pmod'], 'BIGINT', ['BIGINT', 'BIGINT'],
             '_ZN5doris13MathFunctions11pmod_bigintEPN9doris_udf'
