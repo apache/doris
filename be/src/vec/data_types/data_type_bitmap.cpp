@@ -90,4 +90,13 @@ void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& b
     read_string_binary(ref, buf);
     value.deserialize(ref.data);
 }
+
+void DataTypeBitMap::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
+        doris::vectorized::BufferWritable& ostr) const {
+    auto& data = const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));
+    std::string result(data.getSizeInBytes(), '0');
+    data.write((char*)result.data());
+
+    ostr.write(result.data(), result.size());
+}
 } // namespace doris::vectorized

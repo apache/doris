@@ -65,6 +65,7 @@ public:
     bool can_be_inside_low_cardinality() const override { return false; }
 
     std::string to_string(const IColumn& column, size_t row_num) const { return "BitMap()"; }
+    void to_string(const IColumn &column, size_t row_num, BufferWritable &ostr) const override;
 
     [[noreturn]] virtual Field get_default() const {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
