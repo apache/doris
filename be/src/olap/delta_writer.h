@@ -48,6 +48,7 @@ struct WriteRequest {
     TupleDescriptor* tuple_desc;
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
+    bool is_high_priority = false;
 };
 
 // Writer for a particular (load, index, tablet).

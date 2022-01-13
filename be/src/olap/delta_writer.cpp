@@ -148,7 +148,8 @@ OLAPStatus DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(&_flush_token, writer_context.rowset_type));
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(&_flush_token,
+            writer_context.rowset_type, _req.is_high_priority));
 
     _is_init = true;
     return OLAP_SUCCESS;
