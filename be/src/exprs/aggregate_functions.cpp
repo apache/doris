@@ -1874,8 +1874,8 @@ static double compute_knuth_variance(const KnuthVarianceState& state, bool pop) 
 static DecimalV2Value decimalv2_compute_knuth_variance(const DecimalV2KnuthVarianceState& state,
                                                        bool pop) {
     DecimalV2Value new_count = DecimalV2Value();
-    new_count.assign_from_double(state.count);
     if (state.count == 1) return new_count;
+    new_count.assign_from_double(state.count);
     DecimalV2Value new_m2 = DecimalV2Value::from_decimal_val(state.m2);
     if (pop)
         return new_m2 / new_count;
