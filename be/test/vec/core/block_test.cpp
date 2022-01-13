@@ -140,7 +140,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
 
         larget_int = column7->operator[](i).get<vectorized::Int128>();
         vectorized::VecDateTimeValue k7;
-        memcpy(&k7, &larget_int, column_descs[6].size);
+        memcpy(reinterpret_cast<vectorized::Int128*>(&k7), &larget_int, column_descs[6].size);
         vectorized::VecDateTimeValue date_time_value;
         std::string now_time("2020-12-02");
         date_time_value.from_date_str(now_time.c_str(), now_time.size());

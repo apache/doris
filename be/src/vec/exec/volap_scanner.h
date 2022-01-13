@@ -19,9 +19,10 @@
 
 #include "exec/olap_scanner.h"
 
+#include "vec/olap/block_reader.h"
+
 namespace doris {
 class OlapScanNode;
-class OLAPReader;
 class RuntimeProfile;
 class Field;
 class RowBatch;
@@ -40,6 +41,9 @@ public:
     }
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
+
+protected:
+    virtual void set_tablet_reader() { _tablet_reader = std::make_unique<BlockReader>(); }
 
 private:
     // TODO: Remove this function after we finish reader vec

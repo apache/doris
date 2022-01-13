@@ -292,7 +292,7 @@ void VecDateTimeValue::set_type(int type) {
 
 void VecDateTimeValue::set_max_time(bool neg) {
     set_zero(TIME_TIME);
-    _hour = TIME_MAX_HOUR;
+    _hour = static_cast<uint8_t>(TIME_MAX_HOUR);
     _minute = TIME_MAX_MINUTE;
     _second = TIME_MAX_SECOND;
     _neg = neg;

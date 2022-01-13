@@ -292,7 +292,7 @@ private:
         DecimalV2Value r(b);
         auto ans = Op::template apply(l, r, null_map, index);
         NativeResultType result;
-        memcpy(&result, &ans, sizeof(NativeResultType));
+        memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
         return result;
     }
 

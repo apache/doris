@@ -24,7 +24,7 @@ namespace vectorized {
 
 VCollectIterator::~VCollectIterator() {}
 
-void VCollectIterator::init(Reader* reader) {
+void VCollectIterator::init(TabletReader* reader) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for better performance
@@ -159,7 +159,7 @@ OLAPStatus VCollectIterator::next(Block* block) {
     }
 }
 
-VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader)
+VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetReader::BETA, rs_reader->type());
     _block = _schema.create_block(_reader->_return_columns);
@@ -207,7 +207,7 @@ OLAPStatus VCollectIterator::Level0Iterator::next(Block* block) {
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<VCollectIterator::LevelIterator*>& children, Reader* reader, bool merge,
+        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader, bool merge,
         bool skip_same)
         : LevelIterator(reader),
           _children(children),

@@ -119,7 +119,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 OLAPStatus BlockReader::init(const ReaderParams& read_params) {
-    Reader::init(read_params);
+    TabletReader::init(read_params);
     _batch_size = read_params.runtime_state->batch_size();
 
     auto return_column_size =

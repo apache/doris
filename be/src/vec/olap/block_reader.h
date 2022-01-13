@@ -32,9 +32,9 @@ namespace doris {
 
 namespace vectorized {
 
-class BlockReader final : public Reader {
+class BlockReader final : public TabletReader {
 public:
-    ~BlockReader();
+    ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
     OLAPStatus init(const ReaderParams& read_params) override;
