@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Add labels based on PR title
-        uses: jackwener/set-label-based-on-pr-title@v1.2
+        uses: ./.github/actions/set-label-based-on-pr-title
         with:
           words: >-
             [fix];
