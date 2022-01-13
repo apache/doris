@@ -25,59 +25,46 @@
 #include "util/url_coding.h"
 #include "vec/core/field.h"
 
-namespace doris {
-using vectorized::Null;
-using vectorized::DataSet;
-using vectorized::TypeIndex;
+namespace doris::vectorized {
 
 TEST(IfNullTest, Int_Test) {
     std::string func_name = "ifnull";
-    std::vector<std::any> input_types = {TypeIndex::Int32,
-                                         TypeIndex::Int32};
-    DataSet data_set = {
-            {{4, 10}, 4},
-            {{-4, 10}, -4},
-            {{Null(), 5}, 5}};
+    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+    DataSet data_set = {{{4, 10}, 4}, {{-4, 10}, -4}, {{Null(), 5}, 5}};
 
-    vectorized::check_function<vectorized::DataTypeInt32, true>(func_name, input_types, data_set);
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
 TEST(IfNullTest, Float_Test) {
     std::string func_name = "ifnull";
-    std::vector<std::any> input_types = {TypeIndex::Float64,
-                                         TypeIndex::Float64};
-    DataSet data_set = {
-            {{4.0, 10.0}, 4.0},
-            {{-4.0, 10.0}, -4.0},
-            {{Null(), 5.0}, 5.0}};
+    InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
+    DataSet data_set = {{{4.0, 10.0}, 4.0}, {{-4.0, 10.0}, -4.0}, {{Null(), 5.0}, 5.0}};
 
-    vectorized::check_function<vectorized::DataTypeFloat64 , true>(func_name, input_types, data_set);
+    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
 TEST(IfNullTest, String_Test) {
     std::string func_name = "ifnull";
-    std::vector<std::any> input_types = {TypeIndex::String,
-                                         TypeIndex::String};
-    DataSet data_set = {
-            {{std::string("4.0"), std::string("10.0")}, std::string("4.0")},
-            {{std::string("hello"), std::string("10.0")}, std::string("hello")},
-            {{Null(), std::string("world")}, std::string("world")}};
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    DataSet data_set = {{{std::string("4.0"), std::string("10.0")}, std::string("4.0")},
+                        {{std::string("hello"), std::string("10.0")}, std::string("hello")},
+                        {{Null(), std::string("world")}, std::string("world")}};
 
-    vectorized::check_function<vectorized::DataTypeString, true>(func_name, input_types, data_set);
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
 TEST(IfNullTest, String_Int_Test) {
     std::string func_name = "ifnull";
-    std::vector<std::any> input_types = {TypeIndex::DateTime,
-                                         TypeIndex::DateTime};
-    DataSet data_set = {
-            {{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")}, vectorized::str_to_data_time("2021-10-24 12:32:31")},
-            {{Null(), std::string("2021-10-24 13:00:01")}, vectorized::str_to_data_time("2021-10-24 13:00:01")}};
+    InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTime};
+    DataSet data_set = {{{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
+                         str_to_data_time("2021-10-24 12:32:31")},
+                        {{Null(), std::string("2021-10-24 13:00:01")},
+                         str_to_data_time("2021-10-24 13:00:01")}};
 
-    vectorized::check_function<vectorized::DataTypeDateTime, true>(func_name, input_types, data_set);
+    check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-} // namespace doris
+} // namespace doris::vectorized
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
