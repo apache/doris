@@ -1578,7 +1578,7 @@ public class Config extends ConfigBase {
      * on same host. And also the tablet repair and balance will be disabled.
      * This is only for local test, so that we can deploy multi BE on same host and create table
      * with multi replicas.
-     * DO NOT use it for formal env.
+     * DO NOT use it for production env.
      */
     @ConfField
     public static boolean allow_replica_on_same_host = false;
