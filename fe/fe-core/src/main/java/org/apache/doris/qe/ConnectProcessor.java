@@ -476,7 +476,7 @@ public class ConnectProcessor {
             // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
             // return error directly.
             TMasterOpResult result = new TMasterOpResult();
-            ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Missing current user identity. You need to upgrade this Frontend " +
+            ctx.getState().setError(ErrorCode.ERR_COMMON_ERROR, "Missing current user identity. You need to upgrade this Frontend " +
                     "to the same version as Master Frontend.");
             result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
             result.setPacket(getResultPacket());
