@@ -50,10 +50,11 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_HLL_union_agg(instance);
         register_aggregate_function_reader(instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
-
+        register_aggregate_function_stddev_variance(instance);
+        
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);
-        register_aggregate_function_stddev_variance(instance);
+        
         register_aggregate_function_reader_no_spread(instance);
         register_aggregate_function_window_lead_lag(instance);
     });

@@ -114,6 +114,11 @@ public:
       */
     virtual bool is_state() const { return false; }
 
+    /// if return false, during insert_result_into function, you colud get nullable result column, 
+    /// so could insert to null value by yourself, rather than by AggregateFunctionNullBase;
+    /// because you maybe be calculate a invalid value, but want to use null replace it;
+    virtual bool insert_to_null_default() const { return true; }
+
     /** The inner loop that uses the function pointer is better than using the virtual function.
       * The reason is that in the case of virtual functions GCC 5.1.2 generates code,
       *  which, at each iteration of the loop, reloads the function address (the offset value in the virtual function table) from memory to the register.

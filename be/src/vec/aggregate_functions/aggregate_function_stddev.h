@@ -84,17 +84,8 @@ struct BaseData {
     }
 
     void add(const IColumn** columns, size_t row_num) {
-        double source_data = 0.0;
-        if (auto* nullable_column = check_and_get_column<const ColumnNullable>(*columns[0])) {
-            if (nullable_column->is_null_at(row_num)) {
-                return;
-            }
-            const auto& sources = static_cast<const ColumnVector<T>&>((nullable_column->get_nested_column()));
-            source_data = sources.get_data()[row_num];
-        } else {
-            const auto& sources = static_cast<const ColumnVector<T>&>(*columns[0]);
-            source_data = sources.get_data()[row_num];
-        }
+        const auto& sources = static_cast<const ColumnVector<T>&>(*columns[0]);
+        double source_data = sources.get_data()[row_num];
 
         double delta = source_data - mean;
         double r = delta / (1 + count);
@@ -175,16 +166,8 @@ struct BaseDatadecimal {
 
     void add(const IColumn** columns, size_t row_num) {
         DecimalV2Value source_data = DecimalV2Value();
-        if (auto* nullable_column = check_and_get_column<const ColumnNullable>(*columns[0])) {
-            if (nullable_column->is_null_at(row_num)) {
-                return;
-            }
-            const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>((nullable_column->get_nested_column()));
-            source_data = (DecimalV2Value)sources.get_data()[row_num];
-        } else {
-            const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>(*columns[0]);
-            source_data = (DecimalV2Value)sources.get_data()[row_num];
-        }
+        const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>(*columns[0]);
+        source_data = (DecimalV2Value)sources.get_data()[row_num];
 
         DecimalV2Value new_count = DecimalV2Value();
         new_count.assign_from_double(count);
@@ -208,17 +191,13 @@ struct PopData : Data {
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<Float64>>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 0) {
-            nullable_column.insert_default();
+        auto& col = static_cast<ColVecResult&>(nullable_column.get_nested_column());
+        if constexpr (IsDecimalNumber<T>) {
+            col.get_data().push_back(this->get_pop_result().value());
         } else {
-            auto& col = static_cast<ColVecResult&>(nullable_column.get_nested_column());
-            if constexpr (IsDecimalNumber<T>) {
-                col.get_data().push_back(this->get_pop_result().value());
-            } else {
-                col.get_data().push_back(this->get_pop_result());
-            }
-            nullable_column.get_null_map_data().push_back(0);
+            col.get_data().push_back(this->get_pop_result());
         }
+        nullable_column.get_null_map_data().push_back(0);
     }
 };
 
@@ -227,7 +206,7 @@ struct SampData : Data {
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<Float64>>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 0 || this->count == 1) {
+        if (this->count == 1) {
             nullable_column.insert_default();
         } else {
             auto& col = static_cast<ColVecResult&>(nullable_column.get_nested_column());
@@ -270,6 +249,8 @@ public:
                                                                                     {}) {}
 
     String get_name() const override { return Data::name(); }
+
+    bool insert_to_null_default() const override { return false; }
 
     DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
