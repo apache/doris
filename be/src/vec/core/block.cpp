@@ -843,6 +843,17 @@ void MutableBlock::add_row(const Block* block, int row) {
     }
 }
 
+void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
+    auto& src_columns_with_schema = block->get_columns_with_type_and_name();
+    for (size_t i = 0; i < _columns.size(); ++i) {
+        auto& dst = _columns[i];
+        auto& src = *src_columns_with_schema[i].column.get();
+        for (const int* row = row_begin; row != row_end; ++row) {
+            dst->insert_from(src, *row);
+        }
+    }
+}
+
 Block MutableBlock::to_block(int start_column) {
     return to_block(start_column, _columns.size());
 }
