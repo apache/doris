@@ -287,6 +287,14 @@ TEST_F(StringFunctionsTest, null_or_empty) {
     delete context;
 }
 
+TEST_F(StringFunctionsTest, left) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
+              StringFunctions::left(context, StringVal(""), 10));
+    delete context;
+}
+
 TEST_F(StringFunctionsTest, substring) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
@@ -470,6 +478,8 @@ TEST_F(StringFunctionsTest, lpad) {
               StringFunctions::lpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"),
               StringFunctions::lpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"),
+              StringFunctions::lpad(ctx, StringVal("你"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""),
               StringFunctions::lpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
     ASSERT_EQ(StringVal::null(),
@@ -498,6 +508,8 @@ TEST_F(StringFunctionsTest, rpad) {
               StringFunctions::rpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"),
               StringFunctions::rpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"),
+              StringFunctions::rpad(ctx, StringVal("你"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""),
               StringFunctions::rpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
     ASSERT_EQ(StringVal::null(),
@@ -555,6 +567,11 @@ TEST_F(StringFunctionsTest, replace) {
     ASSERT_EQ(StringVal("http://华夏zhongguo:9090"),
               StringFunctions::replace(ctx, StringVal("http://中国hello:9090"),
                                        StringVal("中国hello"), StringVal("华夏zhongguo")));
+
+    //old substring is at the beginning of string
+    ASSERT_EQ(StringVal("ftp://www.baidu.com:9090"),
+              StringFunctions::replace(ctx, StringVal("http://www.baidu.com:9090"),
+                                       StringVal("http"), StringVal("ftp")));
 }
 
 TEST_F(StringFunctionsTest, parse_url) {
@@ -659,6 +676,76 @@ TEST_F(StringFunctionsTest, upper) {
     ASSERT_EQ(StringVal("HELLO, 123"), StringFunctions::upper(ctx, StringVal("hello, 123")));
     ASSERT_EQ(StringVal::null(), StringFunctions::upper(ctx, StringVal::null()));
     ASSERT_EQ(StringVal(""), StringFunctions::upper(ctx, StringVal("")));
+}
+
+TEST_F(StringFunctionsTest, ltrim) {
+    // no blank
+    StringVal src("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    StringVal res = StringFunctions::ltrim(ctx, src);
+    ASSERT_EQ(src, res);
+    // empty string
+    StringVal src1("");
+    res = StringFunctions::ltrim(ctx, src1);
+    ASSERT_EQ(src1, res);
+    // null string
+    StringVal src2(StringVal::null());
+    res = StringFunctions::ltrim(ctx, src2);
+    ASSERT_EQ(src2, res);
+    // less than 16 blanks
+    StringVal src3("       hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    res = StringFunctions::ltrim(ctx, src3);
+    ASSERT_EQ(src, res);
+    // more than 16 blanks
+    StringVal src4("                   hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    res = StringFunctions::ltrim(ctx, src4);
+    ASSERT_EQ(src, res);
+    // all are blanks, less than 16 blanks
+    StringVal src5("       ");
+    res = StringFunctions::ltrim(ctx, src5);
+    ASSERT_EQ(StringVal(""), res);
+    // all are blanks, more than 16 blanks
+    StringVal src6("                  ");
+    res = StringFunctions::ltrim(ctx, src6);
+    ASSERT_EQ(StringVal(""), res);
+    // src less than 16 length
+    StringVal src7(" 12345678910");
+    res = StringFunctions::ltrim(ctx, src7);
+    ASSERT_EQ(StringVal("12345678910"), res);
+}
+
+TEST_F(StringFunctionsTest, rtrim) {
+    // no blank
+    StringVal src("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    StringVal res = StringFunctions::rtrim(ctx, src);
+    ASSERT_EQ(src, res);
+    // empty string
+    StringVal src1("");
+    res = StringFunctions::rtrim(ctx, src1);
+    ASSERT_EQ(src1, res);
+    // null string
+    StringVal src2(StringVal::null());
+    res = StringFunctions::rtrim(ctx, src2);
+    ASSERT_EQ(src2, res);
+    // less than 16 blanks
+    StringVal src3("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa       ");
+    res = StringFunctions::rtrim(ctx, src3);
+    ASSERT_EQ(src, res);
+    // more than 16 blanks
+    StringVal src4("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                      ");
+    res = StringFunctions::rtrim(ctx, src4);
+    ASSERT_EQ(src, res);
+    // all are blanks, less than 16 blanks
+    StringVal src5("       ");
+    res = StringFunctions::rtrim(ctx, src5);
+    ASSERT_EQ(StringVal(""), res);
+    // all are blanks, more than 16 blanks
+    StringVal src6("                  ");
+    res = StringFunctions::rtrim(ctx, src6);
+    ASSERT_EQ(StringVal(""), res);
+    // src less than 16 length
+    StringVal src7("12345678910 ");
+    res = StringFunctions::rtrim(ctx, src7);
+    ASSERT_EQ(StringVal("12345678910"), res);
 }
 
 } // namespace doris

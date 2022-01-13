@@ -208,6 +208,12 @@ under the License.
         grammer:
             MODIFY COLUMN col1 COMMENT "new column comment"
 
+	12. Modify engine type
+
+        Only the MySQL type can be changed to the ODBC type. The value of driver is the name of the driver in the odbc.init configuration.
+
+        grammar:
+            MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
      
     Rename supports modification of the following names:
     1. Modify the table name
@@ -395,6 +401,10 @@ under the License.
     20. Modify column comment
 
         ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
+
+    21. Modify engine Type
+
+        ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
         
     [rename]
     1. Modify the table named table1 to table2

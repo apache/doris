@@ -31,7 +31,7 @@ namespace doris {
 /// it's an internal queue, the list pointers are maintained in the Nodes which is memory
 /// owned by the user. The nodes cannot be deallocated while the queue has elements.
 /// The internal structure is a doubly-linked list.
-///  NULL <-- N1 <--> N2 <--> N3 --> NULL
+///  nullptr <-- N1 <--> N2 <--> N3 --> nullptr
 ///          (head)          (tail)
 ///
 /// InternalQueue<T> instantiates a thread-safe queue where the queue is protected by an
@@ -48,13 +48,13 @@ class InternalQueueBase {
 public:
     struct Node {
     public:
-        Node() : parent_queue(NULL), next_node(NULL), prev_node(NULL) {}
+        Node() : parent_queue(nullptr), next_node(nullptr), prev_node(nullptr) {}
         virtual ~Node() {}
 
         /// Returns true if the node is in a queue.
-        bool in_queue() const { return parent_queue != NULL; }
+        bool in_queue() const { return parent_queue != nullptr; }
 
-        /// Returns the Next/Prev node or NULL if this is the end/front.
+        /// Returns the Next/Prev node or nullptr if this is the end/front.
         T* next() const {
             std::lock_guard<LockType> lock(parent_queue->lock_);
             return reinterpret_cast<T*>(next_node);
@@ -67,88 +67,88 @@ public:
     private:
         friend class InternalQueueBase<LockType, T>;
 
-        /// Pointer to the queue this Node is on. NULL if not on any queue.
+        /// Pointer to the queue this Node is on. nullptr if not on any queue.
         InternalQueueBase<LockType, T>* parent_queue;
         Node* next_node;
         Node* prev_node;
     };
 
-    InternalQueueBase() : head_(NULL), tail_(NULL), size_(0) {}
+    InternalQueueBase() : head_(nullptr), tail_(nullptr), size_(0) {}
 
-    /// Returns the element at the head of the list without dequeuing or NULL
+    /// Returns the element at the head of the list without dequeuing or nullptr
     /// if the queue is empty. This is O(1).
     T* head() const {
         std::lock_guard<LockType> lock(lock_);
-        if (empty()) return NULL;
+        if (empty()) return nullptr;
         return reinterpret_cast<T*>(head_);
     }
 
-    /// Returns the element at the end of the list without dequeuing or NULL
+    /// Returns the element at the end of the list without dequeuing or nullptr
     /// if the queue is empty. This is O(1).
     T* tail() {
         std::lock_guard<LockType> lock(lock_);
-        if (empty()) return NULL;
+        if (empty()) return nullptr;
         return reinterpret_cast<T*>(tail_);
     }
 
     /// Enqueue node onto the queue's tail. This is O(1).
     void enqueue(T* n) {
         Node* node = (Node*)n;
-        DCHECK(node->next_node == NULL);
-        DCHECK(node->prev_node == NULL);
-        DCHECK(node->parent_queue == NULL);
+        DCHECK(node->next_node == nullptr);
+        DCHECK(node->prev_node == nullptr);
+        DCHECK(node->parent_queue == nullptr);
         node->parent_queue = this;
         {
             std::lock_guard<LockType> lock(lock_);
-            if (tail_ != NULL) tail_->next_node = node;
+            if (tail_ != nullptr) tail_->next_node = node;
             node->prev_node = tail_;
             tail_ = node;
-            if (head_ == NULL) head_ = node;
+            if (head_ == nullptr) head_ = node;
             ++size_;
         }
     }
 
-    /// Dequeues an element from the queue's head. Returns NULL if the queue
+    /// Dequeues an element from the queue's head. Returns nullptr if the queue
     /// is empty. This is O(1).
     T* dequeue() {
-        Node* result = NULL;
+        Node* result = nullptr;
         {
             std::lock_guard<LockType> lock(lock_);
-            if (empty()) return NULL;
+            if (empty()) return nullptr;
             --size_;
             result = head_;
             head_ = head_->next_node;
-            if (head_ == NULL) {
-                tail_ = NULL;
+            if (head_ == nullptr) {
+                tail_ = nullptr;
             } else {
-                head_->prev_node = NULL;
+                head_->prev_node = nullptr;
             }
         }
-        DCHECK(result != NULL);
-        result->next_node = result->prev_node = NULL;
-        result->parent_queue = NULL;
+        DCHECK(result != nullptr);
+        result->next_node = result->prev_node = nullptr;
+        result->parent_queue = nullptr;
         return reinterpret_cast<T*>(result);
     }
 
-    /// Dequeues an element from the queue's tail. Returns NULL if the queue
+    /// Dequeues an element from the queue's tail. Returns nullptr if the queue
     /// is empty. This is O(1).
     T* pop_back() {
-        Node* result = NULL;
+        Node* result = nullptr;
         {
             std::lock_guard<LockType> lock(lock_);
-            if (empty()) return NULL;
+            if (empty()) return nullptr;
             --size_;
             result = tail_;
             tail_ = tail_->prev_node;
-            if (tail_ == NULL) {
-                head_ = NULL;
+            if (tail_ == nullptr) {
+                head_ = nullptr;
             } else {
-                tail_->next_node = NULL;
+                tail_->next_node = nullptr;
             }
         }
-        DCHECK(result != NULL);
-        result->next_node = result->prev_node = NULL;
-        result->parent_queue = NULL;
+        DCHECK(result != nullptr);
+        result->next_node = result->prev_node = nullptr;
+        result->parent_queue = nullptr;
         return reinterpret_cast<T*>(result);
     }
 
@@ -159,34 +159,34 @@ public:
         if (node->parent_queue != this) return false;
         {
             std::lock_guard<LockType> lock(lock_);
-            if (node->next_node == NULL && node->prev_node == NULL) {
+            if (node->next_node == nullptr && node->prev_node == nullptr) {
                 // Removing only node
                 DCHECK(node == head_);
                 DCHECK(tail_ == node);
-                head_ = tail_ = NULL;
+                head_ = tail_ = nullptr;
                 --size_;
-                node->parent_queue = NULL;
+                node->parent_queue = nullptr;
                 return true;
             }
 
             if (head_ == node) {
-                DCHECK(node->prev_node == NULL);
+                DCHECK(node->prev_node == nullptr);
                 head_ = node->next_node;
             } else {
-                DCHECK(node->prev_node != NULL);
+                DCHECK(node->prev_node != nullptr);
                 node->prev_node->next_node = node->next_node;
             }
 
             if (node == tail_) {
-                DCHECK(node->next_node == NULL);
+                DCHECK(node->next_node == nullptr);
                 tail_ = node->prev_node;
-            } else if (node->next_node != NULL) {
+            } else if (node->next_node != nullptr) {
                 node->next_node->prev_node = node->prev_node;
             }
             --size_;
         }
-        node->next_node = node->prev_node = NULL;
-        node->parent_queue = NULL;
+        node->next_node = node->prev_node = nullptr;
+        node->parent_queue = nullptr;
         return true;
     }
 
@@ -194,18 +194,18 @@ public:
     void clear() {
         std::lock_guard<LockType> lock(lock_);
         Node* cur = head_;
-        while (cur != NULL) {
+        while (cur != nullptr) {
             Node* tmp = cur;
             cur = cur->next_node;
-            tmp->prev_node = tmp->next_node = NULL;
-            tmp->parent_queue = NULL;
+            tmp->prev_node = tmp->next_node = nullptr;
+            tmp->parent_queue = nullptr;
         }
         size_ = 0;
-        head_ = tail_ = NULL;
+        head_ = tail_ = nullptr;
     }
 
     int size() const { return size_; }
-    bool empty() const { return head_ == NULL; }
+    bool empty() const { return head_ == nullptr; }
 
     /// Returns if the target is on the queue. This is O(1) and does not acquire any locks.
     bool contains(const T* target) const { return target->parent_queue == this; }
@@ -214,19 +214,19 @@ public:
     bool validate() {
         int num_elements_found = 0;
         std::lock_guard<LockType> lock(lock_);
-        if (head_ == NULL) {
-            if (tail_ != NULL) return false;
+        if (head_ == nullptr) {
+            if (tail_ != nullptr) return false;
             if (size() != 0) return false;
             return true;
         }
 
-        if (head_->prev_node != NULL) return false;
+        if (head_->prev_node != nullptr) return false;
         Node* current = head_;
-        while (current != NULL) {
+        while (current != nullptr) {
             if (current->parent_queue != this) return false;
             ++num_elements_found;
             Node* next_node = current->next_node;
-            if (next_node == NULL) {
+            if (next_node == nullptr) {
                 if (current != tail_) return false;
             } else {
                 if (next_node->prev_node != current) return false;
@@ -242,7 +242,7 @@ public:
     // from 'fn'.
     void iterate(std::function<bool(T*)> fn) {
         std::lock_guard<LockType> lock(lock_);
-        for (Node* current = head_; current != NULL; current = current->next_node) {
+        for (Node* current = head_; current != nullptr; current = current->next_node) {
             if (!fn(reinterpret_cast<T*>(current))) return;
         }
     }
@@ -254,7 +254,7 @@ public:
         {
             std::lock_guard<LockType> lock(lock_);
             Node* curr = head_;
-            while (curr != NULL) {
+            while (curr != nullptr) {
                 ss << (void*)curr;
                 curr = curr->next_node;
             }

@@ -107,7 +107,7 @@ public:
     // Materialize this by evaluating the expressions in materialize_exprs
     // over the specified 'row'. 'pool' is used to allocate var-length data.
     // (Memory for this tuple itself must already be allocated.)
-    // If collect_string_vals is true, the materialized non-NULL string value
+    // If collect_string_vals is true, the materialized non-nullptr string value
     // slots and the total length of the string slots are returned in var_values
     // and total_var_len.
     template <bool collect_string_vals>

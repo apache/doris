@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'TIME TIMEDIFF (DATETIME expr1, DATETIME expr2)'
+`TIME TIMEDIFF (DATETIME expr1, DATETIME expr2)`
 
 
 TIMEDIFF returns the difference between two DATETIMEs

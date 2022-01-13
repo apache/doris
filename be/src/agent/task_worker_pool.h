@@ -208,6 +208,9 @@ private:
     OLAPStatus _check_migrate_requset(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
                                       DataDir** dest_store);
 
+    // random sleep 1~second seconds
+    void _random_sleep(int second);
+
 private:
     std::string _name;
 

@@ -57,6 +57,7 @@ under the License.
           [PROPERTIES ("key"="value", ...)]
         
           可以指定如下参数：
+            label: 指定一个自定义作业标识。后续可以使用这个标识查看作业状态。
             column_separator: 指定导出的列分隔符，默认为\t。支持不可见字符，比如 '\x07'。
             column: 指定待导出的列，使用英文逗号隔开，如果不填这个参数默认是导出表的所有列。
             line_delimiter: 指定导出的行分隔符，默认为\n。支持不可见字符，比如 '\x07'。
@@ -73,6 +74,15 @@ under the License.
       对于不同存储系统对应的 broker，这里需要输入的参数不同。具体参数可以参阅：`help broker load` 中 broker 所需属性。
       导出到本地时，不需要填写这部分。
 
+    7. hdfs
+      指定导出到hdfs
+          语法：
+          WITH HDFS ("key"="value"[,...])
+
+          可以指定如下参数：
+            fs.defaultFS: 指定HDFS的fs，格式为：hdfs://ip:port
+            hdfs_user：指定写入HDFS的user
+
 ## example
 
     1. 将 testTbl 表中的所有数据导出到 hdfs 上
@@ -81,8 +91,8 @@ under the License.
     2. 将 testTbl 表中的分区p1,p2导出到 hdfs 上
         EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
     
-    3. 将 testTbl 表中的所有数据导出到 hdfs 上，以","作为列分隔符
-        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+    3. 将 testTbl 表中的所有数据导出到 hdfs 上，以","作为列分隔符，并指定label
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("label" = "mylabel", "column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
     
     4. 将 testTbl 表中 k1 = 1 的行导出到 hdfs 上。
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
@@ -95,6 +105,9 @@ under the License.
  
     7. 将 testTbl 表的 k1, v1 列导出到本地。
         EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
+
+    8. 将 testTbl 表中的所有数据导出到 hdfs 上，以不可见字符 "\x07" 作为列或者行分隔符。
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH HDFS ("fs.defaultFS"="hdfs://hdfs_host:port", "hdfs_user"="yyy")
 
 ## keyword
     EXPORT

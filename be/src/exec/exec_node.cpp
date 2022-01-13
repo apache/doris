@@ -48,6 +48,7 @@
 #include "exec/schema_scan_node.h"
 #include "exec/select_node.h"
 #include "exec/spill_sort_node.h"
+#include "exec/table_function_node.h"
 #include "exec/topn_node.h"
 #include "exec/union_node.h"
 #include "exprs/expr_context.h"
@@ -89,16 +90,16 @@ bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch, int64_t timeo
 }
 
 RowBatch* ExecNode::RowBatchQueue::GetBatch() {
-    RowBatch* result = NULL;
+    RowBatch* result = nullptr;
     if (blocking_get(&result)) return result;
-    return NULL;
+    return nullptr;
 }
 
 int ExecNode::RowBatchQueue::Cleanup() {
     int num_io_buffers = 0;
 
-    // RowBatch* batch = NULL;
-    // while ((batch = GetBatch()) != NULL) {
+    // RowBatch* batch = nullptr;
+    // while ((batch = GetBatch()) != nullptr) {
     //   num_io_buffers += batch->num_io_buffers();
     //   delete batch;
     // }
@@ -124,9 +125,9 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _debug_action(TDebugAction::WAIT),
           _limit(tnode.limit),
           _num_rows_returned(0),
-          _rows_returned_counter(NULL),
-          _rows_returned_rate(NULL),
-          _memory_used_counter(NULL),
+          _rows_returned_counter(nullptr),
+          _rows_returned_rate(nullptr),
+          _memory_used_counter(nullptr),
           _is_closed(false) {}
 
 ExecNode::~ExecNode() {}
@@ -174,7 +175,7 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::PREPARE));
-    DCHECK(_runtime_profile.get() != NULL);
+    DCHECK(_runtime_profile.get() != nullptr);
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
@@ -227,7 +228,7 @@ Status ExecNode::close(RuntimeState* state) {
     _is_closed = true;
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 
-    if (_rows_returned_counter != NULL) {
+    if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
 
@@ -271,12 +272,12 @@ void ExecNode::add_runtime_exec_option(const std::string& str) {
 Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
                              const DescriptorTbl& descs, ExecNode** root) {
     if (plan.nodes.size() == 0) {
-        *root = NULL;
+        *root = nullptr;
         return Status::OK();
     }
 
     int node_idx = 0;
-    RETURN_IF_ERROR(create_tree_helper(state, pool, plan.nodes, descs, NULL, &node_idx, root));
+    RETURN_IF_ERROR(create_tree_helper(state, pool, plan.nodes, descs, nullptr, &node_idx, root));
 
     if (node_idx + 1 != plan.nodes.size()) {
         // TODO: print thrift msg for diagnostic purposes.
@@ -299,11 +300,11 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
     const TPlanNode& tnode = tnodes[*node_idx];
 
     int num_children = tnodes[*node_idx].num_children;
-    ExecNode* node = NULL;
+    ExecNode* node = nullptr;
     RETURN_IF_ERROR(create_node(state, pool, tnodes[*node_idx], descs, &node));
 
-    // assert(parent != NULL || (node_idx == 0 && root_expr != NULL));
-    if (parent != NULL) {
+    // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
+    if (parent != nullptr) {
         parent->_children.push_back(node);
     } else {
         *root = node;
@@ -311,7 +312,7 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
 
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
-        RETURN_IF_ERROR(create_tree_helper(state, pool, tnodes, descs, node, node_idx, NULL));
+        RETURN_IF_ERROR(create_tree_helper(state, pool, tnodes, descs, node, node_idx, nullptr));
 
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
@@ -326,11 +327,11 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
     // build up tree of profiles; add children >0 first, so that when we print
     // the profile, child 0 is printed last (makes the output more readable)
     for (int i = 1; i < node->_children.size(); ++i) {
-        node->runtime_profile()->add_child(node->_children[i]->runtime_profile(), true, NULL);
+        node->runtime_profile()->add_child(node->_children[i]->runtime_profile(), true, nullptr);
     }
 
     if (!node->_children.empty()) {
-        node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), true, NULL);
+        node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), true, nullptr);
     }
 
     return Status::OK();
@@ -338,6 +339,10 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
 
 Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                              const DescriptorTbl& descs, ExecNode** node) {
+    if (state->enable_vectorized_exec()) {
+        return Status::InternalError("unsupport enable_vectorized_engine");
+    }
+
     std::stringstream error_msg;
 
     VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
@@ -466,6 +471,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
         *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::TABLE_FUNCTION_NODE:
+        *node = pool->add(new TableFunctionNode(pool, tnode, descs));
         return Status::OK();
 
     default:
@@ -650,6 +659,10 @@ Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
     // TODO chenhao , when introduce latest AnalyticEvalNode open it
     // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
     return state->check_query_state(msg);
+}
+
+Status ExecNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    return Status::NotSupported("Not Implemented get batch");
 }
 
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {

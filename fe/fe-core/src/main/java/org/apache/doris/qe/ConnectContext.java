@@ -28,17 +28,20 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
+import java.util.Set;
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -104,7 +107,8 @@ public class ConnectContext {
     protected Catalog catalog;
     protected boolean isSend;
 
-    protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();;
+    protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
+    ;
 
     protected String remoteIP;
 
@@ -115,8 +119,19 @@ public class ConnectContext {
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
+    // The resource tag is used to limit the node resources that the user can use for query.
+    // The default is empty, that is, unlimited.
+    // This property is obtained from UserProperty when the client connection is created.
+    // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
+    private Set<Tag> resourceTags = Sets.newHashSet();
+    // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
+    // If set to false, the system will not restrict query resources.
+    private boolean isResourceTagsSet = false;
 
     private String sqlHash;
+
+    // The FE ip current connected
+    private String currentConnectedFEIp = "";
 
     public static ConnectContext get() {
         return threadLocalInfo.get();
@@ -170,12 +185,15 @@ public class ConnectContext {
     public boolean isTxnModel() {
         return txnEntry != null && txnEntry.isTxnModel();
     }
+
     public boolean isTxnIniting() {
         return txnEntry != null && txnEntry.isTxnIniting();
     }
+
     public boolean isTxnBegin() {
         return txnEntry != null && txnEntry.isTxnBegin();
     }
+
     public void closeTxn() {
         if (isTxnModel()) {
             if (isTxnBegin()) {
@@ -263,11 +281,17 @@ public class ConnectContext {
         this.qualifiedUser = qualifiedUser;
     }
 
-    public boolean getIsTempUser() { return isTempUser;}
+    public boolean getIsTempUser() {
+        return isTempUser;
+    }
 
-    public void setIsTempUser(boolean isTempUser) { this.isTempUser = isTempUser;}
+    public void setIsTempUser(boolean isTempUser) {
+        this.isTempUser = isTempUser;
+    }
 
-    public PaloRole getLdapGroupsPrivs() { return ldapGroupsPrivs; }
+    public PaloRole getLdapGroupsPrivs() {
+        return ldapGroupsPrivs;
+    }
 
     public void setLdapGroupsPrivs(PaloRole ldapGroupsPrivs) {
         this.ldapGroupsPrivs = ldapGroupsPrivs;
@@ -369,12 +393,7 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
-        Database database = Catalog.getCurrentCatalog().getDb(db);
-        if (database == null) {
-            currentDbId = -1;
-        } else {
-            currentDbId = database.getId();
-        }
+        currentDbId = Catalog.getCurrentCatalog().getDb(db).map(Database::getId).orElse(-1L);
     }
 
     public void setExecutor(StmtExecutor executor) {
@@ -427,7 +446,7 @@ public class ConnectContext {
     // kill operation with no protect.
     public void kill(boolean killConnection) {
         LOG.warn("kill timeout query, {}, kill connection: {}",
-                 getMysqlChannel().getRemoteHostPortString(), killConnection);
+                getMysqlChannel().getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -453,7 +472,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -461,7 +480,7 @@ public class ConnectContext {
         } else {
             if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
                 LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
                 // Only kill
                 killFlag = true;
@@ -479,9 +498,30 @@ public class ConnectContext {
         }
         return threadInfo;
     }
- 
+
+    public boolean isResourceTagsSet() {
+        return isResourceTagsSet;
+    }
+
+    public Set<Tag> getResourceTags() {
+        return resourceTags;
+    }
+
+    public void setResourceTags(Set<Tag> resourceTags) {
+        this.resourceTags = resourceTags;
+        this.isResourceTagsSet = !this.resourceTags.isEmpty();
+    }
+
+    public void setCurrentConnectedFEIp(String ip) {
+        this.currentConnectedFEIp = ip;
+    }
+
+    public String getCurrentConnectedFEIp() {
+        return currentConnectedFEIp;
+    }
+
     public class ThreadInfo {
-        public List<String>  toRow(long nowMs) {
+        public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));

@@ -79,6 +79,7 @@ enum OLAPDataVersion {
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
+static const std::string TABLET_UID = "/tablet_uid";
 static const std::string DPP_PREFIX = "/dpp_download";
 static const std::string SNAPSHOT_PREFIX = "/snapshot";
 static const std::string TRASH_PREFIX = "/trash";
@@ -179,6 +180,7 @@ enum OLAPStatus {
     OLAP_ERR_TOO_MANY_VERSION = -235,
     OLAP_ERR_NOT_INITIALIZED = -236,
     OLAP_ERR_ALREADY_CANCELLED = -237,
+    OLAP_ERR_TOO_MANY_SEGMENTS = -238,
 
     // CommandExecutor
     // [-300, -400)
@@ -450,12 +452,12 @@ const std::string ROWSET_ID_PREFIX = "s_";
 #define DECLARE_SINGLETON(classname)     \
 public:                                  \
     static classname* instance() {       \
-        classname* p_instance = NULL;    \
+        classname* p_instance = nullptr; \
         try {                            \
             static classname s_instance; \
             p_instance = &s_instance;    \
         } catch (...) {                  \
-            p_instance = NULL;           \
+            p_instance = nullptr;        \
         }                                \
         return p_instance;               \
     }                                    \
@@ -466,19 +468,19 @@ protected:                               \
 private:                                 \
     ~classname();
 
-#define SAFE_DELETE(ptr)   \
-    do {                   \
-        if (NULL != ptr) { \
-            delete ptr;    \
-            ptr = NULL;    \
-        }                  \
+#define SAFE_DELETE(ptr)      \
+    do {                      \
+        if (nullptr != ptr) { \
+            delete ptr;       \
+            ptr = nullptr;    \
+        }                     \
     } while (0)
 
 #define SAFE_DELETE_ARRAY(ptr) \
     do {                       \
-        if (NULL != ptr) {     \
+        if (nullptr != ptr) {  \
             delete[] ptr;      \
-            ptr = NULL;        \
+            ptr = nullptr;     \
         }                      \
     } while (0)
 

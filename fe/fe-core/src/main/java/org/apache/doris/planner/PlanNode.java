@@ -153,7 +153,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Copy c'tor. Also passes in new id.
+     * Copy ctor. Also passes in new id.
      */
     protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName) {
         this.id = id;
@@ -273,6 +273,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             tupleIds.addAll(node.getTupleIds());
         }
         return tupleIds;
+    }
+
+    public void resetTupleIds(ArrayList<TupleId> tupleIds) {
+        this.tupleIds = tupleIds;
     }
 
     public ArrayList<TupleId> getTupleIds() {
@@ -795,7 +799,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-    public String getPlanTreeExplanStr() {
+    public String getPlanTreeExplainStr() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
         sb.append("\n[Fragment: ").append(getFragmentId().asInt()).append("]");

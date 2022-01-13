@@ -39,7 +39,7 @@ public class ErrorReport {
 
     public static void reportAnalysisException(String pattern, Object... objs)
             throws AnalysisException {
-        throw new AnalysisException(reportCommon(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs));
+        throw new AnalysisException(reportCommon(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs), ErrorCode.ERR_UNKNOWN_ERROR);
     }
 
     public static void reportAnalysisException(ErrorCode errorCode, Object... objs)
@@ -49,7 +49,7 @@ public class ErrorReport {
 
     public static void reportAnalysisException(String pattern, ErrorCode errorCode, Object... objs)
             throws AnalysisException {
-        throw new AnalysisException(reportCommon(pattern, errorCode, objs));
+        throw new AnalysisException(reportCommon(pattern, errorCode, objs), errorCode);
     }
 
     public static void reportDdlException(String pattern, Object... objs)

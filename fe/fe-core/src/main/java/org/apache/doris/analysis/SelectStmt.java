@@ -113,6 +113,9 @@ public class SelectStmt extends QueryStmt {
     // Table alias generator used during query rewriting.
     private TableAliasGenerator tableAliasGenerator = null;
 
+    // Members that need to be reset to origin
+    private SelectList originSelectList;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -131,6 +134,7 @@ public class SelectStmt extends QueryStmt {
             LimitElement limitElement) {
         super(orderByElements, limitElement);
         this.selectList = selectList;
+        this.originSelectList = selectList.clone();
         if (fromClause == null) {
             fromClause_ = new FromClause();
         } else {
@@ -185,6 +189,13 @@ public class SelectStmt extends QueryStmt {
         analyticInfo = null;
         baseTblSmap.clear();
         groupingInfo = null;
+    }
+
+    @Override
+    public void resetSelectList() {
+        if (originSelectList != null) {
+            selectList = originSelectList;
+        }
     }
 
     @Override
@@ -299,16 +310,10 @@ public class SelectStmt extends QueryStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
                 }
                 if (Strings.isNullOrEmpty(tableName)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR);
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
-                Database db = analyzer.getCatalog().getDb(dbName);
-                if (db == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-                }
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                }
+                Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+                Table table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
@@ -385,7 +390,7 @@ public class SelectStmt extends QueryStmt {
         this.tableAliasGenerator = tableAliasGenerator;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         if (isAnalyzed()) {
             return;
         }
@@ -526,7 +531,7 @@ public class SelectStmt extends QueryStmt {
         if (needToSql) {
             sqlString_ = toSql();
         }
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+        if (analyzer.enableStarJoinReorder()) {
             LOG.debug("use old reorder logical in select stmt");
             reorderTable(analyzer);
         }
@@ -543,7 +548,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (hasOutFileClause()) {
-            outFileClause.analyze(analyzer, this);
+            outFileClause.analyze(analyzer, resultExprs);
         }
     }
 
@@ -568,6 +573,15 @@ public class SelectStmt extends QueryStmt {
         }
 
         return result;
+    }
+
+    public boolean hasInlineView() {
+        for (TableRef ref : fromClause_) {
+            if (ref instanceof InlineViewRef) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -697,6 +711,15 @@ public class SelectStmt extends QueryStmt {
                     analyzer.getUnassignedConjuncts(aggInfo.getResultTupleId().asList()));
             materializeSlots(analyzer, havingConjuncts);
             aggInfo.materializeRequiredSlots(analyzer, baseTblSmap);
+        }
+
+        // materialized all lateral view column and origin column
+        for (TableRef tableRef : fromClause_.getTableRefs()) {
+            if (tableRef.lateralViewRefs != null) {
+                for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
+                    lateralViewRef.materializeRequiredSlots(baseTblSmap, analyzer);
+                }
+            }
         }
     }
 
@@ -858,7 +881,7 @@ public class SelectStmt extends QueryStmt {
     private void expandStar(Analyzer analyzer, TableName tblName) throws AnalysisException {
         Collection<TupleDescriptor> descs = analyzer.getDescriptor(tblName);
         if (descs == null || descs.isEmpty()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName.getTbl());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tblName.getTbl(), tblName.getDb());
         }
         for (TupleDescriptor desc : descs) {
             expandStar(tblName, desc);
@@ -1303,7 +1326,7 @@ public class SelectStmt extends QueryStmt {
         // Also equal exprs in the statements of subqueries.
         List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
-            whereClause = rewriter.rewrite(whereClause, analyzer);
+            whereClause = rewriter.rewrite(whereClause, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
             whereClause.collect(Subquery.class, subqueryExprs);
 
         }
@@ -1371,8 +1394,8 @@ public class SelectStmt extends QueryStmt {
 
         }
         if (havingClause != null) {
-            registerExprId(havingClause);
-            exprMap.put(havingClause.getId().toString(), havingClause);
+            registerExprId(havingClauseAfterAnaylzed);
+            exprMap.put(havingClauseAfterAnaylzed.getId().toString(), havingClauseAfterAnaylzed);
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
         for (Subquery subquery : subqueryExprs) {
@@ -1478,7 +1501,7 @@ public class SelectStmt extends QueryStmt {
             whereClause.collect(Subquery.class, subqueryExprs);
         }
         if (havingClause != null) {
-            havingClause = rewrittenExprMap.get(havingClause.getId().toString());
+            havingClause = rewrittenExprMap.get(havingClauseAfterAnaylzed.getId().toString());
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
 

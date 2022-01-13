@@ -32,6 +32,8 @@ import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.task.SyncTask;
+import org.apache.doris.task.SyncTaskPool;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
@@ -49,7 +51,6 @@ import com.alibaba.otter.canal.protocol.CanalEntry;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Queues;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,8 +59,6 @@ import org.apache.thrift.TException;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public class CanalSyncChannel extends SyncChannel {
@@ -69,44 +68,47 @@ public class CanalSyncChannel extends SyncChannel {
     private static final String DELETE_CONDITION = DELETE_COLUMN + "=1";
     private static final String NULL_VALUE_FOR_LOAD = "\\N";
 
+    private final int index;
+
     private long timeoutSecond;
     private long lastBatchId;
-    private LinkedBlockingQueue<Data<InternalService.PDataRow>> pendingQueue;
+
     private Data<InternalService.PDataRow> batchBuffer;
     private InsertStreamTxnExecutor txnExecutor;
 
-    public CanalSyncChannel(SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
-        super(syncJob, db, table, columns, srcDataBase, srcTable);
+    public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
+        super(id, syncJob, db, table, columns, srcDataBase, srcTable);
+        this.index = SyncTaskPool.getNextIndex();
         this.batchBuffer = new Data<>();
-        this.pendingQueue = Queues.newLinkedBlockingQueue(128);
         this.lastBatchId = -1L;
         this.timeoutSecond = -1L;
     }
 
-    public void process() {
-        while (running) {
-            if (!isTxnInit()) {
-                continue;
-            }
-            // if txn has begun, send all data in queue
-            if (isTxnBegin()) {
-                while (!pendingQueue.isEmpty()) {
-                    try {
-                        Data<InternalService.PDataRow> rows = pendingQueue.poll(CanalConfigs.channelWaitingTimeoutMs, TimeUnit.MILLISECONDS);
-                        if (rows != null) {
-                            sendData(rows);
-                        }
-                    } catch (Exception e) {
-                        String errMsg = "encounter exception in channel, channel " + id + ", " +
-                                "msg: " + e.getMessage() + ", table: " + targetTable;
-                        LOG.error(errMsg);
-                        callback.onFailed(errMsg);
-                    }
-                }
-            }
-            if (callback.state()) {
-                callback.onFinished(id);
-            }
+    private final static class SendTask extends SyncTask {
+        private final InsertStreamTxnExecutor executor;
+        private final Data<InternalService.PDataRow> rows;
+
+        public SendTask(long signature, int index, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor) {
+            super(signature, index, callback);
+            this.executor = executor;
+            this.rows = rows;
+        }
+
+        public void exec() throws Exception {
+            TransactionEntry txnEntry = executor.getTxnEntry();
+            txnEntry.setDataToSend(rows.getDatas());
+            executor.sendData();
+        }
+    }
+
+    private final static class EOFTask extends SyncTask {
+
+        public EOFTask(long signature, int index, SyncChannelCallback callback) {
+            super(signature, index, callback);
+        }
+
+        public void exec() throws Exception {
+            callback.onFinished(signature);
         }
     }
 
@@ -189,10 +191,10 @@ public class CanalSyncChannel extends SyncChannel {
             throw e;
         }  finally {
             this.batchBuffer = new Data<>();
-            this.pendingQueue.clear();
             updateBatchId(-1L);
         }
     }
+
     @Override
     public void commitTxn() throws TException, TimeoutException, InterruptedException, ExecutionException {
         if (!isTxnBegin()) {
@@ -213,10 +215,10 @@ public class CanalSyncChannel extends SyncChannel {
             throw e;
         } finally {
             this.batchBuffer = new Data<>();
-            this.pendingQueue.clear();
             updateBatchId(-1L);
         }
     }
+
     @Override
     public void initTxn(long timeoutSecond) {
         if (!isTxnInit()) {
@@ -236,53 +238,62 @@ public class CanalSyncChannel extends SyncChannel {
     }
 
     public void submit(long batchId, CanalEntry.EventType eventType, CanalEntry.RowChange rowChange) {
-        String sql = rowChange.getSql();
         for (CanalEntry.RowData rowData : rowChange.getRowDatasList()) {
-            switch (eventType) {
-                case DELETE:
-                    execute(batchId, eventType, rowData.getBeforeColumnsList());
-                    break;
-                case INSERT:
-                    execute(batchId, eventType, rowData.getAfterColumnsList());
-                    break;
-                case UPDATE:
-                    execute(batchId, eventType, rowData.getAfterColumnsList());
-                    break;
-                default:
-                    LOG.warn("ignore event, channel: {}, schema: {}, table: {}, SQL: {}", id, srcDataBase, srcTable, sql);
+            List<InternalService.PDataRow> rows = parseRow(eventType, rowData);
+            try {
+                Preconditions.checkState(isTxnInit());
+                if (batchId > lastBatchId) {
+                    if (!isTxnBegin()) {
+                        beginTxn(batchId);
+                    } else {
+                        SendTask task = new SendTask(id, index, callback, batchBuffer, txnExecutor);
+                        SyncTaskPool.submit(task);
+                        this.batchBuffer = new Data<>();
+                    }
+                    updateBatchId(batchId);
+                }
+            } catch (Exception e) {
+                String errMsg = "encounter exception when submit in channel " + id + ", table: "
+                        + targetTable + ", batch: " + batchId;
+                LOG.error(errMsg, e);
+                throw new CanalException(errMsg, e);
             }
+            this.batchBuffer.addRows(rows);
         }
     }
 
-    private void execute(long batchId, CanalEntry.EventType eventType, List<CanalEntry.Column> columns) {
-        InternalService.PDataRow row = parseRow(eventType, columns);
-        try {
-            Preconditions.checkState(isTxnInit());
-            if (batchId > lastBatchId) {
-                if (!isTxnBegin()) {
-                    beginTxn(batchId);
-                } else {
-                    this.pendingQueue.put(this.batchBuffer);
-                    this.batchBuffer = new Data<>();
-                }
-                updateBatchId(batchId);
-            }
-        } catch (Exception e) {
-            String errMsg = "encounter exception when submit in channel " + id + ", table: "
-                    + targetTable + ", batch: " + batchId;
-            LOG.error(errMsg, e);
-            throw new CanalException(errMsg, e);
+    public void submitEOF() {
+        EOFTask task = new EOFTask(id, index, callback);
+        SyncTaskPool.submit(task);
+    }
+
+    private List<InternalService.PDataRow> parseRow(CanalEntry.EventType eventType, CanalEntry.RowData rowData) {
+        List<InternalService.PDataRow> rows = Lists.newArrayList();
+        switch (eventType) {
+            case DELETE:
+                rows.add(parseRow(CanalEntry.EventType.DELETE, rowData.getBeforeColumnsList()));
+                break;
+            case INSERT:
+                rows.add(parseRow(CanalEntry.EventType.INSERT, rowData.getAfterColumnsList()));
+                break;
+            case UPDATE:
+                // update is to delete first and then insert
+                rows.add(parseRow(CanalEntry.EventType.DELETE, rowData.getBeforeColumnsList()));
+                rows.add(parseRow(CanalEntry.EventType.INSERT, rowData.getAfterColumnsList()));
+                break;
+            default:
+                LOG.warn("ignore event, channel: {}, schema: {}, table: {}", id, srcDataBase, srcTable);
         }
-        this.batchBuffer.addRow(row);
+        return rows;
     }
 
     private InternalService.PDataRow parseRow(CanalEntry.EventType eventType, List<CanalEntry.Column> columns) {
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
-        for (int i = 0; i < columns.size(); i++) {
-            if (columns.get(i).getIsNull()) {
+        for (CanalEntry.Column column : columns) {
+            if (column.getIsNull()) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else {
-                row.addColBuilder().setValue(columns.get(i).getValue());
+                row.addColBuilder().setValue(column.getValue());
             }
         }
         // add batch delete condition to the tail
@@ -294,19 +305,13 @@ public class CanalSyncChannel extends SyncChannel {
         return row.build();
     }
 
-    private void sendData(Data<InternalService.PDataRow> rows) throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
-        Preconditions.checkState(isTxnBegin());
-        TransactionEntry txnEntry = txnExecutor.getTxnEntry();
-        txnEntry.setDataToSend(rows.getDatas());
-        this.txnExecutor.sendData();
-    }
-
     public void flushData() throws TException, TimeoutException,
             InterruptedException, ExecutionException {
-        if (batchBuffer.isNotEmpty()) {
-            sendData(batchBuffer);
-            batchBuffer = new Data<>();
+        if (this.batchBuffer.isNotEmpty()) {
+            TransactionEntry txnEntry = txnExecutor.getTxnEntry();
+            txnEntry.setDataToSend(batchBuffer.getDatas());
+            this.txnExecutor.sendData();
+            this.batchBuffer = new Data<>();
         }
     }
 

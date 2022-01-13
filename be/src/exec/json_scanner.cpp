@@ -38,8 +38,8 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
                          const std::vector<TBrokerRangeDesc>& ranges,
                          const std::vector<TNetworkAddress>& broker_addresses,
-                         const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
+                         const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
@@ -66,7 +66,7 @@ Status JsonScanner::open() {
     return BaseScanner::open();
 }
 
-Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) {
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
@@ -97,8 +97,11 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
         if (fill_dest_tuple(tuple, tuple_pool)) {
-            break; // break if true
+            *fill_tuple = true;
+        } else {
+            *fill_tuple = false;
         }
+        break; // break always
     }
     if (_scanner_eof) {
         *eof = true;
@@ -247,6 +250,7 @@ Status JsonScanner::open_json_reader() {
 }
 
 void JsonScanner::close() {
+    BaseScanner::close();
     if (_cur_json_reader != nullptr) {
         delete _cur_json_reader;
         _cur_json_reader = nullptr;
@@ -665,9 +669,10 @@ bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPoo
 
     for (size_t i = 0; i < column_num; i++) {
         rapidjson::Value* json_values = nullptr;
+        bool wrap_explicitly = false;
         if (LIKELY(i < _parsed_jsonpaths.size())) {
             json_values = JsonFunctions::get_json_array_from_parsed_json(
-                    _parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator());
+                    _parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator(), &wrap_explicitly);
         }
 
         if (json_values == nullptr) {
@@ -686,8 +691,7 @@ bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPoo
             }
         } else {
             CHECK(json_values->IsArray());
-            CHECK(json_values->Size() >= 1);
-            if (json_values->Size() == 1) {
+            if (json_values->Size() == 1 && wrap_explicitly) {
                 // NOTICE1: JsonFunctions::get_json_array_from_parsed_json() will wrap the single json object with an array.
                 // so here we unwrap the array to get the real element.
                 // if json_values' size > 1, it means we just match an array, not a wrapped one, so no need to unwrap.

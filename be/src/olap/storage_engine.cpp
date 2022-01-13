@@ -51,6 +51,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
@@ -110,7 +111,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
-          _index_stream_lru_cache(NULL),
+          _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
           _compaction_mem_tracker(MemTracker::CreateTracker(-1, "AutoCompaction", nullptr, false,
                                                             false, MemTrackerLevel::OVERVIEW)),
@@ -202,7 +203,7 @@ Status StorageEngine::_init_store_map() {
     std::string error_msg;
     for (auto& path : _options.store_paths) {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
-                                     _tablet_manager.get(), _txn_manager.get());
+                                     path.remote_path, _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
         threads.emplace_back([store, &error_msg_lock, &error_msg]() {
             auto st = store->init();
@@ -427,7 +428,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
     int32_t cluster_id = -1;
     for (auto& it : _store_map) {
         int32_t tmp_cluster_id = it.second->cluster_id();
-        if (tmp_cluster_id == -1) {
+        if (it.second->cluster_id_incomplete()) {
             _is_all_cluster_id_exist = false;
         } else if (tmp_cluster_id == cluster_id) {
             // both have right cluster id, do nothing
@@ -629,17 +630,16 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-void StorageEngine::_start_clean_fd_cache() {
-    VLOG_TRACE << "start clean file descritpor cache";
+void StorageEngine::_start_clean_cache() {
     _file_cache->prune();
-    VLOG_TRACE << "end clean file descritpor cache";
+    SegmentLoader::instance()->prune();
 }
 
 OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    std::unique_lock<std::mutex> l(_trash_sweep_lock,std::defer_lock);
-    if(!l.try_lock()) {
+    std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
+    if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
         return res;
     }
@@ -669,7 +669,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
-        LOG(INFO) << "Start to sweep path " << info.path;
+        LOG(INFO) << "Start to sweep path " << info.path_desc.filepath;
         if (!info.is_used) {
             continue;
         }
@@ -678,7 +678,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         OLAPStatus curr_res = OLAP_SUCCESS;
-        string snapshot_path = info.path + SNAPSHOT_PREFIX;
+        string snapshot_path = info.path_desc.filepath + SNAPSHOT_PREFIX;
         curr_res = _do_sweep(snapshot_path, local_now, snapshot_expire);
         if (curr_res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path
@@ -686,7 +686,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
             res = curr_res;
         }
 
-        string trash_path = info.path + TRASH_PREFIX;
+        string trash_path = info.path_desc.filepath + TRASH_PREFIX;
         curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (curr_res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to sweep trash. [path=%s" << trash_path
@@ -745,6 +745,9 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
+        if (data_dir->is_remote()) {
+            continue;
+        }
         RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
         for (auto& rowset_meta : invalid_rowset_metas) {
             RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(),
@@ -895,7 +898,7 @@ OLAPStatus StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
                                             std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
-    if (shard_path == NULL) {
+    if (shard_path == nullptr) {
         LOG(WARNING) << "invalid output parameter which is null pointer.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }

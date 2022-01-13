@@ -142,6 +142,8 @@ The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND
 
 `read_json_by_line`: Boolean type, true means that one json object can be read per line, and the default value is false.
 
+`send_batch_parallelism`: Integer type, used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
+
 RETURN VALUES
 
 After the load is completed, the related content of this load will be returned in Json format. Current field included

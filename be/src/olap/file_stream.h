@@ -64,12 +64,12 @@ public:
 
     inline OLAPStatus init() {
         _compressed_helper = StorageByteBuffer::create(_compress_buffer_size);
-        if (NULL == _compressed_helper) {
+        if (nullptr == _compressed_helper) {
             OLAP_LOG_WARNING("fail to create compressed buffer");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        _uncompressed = NULL;
+        _uncompressed = nullptr;
         return OLAP_SUCCESS;
     }
 
@@ -97,7 +97,7 @@ public:
     uint64_t stream_length() { return _file_cursor.length(); }
 
     bool eof() {
-        if (_uncompressed == NULL) {
+        if (_uncompressed == nullptr) {
             return _file_cursor.eof();
         } else {
             return _file_cursor.eof() && _uncompressed->remaining() == 0;
@@ -110,8 +110,8 @@ public:
     size_t get_buffer_size() { return _compress_buffer_size; }
 
     inline void get_buf(char** buf, uint32_t* remaining_bytes) {
-        if (UNLIKELY(_uncompressed == NULL)) {
-            *buf = NULL;
+        if (UNLIKELY(_uncompressed == nullptr)) {
+            *buf = nullptr;
             *remaining_bytes = 0;
         } else {
             *buf = _uncompressed->array();
@@ -124,7 +124,7 @@ public:
     inline void set_position(uint32_t pos) { _uncompressed->set_position(pos); }
 
     inline int remaining() {
-        if (_uncompressed == NULL) {
+        if (_uncompressed == nullptr) {
             return 0;
         }
         return _uncompressed->remaining();

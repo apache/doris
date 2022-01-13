@@ -18,36 +18,46 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Map;
 
 /*
  * show proc "/colocation_group/group_name";
  */
 public class ColocationGroupBackendSeqsProcNode implements ProcNodeInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BucketIndex").add("BackendIds").build();
+    private Map<Tag, List<List<Long>>> backendsSeq;
 
-    private List<List<Long>> backendsSeq;
-
-    public ColocationGroupBackendSeqsProcNode(List<List<Long>> backendsSeq) {
+    public ColocationGroupBackendSeqsProcNode(Map<Tag, List<List<Long>>> backendsSeq) {
         this.backendsSeq = backendsSeq;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
-        result.setNames(TITLE_NAMES);
-        
-        int index = 0;
-        for (List<Long> seqs : backendsSeq) {
+        List<String> titleNames = Lists.newArrayList();
+        titleNames.add("BucketIndex");
+        int bucketNum = 0;
+        for (Tag tag : backendsSeq.keySet()) {
+            titleNames.add(tag.toString());
+            if (bucketNum == 0) {
+                bucketNum = backendsSeq.get(tag).size();
+            } else if (bucketNum != backendsSeq.get(tag).size()) {
+                throw new AnalysisException("Invalid bucket number: " + bucketNum + " vs. " + backendsSeq.get(tag).size());
+            }
+        }
+        result.setNames(titleNames);
+        for (int i = 0; i < bucketNum; i++) {
             List<String> info = Lists.newArrayList();
-            info.add(String.valueOf(index++));
-            info.add(Joiner.on(", ").join(seqs));
+            info.add(String.valueOf(i)); // bucket index
+            for (Tag tag : backendsSeq.keySet()) {
+                List<List<Long>> bucketBackends = backendsSeq.get(tag);
+                info.add(Joiner.on(", ").join(bucketBackends.get(i)));
+            }
             result.addRow(info);
         }
         return result;

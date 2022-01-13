@@ -26,6 +26,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -62,10 +63,13 @@ public class InsertStreamTxnExecutor {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(
-                1, true, true, txnEntry.getDb().getClusterName());
+        SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                new SystemInfoService.BeAvailablePredicate(false, true, true);
+        List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                1, beAvailablePredicate, false,
+                txnEntry.getDb().getClusterName(), null, null);
         if (beIds == null || beIds.isEmpty()) {
-            throw new UserException("there is no scanNode Backend.");
+            throw new UserException("there is no backend load available or scanNode backend available.");
         }
 
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
@@ -159,9 +163,10 @@ public class InsertStreamTxnExecutor {
             if (code != TStatusCode.OK) {
                 throw new TException("failed to insert data: " + result.getStatus().getErrorMsgsList());
             }
-            txnEntry.clearDataToSend();
         } catch (RpcException e) {
             throw new TException(e);
+        } finally {
+            txnEntry.clearDataToSend();
         }
     }
 

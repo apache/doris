@@ -60,7 +60,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.ImmutableList;
 
 public class TestRowBatch {
-    private static Logger logger = LoggerFactory.getLogger(TestRowBatch.class);
+    private final static Logger logger = LoggerFactory.getLogger(TestRowBatch.class);
 
     @Rule
     public ExpectedException thrown = ExpectedException.none();
@@ -222,7 +222,7 @@ public class TestRowBatch {
         arrowStreamWriter.close();
 
         TStatus status = new TStatus();
-        status.setStatus_code(TStatusCode.OK);
+        status.setStatusCode(TStatusCode.OK);
         TScanBatchResult scanBatchResult = new TScanBatchResult();
         scanBatchResult.setStatus(status);
         scanBatchResult.setEos(false);
@@ -344,7 +344,7 @@ public class TestRowBatch {
         arrowStreamWriter.close();
 
         TStatus status = new TStatus();
-        status.setStatus_code(TStatusCode.OK);
+        status.setStatusCode(TStatusCode.OK);
         TScanBatchResult scanBatchResult = new TScanBatchResult();
         scanBatchResult.setStatus(status);
         scanBatchResult.setEos(false);
@@ -406,7 +406,7 @@ public class TestRowBatch {
         arrowStreamWriter.close();
 
         TStatus status = new TStatus();
-        status.setStatus_code(TStatusCode.OK);
+        status.setStatusCode(TStatusCode.OK);
         TScanBatchResult scanBatchResult = new TScanBatchResult();
         scanBatchResult.setStatus(status);
         scanBatchResult.setEos(false);

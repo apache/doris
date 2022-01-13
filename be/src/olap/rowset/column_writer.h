@@ -45,12 +45,12 @@ class RunLengthIntegerWriter;
 
 class ColumnWriter {
 public:
-    // 创建一个ColumnWriter, 创建后的对象生命期由调用者所有
-    // 即调用者负责调用delete析构ColumnWriter
+    // Create a ColumnWriter, the lifetime of the object after creation is owned by the caller
+    // That is, the caller is responsible for calling delete to destruct the ColumnWriter
     // Args:
-    //    column_id: 创建的列在columns中的位置
-    //    columns: 表的所有的列信息
-    //    stream_factory: 用于创建输出流的工厂对象, 该对象的生命期由调用者所有
+    //      column_id: the position of the created column in columns
+    //      columns: all column information of the table
+    //      stream_factory: The factory object used to create the output stream, the lifetime of the object is owned by the caller
     static ColumnWriter* create(uint32_t column_id, const TabletSchema& schema,
                                 OutStreamFactory* stream_factory, size_t num_rows_per_row_block,
                                 double bf_fpp);
@@ -62,12 +62,12 @@ public:
 
     virtual OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) = 0;
 
-    // 将之前记录的block位置信息与当前的统计信息写入到一个新的索引项中
+    // Write the previously recorded block location information and current statistical information into a new index entry
     OLAPStatus create_row_index_entry();
-    // 估算当前缓存的内存大小, 不包括已经输出到OutStream的内存
+    // Estimate the current cache memory size, excluding the memory that has been output to OutStream
     virtual uint64_t estimate_buffered_memory();
     virtual OLAPStatus flush();
-    // 结束Segment, flush stream并更新header:
+    // End the segment, flush stream and update the header:
     //   * column_unique_id
     //   * column_type
     //   * column_encoding
@@ -92,7 +92,7 @@ protected:
     OutStreamFactory* stream_factory() { return _stream_factory; }
     PositionEntryWriter* index_entry() { return &_index_entry; }
     StreamIndexWriter* index() { return &_index; }
-    // 记录当前Stream的位置,用于生成索引项
+    // Record the position of the current Stream, which is used to generate index entries
     virtual void record_position();
 
 protected:
@@ -106,13 +106,13 @@ private:
 
     uint32_t _column_id;
     const TabletColumn& _column;
-    OutStreamFactory* _stream_factory;       // 该对象由外部调用者所有
-    std::vector<ColumnWriter*> _sub_writers; // 保存子列的writer
+    OutStreamFactory* _stream_factory;       // The object is owned by the external caller
+    std::vector<ColumnWriter*> _sub_writers; // Writer to save the sub-column
     PositionEntryWriter _index_entry;
     StreamIndexWriter _index;
-    BitFieldWriter* _is_present; // 对于允许NULL的列记录NULL Bits
+    BitFieldWriter* _is_present; //Record NULL Bits for columns that allow NULL
     OutStream* _is_present_stream;
-    OutStream* _index_stream; // 注意对象的所有权是_stream_factory
+    OutStream* _index_stream; // Note that the ownership of the object is _stream_factory
     bool _is_found_nulls;
     BloomFilter* _bf;
     BloomFilterIndexWriter _bf_index;
@@ -164,7 +164,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(ByteColumnWriter);
 };
 
-// 对于SHORT/INT/LONG类型的数据，统一使用int64作为存储的数据
+// For SHORT/INT/LONG type data, use int64 as the stored data uniformly
 class IntegerColumnWriter {
 public:
     IntegerColumnWriter(uint32_t column_id, uint32_t unique_column_id,
@@ -287,7 +287,7 @@ public:
     DoubleColumnWriterBase(uint32_t column_id, OutStreamFactory* stream_factory,
                            const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp)
             : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-              _stream(NULL) {}
+              _stream(nullptr) {}
 
     virtual ~DoubleColumnWriterBase() {}
 
@@ -302,7 +302,7 @@ public:
         OutStreamFactory* factory = stream_factory();
         _stream = factory->create_stream(unique_column_id(), StreamInfoMessage::DATA);
 
-        if (NULL == _stream) {
+        if (nullptr == _stream) {
             OLAP_LOG_WARNING("fail to allocate DATA STREAM");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -369,7 +369,7 @@ typedef DoubleColumnWriterBase<double> DoubleColumnWriter;
 typedef DoubleColumnWriterBase<float> FloatColumnWriter;
 typedef IntegerColumnWriterWrapper<int64_t, true> DiscreteDoubleColumnWriter;
 
-// VarString和String都作为变长类型使用StringColumnWriter写入
+// VarString and String are used as variable length types to write using StringColumnWriter
 class VarStringColumnWriter : public ColumnWriter {
 public:
     VarStringColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
@@ -406,11 +406,11 @@ public:
     virtual OLAPStatus flush() { return OLAP_SUCCESS; }
 
 protected:
-    // 不使用cursor直接写入一条数据
+    //Write a piece of data directly without using cursor
     OLAPStatus write(const char* str, uint32_t length);
 
 private:
-    // 可以在map中使用引用做key
+    // You can use references as keys in the map
     class DictKey {
     public:
         explicit DictKey(const std::string& str_ref) : _str_ref(str_ref) {}
@@ -442,7 +442,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(VarStringColumnWriter);
 };
 
-// 特例化一下VarStringColumnWriter, 在write的时候提取数据再写入
+// Specialize the VarStringColumnWriter, extract the data and write it when writing
 class FixLengthStringColumnWriter : public VarStringColumnWriter {
 public:
     FixLengthStringColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
@@ -484,10 +484,10 @@ private:
     DISALLOW_COPY_AND_ASSIGN(FixLengthStringColumnWriter);
 };
 
-// Date是三字节整数
+//Date is a three-byte integer
 typedef IntegerColumnWriterWrapper<uint24_t, false> DateColumnWriter;
 
-// DateTime是用int64实现的
+// DateTime is implemented with int64
 typedef IntegerColumnWriterWrapper<uint64_t, false> DateTimeColumnWriter;
 
 class DecimalColumnWriter : public ColumnWriter {

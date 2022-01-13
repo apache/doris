@@ -34,13 +34,12 @@ import java.util.concurrent.locks.ReentrantLock;
 public class SyncCanalClient {
     protected static Logger logger = LogManager.getLogger(SyncCanalClient.class);
 
-    private CanalConnector connector;
-
-    private CanalSyncDataReceiver receiver;
-    private CanalSyncDataConsumer consumer;
+    private final CanalConnector connector;
+    private final CanalSyncDataReceiver receiver;
+    private final CanalSyncDataConsumer consumer;
 
     // channel id -> channel
-    private Map<Long, CanalSyncChannel> idToChannels;
+    private final Map<Long, CanalSyncChannel> idToChannels;
 
     protected ReentrantLock lock = new ReentrantLock(true);
     protected ReentrantLock getLock = new ReentrantLock();
@@ -53,13 +52,13 @@ public class SyncCanalClient {
         lock.unlock();
     }
 
-    private ShutDownWorker shutDownWorker;
-
-    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector, int batchSize, boolean debug) {
+    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector,
+                           int batchSize, boolean debug) {
         this(syncJob, destination, connector, batchSize, debug, ".*\\..*");
     }
 
-    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector, int batchSize, boolean debug, String filter) {
+    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector,
+                           int batchSize, boolean debug, String filter) {
         this.connector = connector;
         this.consumer = new CanalSyncDataConsumer(syncJob, connector, getLock, debug);
         this.receiver = new CanalSyncDataReceiver(syncJob, connector, destination, filter, consumer, batchSize, getLock);
@@ -71,13 +70,9 @@ public class SyncCanalClient {
         Preconditions.checkState(!idToChannels.isEmpty(), "no channel is registered");
         lock();
         try {
-            // 1.start all threads in channel
-            for (CanalSyncChannel channel : idToChannels.values()) {
-                channel.start();
-            }
-            // 2. start executor
+            // 1. start executor
             consumer.start();
-            // 3. start receiver
+            // 2. start receiver
             receiver.start();
         } finally {
             unlock();
@@ -85,43 +80,17 @@ public class SyncCanalClient {
         logger.info("canal client has been started.");
     }
 
-    // Stop client asynchronously
     public void shutdown(boolean needCleanUp) {
-        this.shutDownWorker = new ShutDownWorker(needCleanUp);
-        shutDownWorker.shutdown();
-        logger.info("canal client shutdown worker has been started.");
-    }
-
-    public class ShutDownWorker implements Runnable {
-        public Thread thread;
-        public boolean needCleanUp;
-
-        public ShutDownWorker(boolean needCleanUp) {
-            this.thread = new Thread(this, "ShutDownWorker");
-            this.needCleanUp = needCleanUp;
+        lock();
+        try {
+            // 1. stop receiver
+            receiver.stop();
+            // 2. stop executor
+            consumer.stop(needCleanUp);
+        } finally {
+            unlock();
         }
-
-        public void shutdown() {
-            thread.start();
-        }
-
-        @Override
-        public void run() {
-            lock();
-            try {
-                // 1. stop receiver
-                receiver.stop();
-                // 2. stop executor
-                consumer.stop(needCleanUp);
-                // 3. stop channels
-                for (CanalSyncChannel channel : idToChannels.values()) {
-                    channel.stop();
-                }
-            } finally {
-                unlock();
-            }
-            logger.info("canal client has been stopped.");
-        }
+        logger.info("canal client has been stopped.");
     }
 
     public void registerChannels(List<SyncChannel> channels) {

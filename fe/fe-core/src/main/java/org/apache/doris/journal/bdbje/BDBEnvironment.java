@@ -33,6 +33,7 @@ import com.sleepycat.je.Durability.SyncPolicy;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.EnvironmentFailureException;
 import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.NoConsistencyRequiredPolicy;
@@ -320,6 +321,8 @@ public class BDBEnvironment {
                 break;
             } catch (InsufficientLogException e) {
                 throw e;
+            } catch (RollbackException e) {
+                throw e;
             } catch (EnvironmentFailureException e) {
                 tried++;
                 if (tried == RETRY_TIME) {
@@ -343,7 +346,7 @@ public class BDBEnvironment {
                 if (StringUtils.isNumeric(name)) {
                     ret.add(Long.parseLong(name));
                 } else {
-                    LOG.debug("get database names, skipped {}", name);
+                    // LOG.debug("get database names, skipped {}", name);
                 }
             }
         }
@@ -384,6 +387,40 @@ public class BDBEnvironment {
         }
     }
     
+        // Close environment
+    public void closeReplicatedEnvironment() {
+        if (replicatedEnvironment != null) {
+            try {
+                // Finally, close the store and environment.
+                replicatedEnvironment.close();
+            } catch (DatabaseException exception) {
+                LOG.error("Error closing replicatedEnvironment", exception);
+                System.exit(-1);
+            }
+        }
+    }
+        // open environment
+    public void openReplicatedEnvironment(File envHome) {
+        for (int i = 0; i < RETRY_TIME; i++) {
+            try {
+                // open the environment
+                replicatedEnvironment = new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
+                break;
+            } catch (DatabaseException e) {
+                if (i < RETRY_TIME - 1) {
+                    try {
+                        Thread.sleep(5 * 1000);
+                    } catch (InterruptedException e1) {
+                        e1.printStackTrace();
+                    }
+                } else {
+                    LOG.error("error to open replicated environment. will exit.", e);
+                    System.exit(-1);
+                }
+            }
+        }
+    }
+
     private SyncPolicy getSyncPolicy(String policy) {
         if (policy.equalsIgnoreCase("SYNC")) {
             return Durability.SyncPolicy.SYNC;

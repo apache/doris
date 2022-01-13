@@ -52,7 +52,7 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 
     The help doc can be found in `doriswriter/doc`
 
-2. `init_env.sh`
+2. `init-env.sh`
 
     The script mainly performs the following steps:
 
@@ -67,7 +67,7 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 
 ### How to build
 
-1. Run `init_env.sh`
+1. Run `init-env.sh`
 2. Modify code of doriswriter in `DataX/doriswriter` if you need.
 3. Build doriswriter
 
@@ -82,6 +82,20 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
         The output will be in `target/datax/datax/`.
 
         > hdfsreader, hdfswriter and oscarwriter needs some extra jar packages. If you don't need to use these components, you can comment out the corresponding module in DataX/pom.xml.
+
+	3. Compilation error
+
+        If you encounter the following compilation errors:
+
+        ```
+        Could not find artifact com.alibaba.datax:datax-all:pom:0.0.1-SNAPSHOT ...
+        ```
+
+        You can try the following solutions:
+
+        1. Download [alibaba-datax-maven-m2-20210928.tar.gz](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/alibaba-datax-maven-m2-20210928.tar.gz)
+        2. After decompression, copy the resulting `alibaba/datax/` directory to `.m2/repository/com/alibaba/` corresponding to the maven used.
+        3. Try to compile again.
 
 4. Commit code of doriswriter in `doriswriter` if you need.
 

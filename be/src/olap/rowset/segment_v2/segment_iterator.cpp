@@ -43,7 +43,7 @@ namespace segment_v2 {
 //   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
-    explicit BitmapRangeIterator(const Roaring& bitmap)
+    explicit BitmapRangeIterator(const roaring::Roaring& bitmap)
             : _last_val(0), _buf(new uint32_t[256]), _buf_pos(0), _buf_size(0), _eof(false) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
         _read_next_batch();
@@ -75,14 +75,14 @@ public:
 
 private:
     void _read_next_batch() {
-        uint32_t n = roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
+        uint32_t n = roaring::api::roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
         _buf_pos = 0;
         _buf_size = n;
         _eof = n == 0;
     }
 
     static const uint32_t kBatchSize = 256;
-    roaring_uint32_iterator_t _iter;
+    roaring::api::roaring_uint32_iterator_t _iter;
     uint32_t _last_val;
     uint32_t* _buf = nullptr;
     uint32_t _buf_pos;
@@ -90,7 +90,8 @@ private:
     bool _eof;
 };
 
-SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema, std::shared_ptr<MemTracker> parent)
+SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema,
+                                 std::shared_ptr<MemTracker> parent)
         : _segment(std::move(segment)),
           _schema(schema),
           _column_iterators(_schema.num_columns(), nullptr),
@@ -122,12 +123,15 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
 Status SegmentIterator::_init() {
     DorisMetrics::instance()->segment_read_total->increment(1);
     // get file handle from file descriptor of segment
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
-    RETURN_IF_ERROR(block_mgr->open_block(_segment->_fname, &_rblock));
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_segment->_path_desc.storage_medium);
+    RETURN_IF_ERROR(block_mgr->open_block(_segment->_path_desc, &_rblock));
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
-    RETURN_IF_ERROR(_get_row_ranges_by_keys());
+    // z-order can not use prefix index
+    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+        RETURN_IF_ERROR(_get_row_ranges_by_keys());
+    }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     _init_lazy_materialization();
     _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
@@ -194,11 +198,13 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
+            RETURN_IF_ERROR(
+                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.rblock = _rblock.get();
-            iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
+            iter_opts.mem_tracker =
+                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -233,6 +239,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             cids.insert(column_condition.first);
         }
     }
+
     // first filter data by bloom filter index
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
@@ -322,12 +329,14 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
+            RETURN_IF_ERROR(
+                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
-            iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
+            iter_opts.mem_tracker =
+                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -470,7 +479,6 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, R
         ColumnBlockView dst(&column_block, row_offset);
         size_t rows_read = nrows;
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, &dst));
-        block->set_delete_state(column_block.delete_state());
         DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();

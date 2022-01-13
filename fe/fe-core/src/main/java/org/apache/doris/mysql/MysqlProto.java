@@ -286,6 +286,9 @@ public class MysqlProto {
                 return false;
             }
         }
+
+        // set resource tag if has
+        context.setResourceTags(Catalog.getCurrentCatalog().getAuth().getResourceTags(qualifiedUser));
         return true;
     }
 

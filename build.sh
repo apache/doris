@@ -42,12 +42,6 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-# build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    ${DORIS_THIRDPARTY}/build-thirdparty.sh
-fi
-
 # Check args
 usage() {
   echo "
@@ -69,6 +63,26 @@ Usage: $0 <options>
     $0 --fe --ui                            build Frontend web ui with npm
   "
   exit 1
+}
+
+clean_gensrc() {
+    pushd ${DORIS_HOME}/gensrc
+    make clean
+    rm -rf ${DORIS_HOME}/fe/fe-core/target
+    popd
+}
+
+clean_be() {
+    pushd ${DORIS_HOME}
+    rm -rf $CMAKE_BUILD_DIR
+    rm -rf ${DORIS_HOME}/be/output/
+    popd
+}
+
+clean_fe() {
+    pushd ${DORIS_HOME}/fe
+    ${MVN_CMD} clean
+    popd
 }
 
 OPTS=$(getopt \
@@ -138,8 +152,10 @@ if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
 fi
 
 if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
-    echo "--clean can not be specified without --fe or --be or --spark-dpp"
-    exit 1
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
 fi
 
 if [[ -z ${WITH_MYSQL} ]]; then
@@ -169,15 +185,13 @@ echo "Get params:
 "
 
 # Clean and build generated code
+if [ ${CLEAN} -eq 1 ]; then
+    clean_gensrc
+fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
-if [ ${CLEAN} -eq 1 ]; then
-   make clean
-   rm -rf ${DORIS_HOME}/fe/fe-core/target
-fi
 # DO NOT using parallel make(-j) for gensrc
 make
-cd ${DORIS_HOME}
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
@@ -185,8 +199,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
-        rm -rf $CMAKE_BUILD_DIR
-        rm -rf ${DORIS_HOME}/be/output/
+        clean_be
     fi
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
@@ -220,7 +233,6 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
         FE_MODULES="fe-common,spark-dpp,fe-core"
     fi
 fi
-
 
 function build_ui() {
     # check NPM env here, not in env.sh.
@@ -262,7 +274,7 @@ if [ ${FE_MODULES}x != ""x ]; then
     echo "Build Frontend Modules: $FE_MODULES"
     cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
-        ${MVN_CMD} clean
+        clean_fe
     fi
     ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests
     cd ${DORIS_HOME}

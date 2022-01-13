@@ -17,9 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import java.math.BigDecimal;
-import java.math.BigInteger;
-
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
@@ -33,13 +30,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
-
-import com.google.common.base.Preconditions;
-
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDateTime;
+
+import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -51,6 +48,12 @@ import java.math.BigInteger;
  */
 public class FEFunctions {
     private static final Logger LOG = LogManager.getLogger(FEFunctions.class);
+
+    @FEFunction(name = "version", argTypes = {}, returnType = "VARCHAR")
+    public static StringLiteral version() throws AnalysisException {
+        return new StringLiteral(GlobalVariable.version);
+    }
+
     /**
      * date and time function
      */

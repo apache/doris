@@ -42,9 +42,7 @@
 #include "exec/decompressor.h"
 #include "exec/parquet_reader.h"
 
-#if defined(__x86_64__)
-    #include "exec/hdfs_file_reader.h"
-#endif
+#include "exec/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -52,9 +50,9 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
-                               const std::vector<ExprContext*>& pre_filter_ctxs,
+                               const std::vector<TExpr>& pre_filter_texprs,
                                ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           // _splittable(params.splittable),
@@ -71,7 +69,7 @@ Status ParquetScanner::open() {
     return BaseScanner::open();
 }
 
-Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) {
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
@@ -95,8 +93,11 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
         if (fill_dest_tuple(tuple, tuple_pool)) {
-            break; // break if true
+            *fill_tuple = true;
+        } else {
+            *fill_tuple = false;
         }
+        break; // break always
     }
     if (_scanner_eof) {
         *eof = true;
@@ -131,13 +132,10 @@ Status ParquetScanner::open_next_reader() {
             break;
         }
         case TFileType::FILE_HDFS: {
-#if defined(__x86_64__)
-            file_reader.reset(new HdfsFileReader(
-                    range.hdfs_params, range.path, range.start_offset));
+            FileReader* reader;
+            RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, range.start_offset, &reader));
+            file_reader.reset(reader);
             break;
-#else
-            return Status::InternalError("HdfsFileReader do not support on non x86 platform");
-#endif
         }
         case TFileType::FILE_BROKER: {
             int64_t file_size = 0;
@@ -201,6 +199,7 @@ Status ParquetScanner::open_next_reader() {
 }
 
 void ParquetScanner::close() {
+    BaseScanner::close();
     if (_cur_file_reader != nullptr) {
         if (_stream_load_pipe != nullptr) {
             _stream_load_pipe.reset();

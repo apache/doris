@@ -67,6 +67,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -96,7 +97,7 @@ public class BrokerLoadJobTest {
                 labelName.getDbName();
                 minTimes = 0;
                 result = databaseName;
-                catalog.getDb(databaseName);
+                catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
@@ -105,7 +106,7 @@ public class BrokerLoadJobTest {
                 dataDescription.getTableName();
                 minTimes = 0;
                 result = tableName;
-                database.getTable(tableName);
+                database.getTableNullable(tableName);
                 minTimes = 0;
                 result = null;
             }
@@ -147,7 +148,7 @@ public class BrokerLoadJobTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = label;
-                catalog.getDb(databaseName);
+                catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
@@ -156,7 +157,7 @@ public class BrokerLoadJobTest {
                 dataDescription.getTableName();
                 minTimes = 0;
                 result = tableName;
-                database.getTable(tableName);
+                database.getTableNullable(tableName);
                 minTimes = 0;
                 result = olapTable;
                 dataDescription.getPartitionNames();
@@ -218,10 +219,10 @@ public class BrokerLoadJobTest {
                 result = Sets.newHashSet(1L);
                 catalog.getDb(anyLong);
                 minTimes = 0;
-                result = database;
+                result = Optional.of(database);
                 database.getTable(1L);
                 minTimes = 0;
-                result = table;
+                result = Optional.of(table);
                 table.getName();
                 minTimes = 0;
                 result = tableName;
@@ -229,7 +230,7 @@ public class BrokerLoadJobTest {
         };
 
         Assert.assertEquals(1, brokerLoadJob.getTableNamesForShow().size());
-        Assert.assertEquals(true, brokerLoadJob.getTableNamesForShow().contains(tableName));
+        Assert.assertTrue(brokerLoadJob.getTableNamesForShow().contains(tableName));
     }
 
     @Test
@@ -309,13 +310,13 @@ public class BrokerLoadJobTest {
                 attachment.getTaskId();
                 minTimes = 0;
                 result = taskId;
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 fileGroupAggInfo.getAggKeyToFileGroups();
                 minTimes = 0;
                 result = aggKeyToFileGroups;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = olapTable;
                 catalog.getNextId();
@@ -361,8 +362,8 @@ public class BrokerLoadJobTest {
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         RuntimeProfile jobProfile = new RuntimeProfile("test");
         LoadLoadingTask task = new LoadLoadingTask(database, olapTable,brokerDesc, fileGroups,
-                100, 100, false, 100, callback, "", 100, 1,
-                jobProfile);
+                100, 100, false, 100, callback, "",
+                100, 1, 1, jobProfile);
         try {
             UserIdentity userInfo = new UserIdentity("root", "localhost");
             userInfo.setIsAnalyzed();
@@ -480,7 +481,7 @@ public class BrokerLoadJobTest {
                 attachment1.getTaskId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
             }

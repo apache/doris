@@ -28,7 +28,7 @@ under the License.
 ## description
 ### Syntax
 
-'VARCHAR get_json_string (VARCHAR json str, VARCHAR json path)
+`VARCHAR get_json_string (VARCHAR json str, VARCHAR json path)`
 
 
 Parse and retrieve the string content of the specified path in the JSON string.

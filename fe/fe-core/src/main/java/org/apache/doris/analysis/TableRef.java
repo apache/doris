@@ -17,13 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -34,6 +34,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,6 +95,7 @@ public class TableRef implements ParseNode, Writable {
     private ArrayList<String> joinHints;
     private ArrayList<String> sortHints;
     private ArrayList<String> commonHints; //The Hints is set by user
+    protected ArrayList<LateralViewRef> lateralViewRefs;
     private boolean isForcePreAggOpened;
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -147,7 +149,10 @@ public class TableRef implements ParseNode, Writable {
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
-            aliases_ = new String[] { alias };
+            if (Catalog.isStoredTableNamesLowerCase()) {
+                alias = alias.toLowerCase();
+            }
+            aliases_ = new String[]{alias};
             hasExplicitAlias_ = true;
         } else {
             hasExplicitAlias_ = false;
@@ -182,6 +187,7 @@ public class TableRef implements ParseNode, Writable {
         allMaterializedTupleIds_ = Lists.newArrayList(other.allMaterializedTupleIds_);
         correlatedTupleIds_ = Lists.newArrayList(other.correlatedTupleIds_);
         desc = other.desc;
+        lateralViewRefs = other.lateralViewRefs;
     }
 
     public PartitionNames getPartitionNames() {
@@ -329,6 +335,24 @@ public class TableRef implements ParseNode, Writable {
         return sortColumn;
     }
 
+    public void setLateralViewRefs(ArrayList<LateralViewRef> lateralViewRefs) {
+        this.lateralViewRefs = lateralViewRefs;
+    }
+
+    public ArrayList<LateralViewRef> getLateralViewRefs() {
+        return lateralViewRefs;
+    }
+
+    protected void analyzeLateralViewRef(Analyzer analyzer) throws UserException {
+        if (lateralViewRefs == null) {
+            return;
+        }
+        for (LateralViewRef lateralViewRef : lateralViewRefs) {
+            lateralViewRef.setRelatedTable(this);
+            lateralViewRef.analyze(analyzer);
+        }
+    }
+
     protected void analyzeSortHints() throws AnalysisException {
         if (sortHints == null) {
             return;
@@ -440,6 +464,14 @@ public class TableRef implements ParseNode, Writable {
         boolean lhsIsNullable = false;
         boolean rhsIsNullable = false;
 
+        //
+        if (leftTblRef != null) {
+            for (TupleId tupleId : leftTblRef.getAllTableRefIds()) {
+                Pair<TupleId, TupleId> tids = new Pair<>(tupleId, getId());
+                analyzer.registerAnyTwoTalesJoinOperator(tids, joinOp);
+            }
+        }
+
         // at this point, both 'this' and leftTblRef have been analyzed and registered;
         // register the tuple ids of the TableRefs on the nullable side of an outer join
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
@@ -520,7 +552,7 @@ public class TableRef implements ParseNode, Writable {
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
             throws AnalysisException {
         Preconditions.checkState(isAnalyzed);
-        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer);
+        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
     }
 
     private String joinOpToSql() {

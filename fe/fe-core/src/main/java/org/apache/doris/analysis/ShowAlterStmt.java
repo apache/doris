@@ -176,12 +176,8 @@ public class ShowAlterStmt extends ShowStmt {
     }
     
     
-    public void handleShowAlterTable(Analyzer analyzer) throws AnalysisException, UserException {
-        final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
-        Database db = analyzer.getCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbNameWithoutPrefix);
-        }
+    public void handleShowAlterTable(Analyzer analyzer) throws UserException {
+        Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
 
         // build proc path
         StringBuilder sb = new StringBuilder();

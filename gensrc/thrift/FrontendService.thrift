@@ -398,6 +398,8 @@ struct TReportExecStatusParams {
   15: optional i64 loaded_rows
 
   16: optional i64 backend_id
+
+  17: optional i64 loaded_bytes
 }
 
 struct TFeResult {
@@ -591,6 +593,7 @@ struct TStreamLoadPutRequest {
     32: optional string line_delimiter
     33: optional bool read_json_by_line
     34: optional string auth_code_uuid
+    35: optional i32 send_batch_parallelism
 }
 
 struct TStreamLoadPutResult {

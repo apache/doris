@@ -45,7 +45,7 @@ class TExprNode;
 /// - Testing
 ///    - Test cancellation
 ///    - Type descs in UDA test harness
-///    - Allow more functions to be NULL in UDA test harness
+///    - Allow more functions to be nullptr in UDA test harness
 class ScalarFnCall : public Expr {
 public:
     virtual std::string debug_string() const;
@@ -53,6 +53,11 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new ScalarFnCall(*this));
     }
+
+    // TODO: just for table function.
+    // It is not good to expose this field to public.
+    // We should refactor it after implementing real table functions.
+    int get_fn_context_index() const { return _fn_context_index; }
 
 protected:
     friend class Expr;

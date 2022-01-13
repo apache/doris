@@ -182,7 +182,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createPlanFragments(
             PlanNode root, boolean isPartitioned,
-            long perNodeMemLimit, ArrayList<PlanFragment> fragments) throws UserException, AnalysisException {
+            long perNodeMemLimit, ArrayList<PlanFragment> fragments) throws UserException {
         ArrayList<PlanFragment> childFragments = Lists.newArrayList();
         for (PlanNode child : root.getChildren()) {
             // allow child fragments to be partitioned, unless they contain a limit clause
@@ -200,6 +200,8 @@ public class DistributedPlanner {
         if (root instanceof ScanNode) {
             result = createScanFragment(root);
             fragments.add(result);
+        } else if (root instanceof TableFunctionNode) {
+            result = createTableFunctionFragment(root, childFragments.get(0));
         } else if (root instanceof HashJoinNode) {
             Preconditions.checkState(childFragments.size() == 2);
             result = createHashJoinFragment((HashJoinNode) root, childFragments.get(1),
@@ -209,7 +211,7 @@ public class DistributedPlanner {
                     childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
-        }  else if (root instanceof SetOperationNode) {
+        } else if (root instanceof SetOperationNode) {
             result = createSetOperationNodeFragment((SetOperationNode) root, childFragments, fragments);
         } else if (root instanceof MergeNode) {
             result = createMergeNodeFragment((MergeNode) root, childFragments, fragments);
@@ -272,7 +274,7 @@ public class DistributedPlanner {
      * fragment
      * TODO: hbase scans are range-partitioned on the row key
      */
-    private PlanFragment createScanFragment(PlanNode node) {
+    private PlanFragment createScanFragment(PlanNode node) throws UserException {
         if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
@@ -288,12 +290,20 @@ public class DistributedPlanner {
         }
     }
 
+    private PlanFragment createTableFunctionFragment(PlanNode node, PlanFragment childFragment) {
+        Preconditions.checkState(node instanceof TableFunctionNode);
+        node.setChild(0, childFragment.getPlanRoot());
+        node.setNumInstances(childFragment.getPlanRoot().getNumInstances());
+        childFragment.addPlanRoot(node);
+        return childFragment;
+    }
+
     /**
      * When broadcastCost and partitionCost are equal, there is no uniform standard for which join implementation is better.
      * Some scenarios are suitable for broadcast join, and some scenarios are suitable for shuffle join.
      * Therefore, we add a SessionVariable to help users choose a better join implementation.
      */
-    private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost)  {
+    private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost) {
         String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
         if (joinMethod.equalsIgnoreCase("broadcast")) {
             return broadcastCost <= partitionCost;
@@ -321,6 +331,7 @@ public class DistributedPlanner {
             node.setChild(1, rightChildFragment.getPlanRoot());
             leftChildFragment.setPlanRoot(node);
             fragments.remove(rightChildFragment);
+            leftChildFragment.setHasColocatePlanNode(true);
             return leftChildFragment;
         } else {
             node.setColocate(false, reason.get(0));
@@ -840,7 +851,6 @@ public class DistributedPlanner {
             childFragment.setOutputPartition(
                     DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists_().get(i)));
         }
-        setOperationNode.init(ctx_.getRootAnalyzer());
         return setOperationFragment;
     }
 
@@ -933,6 +943,7 @@ public class DistributedPlanner {
         } else {
             if (canColocateAgg(node.getAggInfo(), childFragment.getInputDataPartition())) {
                 childFragment.addPlanRoot(node);
+                childFragment.setHasColocatePlanNode(true);
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);

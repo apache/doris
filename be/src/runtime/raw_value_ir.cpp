@@ -34,11 +34,11 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     int64_t b1;
     int64_t b2;
 
-    if (NULL == v1 && NULL == v2) {
+    if (nullptr == v1 && nullptr == v2) {
         return 0;
-    } else if (NULL == v1 && NULL != v2) {
+    } else if (nullptr == v1 && nullptr != v2) {
         return -1;
-    } else if (NULL != v1 && NULL == v2) {
+    } else if (nullptr != v1 && nullptr == v2) {
         return 1;
     }
 

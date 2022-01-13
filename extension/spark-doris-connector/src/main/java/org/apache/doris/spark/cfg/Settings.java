@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class Settings {
-    private static Logger logger = LoggerFactory.getLogger(Settings.class);
+    private final static Logger logger = LoggerFactory.getLogger(Settings.class);
 
     public abstract String getProperty(String name);
 
@@ -97,5 +97,18 @@ public abstract class Settings {
     public String save() throws IllegalArgumentException {
         Properties copy = asProperties();
         return IOUtils.propsToString(copy);
+    }
+
+    @Override
+    public int hashCode() {
+        return asProperties().hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+        return asProperties().equals(((Settings) obj).asProperties());
     }
 }

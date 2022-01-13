@@ -17,79 +17,67 @@
 
 package org.apache.doris.load.sync;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.sync.SyncJob.JobState;
-import org.apache.doris.task.MasterTask;
-import org.apache.doris.task.MasterTaskExecutor;
-
-import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
 
 public class SyncChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(SyncChecker.class);
 
-    private JobState jobState;
+    private final SyncJobManager syncJobManager;
 
-    // checkers for running sync jobs
-    private static Map<JobState, SyncChecker> checkers = Maps.newHashMap();
-
-    // executors for sync tasks
-    private static Map<JobState, MasterTaskExecutor> executors = Maps.newHashMap();
-
-    private SyncChecker(JobState jobState, long intervalMs) {
-        super("sync checker " + jobState.name().toLowerCase(), intervalMs);
-        this.jobState = jobState;
-    }
-
-    public static void init(long intervalMs) {
-        checkers.put(JobState.PENDING, new SyncChecker(JobState.PENDING, intervalMs));
-
-        int poolSize = 3;
-
-        MasterTaskExecutor pendingTaskExecutor = new MasterTaskExecutor("sync_pending_job", poolSize, true);
-        executors.put(JobState.PENDING, pendingTaskExecutor);
-    }
-
-    public static void startAll() {
-        for (SyncChecker syncChecker : checkers.values()) {
-            syncChecker.start();
-        }
-        for (MasterTaskExecutor masterTaskExecutor : executors.values()) {
-            masterTaskExecutor.start();
-        }
+    public SyncChecker(SyncJobManager syncJobManager) {
+        super("sync checker", Config.sync_checker_interval_second * 1000L);
+        this.syncJobManager = syncJobManager;
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        LOG.debug("start check export jobs. job state: {}", jobState.name());
-        switch (jobState) {
-            case PENDING:
-                runPendingJobs();
-                break;
-            default:
-                LOG.warn("wrong sync job state: {}", jobState.name());
-                break;
+        LOG.debug("start check sync jobs.");
+        try {
+            process();
+            cleanOldSyncJobs();
+        } catch (Throwable e) {
+            LOG.warn("Failed to process one round of SyncChecker", e);
         }
     }
 
-    private void runPendingJobs() {
-        SyncJobManager syncJobMgr = Catalog.getCurrentCatalog().getSyncJobManager();
-        List<SyncJob> pendingJobs = syncJobMgr.getSyncJobs(JobState.PENDING);
-        for (SyncJob job : pendingJobs) {
+    private void process() throws UserException {
+        // update jobs need schedule
+        this.syncJobManager.updateNeedSchedule();
+        // get jobs need schedule
+        List<SyncJob> needScheduleJobs = this.syncJobManager.getSyncJobs(JobState.PENDING);
+        for (SyncJob job : needScheduleJobs) {
+            SyncFailMsg.MsgType msgType = null;
+            UserException exception = null;
             try {
-                MasterTask task = new SyncPendingTask(job);
-                if (executors.get(JobState.PENDING).submit(task)) {
-                    LOG.info("run pending sync job. job: {}", job);
-                }
-            } catch (Exception e) {
-                LOG.warn("run pending sync job error", e);
+                job.execute();
+            } catch (MetaNotFoundException| DdlException e) {
+                msgType = SyncFailMsg.MsgType.SCHEDULE_FAIL;
+                exception = e;
+                LOG.warn(e.getMessage());
+            } catch (UserException e) {
+                msgType = SyncFailMsg.MsgType.UNKNOWN;
+                exception = e;
+                LOG.warn(e.getMessage());
+            }
+            // cancel job
+            if (exception != null) {
+                job.cancel(msgType, exception.getMessage());
             }
         }
+    }
+
+    private void cleanOldSyncJobs() {
+        // clean up expired sync jobs
+        this.syncJobManager.cleanOldSyncJobs();
     }
 }

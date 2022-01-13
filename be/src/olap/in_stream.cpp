@@ -31,8 +31,8 @@ InStream::InStream(std::vector<StorageByteBuffer*>* inputs, const std::vector<ui
           _compress_buffer_size(compress_buffer_size),
           _current_offset(0),
           _current_range(0),
-          _compressed(NULL),
-          _uncompressed(NULL) {}
+          _compressed(nullptr),
+          _uncompressed(nullptr) {}
 
 InStream::~InStream() {
     SAFE_DELETE(_compressed);
@@ -42,13 +42,13 @@ InStream::~InStream() {
 OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) {
     uint64_t len = chunk_size;
     uint64_t old_offset = _current_offset;
-    StorageByteBuffer* slice = NULL;
+    StorageByteBuffer* slice = nullptr;
 
     //如果buffer够读，拿出一个chunksize，并设置position
     if (OLAP_LIKELY(_compressed->remaining() >= len)) {
         slice = StorageByteBuffer::reference_buffer(_compressed, _compressed->position(), len);
 
-        if (OLAP_UNLIKELY(NULL == slice)) {
+        if (OLAP_UNLIKELY(nullptr == slice)) {
             return OLAP_ERR_MALLOC_ERROR;
         }
 
@@ -66,7 +66,7 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) 
     // 这里并不分配chuck_size, 而是分配一个最大值, 这样利于减少内存碎片
     slice = StorageByteBuffer::create(_compress_buffer_size);
 
-    if (OLAP_UNLIKELY(NULL == slice)) {
+    if (OLAP_UNLIKELY(nullptr == slice)) {
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -86,7 +86,7 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) 
                                                           _inputs[_current_range]->position(),
                                                           _inputs[_current_range]->remaining());
 
-        if (OLAP_UNLIKELY(NULL == _compressed)) {
+        if (OLAP_UNLIKELY(nullptr == _compressed)) {
             SAFE_DELETE(slice);
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -119,9 +119,9 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) 
 OLAPStatus InStream::_assure_data() {
     OLAPStatus res = OLAP_SUCCESS;
 
-    if (OLAP_LIKELY(_uncompressed != NULL && _uncompressed->remaining() > 0)) {
+    if (OLAP_LIKELY(_uncompressed != nullptr && _uncompressed->remaining() > 0)) {
         return OLAP_SUCCESS;
-    } else if (OLAP_UNLIKELY((_uncompressed == NULL || _uncompressed->remaining() == 0) &&
+    } else if (OLAP_UNLIKELY((_uncompressed == nullptr || _uncompressed->remaining() == 0) &&
                              (_current_offset == _length))) {
         return OLAP_ERR_COLUMN_STREAM_EOF;
     }
@@ -131,7 +131,7 @@ OLAPStatus InStream::_assure_data() {
 
     // 到这里说明当前uncompress没有什么可以读了，input拿数据
     // 如果没有compress。或者compress耗尽，用_seek向后一个buff移动
-    if (_compressed == NULL || _compressed->remaining() == 0) {
+    if (_compressed == nullptr || _compressed->remaining() == 0) {
         res = _seek(_current_offset);
         if (OLAP_SUCCESS != res) {
             return res;
@@ -153,7 +153,7 @@ OLAPStatus InStream::_assure_data() {
 
         // 向后移动整体偏移
         _current_offset += sizeof(StreamHead);
-        StorageByteBuffer* slice = NULL;
+        StorageByteBuffer* slice = nullptr;
 
         // 根据head取一块buf，这里应该要调整_current_offset
         res = _slice(head.length, &slice);
@@ -169,7 +169,7 @@ OLAPStatus InStream::_assure_data() {
         } else {
             _uncompressed = StorageByteBuffer::create(_compress_buffer_size);
 
-            if (OLAP_UNLIKELY(NULL == _uncompressed)) {
+            if (OLAP_UNLIKELY(nullptr == _uncompressed)) {
                 res = OLAP_ERR_MALLOC_ERROR;
             } else {
                 res = _decompressor(slice, _uncompressed);
@@ -205,7 +205,7 @@ OLAPStatus InStream::_seek(uint64_t position) {
     for (uint32_t i = 0; i < _inputs.size(); i++) {
         if (_offsets[i] <= position && position - _offsets[i] < _inputs[i]->remaining()) {
             // don't need to malloc _compressed if current range don't be changed.
-            if (!(_current_range == i && NULL != _compressed)) {
+            if (!(_current_range == i && nullptr != _compressed)) {
                 _current_range = i;
                 SAFE_DELETE(_compressed);
                 _compressed =
@@ -261,7 +261,7 @@ OLAPStatus InStream::seek(PositionProvider* position) {
                              _uncompressed->position() + uncompressed_bytes);
             return res;
         }
-    } else if (_uncompressed != NULL) {
+    } else if (_uncompressed != nullptr) {
         // mark the uncompressed buffer as done
         res = _uncompressed->set_position(_uncompressed->limit());
 

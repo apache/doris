@@ -109,11 +109,11 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     path->capacity_bytes = -1;
     if (!capacity_str.empty()) {
         if (!valid_signed_number<int64_t>(capacity_str) ||
-            strtol(capacity_str.c_str(), NULL, 10) < 0) {
+            strtol(capacity_str.c_str(), nullptr, 10) < 0) {
             LOG(WARNING) << "invalid capacity of store path, capacity=" << capacity_str;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
-        path->capacity_bytes = strtol(capacity_str.c_str(), NULL, 10) * GB_EXCHANGE_BYTE;
+        path->capacity_bytes = strtol(capacity_str.c_str(), nullptr, 10) * GB_EXCHANGE_BYTE;
     }
 
     path->storage_medium = TStorageMedium::HDD;

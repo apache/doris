@@ -18,12 +18,12 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
 #define DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/status.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Exprs_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 
@@ -73,9 +73,8 @@ public:
     static Status create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                    const std::vector<TExpr>& output_exprs,
                                    const TPlanFragmentExecParams& params,
-                                   const RowDescriptor& row_desc,
-                                   bool is_vec,
-                                   boost::scoped_ptr<DataSink>* sink);
+                                   const RowDescriptor& row_desc, bool is_vec,
+                                   std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;

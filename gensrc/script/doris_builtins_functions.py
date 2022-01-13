@@ -134,10 +134,20 @@ visible_functions = [
     [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', '', 'ALWAYS_NULLABLE'],
+    [['unix_timestamp'], 'INT', ['STRING', 'STRING'],
+        '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', '', 'ALWAYS_NULLABLE'],
     [['from_unixtime'], 'VARCHAR', ['INT'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf15FunctionContextERKNS1_6IntValE',
         '', '', 'vec', ''],
     [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'],
+        '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
+        '15FunctionContextERKNS1_6IntValERKNS1_9StringValE',
+        '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE', 'vec', ''],
+    [['from_unixtime'], 'VARCHAR', ['INT', 'STRING'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValERKNS1_9StringValE',
         '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
@@ -288,6 +298,9 @@ visible_functions = [
     [['str_to_date'], 'DATETIME', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11str_to_dateEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['str_to_date'], 'DATETIME', ['STRING', 'STRING'],
+        '_ZN5doris18TimestampFunctions11str_to_dateEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE',
@@ -296,6 +309,20 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
         '15FunctionContextENS2_18FunctionStateScopeE', 'vec', ''],
     [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'],
+        '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
+        '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE',
+        '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE', 'vec', ''],
+    [['date_format'], 'VARCHAR', ['DATETIME', 'STRING'],
+        '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
+        '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE',
+        '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE', 'vec', ''],
+    [['date_format'], 'VARCHAR', ['DATE', 'STRING'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE',
         '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
@@ -314,6 +341,11 @@ visible_functions = [
         '15FunctionContextERKNS1_11DateTimeValE', '', '', 'vec', ''],
 
     [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
+            '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_',
+            '_ZN5doris18TimestampFunctions18convert_tz_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris18TimestampFunctions16convert_tz_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+            'vec', 'ALWAYS_NULLABLE'],
+    [['convert_tz'], 'DATETIME', ['DATETIME', 'STRING', 'STRING'],
             '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_',
             '_ZN5doris18TimestampFunctions18convert_tz_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris18TimestampFunctions16convert_tz_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
@@ -602,13 +634,20 @@ visible_functions = [
             '_ZN5doris13MathFunctions7hex_intEPN9doris_udf15FunctionContextERKNS1_9BigIntValE', '', '', '', ''],
     [['hex'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris13MathFunctions10hex_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['hex'], 'STRING', ['STRING'],
+            '_ZN5doris13MathFunctions10hex_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
     [['unhex'], 'VARCHAR', ['VARCHAR'],
+            '_ZN5doris13MathFunctions5unhexEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['unhex'], 'STRING', ['STRING'],
             '_ZN5doris13MathFunctions5unhexEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
 
     [['conv'], 'VARCHAR', ['BIGINT', 'TINYINT', 'TINYINT'],
             '_ZN5doris13MathFunctions8conv_intEPN9doris_udf'
             '15FunctionContextERKNS1_9BigIntValERKNS1_10TinyIntValES9_', '', '', '', ''],
     [['conv'], 'VARCHAR', ['VARCHAR', 'TINYINT', 'TINYINT'],
+            '_ZN5doris13MathFunctions11conv_stringEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValERKNS1_10TinyIntValES9_', '', '', '', ''],
+    [['conv'], 'VARCHAR', ['STRING', 'TINYINT', 'TINYINT'],
             '_ZN5doris13MathFunctions11conv_stringEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_10TinyIntValES9_', '', '', '', ''],
 
@@ -692,6 +731,9 @@ visible_functions = [
     [['least'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', '', ''],
+    [['least'], 'STRING', ['STRING', '...'],
+            '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+            '', '', '', ''],
 
     [['greatest'], 'TINYINT', ['TINYINT', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_10TinyIntValE',
@@ -723,6 +765,9 @@ visible_functions = [
     [['greatest'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', '', ''],
+    [['greatest'], 'STRING', ['STRING', '...'],
+            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+            '', '', '', ''],
 
     # Conditional Functions
     # Some of these have empty symbols because the BE special-cases them based on the
@@ -741,6 +786,7 @@ visible_functions = [
     [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], '', '', '', 'vec', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], '', '', '', 'vec', 'CUSTOM'],
+    [['if'], 'STRING', ['BOOLEAN', 'STRING', 'STRING'], '', '', '', 'vec', 'CUSTOM'],
 
     [['nullif'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['nullif'], 'TINYINT', ['TINYINT', 'TINYINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -755,6 +801,7 @@ visible_functions = [
     [['nullif'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['nullif'], 'STRING', ['STRING', 'STRING'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
     [['ifnull'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull'], 'TINYINT', ['TINYINT', 'TINYINT'], '', '', '', 'vec', 'CUSTOM'],
@@ -772,6 +819,7 @@ visible_functions = [
     [['ifnull'], 'BITMAP', ['BITMAP', 'BITMAP'], '', '', '', 'vec', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['ifnull'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], '', '', '', 'vec', 'CUSTOM'],
+    [['ifnull'], 'STRING', ['STRING', 'STRING'], '', '', '', 'vec', 'CUSTOM'],
 
     [['coalesce'], 'BOOLEAN', ['BOOLEAN', '...'], '', '', '', '', 'CUSTOM'],
     [['coalesce'], 'TINYINT', ['TINYINT', '...'], '', '', '', '', 'CUSTOM'],
@@ -787,6 +835,7 @@ visible_functions = [
     [['coalesce'], 'BITMAP', ['BITMAP', '...'], '', '', '', '', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], '', '', '', '', 'CUSTOM'],
+    [['coalesce'], 'STRING', ['STRING', '...'], '', '', '', '', 'CUSTOM'],
 
     [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris11ESFunctions5matchEPN'
@@ -914,6 +963,128 @@ visible_functions = [
         '_ZN5doris15StringFunctions10split_partEPN9doris_udf15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE',
         '', '', '', ''],
 
+    # Longtext function
+    [['substr', 'substring'], 'STRING', ['STRING', 'INT'],
+        '_ZN5doris15StringFunctions9substringEPN'
+        '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', '', 'ALWAYS_NULLABLE'],
+    [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'],
+        '_ZN5doris15StringFunctions9substringEPN'
+        '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['strleft', 'left'], 'STRING', ['STRING', 'INT'],
+        '_ZN5doris15StringFunctions4leftEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['strright', 'right'], 'STRING', ['STRING', 'INT'],
+        '_ZN5doris15StringFunctions5rightEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['ends_with'], 'BOOLEAN', ['STRING', 'STRING'],
+        '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', 'vec', ''],
+    [['starts_with'], 'BOOLEAN', ['STRING', 'STRING'],
+        '_ZN5doris15StringFunctions11starts_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', 'vec', ''],
+    [['null_or_empty'], 'BOOLEAN', ['STRING'],
+        '_ZN5doris15StringFunctions13null_or_emptyEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['space'], 'STRING', ['INT'],
+        '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE', '', '', 'vec', ''],
+    [['repeat'], 'STRING', ['STRING', 'INT'],
+        '_ZN5doris15StringFunctions6repeatEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['lpad'], 'STRING', ['STRING', 'INT', 'STRING'],
+            '_ZN5doris15StringFunctions4lpadEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_', '', '', 'vec', ''],
+    [['rpad'], 'STRING', ['STRING', 'INT', 'STRING'],
+            '_ZN5doris15StringFunctions4rpadEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_', '', '', 'vec', ''],
+    [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'],
+	        '_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+	        '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['length'], 'INT', ['STRING'],
+            '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+            '', '', 'vec', ''],
+    [['bit_length'], 'INT', ['STRING'],
+            '_ZN5doris15StringFunctions10bit_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE','', '', 'vec', ''],
+
+    [['char_length', 'character_length'], 'INT', ['STRING'],
+            '_ZN5doris15StringFunctions16char_utf8_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+            '', '', 'vec', ''],
+    [['lower', 'lcase'], 'STRING', ['STRING'],
+            '_ZN5doris15StringFunctions5lowerEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['upper', 'ucase'], 'STRING', ['STRING'],
+            '_ZN5doris15StringFunctions5upperEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['reverse'], 'STRING', ['STRING'],
+            '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['trim'], 'STRING', ['STRING'],
+            '_ZN5doris15StringFunctions4trimEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['ltrim'], 'STRING', ['STRING'],
+            '_ZN5doris15StringFunctions5ltrimEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['rtrim'], 'STRING', ['STRING'],
+            '_ZN5doris15StringFunctions5rtrimEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['ascii'], 'INT', ['STRING'],
+            '_ZN5doris15StringFunctions5asciiEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['instr'], 'INT', ['STRING', 'STRING'],
+            '_ZN5doris15StringFunctions5instrEPN9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['locate'], 'INT', ['STRING', 'STRING'],
+            '_ZN5doris15StringFunctions6locateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['locate'], 'INT', ['STRING', 'STRING', 'INT'],
+            '_ZN5doris15StringFunctions10locate_posEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE', '', '', 'vec', ''],
+    [['regexp_extract'], 'STRING', ['STRING', 'STRING', 'BIGINT'],
+            '_ZN5doris15StringFunctions14regexp_extractEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValES6_RKNS1_9BigIntValE',
+            '_ZN5doris15StringFunctions14regexp_prepareEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+    [['regexp_replace'], 'STRING', ['STRING', 'STRING', 'STRING'],
+            '_ZN5doris15StringFunctions14regexp_replaceEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValES6_S6_',
+            '_ZN5doris15StringFunctions14regexp_prepareEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+    [['concat'], 'STRING', ['STRING', '...'],
+            '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+            '', '', 'vec', ''],
+    [['replace'], 'STRING', ['STRING', 'STRING', 'STRING'],
+            '_ZN5doris15StringFunctions7replaceEPN9doris_udf15FunctionContextERKNS1_9StringValES6_S6_',
+            '', '', 'vec', ''],
+    [['concat_ws'], 'STRING', ['STRING', 'STRING', '...'],
+            '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValEiPS5_', '', '', 'vec', 'CUSTOM'],
+    [['find_in_set'], 'INT', ['STRING', 'STRING'],
+            '_ZN5doris15StringFunctions11find_in_setEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['parse_url'], 'STRING', ['STRING', 'STRING'],
+            '_ZN5doris15StringFunctions9parse_urlEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValES6_',
+            '_ZN5doris15StringFunctions17parse_url_prepareEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris15StringFunctions15parse_url_closeEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+    [['parse_url'], 'STRING', ['STRING', 'STRING', 'STRING'],
+            '_ZN5doris15StringFunctions13parse_url_keyEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValES6_S6_',
+            '_ZN5doris15StringFunctions17parse_url_prepareEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris15StringFunctions15parse_url_closeEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+    [['money_format'], 'STRING', ['BIGINT'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
+        '', '', '', ''],
+    [['money_format'], 'STRING', ['LARGEINT'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_11LargeIntValE',
+        '', '', '', ''],
+    [['money_format'], 'STRING', ['DOUBLE'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_9DoubleValE',
+        '', '', '', ''],
+    [['money_format'], 'STRING', ['DECIMALV2'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE',
+        '', '', '', ''],
+    [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'],
+        '_ZN5doris15StringFunctions10split_partEPN9doris_udf15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE',
+        '', '', '', ''],
+
     # Utility functions
     [['sleep'], 'BOOLEAN', ['INT'],
         '_ZN5doris16UtilityFunctions5sleepEPN9doris_udf15FunctionContextERKNS1_6IntValE',
@@ -938,7 +1109,32 @@ visible_functions = [
         '_ZN5doris13JsonFunctions17json_path_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         'vec', ''],
+    [['get_json_int'], 'INT', ['STRING', 'STRING'],
+        '_ZN5doris13JsonFunctions12get_json_intEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris13JsonFunctions17json_path_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        'vec', ''],
+    [['get_json_double'], 'DOUBLE', ['STRING', 'STRING'],
+        '_ZN5doris13JsonFunctions15get_json_doubleEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris13JsonFunctions17json_path_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        'vec', ''],
+    [['get_json_string'], 'STRING', ['STRING', 'STRING'],
+        '_ZN5doris13JsonFunctions15get_json_stringEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris13JsonFunctions17json_path_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        'vec', ''],
 
+    [['json_array'], 'VARCHAR', ['VARCHAR', '...'],
+            '_ZN5doris13JsonFunctions10json_arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+            '', '', '', ''],
+    [['json_object'], 'VARCHAR', ['VARCHAR', '...'],
+            '_ZN5doris13JsonFunctions11json_objectEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+            '', '', '', ''],
+    [['json_quote'], 'VARCHAR', ['VARCHAR'],
+            '_ZN5doris13JsonFunctions10json_quoteEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+            '', '', '', ''],
+                    
     #hll function
     [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
         '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE',
@@ -949,6 +1145,12 @@ visible_functions = [
     [['hll_empty'], 'HLL', [],
         '_ZN5doris12HllFunctions9hll_emptyEPN9doris_udf15FunctionContextE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['hll_cardinality'], 'BIGINT', ['STRING'],
+        '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['hll_hash'], 'HLL', ['STRING'],
+        '_ZN5doris12HllFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
     #bitmap function
 
@@ -958,28 +1160,58 @@ visible_functions = [
     [['bitmap_hash'], 'BITMAP', ['VARCHAR'],
         '_ZN5doris15BitmapFunctions11bitmap_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', ''],
+    [['to_bitmap'], 'BITMAP', ['STRING'],
+        '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', ''],
+    [['bitmap_hash'], 'BITMAP', ['STRING'],
+        '_ZN5doris15BitmapFunctions11bitmap_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', ''],
     [['bitmap_count'], 'BIGINT', ['BITMAP'],
         '_ZN5doris15BitmapFunctions12bitmap_countEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', ''],
+    [['bitmap_and_not_count'], 'BIGINT', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions20bitmap_and_not_countEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', '', ''],
     [['bitmap_empty'], 'BITMAP', [],
         '_ZN5doris15BitmapFunctions12bitmap_emptyEPN9doris_udf15FunctionContextE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['bitmap_or'], 'BITMAP', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions9bitmap_orEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_or'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions9bitmap_orEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
+    [['bitmap_xor'], 'BITMAP', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions10bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_xor'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
+    [['bitmap_xor_count'], 'BIGINT', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions16bitmap_xor_countEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
+    [['bitmap_xor_count'], 'BIGINT', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions16bitmap_xor_countEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', '', ''],
     [['bitmap_not'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_notEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
+    [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions10bitmap_andEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
     [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_andEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
-    [['bitmap_to_string'], 'VARCHAR', ['BITMAP'],
+    [['bitmap_and_not'], 'BITMAP', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions14bitmap_and_notEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', '', ''],
+    [['bitmap_to_string'], 'STRING', ['BITMAP'],
         '_ZN5doris15BitmapFunctions16bitmap_to_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', ''],
     [['bitmap_from_string'], 'BITMAP', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions18bitmap_from_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', ''],
+    [['bitmap_from_string'], 'BITMAP', ['STRING'],
         '_ZN5doris15BitmapFunctions18bitmap_from_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', ''],
     [['bitmap_contains'], 'BOOLEAN', ['BITMAP','BIGINT'],
@@ -988,12 +1220,42 @@ visible_functions = [
     [['bitmap_has_any'], 'BOOLEAN', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions14bitmap_has_anyEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],
+    [['bitmap_has_all'], 'BOOLEAN', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions14bitmap_has_allEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', 'vec', ''],
     [['bitmap_min'], 'BIGINT', ['BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_minEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', ''],
+    [['bitmap_max'], 'BIGINT', ['BITMAP'],
+        '_ZN5doris15BitmapFunctions10bitmap_maxEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', '', ''],
+    [['bitmap_subset_in_range'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'],
+        '_ZN5doris15BitmapFunctions22bitmap_subset_in_rangeEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValES9_',
+        '', '', 'vec', ''],
+    [['bitmap_subset_limit'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'],
+        '_ZN5doris15BitmapFunctions19bitmap_subset_limitEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValES9_',
+        '', '', 'vec', ''],
+    [['bitmap_and_count'], 'BIGINT', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions16bitmap_and_countEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
+    [['bitmap_and_count'], 'BIGINT', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions16bitmap_and_countEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', '', ''],
+    [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP','...'],
+        '_ZN5doris15BitmapFunctions15bitmap_or_countEPN9doris_udf15FunctionContextERKNS1_9StringValEiPS5_',
+        '', '', '', ''],
+    [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions15bitmap_or_countEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '', '', '', ''],
+    [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'],
+        '_ZN5doris15BitmapFunctions10sub_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValES9_',
         '', '', 'vec', ''],
 
     # hash functions
     [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'],
+        '_ZN5doris13HashFunctions15murmur_hash3_32EPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+        '', '', '', ''],
+    [['murmur_hash3_32'], 'INT', ['STRING', '...'],
         '_ZN5doris13HashFunctions15murmur_hash3_32EPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
         '', '', '', ''],
 
@@ -1004,10 +1266,58 @@ visible_functions = [
     [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+         '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+         '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
     [['from_base64'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris19EncryptionFunctions11from_base64EPN9doris_udf'
         '15FunctionContextERKNS1_9StringValE', '', '', '', ''],
     [['to_base64'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris19EncryptionFunctions9to_base64EPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['aes_encrypt'], 'STRING', ['STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+    [['aes_decrypt'], 'STRING', ['STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+    [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+    [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+      [['sm4_encrypt'], 'STRING', ['STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+      [['sm4_decrypt'], 'STRING', ['STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
+      [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+      [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+          '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+          '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+    [['from_base64'], 'STRING', ['STRING'],
+        '_ZN5doris19EncryptionFunctions11from_base64EPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['to_base64'], 'STRING', ['STRING'],
         '_ZN5doris19EncryptionFunctions9to_base64EPN9doris_udf'
         '15FunctionContextERKNS1_9StringValE', '', '', '', ''],
     # for compatable with MySQL
@@ -1015,6 +1325,19 @@ visible_functions = [
         '_ZN5doris19EncryptionFunctions3md5EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
     [['md5sum'], 'VARCHAR', ['VARCHAR', '...'],
         '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
+    [['md5'], 'VARCHAR', ['STRING'],
+        '_ZN5doris19EncryptionFunctions3md5EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['md5sum'], 'VARCHAR', ['STRING', '...'],
+        '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
+
+    [['sm3'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['sm3sum'], 'VARCHAR', ['VARCHAR', '...'],
+        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
+    [['sm3'], 'VARCHAR', ['STRING'],
+        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+    [['sm3sum'], 'VARCHAR', ['STRING', '...'],
+        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
 
     # geo functions
     [['ST_Point'], 'VARCHAR', ['DOUBLE', 'DOUBLE'],
@@ -1025,6 +1348,12 @@ visible_functions = [
     [['ST_Y'], 'DOUBLE', ['VARCHAR'],
         '_ZN5doris12GeoFunctions4st_yEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', '', 'ALWAYS_NULLABLE'],
+    [['ST_X'], 'DOUBLE', ['STRING'],
+        '_ZN5doris12GeoFunctions4st_xEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', '', 'ALWAYS_NULLABLE'],
+    [['ST_Y'], 'DOUBLE', ['STRING'],
+        '_ZN5doris12GeoFunctions4st_yEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', '', 'ALWAYS_NULLABLE'],
 
     [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'],
         '_ZN5doris12GeoFunctions18st_distance_sphereEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_S6_S6_',
@@ -1033,7 +1362,15 @@ visible_functions = [
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris12GeoFunctions9st_as_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', '', 'ALWAYS_NULLABLE'],
+    [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['STRING'],
+        '_ZN5doris12GeoFunctions9st_as_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', '', 'ALWAYS_NULLABLE'],
     [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions11st_from_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions19st_from_wkt_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '', 'ALWAYS_NULLABLE'],
+    [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['STRING'],
         '_ZN5doris12GeoFunctions11st_from_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions19st_from_wkt_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
@@ -1044,8 +1381,18 @@ visible_functions = [
         '_ZN5doris12GeoFunctions15st_line_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '', 'ALWAYS_NULLABLE'],
+    [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['STRING'],
+        '_ZN5doris12GeoFunctions7st_lineEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions15st_line_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '', 'ALWAYS_NULLABLE'],
 
     [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions10st_polygonEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions18st_polygon_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '', 'ALWAYS_NULLABLE'],
+    [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['STRING'],
         '_ZN5doris12GeoFunctions10st_polygonEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions18st_polygon_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
@@ -1086,7 +1433,9 @@ non_null_result_with_null_param_functions = [
     'nullif',
     'null_or_empty',
     'coalesce',
-    'array'
+    'array',
+    'json_array',
+    'json_object'
 ]
 
 # Nondeterministic functions may return different results each time they are called

@@ -27,7 +27,6 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -41,7 +40,6 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import mockit.Expectations;
@@ -126,20 +124,20 @@ public class DatabaseTest {
         OlapTable table = new OlapTable(2000L, "baseTable", baseSchema, KeysType.AGG_KEYS,
                 new SinglePartitionInfo(), new RandomDistributionInfo(10));
         db.createTable(table);
-        Table resultTable1 = db.getTableOrThrowException(2000L, Table.TableType.OLAP);
-        Table resultTable2 = db.getTableOrThrowException("baseTable", Table.TableType.OLAP);
+        Table resultTable1 = db.getTableOrMetaException(2000L, Table.TableType.OLAP);
+        Table resultTable2 = db.getTableOrMetaException("baseTable", Table.TableType.OLAP);
         Assert.assertEquals(table, resultTable1);
         Assert.assertEquals(table, resultTable2);
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
-                () -> db.getTableOrThrowException(3000L, Table.TableType.OLAP));
-        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, table=baseTable1",
-                () -> db.getTableOrThrowException("baseTable1", Table.TableType.OLAP));
+                () -> db.getTableOrMetaException(3000L, Table.TableType.OLAP));
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableName=baseTable1",
+                () -> db.getTableOrMetaException("baseTable1", Table.TableType.OLAP));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "table type is not BROKER, tableId=2000, type=class org.apache.doris.catalog.OlapTable",
-                () -> db.getTableOrThrowException(2000L, Table.TableType.BROKER));
+                "table type is not BROKER, tableId=2000, type=OLAP",
+                () -> db.getTableOrMetaException(2000L, Table.TableType.BROKER));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "table type is not BROKER, table=baseTable, type=class org.apache.doris.catalog.OlapTable",
-                () -> db.getTableOrThrowException("baseTable", Table.TableType.BROKER));
+                "table type is not BROKER, tableName=baseTable, type=OLAP",
+                () -> db.getTableOrMetaException("baseTable", Table.TableType.BROKER));
     }
 
     @Test
@@ -159,8 +157,8 @@ public class DatabaseTest {
         // duplicate
         Assert.assertFalse(db.createTable(table));
 
-        Assert.assertEquals(table, db.getTable(table.getId()));
-        Assert.assertEquals(table, db.getTable(table.getName()));
+        Assert.assertEquals(table, db.getTableNullable(table.getId()));
+        Assert.assertEquals(table, db.getTableNullable(table.getName()));
 
         Assert.assertEquals(1, db.getTables().size());
         Assert.assertEquals(table, db.getTables().get(0));

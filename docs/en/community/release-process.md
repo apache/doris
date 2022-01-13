@@ -87,11 +87,6 @@ After installation, the default configuration file gpg.conf will be placed in th
 ```
 
 If this directory or file does not exist, you can create an empty file directly.
-Edit gpg.conf, modify or add KeyServer configuration:
-
-```
-keyserver hkp http://keys.gnupg.net
-```
 
 Apache signature recommends SHA512, which can be done by configuring gpg.
 Edit gpg.conf and add the following three lines:
@@ -212,7 +207,7 @@ mQINBFwJEQ0BEACwqLluHfjBqD/RWZ4uoYxNYHlIzZvbvxAlwS2mn53BirLIU/G3
 Public key servers are servers that store users'public keys exclusively on the network. The send-keys parameter uploads the public key to the server.
 
 ```
-gpg --send-keys xxxx
+gpg --send-keys xxxx --keyserver https://keyserver.ubuntu.com/
 ```
 
 Where XXX is the last step -- the string after pub in the list-keys result, as shown above: 33DBF2E0
@@ -220,12 +215,12 @@ Where XXX is the last step -- the string after pub in the list-keys result, as s
 You can also upload the contents of the above public-key.txt through the following website:
 
 ```
-http://keys.gnupg.net
+https://keyserver.ubuntu.com/
 ```
 
 After successfully upload, you can query the website and enter 0x33DBF2E0:
 
-http://keys.gnupg.net
+https://keyserver.ubuntu.com/
 
 Queries on the site are delayed and may take an hour.
 
@@ -250,18 +245,38 @@ sub   4096R/0E8182E6 2018-12-06
 
 Paste the fingerprint above (i.e. 07AA E690 B01D 1A4B 469B 0BEF 5E29 CE39 33DB F2E0) into your user information:
 
+```
 https://id.apache.org
 OpenPGP Public Key Primary Fingerprint:
+```
+
+> Notice: One can has multi Public Key。
 
 #### Generating keys
 
 ```
 svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
-# edit doris/KEY file
+# edit doris/KEYS file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
 svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
+
+Note that the KEYS file must be published to the following svn repo at he same time:
+
+```
+svn co https://dist.apache.org/repos/dist/release/incubator/doris
+# edit doris/KEYS file
+svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
+```
+
+It will be automatically synced to:
+
+```
+https://downloads.apache.org/incubator/doris/KEYS
+```
+
+In the follow-up voting mail, the KEYS file in `https://downloads.apache.org/incubator/doris/KEYS` should be used.
 
 ## Prepare for release
 
@@ -305,7 +320,7 @@ After the entire branch is stable, the release can be prepared.
 1. Download the compiled image
 
          ```
-         docker pull apache/incubator-doris:build-env-1.2
+         docker pull apache/incubator-doris:build-env-1.3.1
          ```
 
 2. Use official documents to compile the new branch, see [Docker Development Mirror Compilation](http://doris.apache.org/master/zh-CN/installing/compilation.html)
@@ -412,7 +427,7 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc1/
 This has been signed with PGP key 33DBF2E0, corresponding to
 lide@apache.org.
 KEYS file is available here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -499,7 +514,7 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc01/
 
 This has been signed with PGP key 33DBF2E0, corresponding to lide@apache.org.
 KEYS file is available here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -513,12 +528,12 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apache/incubator-doris:build-env-1.3
+$ docker pull apache/incubator-doris:build-env-1.3.1
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apache/incubator-doris:build-env-1.3
+$ docker run -it apache/incubator-doris:build-env-1.3.1
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.

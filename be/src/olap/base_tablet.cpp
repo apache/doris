@@ -31,8 +31,6 @@ extern MetricPrototype METRIC_query_scan_count;
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
         : _state(tablet_meta->tablet_state()),
           _tablet_meta(tablet_meta),
-          // TODO: Think we really copy tablet schema here, which cost double mem
-          // cost in TabletManager
           _schema(tablet_meta->tablet_schema()),
           _data_dir(data_dir) {
     _gen_tablet_path();
@@ -66,11 +64,15 @@ OLAPStatus BaseTablet::set_tablet_state(TabletState state) {
 
 void BaseTablet::_gen_tablet_path() {
     if (_data_dir != nullptr) {
-        std::string path = _data_dir->path() + DATA_PREFIX;
-        path = path_util::join_path_segments(path, std::to_string(_tablet_meta->shard_id()));
-        path = path_util::join_path_segments(path, std::to_string(_tablet_meta->tablet_id()));
-        path = path_util::join_path_segments(path, std::to_string(_tablet_meta->schema_hash()));
-        _tablet_path = path;
+        FilePathDescStream desc_s;
+        desc_s << _data_dir->path_desc() << DATA_PREFIX;
+        FilePathDesc path_desc = path_util::join_path_desc_segments(
+                desc_s.path_desc(), std::to_string(_tablet_meta->shard_id()));
+        path_desc = path_util::join_path_desc_segments(path_desc, std::to_string(_tablet_meta->tablet_id()));
+        _tablet_path_desc = path_util::join_path_desc_segments(path_desc, std::to_string(_tablet_meta->schema_hash()));
+        if (Env::get_env(_tablet_path_desc.storage_medium)->is_remote_env()) {
+            _tablet_path_desc.remote_path += "/" + _tablet_meta->tablet_uid().to_string();
+        }
     }
 }
 

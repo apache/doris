@@ -89,7 +89,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, const std::string& file_name,
+                         uint64_t num_rows, const FilePathDesc& path_desc,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();
@@ -123,9 +123,7 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
-                                      std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-                                      RowRanges* row_ranges);
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition, RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges);
@@ -134,7 +132,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 const std::string& file_name);
+                 FilePathDesc path_desc);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -161,9 +159,7 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions,
-                               std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-                               std::vector<uint32_t>* page_indexes);
+    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions, std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
@@ -171,7 +167,7 @@ private:
     ColumnMetaPB _meta;
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
-    std::string _file_name;
+    FilePathDesc _path_desc;
 
     const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
@@ -312,9 +308,6 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
-
-    // page indexes those are DEL_PARTIAL_SATISFIED
-    std::unordered_set<uint32_t> _delete_partial_satisfied_pages;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {

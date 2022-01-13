@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.consistency.CheckConsistencyJob.JobState;
@@ -248,7 +249,7 @@ public class ConsistencyChecker extends MasterDaemon {
                 // skip 'information_schema' database
                 continue;
             }
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -279,7 +280,7 @@ public class ConsistencyChecker extends MasterDaemon {
                                 new PriorityQueue<>(Math.max(table.getAllPartitions().size(), 1), COMPARATOR);
                         for (Partition partition : table.getPartitions()) {
                             // check partition's replication num. if 1 replication. skip
-                            if (table.getPartitionInfo().getReplicationNum(partition.getId()) == (short) 1) {
+                            if (table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() == (short) 1) {
                                 LOG.debug("partition[{}]'s replication num is 1. ignore", partition.getId());
                                 continue;
                             }
@@ -362,9 +363,9 @@ public class ConsistencyChecker extends MasterDaemon {
         job.handleFinishedReplica(backendId, checksum);
     }
 
-    public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Catalog catalog) {
-        Database db = catalog.getDb(info.getDbId());
-        OlapTable table = (OlapTable) db.getTable(info.getTableId());
+    public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Catalog catalog) throws MetaNotFoundException {
+        Database db = catalog.getDbOrMetaException(info.getDbId());
+        OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId());
         table.writeLock();
         try {
             Partition partition = table.getPartition(info.getPartitionId());

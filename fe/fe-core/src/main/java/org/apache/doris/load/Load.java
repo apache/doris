@@ -83,6 +83,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -99,17 +100,17 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.transaction.TransactionNotFoundException;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -368,10 +369,7 @@ public class Load {
     public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
         // get db
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         // create job
         LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
@@ -392,7 +390,7 @@ public class Load {
         readLock();
         try {
             for (Long tblId : job.getIdToTableLoadInfo().keySet()) {
-                Table tbl = db.getTable(tblId);
+                Table tbl = db.getTableNullable(tblId);
                 if (tbl != null && tbl.getType() == TableType.OLAP
                         && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
                     throw new DdlException("Table " + tbl.getName() + " is in restore process. "
@@ -511,17 +509,14 @@ public class Load {
 
             for (DataDescription dataDescription : dataDescriptions) {
                 String tableName = dataDescription.getTableName();
-                OlapTable table = (OlapTable) db.getTable(tableName);
-                if (table == null) {
-                    throw new DdlException("Table[" + tableName + "] does not exist");
-                }
+                OlapTable table = db.getOlapTableOrDdlException(tableName);
 
                 table.readLock();
                 try {
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
                     Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
                             beAddress.getPort());
-                    if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backend.getId())) {
+                    if (!Catalog.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
 
@@ -587,6 +582,11 @@ public class Load {
                 // set default timeout
                 job.setTimeoutSecond(Config.hadoop_load_default_timeout_second);
             }
+            for (DataDescription dataDescription : dataDescriptions) {
+                if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND) {
+                    throw new DdlException("MERGE OR DELETE is not supported in hadoop load.");
+                }
+            }
         } else if (etlJobType == EtlJobType.BROKER) {
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
@@ -619,33 +619,27 @@ public class Load {
         String tableName = dataDescription.getTableName();
         Map<String, Pair<String, List<String>>> columnToFunction = null;
 
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new DdlException("Table [" + tableName + "] does not exist");
-        }
+        OlapTable table = db.getOlapTableOrDdlException(tableName);
         tableId = table.getId();
-        if (table.getType() != TableType.OLAP) {
-            throw new DdlException("Table [" + tableName + "] is not olap table");
-        }
 
         table.readLock();
         try {
-            if (((OlapTable) table).getPartitionInfo().isMultiColumnPartition() && jobType == EtlJobType.HADOOP) {
+            if (table.getPartitionInfo().isMultiColumnPartition() && jobType == EtlJobType.HADOOP) {
                 throw new DdlException("Load by hadoop cluster does not support table with multi partition columns."
                         + " Table: " + table.getName() + ". Try using broker load. See 'help broker load;'");
             }
 
             // check partition
             if (dataDescription.getPartitionNames() != null &&
-                    ((OlapTable) table).getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
+                    table.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
 
-            if (((OlapTable) table).getState() == OlapTableState.RESTORE) {
+            if (table.getState() == OlapTableState.RESTORE) {
                 throw new DdlException("Table [" + tableName + "] is under restore");
             }
 
-            if (((OlapTable) table).getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
+            if (table.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
                 throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
             }
 
@@ -770,6 +764,23 @@ public class Load {
                         // do nothing
                     }
 
+                } else if (!column.isVisible()) {
+                    /*
+                     *  For batch delete table add hidden column __DORIS_DELETE_SIGN__ to columns
+                     * eg:
+                     * (A, B, C)
+                     * ->
+                     * (A, B, C) SET (__DORIS_DELETE_SIGN__ = 0)
+                     */
+                    columnToHadoopFunction.put(column.getName(), Pair.create("default_value", Lists.newArrayList(column.getDefaultValue())));
+                    ImportColumnDesc importColumnDesc = null;
+                    try {
+                        importColumnDesc = new ImportColumnDesc(column.getName(),
+                                new FunctionCallExpr("default_value", Arrays.asList(column.getDefaultValueExpr())));
+                    } catch (AnalysisException e) {
+                        throw new DdlException(e.getMessage());
+                    }
+                    parsedColumnExprList.add(importColumnDesc);
                 }
             }
 
@@ -804,7 +815,7 @@ public class Load {
             }
 
             // partitions of this source
-            OlapTable olapTable = (OlapTable) table;
+            OlapTable olapTable = table;
             PartitionNames partitionNames = dataDescription.getPartitionNames();
             if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -1077,8 +1088,14 @@ public class Load {
             for (SlotRef slot : slots) {
                 SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
                 if (slotDesc == null) {
-                    throw new UserException("unknown reference column, column=" + entry.getKey()
-                            + ", reference=" + slot.getColumnName());
+                    if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                        throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
+                    } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                        throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
+                    } else {
+                        throw new UserException("unknown reference column, column=" + entry.getKey()
+                                + ", reference=" + slot.getColumnName());
+                    }
                 }
                 smap.getLhs().add(slot);
                 smap.getRhs().add(new SlotRef(slotDesc));
@@ -1111,8 +1128,14 @@ public class Load {
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
                             exprsByName.get(slot.getColumnName())));
                 } else {
-                    throw new UserException("unknown reference column, column=" + entry.getKey()
-                            + ", reference=" + slot.getColumnName());
+                    if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                        throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
+                    } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                        throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
+                    } else {
+                        throw new UserException("unknown reference column, column=" + entry.getKey()
+                                + ", reference=" + slot.getColumnName());
+                    }
                 }
             }
             Expr expr = entry.getValue().clone(smap);
@@ -1450,10 +1473,7 @@ public class Load {
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + fullDbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1480,10 +1500,7 @@ public class Load {
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + fullDbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1595,10 +1612,7 @@ public class Load {
 
     public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException, AnalysisException {
         // get load job and check state
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
@@ -1636,10 +1650,7 @@ public class Load {
         String label = stmt.getLabel();
 
         // get load job and check state
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         // List of load jobs waiting to be cancelled
         List<LoadJob> loadJobs = Lists.newArrayList();
         readLock();
@@ -1724,11 +1735,8 @@ public class Load {
         String label = stmt.getLabel();
 
         // get load job and check state
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
-        LoadJob job = null;
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        LoadJob job;
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
@@ -2112,7 +2120,7 @@ public class Load {
         }
 
         long dbId = loadJob.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }
@@ -2130,7 +2138,7 @@ public class Load {
 
                 long tableId = tabletMeta.getTableId();
 
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 if (table == null) {
                     continue;
                 }
@@ -2287,10 +2295,7 @@ public class Load {
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new MetaNotFoundException("Unknown database(" + info.dbName + ")");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
@@ -2330,7 +2335,7 @@ public class Load {
             Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
             if (replicaInfos != null) {
                 for (ReplicaPersistInfo info : replicaInfos.values()) {
-                    OlapTable table = (OlapTable) db.getTable(info.getTableId());
+                    OlapTable table = (OlapTable) db.getTableNullable(info.getTableId());
                     if (table == null) {
                         LOG.warn("the table[{}] is missing", info.getIndexId());
                         continue;
@@ -2366,7 +2371,10 @@ public class Load {
             if (idToTableLoadInfo != null) {
                 for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
                     long tableId = tableEntry.getKey();
-                    OlapTable table = (OlapTable) db.getTable(tableId);
+                    OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                    if (table == null) {
+                        continue;
+                    }
                     TableLoadInfo tableLoadInfo = tableEntry.getValue();
                     for (Entry<Long, PartitionLoadInfo> entry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
                         long partitionId = entry.getKey();
@@ -2403,9 +2411,9 @@ public class Load {
         replaceLoadJob(job);
     }
 
-    public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws DdlException {
+    public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDb(job.getDbId());
+        Database db = catalog.getDbOrMetaException(job.getDbId());
 
         List<Long> tableIds = Lists.newArrayList();
         long tblId = job.getTableId();
@@ -2415,13 +2423,7 @@ public class Load {
             tableIds.addAll(job.getIdToTableLoadInfo().keySet());
         }
 
-        List<Table> tables = null;
-        try {
-            tables = db.getTablesOnIdOrderOrThrowException(tableIds);
-        } catch (MetaNotFoundException e) {
-            LOG.error("should not happen", e);
-            return;
-        }
+        List<Table> tables = db.getTablesOnIdOrderOrThrowException(tableIds);
 
         MetaLockUtils.writeLockTables(tables);
         try {
@@ -2446,7 +2448,7 @@ public class Load {
             Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
             if (replicaInfos != null) {
                 for (ReplicaPersistInfo info : replicaInfos.values()) {
-                    OlapTable table = (OlapTable) db.getTable(info.getTableId());
+                    OlapTable table = (OlapTable) db.getTableNullable(info.getTableId());
                     if (table == null) {
                         LOG.warn("the table[{}] is missing", info.getIndexId());
                         continue;
@@ -2488,9 +2490,9 @@ public class Load {
         replaceLoadJob(job);
     }
 
-    public void replayFinishLoadJob(LoadJob job, Catalog catalog) {
+    public void replayFinishLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDb(job.getDbId());
+        Database db = catalog.getDbOrMetaException(job.getDbId());
         // After finish, the idToTableLoadInfo in load job will be set to null.
         // We lost table info. So we have to use db lock here.
         db.writeLock();
@@ -2506,9 +2508,9 @@ public class Load {
         }
     }
 
-    public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) {
-        Database db = catalog.getDb(info.getDbId());
-        OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+    public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) throws MetaNotFoundException {
+        Database db = catalog.getDbOrMetaException(info.getDbId());
+        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(info.getPartitionId());
@@ -2607,7 +2609,7 @@ public class Load {
     }
 
     // Added by ljb. Remove old load jobs from idToLoadJob, dbToLoadJobs and dbLabelToLoadJobs
-    // This function is called periodically. every Configure.label_keep_max_second seconds
+    // This function is called periodically. every Configure.label_clean_interval_second seconds
     public void removeOldLoadJobs() {
         long currentTimeMs = System.currentTimeMillis();
 
@@ -2638,9 +2640,9 @@ public class Load {
                         loadJobs = mapLabelToJobs.get(label);
                         if (loadJobs != null) {
                             loadJobs.remove(job);
-                            if (loadJobs.size() == 0) {
+                            if (loadJobs.isEmpty()) {
                                 mapLabelToJobs.remove(label);
-                                if (mapLabelToJobs.size() == 0) {
+                                if (mapLabelToJobs.isEmpty()) {
                                     dbLabelToLoadJobs.remove(dbId);
                                 }
                             }
@@ -2695,7 +2697,7 @@ public class Load {
                     }
 
                     long dbId = job.getDbId();
-                    Database db = Catalog.getCurrentCatalog().getDb(dbId);
+                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
                     if (db == null) {
                         LOG.warn("db does not exist. id: {}", dbId);
                         break;
@@ -2724,11 +2726,11 @@ public class Load {
     public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg,
                                       List<String> failedMsg) {
         boolean result = true;
-        JobState srcState = null;
+        JobState srcState;
 
         long jobId = job.getId();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled
@@ -2844,7 +2846,7 @@ public class Load {
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist, id: {}", tableId);
                 return false;
@@ -2869,7 +2871,10 @@ public class Load {
         // update partition version and index row count
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                continue;
+            }
 
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
             for (Entry<Long, PartitionLoadInfo> entry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {

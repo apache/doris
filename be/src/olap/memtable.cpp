@@ -39,14 +39,19 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _tuple_desc(tuple_desc),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _row_comparator(_schema),
           _mem_tracker(MemTracker::CreateTracker(-1, "MemTable", parent_tracker)),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
-          _skip_list(new Table(_row_comparator, _table_mem_pool.get(),
-                               _keys_type == KeysType::DUP_KEYS)),
-          _rowset_writer(rowset_writer) {}
+          _rowset_writer(rowset_writer) {
+    if (tablet_schema->sort_type() == SortType::ZORDER) {
+        _row_comparator = std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
+    } else {
+        _row_comparator = std::make_shared<RowCursorComparator>(_schema);
+    }
+    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
+
+}
 
 MemTable::~MemTable() {
     delete _skip_list;
@@ -61,6 +66,7 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
 }
 
 void MemTable::insert(const Tuple* tuple) {
+    _rows++;
     bool overwritten = false;
     uint8_t* _tuple_buf = nullptr;
     if (_keys_type == KeysType::DUP_KEYS) {
@@ -120,6 +126,8 @@ void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_
 }
 
 OLAPStatus MemTable::flush() {
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
+                  << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -141,6 +149,8 @@ OLAPStatus MemTable::flush() {
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
+                  << ", flushsize: " << _flush_size;
     return OLAP_SUCCESS;
 }
 

@@ -157,7 +157,7 @@ Status DataSpliter::process_partition(RuntimeState* state, TupleRow* row, Partit
         void* partition_val = ctx->get_value(row);
         // construct a PartRangeKey
         PartRangeKey tmpPartKey;
-        if (NULL != partition_val) {
+        if (nullptr != partition_val) {
             RETURN_IF_ERROR(
                     PartRangeKey::from_value(ctx->root()->type().type, partition_val, &tmpPartKey));
         } else {
@@ -183,10 +183,10 @@ Status DataSpliter::process_distribute(RuntimeState* state, TupleRow* row,
 
     for (auto& ctx : part->distributed_expr_ctxs()) {
         void* partition_val = ctx->get_value(row);
-        if (partition_val != NULL) {
+        if (partition_val != nullptr) {
             hash_val = RawValue::zlib_crc32(partition_val, ctx->root()->type(), hash_val);
         } else {
-            //NULL is treat as 0 when hash
+            //nullptr is treat as 0 when hash
             static const int INT_VALUE = 0;
             static const TypeDescriptor INT_TYPE(TYPE_INT);
             hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);

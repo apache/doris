@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
 
 #include <atomic>
-#include <boost/scoped_ptr.hpp>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -33,6 +32,7 @@
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/mem_pool.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/thread_resource_mgr.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
@@ -73,7 +73,7 @@ public:
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
-    // Empty d'tor to avoid issues with scoped_ptr.
+    // Empty d'tor to avoid issues with unique_ptr.
     ~RuntimeState();
 
     // Set per-query state.
@@ -123,7 +123,7 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
     const std::vector<std::shared_ptr<MemTracker>>& mem_trackers() { return _mem_trackers; }
     std::shared_ptr<MemTracker> fragment_mem_tracker() { return _fragment_mem_tracker; }
-
+    std::shared_ptr<MemTracker> query_mem_tracker() { return _query_mem_tracker; }
     std::shared_ptr<MemTracker> instance_mem_tracker() { return _instance_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
@@ -149,7 +149,7 @@ public:
     Status create_codegen();
 
     BufferedBlockMgr2* block_mgr2() {
-        DCHECK(_block_mgr2.get() != NULL);
+        DCHECK(_block_mgr2.get() != nullptr);
         return _block_mgr2.get();
     }
 
@@ -200,6 +200,9 @@ public:
     int codegen_level() const { return _query_options.codegen_level; }
     void set_is_cancelled(bool v) { _is_cancelled = v; }
 
+    void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
+    int64_t backend_id() const { return _backend_id; }
+
     void set_be_number(int be_number) { _be_number = be_number; }
     int be_number(void) { return _be_number; }
 
@@ -228,13 +231,13 @@ public:
     // If 'failed_allocation_size' is not 0, then it is the size of the allocation (in
     // bytes) that would have exceeded the limit allocated for 'tracker'.
     // This value and tracker are only used for error reporting.
-    // If 'msg' is non-NULL, it will be appended to query_status_ in addition to the
+    // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
     // generic "Memory limit exceeded" error.
-    Status set_mem_limit_exceeded(MemTracker* tracker = NULL, int64_t failed_allocation_size = 0,
-                                  const std::string* msg = NULL);
+    Status set_mem_limit_exceeded(MemTracker* tracker = nullptr, int64_t failed_allocation_size = 0,
+                                  const std::string* msg = nullptr);
 
     Status set_mem_limit_exceeded(const std::string& msg) {
-        return set_mem_limit_exceeded(NULL, 0, &msg);
+        return set_mem_limit_exceeded(nullptr, 0, &msg);
     }
 
     // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
@@ -308,10 +311,6 @@ public:
         _num_bytes_load_total.fetch_add(bytes_load);
     }
 
-    void set_update_num_bytes_load_total(int64_t bytes_load) {
-        _num_bytes_load_total.store(bytes_load);
-    }
-
     void update_num_rows_load_filtered(int64_t num_rows) {
         _num_rows_load_filtered.fetch_add(num_rows);
     }
@@ -348,6 +347,10 @@ public:
 
     bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
 
+    bool return_object_data_as_binary() const {
+        return _query_options.return_object_data_as_binary;
+    }
+
     bool enable_exchange_node_parallel_merge() const {
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }
@@ -372,9 +375,13 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
+    void set_query_fragments_ctx(QueryFragmentsCtx* ctx) { _query_ctx = ctx; }
+
+    QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
+
 private:
     // Use a custom block manager for the query for testing purposes.
-    void set_block_mgr2(const boost::shared_ptr<BufferedBlockMgr2>& block_mgr) {
+    void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
         _block_mgr2 = block_mgr;
     }
 
@@ -413,7 +420,7 @@ private:
     // Receivers depend on the descriptor table and we need to guarantee that their control
     // blocks are removed from the data stream manager before the objects in the
     // descriptor table are destroyed.
-    boost::scoped_ptr<ObjectPool> _data_stream_recvrs_pool;
+    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;
@@ -447,6 +454,9 @@ private:
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
 
+    // The backend id on which this fragment instance runs
+    int64_t _backend_id = -1;
+
     // used as send id
     int _be_number;
 
@@ -455,12 +465,12 @@ private:
     // will not necessarily be set in all error cases.
     std::mutex _process_status_lock;
     Status _process_status;
-    //boost::scoped_ptr<MemPool> _udf_pool;
+    //std::unique_ptr<MemPool> _udf_pool;
 
     // BufferedBlockMgr object used to allocate and manage blocks of input data in memory
     // with a fixed memory budget.
     // The block mgr is shared by all fragments for this query.
-    boost::shared_ptr<BufferedBlockMgr2> _block_mgr2;
+    std::shared_ptr<BufferedBlockMgr2> _block_mgr2;
 
     // This is the node id of the root node for this plan fragment. This is used as the
     // hash seed and has two useful properties:
@@ -494,6 +504,7 @@ private:
     std::string _error_log_file_path;
     std::ofstream* _error_log_file = nullptr; // error file path, absolute path
     std::unique_ptr<LoadErrorHub> _error_hub;
+    std::mutex _create_error_hub_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     //TODO chenhao , remove this to QueryState
@@ -503,8 +514,8 @@ private:
     ReservationTracker* _buffer_reservation = nullptr;
 
     /// Buffer reservation for this fragment instance - a child of the query buffer
-    /// reservation. Non-NULL if 'query_state_' is not NULL.
-    boost::scoped_ptr<ReservationTracker> _instance_buffer_reservation;
+    /// reservation. Non-nullptr if 'query_state_' is not nullptr.
+    std::unique_ptr<ReservationTracker> _instance_buffer_reservation;
 
     /// Pool of buffer reservations used to distribute initial reservations to operators
     /// in the query. Contains a ReservationTracker that is a child of
@@ -516,6 +527,7 @@ private:
     /// TODO: not needed if we call ReleaseResources() in a timely manner (IMPALA-1575).
     AtomicInt32 _initial_reservation_refcnt;
 
+    QueryFragmentsCtx* _query_ctx;
     // prohibit copies
     RuntimeState(const RuntimeState&);
 };

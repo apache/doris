@@ -434,7 +434,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = false; 
+            slotIsleft = false;
             return getChild(0);
         }
 

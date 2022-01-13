@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "olap/olap_define.h"
-#include "olap/reader.h"
+#include "olap/tuple_reader.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet.h"
 #include "util/trace.h"
@@ -34,8 +34,8 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                                  Merger::Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
 
-    Reader reader;
-    ReaderParams reader_params;
+    TupleReader reader;
+    TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;

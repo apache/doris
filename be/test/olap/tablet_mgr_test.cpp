@@ -108,7 +108,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
     ASSERT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -174,8 +174,8 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
-    ASSERT_TRUE(dir_exist) << tablet->tablet_path();
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
+    ASSERT_TRUE(dir_exist) << tablet->tablet_path_desc().filepath;
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
@@ -230,7 +230,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(tablet != nullptr);
 
     // check dir exist
-    std::string tablet_path = tablet->tablet_path();
+    std::string tablet_path = tablet->tablet_path_desc().filepath;
     bool dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(dir_exist);
 

@@ -37,39 +37,37 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 
 import org.apache.commons.lang3.StringUtils;
-
-import java.io.File;
-import java.util.List;
-import java.util.UUID;
-
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.File;
+import java.util.List;
+import java.util.UUID;
+
 public class QueryPlanTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
     private static String runningDir = "fe/mocked/QueryPlanTest/" + UUID.randomUUID().toString() + "/";
-    private static final Logger LOG = LogManager.getLogger(QueryPlanTest.class);
 
     private static ConnectContext connectContext;
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -407,6 +405,8 @@ public class QueryPlanTest {
 
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
+        createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as concat FROM test.test1;");
+
     }
 
     @AfterClass
@@ -422,6 +422,13 @@ public class QueryPlanTest {
     private static void createView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createView(createViewStmt);
+    }
+
+    @Test
+    public void testFunctionViewGroupingSet() throws Exception {
+        String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup(query_id, client_ip, concat);";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainStr.contains("repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]"));
     }
 
     @Test
@@ -716,6 +723,8 @@ public class QueryPlanTest {
     public void testJoinPredicateTransitivity() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
+        ConnectContext.get().getSessionVariable().setEnableInferPredicate(true);
+        /*  TODO: commit on_clause and where_clause Cross-identification
         // test left join : left table where binary predicate
         String sql = "select join1.id\n" +
                 "from join1\n" +
@@ -743,14 +752,16 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` >= 1, `join1`.`id` <= 2"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` >= 1, `join2`.`id` <= 2"));
 
+        */
         // test left join: left table join predicate, left table couldn't push down
-        sql = "select *\n from join1\n" +
+        String sql = "select *\n from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
+        /*
         // test left join: right table where predicate.
         // If we eliminate outer join, we could push predicate down to join1 and join2.
         // Currently, we push predicate to join1 and keep join predicate for join2
@@ -760,6 +771,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("other join predicates: `join2`.`id` > 1"));
+        */
 
         // test left join: right table join predicate, only push down right table
         sql = "select *\n from join1\n" +
@@ -769,6 +781,7 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
+        /*
         // test inner join: left table where predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
@@ -776,6 +789,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        */
 
         // test inner join: left table join predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
@@ -785,6 +799,7 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
+        /*
         // test inner join: right table where predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
@@ -792,6 +807,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        */
 
         // test inner join: right table join predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
@@ -822,7 +838,7 @@ public class QueryPlanTest {
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
-        Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test anti join, left table join predicate, left table couldn't push down
         sql = "select *\n from join1\n" +
@@ -839,6 +855,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
+        /*
         // test anti join, left table where predicate, only push to left table
         sql = "select join1.id\n" +
                 "from join1\n" +
@@ -856,6 +873,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+        */
     }
 
     @Test
@@ -1073,8 +1091,8 @@ public class QueryPlanTest {
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable) db.getTable("bucket_shuffle1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle1");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1087,8 +1105,8 @@ public class QueryPlanTest {
             }
         }
 
-        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        tbl = (OlapTable) db.getTable("bucket_shuffle2");
+        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle2");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1157,8 +1175,8 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1204,8 +1222,8 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1356,8 +1374,15 @@ public class QueryPlanTest {
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        System.out.println(explainString);
         Assert.assertFalse(explainString.contains("runtime filter"));
+
+        // support merge in filter, and forbidden implicit conversion to bloom filter
+        queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN.getValue());
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
+        Assert.assertFalse(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
     }
 
     @Test
@@ -1429,7 +1454,6 @@ public class QueryPlanTest {
 
         for (String sql: sqls) {
             String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
-            System.out.println(explainString);
             Assert.assertTrue(explainString.contains(emptyNode));
             Assert.assertFalse(explainString.contains(denseRank));
         }
@@ -1458,11 +1482,9 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         String sql = "SELECT dt, dis_key, COUNT(1) FROM table_unpartitioned  group by dt, dis_key";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
         sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     }
 
@@ -1715,13 +1737,91 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         String sql = "select * from tbl_null_column_view where add_column is not null;";
         String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        LOG.info(explainString1);
         Assert.assertTrue(explainString1.contains("EMPTYSET"));
 
         String sql2 = "select * from tbl_null_column_view where add_column is not null order by query_id;";
         String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
-
-        LOG.info(explainString2);
         Assert.assertTrue(explainString2.contains("EMPTYSET"));
     }
+
+    @Test
+    public void testCompoundPredicateWriteRule() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // false or e ==> e
+        String sql1 = "select * from test.test1 where 2=-2 OR query_time=0;";
+        String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql1);
+        Assert.assertTrue(explainString1.contains("PREDICATES: `query_time` = 0"));
+
+        //true or e ==> true
+        String sql2 = "select * from test.test1 where -5=-5 OR query_time=0;";
+        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
+        Assert.assertTrue(!explainString2.contains("OR"));
+
+        //e or true ==> true
+        String sql3 = "select * from test.test1 where query_time=0 OR -5=-5;";
+        String explainString3 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql3);
+        Assert.assertTrue(!explainString3.contains("OR"));
+
+        //e or false ==> e
+        String sql4 = "select * from test.test1 where -5!=-5 OR query_time=0;";
+        String explainString4 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql4);
+        Assert.assertTrue(explainString4.contains("PREDICATES: `query_time` = 0"));
+
+
+        // true and e ==> e
+        String sql5 = "select * from test.test1 where -5=-5 AND query_time=0;";
+        String explainString5 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql5);
+        Assert.assertTrue(explainString5.contains("PREDICATES: `query_time` = 0"));
+
+        // e and true ==> e
+        String sql6 = "select * from test.test1 where query_time=0 AND -5=-5;";
+        String explainString6 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql6);
+        Assert.assertTrue(explainString6.contains("PREDICATES: `query_time` = 0"));
+
+        // false and e ==> false
+        String sql7 = "select * from test.test1 where -5!=-5 AND query_time=0;";
+        String explainString7 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql7);
+        Assert.assertTrue(!explainString7.contains("FALSE"));
+
+        // e and false ==> false
+        String sql8 = "select * from test.test1 where query_time=0 AND -5!=-5;";
+        String explainString8 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql8);
+        Assert.assertTrue(!explainString8.contains("FALSE"));
+
+        // (false or expr1) and (false or expr2) ==> expr1 and expr2
+        String sql9 = "select * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
+        String explainString9 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql9);
+        Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2, `stmt_id` = 2"));
+
+        // false or (expr and true) ==> expr
+        String sql10 = "select * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
+        String explainString10 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql10);
+        Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
+    }
+
+    @Test
+    public void testOutfile() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        Config.enable_outfile_to_local = true;
+        createTable("CREATE TABLE test.`outfile1` (\n" +
+                "  `date` date NOT NULL,\n" +
+                "  `road_code` int(11) NOT NULL DEFAULT \"-1\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`date`, `road_code`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`date`)\n" +
+                "(PARTITION v2x_ads_lamp_source_percent_statistic_20210929 VALUES [('2021-09-29'), ('2021-09-30')))\n" +
+                "DISTRIBUTED BY HASH(`road_code`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        // test after query rewrite, outfile still work
+        String sql = "select * from test.outfile1 where `date` between '2021-10-07' and '2021-10-11'" +
+                "INTO OUTFILE \"file:///tmp/1_\" FORMAT AS CSV PROPERTIES (     \"column_separator\" = \",\",     \"line_delimiter\" = \"\\n\",     \"max_file_size\" = \"500MB\" );";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
+    }
+
 }

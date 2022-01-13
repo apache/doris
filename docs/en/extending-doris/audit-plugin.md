@@ -70,6 +70,9 @@ create table doris_audit_tbl__
     stmt_id int comment "An incremental id of statement",
     is_query tinyint comment "Is this statemt a query. 1 or 0",
     frontend_ip varchar(32) comment "Frontend ip of executing this statement",
+    cpu_time_ms bigint comment "Total scan cpu time in millisecond of this query",
+    sql_hash varchar(50) comment "Hash value for this query",
+    peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
     stmt varchar(5000) comment "The original statement, trimed if longer than 5000 bytes"
 ) engine=OLAP
 duplicate key(query_id, time, client_ip)

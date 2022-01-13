@@ -22,17 +22,10 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
 
 BrpcStubCache::BrpcStubCache() {
-    _stub_map.init(239);
-    REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() {
-        std::lock_guard<SpinLock> l(_lock);
-        return _stub_map.size();
-    });
+    REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
 }
 
 BrpcStubCache::~BrpcStubCache() {
     DEREGISTER_HOOK_METRIC(brpc_endpoint_stub_count);
-    for (auto& stub : _stub_map) {
-        delete stub.second;
-    }
 }
 } // namespace doris

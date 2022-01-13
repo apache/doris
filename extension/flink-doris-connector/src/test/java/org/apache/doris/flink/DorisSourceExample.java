@@ -26,7 +26,7 @@ public class DorisSourceExample {
     public static void main(String[] args) throws Exception {
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1); // source only supports parallelism of 1
+        env.setParallelism(1);
 
         final StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
 

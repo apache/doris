@@ -27,26 +27,26 @@
 namespace doris {
 class FileHandler;
 
-// 与OrcFile不同,我们底层没有HDFS无法保证存储数据的可靠性,所以必须写入
-// 校验值,在读取数据的时候检验这一校验值
-// 采用TLV类型的头部,有足够的扩展性
+// Unlike OrcFile, we cannot guarantee the reliability of stored data without HDFS at the bottom, so we must write
+// Check value, check this check value when reading data
+// Adopt TLV type header, which has sufficient scalability
 struct StreamHead {
     enum StreamType { UNCOMPRESSED = 0, COMPRESSED = 1 };
-    uint8_t type;         // 256种类型, 应该足够以后的扩展了
-    uint32_t length : 24; // 24位长度
-    uint32_t checksum;    // 32位校验值
+    uint8_t type;         // 256 types, should be enough for future expansion
+    uint32_t length : 24; // 24-bit length
+    uint32_t checksum;    // 32-bit check value
     StreamHead() : type(COMPRESSED), length(0), checksum(0) {}
 } __attribute__((packed));
 
-// 输出流,使用一组ByteBuffer缓存所有的数据
+// Output stream, use a set of ByteBuffer to buffer all data
 class OutStream {
 public:
-    // 输出流支持压缩或者不压缩两种模式,如果启用压缩,给出压缩函数
+    // The output stream supports two modes: compressed or uncompressed. If compression is enabled, the compression function is given
     explicit OutStream(uint32_t buffer_size, Compressor compressor);
 
     ~OutStream();
 
-    // 向流输出一个字节
+    // Output a byte to the stream
     inline OLAPStatus write(char byte) {
         OLAPStatus res = OLAP_SUCCESS;
         if (_current == nullptr) {
@@ -71,33 +71,33 @@ public:
         return _current->put(byte);
     }
 
-    // 向流输出一段数据
+    // Output a piece of data to the stream
     OLAPStatus write(const char* buffer, uint64_t length);
 
-    // 将流的当前位置记录在索引项中
+    // Record the current position of the stream in the index entry
     void get_position(PositionEntryWriter* index_entry) const;
 
-    // 返回流中所有数据的大小
+    // Returns the size of all data in the stream
     uint64_t get_stream_length() const;
 
-    // 返回已经分配的缓冲区大小
+    // Returns the size of the buffer that has been allocated
     uint64_t get_total_buffer_size() const;
 
-    // 将缓存的数据流输出到文件
+    // Output the cached data stream to a file
     OLAPStatus write_to_file(FileHandler* file_handle, uint32_t write_mbytes_per_sec) const;
 
     bool is_suppressed() const { return _is_suppressed; }
     void suppress() { _is_suppressed = true; }
-    // 将数据输出到output_buffers
+    // Output data to output_buffers
     OLAPStatus flush();
-    // 计算输出数据的crc32值
+    // Calculate the crc32 value of the output data
     uint32_t crc32(uint32_t checksum) const;
     const std::vector<StorageByteBuffer*>& output_buffers() { return _output_buffers; }
 
     void print_position_debug_info() {
         VLOG_TRACE << "compress: " << _spilled_bytes;
 
-        if (_current != NULL) {
+        if (_current != nullptr) {
             VLOG_TRACE << "uncompress=" << (_current->position() - sizeof(StreamHead));
         } else {
             VLOG_TRACE << "uncompress 0";
@@ -115,33 +115,33 @@ private:
     void _output_compressed();
     OLAPStatus _make_sure_output_buffer();
 
-    uint32_t _buffer_size;                           // 压缩块大小
-    Compressor _compressor;                          // 压缩函数,如果为NULL表示不压缩
-    std::vector<StorageByteBuffer*> _output_buffers; // 缓冲所有的输出
-    bool _is_suppressed;                             // 流是否被终止
-    StorageByteBuffer* _current;                     // 缓存未压缩的数据
-    StorageByteBuffer* _compressed;                  // 即将输出到output_buffers中的字节
-    StorageByteBuffer* _overflow;                    // _output中放不下的字节
-    uint64_t _spilled_bytes;                         // 已经输出到output的字节数
+    uint32_t _buffer_size;                           // Compressed block size
+    Compressor _compressor;                          // Compression function, if NULL means no compression
+    std::vector<StorageByteBuffer*> _output_buffers; // Buffer all output
+    bool _is_suppressed;                             // Whether the stream is terminated
+    StorageByteBuffer* _current;                     // Cache uncompressed data
+    StorageByteBuffer* _compressed;                  // Bytes to be output to output_buffers
+    StorageByteBuffer* _overflow;                    // Bytes that can't fit in _output
+    uint64_t _spilled_bytes;                         // The number of bytes that have been output to output
 
     DISALLOW_COPY_AND_ASSIGN(OutStream);
 };
 
-// 定义输出流的工厂方法
-// 将所有的输出流托管,同时封装了诸如压缩算法,是否启用Index,block大小等信息
+// Define the factory method of the output stream
+// Host all output streams, and encapsulate information such as compression algorithm, whether to enable Index, block size, etc.
 class OutStreamFactory {
 public:
     explicit OutStreamFactory(CompressKind compress_kind, uint32_t stream_buffer_size);
 
     ~OutStreamFactory();
 
-    // 创建后的stream的生命期依旧由OutStreamFactory管理
+    //The lifetime of the stream after creation is still managed by OutStreamFactory
     OutStream* create_stream(uint32_t column_unique_id, StreamInfoMessage::Kind kind);
 
     const std::map<StreamName, OutStream*>& streams() const { return _streams; }
 
 private:
-    std::map<StreamName, OutStream*> _streams; // 所有创建过的流
+    std::map<StreamName, OutStream*> _streams; // All created streams
     CompressKind _compress_kind;
     Compressor _compressor;
     uint32_t _stream_buffer_size;

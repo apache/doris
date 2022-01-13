@@ -61,10 +61,7 @@ public class StorageTypeCheckAction extends RestBaseAction {
         }
 
         String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
-        Database db = catalog.getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(fullDbName);
 
         JSONObject root = new JSONObject();
         List<Table> tableList = db.getTables();

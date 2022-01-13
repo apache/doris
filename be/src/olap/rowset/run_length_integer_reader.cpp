@@ -219,7 +219,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     int64_t mask = (1L << ((bw * 8) - 1));
 
     // if MSB of base value is 1 then base is negative value else positive
-    // TODO(lijiao) : 为什么这里不用zig_zag来表示？
+    // TODO(lijiao): Why is zig_zag not used here?
     if ((base & mask) != 0) {
         base = base & ~mask;
         base = -base;

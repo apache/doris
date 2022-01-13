@@ -195,14 +195,8 @@ public class InsertStmt extends DdlStmt {
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
-        Database db = analyzer.getCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        Table table = db.getTable(tblName.getTbl());
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-        }
+        Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
@@ -299,7 +293,7 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getCatalog().getDb(tblName.getDb());
+        db = analyzer.getCatalog().getDbOrAnalysisException(tblName.getDb());
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
@@ -323,17 +317,15 @@ public class InsertStmt extends DdlStmt {
         if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond);
+            int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism);
         }
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // Get table
         if (targetTable == null) {
-            targetTable = analyzer.getTable(tblName);
-            if (targetTable == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName.getTbl());
-            }
+            targetTable = analyzer.getTableOrAnalysisException(tblName);
         }
 
         if (targetTable instanceof OlapTable) {
@@ -603,7 +595,7 @@ public class InsertStmt extends DdlStmt {
         ArrayList<Expr> row = rows.get(rowIdx);
         if (!origColIdxsForExtendCols.isEmpty()) {
             /**
-             * we should extends the row for shadow columns.
+             * we should extend the row for shadow columns.
              * eg:
              *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
              *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
@@ -612,9 +604,7 @@ public class InsertStmt extends DdlStmt {
             extentedRow.addAll(row);
             
             for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
-                if (entry == null) {
-                    extentedRow.add(extentedRow.get(entry.first));
-                } else {
+                if (entry != null) {
                     if (entry.second == null) {
                         extentedRow.add(extentedRow.get(entry.first));
                     } else {

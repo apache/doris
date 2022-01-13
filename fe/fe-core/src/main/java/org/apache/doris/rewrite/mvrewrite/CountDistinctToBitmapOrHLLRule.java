@@ -25,6 +25,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 /**
  * For agg keys type, the count distinct could be rewritten to bitmap or hll depends on the type of column.
@@ -43,7 +44,7 @@ public class CountDistinctToBitmapOrHLLRule implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new CountDistinctToBitmapOrHLLRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isRewriteCountDistinct()) {
             return expr;
         }

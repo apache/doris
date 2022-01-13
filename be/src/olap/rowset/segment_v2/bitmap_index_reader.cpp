@@ -27,8 +27,8 @@ Status BitmapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     const IndexedColumnMetaPB& bitmap_meta = _bitmap_index_meta->bitmap_column();
     _has_null = _bitmap_index_meta->has_null();
 
-    _dict_column_reader.reset(new IndexedColumnReader(_file_name, dict_meta));
-    _bitmap_column_reader.reset(new IndexedColumnReader(_file_name, bitmap_meta));
+    _dict_column_reader.reset(new IndexedColumnReader(_path_desc, dict_meta));
+    _bitmap_column_reader.reset(new IndexedColumnReader(_path_desc, bitmap_meta));
     RETURN_IF_ERROR(_dict_column_reader->load(use_page_cache, kept_in_memory));
     RETURN_IF_ERROR(_bitmap_column_reader->load(use_page_cache, kept_in_memory));
     return Status::OK();
@@ -45,7 +45,7 @@ Status BitmapIndexIterator::seek_dictionary(const void* value, bool* exact_match
     return Status::OK();
 }
 
-Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, Roaring* result) {
+Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, roaring::Roaring* result) {
     DCHECK(0 <= ordinal && ordinal < _reader->bitmap_nums());
 
     size_t num_to_read = 1;
@@ -60,16 +60,16 @@ Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, Roaring* result) {
     RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, &column_block_view));
     DCHECK(num_to_read == num_read);
 
-    *result = Roaring::read(reinterpret_cast<const Slice*>(block.data())->data, false);
+    *result = roaring::Roaring::read(reinterpret_cast<const Slice*>(block.data())->data, false);
     _pool->clear();
     return Status::OK();
 }
 
-Status BitmapIndexIterator::read_union_bitmap(rowid_t from, rowid_t to, Roaring* result) {
+Status BitmapIndexIterator::read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result) {
     DCHECK(0 <= from && from <= to && to <= _reader->bitmap_nums());
 
     for (rowid_t pos = from; pos < to; pos++) {
-        Roaring bitmap;
+        roaring::Roaring bitmap;
         RETURN_IF_ERROR(read_bitmap(pos, &bitmap));
         *result |= bitmap;
     }

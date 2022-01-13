@@ -90,8 +90,6 @@ public:
     virtual Status get_data(char** data, int* len) = 0;
     virtual MemTracker* tracker() = 0;
     virtual void light_copy(IBloomFilterFuncBase* other) = 0;
-
-    static IBloomFilterFuncBase* create_bloom_filter(MemTracker* tracker, PrimitiveType type);
 };
 
 template <class BloomFilterAdaptor>
@@ -208,11 +206,12 @@ struct StringFindOp {
 template <class BloomFilterAdaptor>
 struct FixedStringFindOp : public StringFindOp<BloomFilterAdaptor> {
     ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
-                                        const void* data) const {
-        const auto* value = reinterpret_cast<const StringValue*>(data);
-        auto end_ptr = value->ptr + value->len - 1;
-        while (end_ptr > value->ptr && *end_ptr == '\0') --end_ptr;
-        return bloom_filter.test_bytes(value->ptr, end_ptr - value->ptr + 1);
+                                        const void* input_data) const {
+        const auto* value = reinterpret_cast<const StringValue*>(input_data);
+        int64_t size = value->len;
+        char* data = value->ptr;
+        while (size > 0 && data[size - 1] == '\0') size--;
+        return bloom_filter.test_bytes(value->ptr, size);
     }
 };
 
@@ -288,6 +287,11 @@ struct BloomFilterTypeTraits<TYPE_CHAR, BloomFilterAdaptor> {
 
 template <class BloomFilterAdaptor>
 struct BloomFilterTypeTraits<TYPE_VARCHAR, BloomFilterAdaptor> {
+    using FindOp = StringFindOp<BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_STRING, BloomFilterAdaptor> {
     using FindOp = StringFindOp<BloomFilterAdaptor>;
 };
 

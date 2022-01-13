@@ -94,3 +94,7 @@ $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
 ```
 
 The version of jdk you used to run FE must be the same version you used to compile FE.
+
+### Latest update time
+
+2021-12-15

@@ -108,7 +108,7 @@ distribution_info
             MIN: Find the minimum value. Suitable for numeric types.
             MAX: Find the maximum value. Suitable for numeric types.
             REPLACE: Replace. For rows with the same dimension column, the index column will be imported in the order of import, and the last imported will replace the first imported.
-            REPLACE_IF_NOT_NULL: non-null value replacement. The difference with REPLACE is that there is no replacement for null values.
+            REPLACE_IF_NOT_NULL: non-null value replacement. The difference with REPLACE is that there is no replacement for null values. It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string.
             HLL_UNION: The aggregation method of HLL type columns, aggregated by HyperLogLog algorithm.
             BITMAP_UNION: The aggregation mode of BIMTAP type columns, which performs the union aggregation of bitmaps.
             ```
@@ -237,6 +237,14 @@ distribution_info
     * `replication_num`
 
         Number of copies. The default number of copies is 3. If the number of BE nodes is less than 3, you need to specify that the number of copies is less than or equal to the number of BE nodes.
+        
+        After version 0.15, this attribute will be automatically converted to the `replication_allocation` attribute, such as:
+
+        `"replication_num" = "3"` will be automatically converted to `"replication_allocation" = "tag.location.default:3"`
+
+    * `replication_allocation`
+
+         Set the copy distribution according to Tag. This attribute can completely cover the function of the `replication_num` attribute.
 
     * `storage_medium/storage_cooldown_time`
 
@@ -287,7 +295,15 @@ distribution_info
         * `dynamic_partition.buckets`: Used to specify the number of partition buckets that are automatically created.
         * `dynamic_partition.create_history_partition`: Whether to create a history partition.
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
+        * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
 
+    * Data Sort Info
+        
+        The relevant parameters of data sort info are as follows:
+        
+        * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
+        * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
+      
 ### Example
 
 1. Create a detailed model table
@@ -478,6 +494,39 @@ distribution_info
     PROPERTIES("replication_num" = "3");
     ```
 
+10. Set the replica of the table through the `replication_allocation` property.
+
+    ```sql
+    CREATE TABLE example_db.table_hash
+    (
+
+   		k1 TINYINT,
+   		k2 DECIMAL(10, 2) DEFAULT "10.5"
+   	)
+   	DISTRIBUTED BY HASH(k1) BUCKETS 32
+   	PROPERTIES (
+   	    "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+   	);
+   	
+   	CREATE TABLE example_db.dynamic_partition
+   	(
+   		k1 DATE,
+   		k2 INT,
+   		k3 SMALLINT,
+   		v1 VARCHAR(2048),
+   		v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+   	)
+   	PARTITION BY RANGE (k1) ()
+   	DISTRIBUTED BY HASH(k2) BUCKETS 32
+   	PROPERTIES(
+   	    "dynamic_partition.time_unit" = "DAY",
+   	    "dynamic_partition.start" = "-3",
+   	    "dynamic_partition.end" = "3",
+   	    "dynamic_partition.prefix" = "p",
+   	    "dynamic_partition.buckets" = "32",
+   	    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+   	 );
+   	```
 ### Keywords
 
     CREATE, TABLE

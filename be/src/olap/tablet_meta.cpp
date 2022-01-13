@@ -42,31 +42,34 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
             request.table_id, request.partition_id, request.tablet_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
-            request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK));
+            request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
+            request.storage_medium));
     return OLAP_SUCCESS;
 }
 
-TabletMeta::TabletMeta() : _tablet_uid(0, 0) {}
+TabletMeta::TabletMeta() : _tablet_uid(0, 0), _schema(new TabletSchema) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
                        int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                       TabletUid tablet_uid, TTabletType::type tabletType)
-        : _tablet_uid(0, 0), _preferred_rowset_type(ALPHA_ROWSET) {
+                       TabletUid tablet_uid, TTabletType::type tabletType,
+                       TStorageMedium::type t_storage_medium)
+        : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
     tablet_meta_pb.set_tablet_id(tablet_id);
     tablet_meta_pb.set_schema_hash(schema_hash);
     tablet_meta_pb.set_shard_id(shard_id);
-    tablet_meta_pb.set_creation_time(time(NULL));
+    tablet_meta_pb.set_creation_time(time(nullptr));
     tablet_meta_pb.set_cumulative_layer_point(-1);
     tablet_meta_pb.set_tablet_state(PB_RUNNING);
     *(tablet_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
     tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_DISK
                                            ? TabletTypePB::TABLET_TYPE_DISK
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
+    tablet_meta_pb.set_storage_medium(fs::fs_util::get_storage_medium_pb(t_storage_medium));
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -86,6 +89,15 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         break;
     }
     schema->set_compress_kind(COMPRESS_LZ4);
+
+    switch(tablet_schema.sort_type) {
+        case TSortType::type::ZORDER:
+            schema->set_sort_type(SortType::ZORDER);
+            break;
+        default:
+            schema->set_sort_type(SortType::LEXICAL);
+    }
+    schema->set_sort_col_num(tablet_schema.sort_col_num);
     tablet_meta_pb.set_in_restore_mode(false);
 
     // set column information
@@ -138,6 +150,24 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
     init_from_pb(tablet_meta_pb);
 }
+
+TabletMeta::TabletMeta(const TabletMeta& b)
+        : _table_id(b._table_id),
+          _partition_id(b._partition_id),
+          _tablet_id(b._tablet_id),
+          _schema_hash(b._schema_hash),
+          _shard_id(b._shard_id),
+          _creation_time(b._creation_time),
+          _cumulative_layer_point(b._cumulative_layer_point),
+          _tablet_uid(b._tablet_uid),
+          _tablet_type(b._tablet_type),
+          _tablet_state(b._tablet_state),
+          _schema(b._schema),
+          _rs_metas(b._rs_metas),
+          _stale_rs_metas(b._stale_rs_metas),
+          _del_pred_array(b._del_pred_array),
+          _in_restore_mode(b._in_restore_mode),
+          _preferred_rowset_type(b._preferred_rowset_type) {}
 
 void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                            ColumnPB* column) {
@@ -350,7 +380,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     // init _schema
-    _schema.init_from_pb(tablet_meta_pb.schema());
+    _schema->init_from_pb(tablet_meta_pb.schema());
 
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
@@ -411,7 +441,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     for (auto rs : _stale_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
     }
-    _schema.to_schema_pb(tablet_meta_pb->mutable_schema());
+    _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 
@@ -423,7 +453,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
 
 uint32_t TabletMeta::mem_size() const {
     auto size = sizeof(TabletMeta);
-    size += _schema.mem_size();
+    size += _schema->mem_size();
     return size;
 }
 
@@ -625,7 +655,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._tablet_uid != b._tablet_uid) return false;
     if (a._tablet_type != b._tablet_type) return false;
     if (a._tablet_state != b._tablet_state) return false;
-    if (a._schema != b._schema) return false;
+    if (*a._schema != *b._schema) return false;
     if (a._rs_metas.size() != b._rs_metas.size()) return false;
     for (int i = 0; i < a._rs_metas.size(); ++i) {
         if (a._rs_metas[i] != b._rs_metas[i]) return false;

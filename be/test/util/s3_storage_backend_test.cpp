@@ -33,18 +33,20 @@
 #include "util/storage_backend.h"
 
 namespace doris {
-static const std::string AK = "AK";
-static const std::string SK = "SK";
+static const std::string AK = "";
+static const std::string SK = "";
 static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
+static const std::string USE_PATH_STYLE = "false";
 static const std::string REGION = "bj";
-static const std::string BUCKET = "s3://yang-repo/";
+static const std::string BUCKET = "s3://cmy-repo/";
 class S3StorageBackendTest : public testing::Test {
 public:
     S3StorageBackendTest()
             : _aws_properties({{"AWS_ACCESS_KEY", AK},
                                {"AWS_SECRET_KEY", SK},
                                {"AWS_ENDPOINT", ENDPOINT},
-                               {"AWS_REGION", "bj"}}) {
+                               {"USE_PATH_STYLE", USE_PATH_STYLE},
+                               {"AWS_REGION", REGION}}) {
         _s3.reset(new S3StorageBackend(_aws_properties));
         _s3_base_path = BUCKET + "s3/" + gen_uuid();
     }
@@ -156,7 +158,7 @@ TEST_F(S3StorageBackendTest, s3_list) {
     status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind2.md5", _content);
     ASSERT_TRUE(status.ok());
     std::map<std::string, FileStat> files;
-    status = _s3->list(_s3_base_path, &files);
+    status = _s3->list(_s3_base_path, true, false, &files);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(files.find("Ode_to_the_West_Wind") != files.end());
     ASSERT_TRUE(files.find("Ode_to_the_West_Wind1") != files.end());
@@ -180,8 +182,6 @@ TEST_F(S3StorageBackendTest, s3_mkdir) {
     ASSERT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/dir");
     ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
-    status = _s3->exist(_s3_base_path + "/dir/");
-    ASSERT_TRUE(status.ok());
 }
 
 } // end namespace doris
@@ -189,10 +189,7 @@ TEST_F(S3StorageBackendTest, s3_mkdir) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     int ret = 0;
-    Aws::SDKOptions options;
-    Aws::InitAPI(options);
-    // ak sk is secret
+    // set ak sk before running it.
     // ret = RUN_ALL_TESTS();
-    Aws::ShutdownAPI(options);
     return ret;
 }

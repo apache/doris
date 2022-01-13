@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -98,7 +99,7 @@ public class SqlBlockRuleMgr implements Writable {
         LOG.info("replay create sql block rule: {}", sqlBlockRule);
     }
 
-    public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws DdlException {
+    public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws AnalysisException, DdlException {
         writeLock();
         try {
             SqlBlockRule sqlBlockRule = SqlBlockRule.fromAlterStmt(stmt);
@@ -107,11 +108,21 @@ public class SqlBlockRuleMgr implements Writable {
                 throw new DdlException("the sql block rule " + ruleName + " not exist");
             }
             SqlBlockRule originRule = nameToSqlBlockRuleMap.get(ruleName);
+            SqlBlockUtil.checkAlterValidate(sqlBlockRule, originRule);
             if (StringUtils.isEmpty(sqlBlockRule.getSql())) {
                 sqlBlockRule.setSql(originRule.getSql());
             }
             if (StringUtils.isEmpty(sqlBlockRule.getSqlHash())) {
                 sqlBlockRule.setSqlHash(originRule.getSqlHash());
+            }
+            if (StringUtils.isEmpty(sqlBlockRule.getPartitionNum().toString())) {
+                sqlBlockRule.setPartitionNum(originRule.getPartitionNum());
+            }
+            if (StringUtils.isEmpty(sqlBlockRule.getTabletNum().toString())) {
+                sqlBlockRule.setTabletNum(originRule.getTabletNum());
+            }
+            if (StringUtils.isEmpty(sqlBlockRule.getCardinality().toString())) {
+                sqlBlockRule.setCardinality(originRule.getCardinality());
             }
             if (sqlBlockRule.getGlobal() == null) {
                 sqlBlockRule.setGlobal(originRule.getGlobal());
@@ -183,12 +194,50 @@ public class SqlBlockRuleMgr implements Writable {
 
     public void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
         if (rule.getEnable()) {
-            if (StringUtils.isNotEmpty(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash)) {
+            if (StringUtils.isNotEmpty(rule.getSqlHash()) &&
+                    (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash))) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            } else if (StringUtils.isNotEmpty(rule.getSql()) && rule.getSqlPattern().matcher(originSql).find()) {
+            } else if (StringUtils.isNotEmpty(rule.getSql()) &&
+                    (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSql()) && rule.getSqlPattern().matcher(originSql).find())) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+            }
+        }
+    }
+
+    public void checkLimitaions(Long partitionNum, Long tabletNum, Long cardinality, String user) throws AnalysisException {
+        // match global rule
+        List<SqlBlockRule> globalRules = nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
+        for (SqlBlockRule rule : globalRules) {
+            checkLimitaions(rule, partitionNum, tabletNum, cardinality);
+        }
+        // match user rule
+        String[] bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
+        for (String ruleName : bindSqlBlockRules) {
+            SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
+            if (rule == null) {
+                continue;
+            }
+            checkLimitaions(rule, partitionNum, tabletNum, cardinality);
+        }
+    }
+
+    public void checkLimitaions(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality) throws AnalysisException {
+        if (rule.getPartitionNum() == 0 && rule.getTabletNum() == 0 && rule.getCardinality() == 0) {
+            return;
+        } else if (rule.getEnable()) {
+            if ((rule.getPartitionNum() != 0 && rule.getPartitionNum() < partitionNum)
+                    || (rule.getTabletNum() != 0 && rule.getTabletNum() < tabletNum)
+                    || (rule.getCardinality() != 0 && rule.getCardinality() < cardinality)) {
+                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                if (rule.getPartitionNum() < partitionNum) {
+                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach partition_num : " + rule.getPartitionNum());
+                } else if (rule.getTabletNum() < tabletNum) {
+                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : " + rule.getTabletNum());
+                } else if (rule.getCardinality() < cardinality) {
+                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : " + rule.getCardinality());
+                }
             }
         }
     }

@@ -49,9 +49,6 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -60,6 +57,9 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -343,14 +343,11 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized boolean isDone() {
-        if (state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED) {
-            return true;
-        }
-        return false;
+        return state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED;
     }
 
     private void prepareAndSendSnapshotTask() {
-        Database db = catalog.getDb(dbId);
+        Database db = catalog.getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
@@ -364,7 +361,7 @@ public class BackupJob extends AbstractJob {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
-            Table tbl = db.getTable(tblName);
+            Table tbl = db.getTableNullable(tblName);
             if (tbl == null) {
                 status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
                 return;
@@ -500,7 +497,7 @@ public class BackupJob extends AbstractJob {
         List<Resource> copiedResources = Lists.newArrayList();
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
-            Table table = db.getTable(tblName);
+            Table table = db.getTableNullable(tblName);
             table.readLock();
             try {
                 if (table.getType() == TableType.OLAP) {
@@ -508,7 +505,7 @@ public class BackupJob extends AbstractJob {
                     // only copy visible indexes
                     List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
                             : tableRef.getPartitionNames().getPartitionNames();
-                    OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
+                    OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
                     if (copiedTbl == null) {
                         status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
                         return;

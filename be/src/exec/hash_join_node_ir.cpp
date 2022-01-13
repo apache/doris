@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/utils.h"
 #include "exec/hash_join_node.h"
 #include "exec/hash_table.hpp"
 #include "exprs/expr_context.h"
@@ -100,7 +101,7 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
         // Handle left outer-join and left semi-join
         if ((!_matched_probe && _match_all_probe) ||
             ((!_matched_probe && _join_op == TJoinOp::LEFT_ANTI_JOIN))) {
-            create_output_row(out_row, _current_probe_row, NULL);
+            create_output_row(out_row, _current_probe_row, nullptr);
             _matched_probe = true;
 
             if (ExecNode::eval_conjuncts(conjunct_ctxs, num_conjunct_ctxs, out_row)) {

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
@@ -116,7 +117,7 @@ public class TableQueryPlanAction extends RestBaseAction {
             } catch (JSONException e) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "malformed json [ " + postContent + " ]");
             }
-            sql = String.valueOf(jsonObject.opt("sql"));
+            sql = jsonObject.optString("sql");
             if (Strings.isNullOrEmpty(sql)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
@@ -126,22 +127,12 @@ public class TableQueryPlanAction extends RestBaseAction {
             String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
             // check privilege for select, otherwise return HTTP 401
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
-            Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-            if (db == null) {
-                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
-                                             "Database [" + dbName + "] " + "does not exists");
-            }
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
-                        "Table [" + tableName + "] " + "does not exists");
-            }
-            // just only support OlapTable, ignore others such as ESTable
-            if (table.getType() != Table.TableType.OLAP) {
-                // Forbidden
-                throw new DorisHttpException(HttpResponseStatus.FORBIDDEN,
-                        "only support OlapTable currently, but Table [" + tableName + "] "
-                                + "is not a OlapTable");
+            Table table;
+            try {
+                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+            } catch (MetaNotFoundException e) {
+                throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, e.getMessage());
             }
 
             // may be should acquire writeLock
@@ -163,8 +154,7 @@ public class TableQueryPlanAction extends RestBaseAction {
             // send result with extra information
             response.setContentType("application/json");
             response.getContent().append(result);
-            sendResult(request, response,
-                       HttpResponseStatus.valueOf(Integer.parseInt(String.valueOf(resultMap.get("status")))));
+            sendResult(request, response, HttpResponseStatus.valueOf(Integer.parseInt(String.valueOf(resultMap.get("status")))));
         } catch (Exception e) {
             // may be this never happen
             response.getContent().append(e.getMessage());

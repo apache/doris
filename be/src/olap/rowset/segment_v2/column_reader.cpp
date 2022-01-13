@@ -37,11 +37,11 @@ namespace segment_v2 {
 using strings::Substitute;
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                            uint64_t num_rows, const std::string& file_name,
+                            uint64_t num_rows, const FilePathDesc& path_desc,
                             std::unique_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
         std::unique_ptr<ColumnReader> reader_local(
-                new ColumnReader(opts, meta, num_rows, file_name));
+                new ColumnReader(opts, meta, num_rows, path_desc));
         RETURN_IF_ERROR(reader_local->init());
         *reader = std::move(reader_local);
         return Status::OK();
@@ -53,26 +53,26 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 
             std::unique_ptr<ColumnReader> item_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
-                                                 meta.children_columns(0).num_rows(), file_name,
+                                                 meta.children_columns(0).num_rows(), path_desc,
                                                  &item_reader));
             RETURN_IF_ERROR(item_reader->init());
 
             std::unique_ptr<ColumnReader> offset_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1),
-                                                 meta.children_columns(1).num_rows(), file_name,
+                                                 meta.children_columns(1).num_rows(), path_desc,
                                                  &offset_reader));
             RETURN_IF_ERROR(offset_reader->init());
 
             std::unique_ptr<ColumnReader> null_reader;
             if (meta.is_nullable()) {
                 RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(2),
-                                                     meta.children_columns(2).num_rows(), file_name,
+                                                     meta.children_columns(2).num_rows(), path_desc,
                                                      &null_reader));
                 RETURN_IF_ERROR(null_reader->init());
             }
 
             std::unique_ptr<ColumnReader> array_reader(
-                    new ColumnReader(opts, meta, num_rows, file_name));
+                    new ColumnReader(opts, meta, num_rows, path_desc));
             //  array reader do not need to init
             array_reader->_sub_readers.resize(meta.children_columns_size());
             array_reader->_sub_readers[0] = std::move(item_reader);
@@ -91,8 +91,8 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 }
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                           uint64_t num_rows, const std::string& file_name)
-        : _meta(meta), _opts(opts), _num_rows(num_rows), _file_name(file_name) {}
+                           uint64_t num_rows, FilePathDesc path_desc)
+        : _meta(meta), _opts(opts), _num_rows(num_rows), _path_desc(path_desc) {}
 
 ColumnReader::~ColumnReader() = default;
 
@@ -122,12 +122,12 @@ Status ColumnReader::init() {
             break;
         default:
             return Status::Corruption(strings::Substitute(
-                    "Bad file $0: invalid column index type $1", _file_name, index_meta.type()));
+                    "Bad file $0: invalid column index type $1", _path_desc.filepath, index_meta.type()));
         }
     }
     if (_ordinal_index_meta == nullptr) {
         return Status::Corruption(strings::Substitute(
-                "Bad file $0: missing ordinal index for column $1", _file_name, _meta.column_id()));
+                "Bad file $0: missing ordinal index for column $1", _path_desc.filepath, _meta.column_id()));
     }
     return Status::OK();
 }
@@ -154,14 +154,13 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
-Status ColumnReader::get_row_ranges_by_zone_map(
-        CondColumn* cond_column, CondColumn* delete_condition,
-        std::unordered_set<uint32_t>* delete_partial_filtered_pages, RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
+                                                CondColumn* delete_condition,
+                                                RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_condition,
-                                        delete_partial_filtered_pages, &page_indexes));
+    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_condition, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
     return Status::OK();
 }
@@ -213,10 +212,8 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
     return cond->eval({min_value_container, max_value_container});
 }
 
-Status ColumnReader::_get_filtered_pages(
-        CondColumn* cond_column, CondColumn* delete_condition,
-        std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-        std::vector<uint32_t>* page_indexes) {
+Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* delete_condition,
+                                         std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int32_t page_size = _zone_map_index->num_pages();
@@ -234,8 +231,6 @@ Status ColumnReader::_get_filtered_pages(
                     int state = delete_condition->del_eval({min_value.get(), max_value.get()});
                     if (state == DEL_SATISFIED) {
                         should_read = false;
-                    } else if (state == DEL_PARTIAL_SATISFIED) {
-                        delete_partial_filtered_pages->insert(i);
                     }
                 }
                 if (should_read) {
@@ -244,6 +239,8 @@ Status ColumnReader::_get_filtered_pages(
             }
         }
     }
+    VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
+                << " filtered-percent:" << 1.0 - (page_indexes->size()*1.0)/(page_size*1.0);
     return Status::OK();
 }
 
@@ -293,13 +290,13 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
     DCHECK(_ordinal_index_meta != nullptr);
-    _ordinal_index.reset(new OrdinalIndexReader(_file_name, _ordinal_index_meta, _num_rows));
+    _ordinal_index.reset(new OrdinalIndexReader(_path_desc, _ordinal_index_meta, _num_rows));
     return _ordinal_index->load(use_page_cache, kept_in_memory);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory) {
     if (_zone_map_index_meta != nullptr) {
-        _zone_map_index.reset(new ZoneMapIndexReader(_file_name, _zone_map_index_meta));
+        _zone_map_index.reset(new ZoneMapIndexReader(_path_desc, _zone_map_index_meta));
         return _zone_map_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
@@ -307,7 +304,7 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
 
 Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory) {
     if (_bitmap_index_meta != nullptr) {
-        _bitmap_index.reset(new BitmapIndexReader(_file_name, _bitmap_index_meta));
+        _bitmap_index.reset(new BitmapIndexReader(_path_desc, _bitmap_index_meta));
         return _bitmap_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
@@ -315,7 +312,7 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
 
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory) {
     if (_bf_index_meta != nullptr) {
-        _bloom_filter_index.reset(new BloomFilterIndexReader(_file_name, _bf_index_meta));
+        _bloom_filter_index.reset(new BloomFilterIndexReader(_path_desc, _bf_index_meta));
         return _bloom_filter_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
@@ -397,7 +394,7 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 
 Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
     ColumnBlock* array_block = dst->column_block();
-    auto* array_batch = dynamic_cast<ArrayColumnVectorBatch*>(array_block->vector_batch());
+    auto* array_batch = static_cast<ArrayColumnVectorBatch*>(array_block->vector_batch());
 
     // 1. read n offsets
     ColumnBlock offset_block(array_batch->offsets(), nullptr);
@@ -484,7 +481,7 @@ Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
 
 Status FileColumnIterator::seek_to_page_start() {
     if (_page == nullptr) {
-        return Status::NotSupported("Can not seek to page first when page is NULL");
+        return Status::NotSupported("Can not seek to page first when page is nullptr");
     }
     return seek_to_ordinal(_page->first_ordinal);
 }
@@ -530,13 +527,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
             }
         }
 
-        auto iter = _delete_partial_satisfied_pages.find(_page->page_index);
-        bool is_partial = iter != _delete_partial_satisfied_pages.end();
-        if (is_partial) {
-            dst->column_block()->set_delete_state(DEL_PARTIAL_SATISFIED);
-        } else {
-            dst->column_block()->set_delete_state(DEL_NOT_SATISFIED);
-        }
         // number of rows to be read from this page
         size_t nrows_in_page = std::min(remaining, _page->remaining());
         size_t nrows_to_read = nrows_in_page;
@@ -642,8 +632,8 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                       CondColumn* delete_condition,
                                                       RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(
-                cond_column, delete_condition, &_delete_partial_satisfied_pages, row_ranges));
+        RETURN_IF_ERROR(
+                _reader->get_row_ranges_by_zone_map(cond_column, delete_condition, row_ranges));
     }
     return Status::OK();
 }
@@ -680,7 +670,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             } else if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR ||
                        _type_info->type() == OLAP_FIELD_TYPE_HLL ||
                        _type_info->type() == OLAP_FIELD_TYPE_OBJECT ||
-                    _type_info->type() == OLAP_FIELD_TYPE_STRING) {
+                       _type_info->type() == OLAP_FIELD_TYPE_STRING) {
                 int32_t length = _default_value.length();
                 char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
                 memory_copy(string_buffer, _default_value.c_str(), length);

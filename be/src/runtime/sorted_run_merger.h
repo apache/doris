@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 #define DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 
-#include <boost/scoped_ptr.hpp>
 #include <mutex>
 
 #include "common/object_pool.h"
@@ -44,7 +43,7 @@ class RuntimeProfile;
 class SortedRunMerger {
 public:
     // Function that returns the next batch of rows from an input sorted run. The batch
-    // is owned by the supplier (i.e. not SortedRunMerger). eos is indicated by an NULL
+    // is owned by the supplier (i.e. not SortedRunMerger). eos is indicated by an nullptr
     // batch being returned.
     typedef std::function<Status(RowBatch**)> RunBatchSupplier;
 

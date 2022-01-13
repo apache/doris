@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 #include <time.h>
 
+#include "exprs/create_predicate_function.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
@@ -32,13 +33,13 @@ namespace doris {
 
 class TestBloomFilterColumnPredicate : public testing::Test {
 public:
-    TestBloomFilterColumnPredicate() : _vectorized_batch(NULL), _row_block(nullptr) {
+    TestBloomFilterColumnPredicate() : _vectorized_batch(nullptr), _row_block(nullptr) {
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
     ~TestBloomFilterColumnPredicate() {
-        if (_vectorized_batch != NULL) {
+        if (_vectorized_batch != nullptr) {
             delete _vectorized_batch;
         }
     }
@@ -91,7 +92,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
 
     auto tracker = MemTracker::CreateTracker(-1, "OlapScanner");
     std::shared_ptr<IBloomFilterFuncBase> bloom_filter(
-            IBloomFilterFuncBase::create_bloom_filter(tracker.get(), PrimitiveType::TYPE_FLOAT));
+            create_bloom_filter(tracker.get(), PrimitiveType::TYPE_FLOAT));
 
     bloom_filter->init(4096, 0.05);
     float value = 4.1;

@@ -262,6 +262,11 @@ message ColumnPB {
     repeated string children_column_names = 18;
 }
 
+enum SortType {
+    LEXICAL = 0;
+    ZORDER  = 1;
+}
+
 message TabletSchemaPB {
     optional KeysType keys_type = 1;    // OLAPHeaderMessage.keys_type
     repeated ColumnPB column = 2;   // OLAPHeaderMessage.column
@@ -273,6 +278,8 @@ message TabletSchemaPB {
     optional bool is_in_memory = 8 [default=false];
     optional int32 delete_sign_idx = 9 [default = -1];
     optional int32 sequence_col_idx = 10 [default= -1];
+    optional SortType sort_type = 11;
+    optional int32 sort_col_num = 12;
 }
 
 enum TabletStatePB {
@@ -286,6 +293,12 @@ enum TabletStatePB {
 enum TabletTypePB {
     TABLET_TYPE_DISK = 0;
     TABLET_TYPE_MEMORY = 1;
+}
+
+enum StorageMediumPB {
+    HDD = 0;
+    SSD = 1;
+    S3 = 2;
 }
 
 message TabletMetaPB {
@@ -312,6 +325,7 @@ message TabletMetaPB {
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
     repeated RowsetMetaPB stale_rs_metas = 18;
+    optional StorageMediumPB storage_medium = 19 [default = HDD];
 }
 
 message OLAPIndexHeaderMessage {
