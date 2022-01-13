@@ -72,6 +72,17 @@ public:
 private:
     class Channel;
 
+    Status get_partition_column_result(Block* block, int* result) {
+        int counter = 0;
+        for (auto ctx : _partition_expr_ctxs) {
+            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
+        }
+        return Status::OK();
+    }
+
+    template <typename Channels, typename HashVals>
+    Status channel_add_rows(Channels& channels, int num_channels, const HashVals& hash_vals, int rows, Block* block);
+
     struct hash_128 {
         uint64_t high;
         uint64_t low;
@@ -224,6 +235,7 @@ private:
         return Status::OK();
     }
 
+
 private:
     // Serialize _batch into _thrift_batch and send via send_batch().
     // Returns send_batch() status.
@@ -262,5 +274,24 @@ private:
     size_t _capacity;
     bool _is_local;
 };
+
+template <typename Channels, typename HashVals>
+Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels, const HashVals& hash_vals, int rows, Block* block) {
+    std::vector<int> channel2rows[num_channels];
+
+    for (int i = 0; i < rows; i++) {
+        auto cid = hash_vals[i] % num_channels;
+        channel2rows[cid].emplace_back(i);
+    }
+
+    for (int i = 0; i < num_channels; ++i) {
+        if (!channel2rows[i].empty()) {
+            RETURN_IF_ERROR(channels[i]->add_rows(block, channel2rows[i]));
+        }
+    }
+
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris
