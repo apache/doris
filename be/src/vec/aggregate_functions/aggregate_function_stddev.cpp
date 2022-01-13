@@ -42,9 +42,9 @@ static IAggregateFunction* create_function_single_value(const String& name,
 #undef DISPATCH
     if (which.is_decimal()) {
         return new AggregateFunctionTemplate<
-                NameData<Data<Decimal128, BaseDatadecimal<Decimal128, is_stddev>>>>(argument_types);
+                NameData<Data<Decimal128, BaseDatadecimal<is_stddev>>>>(argument_types);
     }
-    DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_leadlag";
+    DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_stddev_variance";
     return nullptr;
 }
 
@@ -94,16 +94,12 @@ void register_aggregate_function_stddev_variance(AggregateFunctionSimpleFactory&
     factory.register_function("variance", create_aggregate_function_variance_pop<false>);
     factory.register_function("variance", create_aggregate_function_variance_pop<false>, true);
     factory.register_alias("variance_samp", "var_samp");
-    factory.register_alias("variance_samp", "var_samp", true);
     factory.register_alias("variance", "var_pop");
-    factory.register_alias("variance", "var_pop", true);
     factory.register_alias("variance", "variance_pop");
-    factory.register_alias("variance", "variance_pop", true);
     factory.register_function("stddev_samp", create_aggregate_function_stddev_samp<true>);
     factory.register_function("stddev_samp", create_aggregate_function_stddev_samp<true>, true);
     factory.register_function("stddev", create_aggregate_function_stddev_pop<true>);
     factory.register_function("stddev", create_aggregate_function_stddev_pop<true>, true);
     factory.register_alias("stddev", "stddev_pop");
-    factory.register_alias("stddev", "stddev_pop", true);
 }
 } // namespace doris::vectorized

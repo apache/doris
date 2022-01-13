@@ -27,7 +27,6 @@ namespace doris::vectorized {
 
 template <typename T, bool is_stddev>
 struct BaseData {
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
     BaseData() : mean(0.0), m2(0.0), count(0) {}
 
     void write(BufferWritable& buf) const {
@@ -90,10 +89,10 @@ struct BaseData {
             if (nullable_column->is_null_at(row_num)) {
                 return;
             }
-            const auto& sources = static_cast<const ColVecType&>((nullable_column->get_nested_column()));
+            const auto& sources = static_cast<const ColumnVector<T>&>((nullable_column->get_nested_column()));
             source_data = sources.get_data()[row_num];
         } else {
-            const auto& sources = static_cast<const ColVecType&>(*columns[0]);
+            const auto& sources = static_cast<const ColumnVector<T>&>(*columns[0]);
             source_data = sources.get_data()[row_num];
         }
 
@@ -109,9 +108,8 @@ struct BaseData {
     int64_t count;
 };
 
-template <typename T, bool is_stddev>
+template <bool is_stddev>
 struct BaseDatadecimal {
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
     BaseDatadecimal() : mean(0), m2(0), count(0) {}
 
     void write(BufferWritable& buf) const {
@@ -181,10 +179,10 @@ struct BaseDatadecimal {
             if (nullable_column->is_null_at(row_num)) {
                 return;
             }
-            const auto& sources = static_cast<const ColVecType&>((nullable_column->get_nested_column()));
+            const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>((nullable_column->get_nested_column()));
             source_data = (DecimalV2Value)sources.get_data()[row_num];
         } else {
-            const auto& sources = static_cast<const ColVecType&>(*columns[0]);
+            const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>(*columns[0]);
             source_data = (DecimalV2Value)sources.get_data()[row_num];
         }
 

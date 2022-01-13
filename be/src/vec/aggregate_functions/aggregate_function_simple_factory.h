@@ -45,7 +45,7 @@ private:
 
     AggregateFunctions aggregate_functions;
     AggregateFunctions nullable_aggregate_functions;
-
+    std::unordered_map<std::string, std::string> function_alias;
 public:
     void register_nullable_function_combinator(const Creator& creator) {
         for (const auto& entity : aggregate_functions) {
@@ -77,15 +77,21 @@ public:
                 nullable = true;
             }
         }
+
+        std::string name_str = name;
+        if (function_alias.count(name)) {
+            name_str = function_alias[name];
+        }
+
         if (nullable) {
-            return nullable_aggregate_functions.find(name) == nullable_aggregate_functions.end()
+            return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr
-                           : nullable_aggregate_functions[name](name, argument_types, parameters,
+                           : nullable_aggregate_functions[name_str](name_str, argument_types, parameters,
                                                                 result_is_nullable);
         } else {
-            return aggregate_functions.find(name) == aggregate_functions.end()
+            return aggregate_functions.find(name_str) == aggregate_functions.end()
                            ? nullptr
-                           : aggregate_functions[name](name, argument_types, parameters,
+                           : aggregate_functions[name_str](name_str, argument_types, parameters,
                                                        result_is_nullable);
         }
     }
@@ -98,12 +104,8 @@ public:
         }
     }
 
-    void register_alias(const std::string& name, const std::string& alias, bool nullable = false) {
-        if(nullable) {
-            nullable_aggregate_functions[alias] = nullable_aggregate_functions[name];
-        } else {
-            aggregate_functions[alias] = aggregate_functions[name];
-        }
+    void register_alias(const std::string& name, const std::string& alias) {
+        function_alias[alias] = name;
     }
 
 public:
