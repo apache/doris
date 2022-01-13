@@ -6,7 +6,7 @@ Issue Number: close #xxx
 
 Describe the overview of changes.
 
-## Checklist(Requried)
+## Checklist(Required)
 
 1. Does it affect the original behavior: (Yes/No/I Don't know)
 2. Has unit tests been added: (Yes/No/No Need)

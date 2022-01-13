@@ -196,7 +196,6 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
     uint8_t* tuple_buffer = nullptr;
     Tuple* tuple_ptr = nullptr;
     Tuple* pre_tuple_ptr = nullptr;
-    int row_idx = 0;
 
     while (true) {
         RETURN_IF_CANCELLED(state);
@@ -252,7 +251,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
             pre_tuple_ptr = tuple_ptr;
             // The tuples order in parent row batch should be
             //      child1, child2, tf1, tf2, ...
-            TupleRow* parent_tuple_row = row_batch->get_row(row_idx++);
+            TupleRow* parent_tuple_row = row_batch->get_row(row_batch->add_row());
             // 1. copy child tuples
             int tuple_idx = 0;
             for (int i = 0; i < _child_tuple_desc_size; tuple_idx++, i++) {
@@ -263,8 +262,9 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                     SlotDescriptor* child_slot_desc = child_tuple_desc->slots()[j];
                     SlotDescriptor* parent_slot_desc = parent_tuple_desc->slots()[j];
 
-                    if (_output_slot_ids[parent_slot_desc->id()]) {
-                        Tuple* child_tuple = _cur_child_tuple_row->get_tuple(child_rowdesc.get_tuple_idx(child_tuple_desc->id()));
+                    Tuple* child_tuple = _cur_child_tuple_row->get_tuple(child_rowdesc.get_tuple_idx(child_tuple_desc->id()));
+                    if (_output_slot_ids[parent_slot_desc->id()] && !child_tuple->is_null(child_slot_desc->null_indicator_offset())) {
+                        // only write child slot if it is selected and not null.
                         void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
                         RawValue::write(child_tuple->get_slot(child_slot_desc->tuple_offset()), dest_slot, parent_slot_desc->type(), row_batch->tuple_data_pool());
                         tuple_ptr->set_not_null(parent_slot_desc->null_indicator_offset());
@@ -273,15 +273,14 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                     }
                 }
                 parent_tuple_row->set_tuple(tuple_idx, tuple_ptr);
-                tuple_ptr = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple_ptr) + parent_tuple_desc->byte_size());
+                tuple_ptr = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple_ptr) + child_tuple_desc->byte_size());
             }
 
-            // 2. copy funtion result
+            // 2. copy function result
             for (int i = 0; tuple_idx < _parent_tuple_desc_size; tuple_idx++, i++) {
                 TupleDescriptor* parent_tuple_desc = parent_rowdesc.tuple_descriptors()[tuple_idx];
                 SlotDescriptor* parent_slot_desc = parent_tuple_desc->slots()[0];
                 void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
-                // if (_fn_values[i] != nullptr && _output_slot_ids[parent_slot_desc->id()]) {
                 if (_fn_values[i] != nullptr) {
                     RawValue::write(_fn_values[i], dest_slot, parent_slot_desc->type(), row_batch->tuple_data_pool());
                     tuple_ptr->set_not_null(parent_slot_desc->null_indicator_offset());
@@ -311,7 +310,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                 *eos = false;
                 break;
             }
-        }
+        } // end while true
 
         if (row_batch->at_capacity()) {
             break;
