@@ -1702,9 +1702,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     // modify table properties
                     // do nothing, properties are already in propertyMap
                 } else if (alterClause instanceof CreateIndexClause) {
-                    processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
+                    if (processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes)) {
+                        return;
+                    }
                 } else if (alterClause instanceof DropIndexClause) {
-                    processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
+                    if (processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes)) {
+                        return;
+                    }
                 } else {
                     Preconditions.checkState(false);
                 }
@@ -1967,10 +1971,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
+    private boolean processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
             throws UserException {
         if (alterClause.getIndex() == null) {
-            return;
+            return false;
         }
 
         List<Index> existedIndexes = olapTable.getIndexes();
@@ -1979,6 +1983,10 @@ public class SchemaChangeHandler extends AlterHandler {
         newColset.addAll(indexDef.getColumns());
         for (Index existedIdx : existedIndexes) {
             if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
+                if (indexDef.isSetIfNotExists()) {
+                    LOG.info("create index[{}] which already exists on table[{}]", indexDef.getIndexName(), olapTable.getName());
+                    return true;
+                }
                 throw new DdlException("index `" + indexDef.getIndexName() + "` already exist.");
             }
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -1999,9 +2007,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         newIndexes.add(alterClause.getIndex());
+        return false;
     }
 
-    private void processDropIndex(DropIndexClause alterClause, OlapTable olapTable, List<Index> indexes) throws DdlException {
+    private boolean processDropIndex(DropIndexClause alterClause, OlapTable olapTable, List<Index> indexes) throws DdlException {
         String indexName = alterClause.getIndexName();
         List<Index> existedIndexes = olapTable.getIndexes();
         Index found = null;
@@ -2012,6 +2021,10 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         if (found == null) {
+            if (alterClause.isSetIfExists()) {
+                LOG.info("drop index[{}] which does not exist on table[{}]", indexName, olapTable.getName());
+                return true;
+            }
             throw new DdlException("index " + indexName + " does not exist");
         }
 
@@ -2023,6 +2036,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 break;
             }
         }
+        return false;
     }
 
     @Override
