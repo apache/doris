@@ -70,7 +70,7 @@ public class MysqlProto {
 
         String tmpUser = user;
         if (tmpUser == null || tmpUser.isEmpty()) {
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "", usePasswd);
+            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "no user", usePasswd);
             return null;
         }
 

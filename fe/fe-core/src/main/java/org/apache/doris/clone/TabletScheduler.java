@@ -767,6 +767,7 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
                 || deleteReplicaOnSameHost(tabletCtx, force)
                 || deleteReplicaNotInCluster(tabletCtx, force)
+                || deleteReplicaNotInValidTag(tabletCtx, force)
                 || deleteReplicaChosenByRebalancer(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
@@ -886,6 +887,20 @@ public class TabletScheduler extends MasterDaemon {
             }
             if (!be.getOwnerClusterName().equals(tabletCtx.getCluster())) {
                 deleteReplicaInternal(tabletCtx, replica, "not in cluster", force);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean deleteReplicaNotInValidTag(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        Tablet tablet = tabletCtx.getTablet();
+        List<Replica> replicas = tablet.getReplicas();
+        Map<Tag, Short> allocMap = tabletCtx.getReplicaAlloc().getAllocMap();
+        for (Replica replica : replicas) {
+            Backend be = infoService.getBackend(replica.getBackendId());
+            if (!allocMap.containsKey(be.getTag())) {
+                deleteReplicaInternal(tabletCtx, replica, "not in valid tag", force);
                 return true;
             }
         }
