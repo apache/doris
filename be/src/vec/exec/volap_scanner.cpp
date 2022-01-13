@@ -17,6 +17,8 @@
 
 #include "vec/exec/volap_scanner.h"
 
+#include <memory>
+
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -25,14 +27,13 @@
 #include "vec/core/block.h"
 #include "vec/exec/volap_scan_node.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/olap/block_reader.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris::vectorized {
 
 VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
                            bool need_agg_finalize, const TPaloScanRange& scan_range)
         : OlapScanner(runtime_state, parent, aggregation, need_agg_finalize, scan_range) {
-    _reader.reset(new BlockReader);
 }
 
 Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bool* eof) {
@@ -50,7 +51,7 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
 
     do {
         // Read one block from block reader
-        auto res = _reader->next_block_with_aggregation(block, nullptr, nullptr, eof);
+        auto res = _tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof);
         if (res != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "Internal Error: read storage fail. res=" << res

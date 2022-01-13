@@ -41,7 +41,7 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(Reader* reader);
+    void init(TabletReader* reader);
 
     OLAPStatus add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -69,7 +69,7 @@ private:
     // then merged with other rowset readers.
     class LevelIterator {
     public:
-        LevelIterator(Reader* reader) : _schema(reader->tablet()->tablet_schema()) {};
+        LevelIterator(TabletReader* reader) : _schema(reader->tablet()->tablet_schema()) {};
 
         virtual OLAPStatus init() = 0;
 
@@ -112,7 +112,7 @@ private:
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {
     public:
-        Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader);
+        Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader);
         ~Level0Iterator() {}
 
         OLAPStatus init() override;
@@ -127,14 +127,14 @@ private:
         OLAPStatus _refresh_current_row();
 
         RowsetReaderSharedPtr _rs_reader;
-        Reader* _reader = nullptr;
+        TabletReader* _reader = nullptr;
         Block _block;
     };
 
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(const std::list<LevelIterator*>& children, Reader* reader, bool merge,
+        Level1Iterator(const std::list<LevelIterator*>& children, TabletReader* reader, bool merge,
                        bool skip_same);
 
         OLAPStatus init() override;
@@ -160,7 +160,7 @@ private:
         // point to the Level0Iterator containing the next output row.
         // null when VCollectIterator hasn't been initialized or reaches EOF.
         LevelIterator* _cur_child = nullptr;
-        Reader* _reader = nullptr;
+        TabletReader* _reader = nullptr;
 
         // when `_merge == true`, rowset reader returns ordered rows and VCollectIterator uses a priority queue to merge
         // sort them. The output of VCollectIterator is also ordered.
@@ -184,7 +184,7 @@ private:
 
     bool _merge = true;
     // Hold reader point to access read params, such as fetch conditions.
-    Reader* _reader = nullptr;
+    TabletReader* _reader = nullptr;
 
     bool _skip_same;
 };

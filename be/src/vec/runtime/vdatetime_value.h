@@ -127,7 +127,7 @@ const int DATE_MAX_DAYNR = 3652424;
 const int YY_PART_YEAR = 70;
 
 // Limits of time value
-const int TIME_MAX_HOUR = 838;
+const int TIME_MAX_HOUR = 256;
 const int TIME_MAX_MINUTE = 59;
 const int TIME_MAX_SECOND = 59;
 const int TIME_MAX_VALUE = 10000 * TIME_MAX_HOUR + 100 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
