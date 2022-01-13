@@ -218,6 +218,12 @@ Default：100 * 1024 * 1024  （100MB）
 
 This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 100MB
 
+### jetty_session_timeout
+
+Default: 120 (minutes)
+
+Session timeout for user authentication
+
 ### frontend_address
 
 Status: Deprecated, not recommended use. This parameter may be deleted later Type: string Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname. Default value: 0.0.0.0
@@ -404,7 +410,7 @@ IsMutable：true
 MasterOnly：true
 
 If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
-  
+
 ### drop_backend_after_decommission
 
 Default：false

@@ -39,7 +39,16 @@ public class HttpServer extends SpringBootServletInitializer {
     private int acceptors;
     private int selectors;
     private int maxHttpPostSize ;
+    private int sessionTimeout;
     private int workers;
+
+    public int getSessionTimeout() {
+        return sessionTimeout;
+    }
+
+    public void setSessionTimeout(int sessionTimeout) {
+        this.sessionTimeout = sessionTimeout;
+    }
 
     public void setWorkers(int workers) {
         this.workers = workers;
@@ -78,6 +87,7 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("server.jetty.acceptors", this.acceptors);
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);
         properties.put("server.jetty.selectors", this.selectors);
+        properties.put("server.servlet.session.timeout", this.sessionTimeout);
         //Worker thread pool is not set by default, set according to your needs
         if(this.workers > 0) {
             properties.put("server.jetty.workers", this.workers);
