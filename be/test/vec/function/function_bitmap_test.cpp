@@ -14,22 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/functions/function_totype.h"
-
 #include <gtest/gtest.h>
 
-#include "util/bitmap_value.h"
 #include "function_test_util.h"
+#include "util/bitmap_value.h"
+#include "vec/functions/function_totype.h"
 
-namespace doris {
-
-using vectorized::Null;
-using vectorized::DataSet;
-using vectorized::TypeIndex;
+namespace doris::vectorized {
 
 TEST(function_bitmap_test, function_bitmap_min_test) {
     std::string func_name = "bitmap_min";
-    std::vector<std::any> input_types = {TypeIndex::BitMap};
+    InputTypeSet input_types = {TypeIndex::BitMap};
 
     auto bitmap1 = new BitmapValue(1);
     auto bitmap2 = new BitmapValue(std::vector<uint64_t>({1, 9999999}));
@@ -39,12 +34,12 @@ TEST(function_bitmap_test, function_bitmap_min_test) {
                         {{empty_bitmap}, (int64_t)0},
                         {{Null()}, Null()}};
 
-    vectorized::check_function<vectorized::DataTypeInt64, true>(func_name, input_types, data_set);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
 TEST(function_bitmap_test, function_bitmap_max_test) {
     std::string func_name = "bitmap_max";
-    std::vector<std::any> input_types = {TypeIndex::BitMap};
-    
+    InputTypeSet input_types = {TypeIndex::BitMap};
+
     auto bitmap1 = new BitmapValue(1);
     auto bitmap2 = new BitmapValue(std::vector<uint64_t>({1, 9999999}));
     auto empty_bitmap = new BitmapValue();
@@ -53,12 +48,12 @@ TEST(function_bitmap_test, function_bitmap_max_test) {
                         {{empty_bitmap}, (int64_t)0},
                         {{Null()}, Null()}};
 
-    vectorized::check_function<vectorized::DataTypeInt64, true>(func_name, input_types, data_set);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
 
 TEST(function_bitmap_test, function_bitmap_to_string_test) {
     std::string func_name = "bitmap_to_string";
-    std::vector<std::any> input_types = {TypeIndex::BitMap};
+    InputTypeSet input_types = {TypeIndex::BitMap};
 
     auto bitmap1 = new BitmapValue(1);
     auto bitmap2 = new BitmapValue(std::vector<uint64_t>({1, 9999999}));
@@ -68,12 +63,12 @@ TEST(function_bitmap_test, function_bitmap_to_string_test) {
                         {{empty_bitmap}, std::string("")},
                         {{Null()}, Null()}};
 
-    vectorized::check_function<vectorized::DataTypeString, true>(func_name, input_types, data_set);
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
 TEST(function_bitmap_test, function_bitmap_and_count) {
     std::string func_name = "bitmap_and_count";
-    std::vector<std::any> input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
     auto bitmap1 = new BitmapValue(std::vector<uint64_t>({1, 2, 3}));
     auto bitmap2 = new BitmapValue(std::vector<uint64_t>({3, 4, 5}));
     auto empty_bitmap = new BitmapValue();
@@ -81,12 +76,12 @@ TEST(function_bitmap_test, function_bitmap_and_count) {
                         {{bitmap1, bitmap1}, (int64_t)3},
                         {{bitmap1, bitmap2}, (int64_t)1}};
 
-    vectorized::check_function<vectorized::DataTypeInt64, true>(func_name, input_types, data_set);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
 
 TEST(function_bitmap_test, function_bitmap_or_count) {
     std::string func_name = "bitmap_or_count";
-    std::vector<std::any> input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
     auto bitmap1 = new BitmapValue(std::vector<uint64_t>({1, 2, 3}));
     auto bitmap2 = new BitmapValue(std::vector<uint64_t>({1, 2, 3, 4}));
     auto bitmap3 = new BitmapValue(std::vector<uint64_t>({2, 3}));
@@ -95,12 +90,12 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
                         {{bitmap2, bitmap3}, (int64_t)4},
                         {{bitmap1, bitmap3}, (int64_t)3}};
 
-    vectorized::check_function<vectorized::DataTypeInt64, true>(func_name, input_types, data_set);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
 
 TEST(function_bitmap_test, function_bitmap_xor_count) {
     std::string func_name = "bitmap_xor_count";
-    std::vector<std::any> input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
     auto bitmap1 = new BitmapValue(std::vector<uint64_t>({1, 2, 3}));
     auto bitmap2 = new BitmapValue(std::vector<uint64_t>({1, 2, 3, 4}));
     auto bitmap3 = new BitmapValue(std::vector<uint64_t>({2, 3}));
@@ -110,9 +105,9 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
                         {{bitmap2, bitmap3}, (int64_t)2},
                         {{bitmap1, bitmap4}, (int64_t)2}};
 
-    vectorized::check_function<vectorized::DataTypeInt64, true>(func_name, input_types, data_set);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
-} // namespace doris
+} // namespace doris::vectorized
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
