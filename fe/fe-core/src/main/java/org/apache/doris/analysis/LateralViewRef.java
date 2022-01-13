@@ -90,8 +90,10 @@ public class LateralViewRef extends TableRef {
         fnExpr.setTableFnCall(true);
         checkAndSupplyDefaultTableName(fnExpr);
         fnExpr.analyze(analyzer);
-        checkScalarFunction(fnExpr.getChild(0));
-        fnExpr.getChild(0).collect(SlotRef.class, originSlotRefList);
+        for (Expr expr : fnExpr.getChildren()) {
+            checkScalarFunction(expr);
+        }
+        fnExpr.collect(SlotRef.class, originSlotRefList);
     }
 
     @Override

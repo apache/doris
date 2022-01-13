@@ -364,15 +364,16 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
 
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::string& json_path, rapidjson::Value* document,
-        rapidjson::Document::AllocatorType& mem_allocator) {
+        rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
     std::vector<JsonPath> vec;
     parse_json_paths(json_path, &vec);
-    return get_json_array_from_parsed_json(vec, document, mem_allocator);
+    return get_json_array_from_parsed_json(vec, document, mem_allocator, wrap_explicitly);
 }
 
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
-        rapidjson::Document::AllocatorType& mem_allocator) {
+        rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
+    *wrap_explicitly = false;
     if (!parsed_paths[0].is_valid) {
         return nullptr;
     }
@@ -395,6 +396,8 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
         array_obj->SetArray();
         array_obj->PushBack(*root, mem_allocator);
+        // set `wrap_explicitly` to true, so that the caller knows that this Array is wrapped actively.
+        *wrap_explicitly = true;
         return array_obj;
     }
     return root;
