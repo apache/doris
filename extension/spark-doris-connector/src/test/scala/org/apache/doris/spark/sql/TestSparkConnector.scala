@@ -114,5 +114,28 @@ class TestSparkConnector {
       .option("sink.max-retries",2)
       .start().awaitTermination()
   }
+
+
+  @Test
+  def dataframeWriteTestV2(): Unit = {
+    val session = SparkSession.builder().master("local[*]").getOrCreate()
+    val df = session.createDataFrame(Seq(
+      ("zhangsan", "m",18),
+      ("lisi  ,ccc", "f",16),
+      ("wangwu", "m",20)
+    ))
+    df.write
+      .format("doris")
+      .option("doris.fenodes", dorisFeNodes)
+      .option("doris.table.identifier", dorisTable)
+      .option("user", dorisUser)
+      .option("password", dorisPwd)
+      .option("doris.write.fields", "name,gender")
+      //specify your field
+      .option("sink.batch.size",2)
+      .option("sink.max-retries",2)
+      .save()
+    session.stop()
+  }
 }
 

@@ -76,7 +76,7 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
 
           for (i <- 0 to maxRetryTimes) {
             try {
-              dorisStreamLoader.load(rowsBuffer)
+              dorisStreamLoader.loadV2(rowsBuffer)
               rowsBuffer.clear()
               loop.break()
             }

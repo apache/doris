@@ -16,6 +16,8 @@
 // under the License.
 package org.apache.doris.spark;
 
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.doris.spark.cfg.ConfigurationOptions;
 import org.apache.doris.spark.cfg.SparkSettings;
@@ -113,6 +115,8 @@ public class DorisStreamLoad implements Serializable{
         if (columns != null && !columns.equals("")) {
             conn.addRequestProperty("columns", columns);
         }
+        conn.addRequestProperty("format","json");
+        conn.addRequestProperty("strip_outer_array","true");
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;
@@ -154,6 +158,27 @@ public class DorisStreamLoad implements Serializable{
         return lines.toString();
     }
 
+
+    public void loadV2(List<List<Object>> rows) throws StreamLoadException {
+        JSONArray loadData = new JSONArray();
+        try {
+            for (List<Object> row : rows){
+                JSONObject loadLineData = new JSONObject();
+                String[] columnsArray = columns.split(",");
+                if (columnsArray.length == row.size()){
+                    for (int i = 0; i < columnsArray.length; i++) {
+                        loadLineData.put(columnsArray[i],row.get(i).toString());
+                    }
+                }else {
+                    throw  new StreamLoadException("The number of configured columns does not match the number of data columns");
+                }
+                loadData.add(loadLineData);
+            }
+        }catch (Exception e){
+            throw  new StreamLoadException("data parse json error: " + e.getMessage());
+        }
+        load(loadData.toString());
+    }
 
     public void load(List<List<Object>> rows) throws StreamLoadException {
         String records = listToString(rows);
