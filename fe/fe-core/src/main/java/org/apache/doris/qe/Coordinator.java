@@ -2169,7 +2169,6 @@ public class Coordinator {
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
 
         int perFragmentInstanceIdx;
-        int senderId;
 
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
@@ -2196,14 +2195,19 @@ public class Coordinator {
     public List<QueryStatisticsItem.FragmentInstanceInfo> getFragmentInstanceInfos() {
         final List<QueryStatisticsItem.FragmentInstanceInfo> result =
                 Lists.newArrayList();
-        for (int index = 0; index < fragments.size(); index++) {
-            for (BackendExecState backendExecState: backendExecStates) {
-                if (fragments.get(index).getFragmentId() != backendExecState.fragmentId) {
-                    continue;
+        lock();
+        try {
+            for (int index = 0; index < fragments.size(); index++) {
+                for (BackendExecState backendExecState: backendExecStates) {
+                    if (fragments.get(index).getFragmentId() != backendExecState.fragmentId) {
+                        continue;
+                    }
+                    final QueryStatisticsItem.FragmentInstanceInfo info = backendExecState.buildFragmentInstanceInfo();
+                    result.add(info);
                 }
-                final QueryStatisticsItem.FragmentInstanceInfo info = backendExecState.buildFragmentInstanceInfo();
-                result.add(info);
             }
+        } finally {
+            unlock();
         }
         return result;
     }
