@@ -102,22 +102,21 @@ OLAPStatus MemTableFlushExecutor::create_flush_token(
         std::unique_ptr<FlushToken>* flush_token,
         RowsetTypePB rowset_type, bool is_high_priority) {
     if (!is_high_priority) {
-    if (rowset_type == BETA_ROWSET) {
-        // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-        flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+        if (rowset_type == BETA_ROWSET) {
+            // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
+            flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+        } else {
+            // alpha rowset do not support flush in CONCURRENT.
+            flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+        }
     } else {
-        // alpha rowset do not support flush in CONCURRENT.
-        flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
-    }
-    } else {
-    if (rowset_type == BETA_ROWSET) {
-        // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-        flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
-    } else {
-        // alpha rowset do not support flush in CONCURRENT.
-        flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
-    }
-
+        if (rowset_type == BETA_ROWSET) {
+            // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
+            flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+        } else {
+            // alpha rowset do not support flush in CONCURRENT.
+            flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+        }
     }
     return OLAP_SUCCESS;
 }
