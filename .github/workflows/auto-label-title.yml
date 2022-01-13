@@ -42,40 +42,42 @@ jobs:
             [revert];
             [community];
             
-            [vectorized];
-            
+            (vectorized);
             (planner);
             (storage);
+            (load);
             (stream-load);
             (broker-load);
             (routine-load);
             (export);
             (spark-connector);
+            (flink-connector);
             (datax);
             (config)
-
+            
           labels: >-
-            kind/bug;
+            kind/fix;
             kind/feature;
-            kind/enhancement;
-            kind/documentation;
+            kind/improvement;
+            kind/docs;
             kind/typo;
             kind/refactor;
-            Performance;
-            area/build;
+            kind/performance;
+            kind/test
+            kind/chore;
             kind/revert;
-            area/community;
-
-            vectorization;
-
-            area/sql/planner;
+            kind/community;
+            
+            area/vectorized;
+            area/planner;
             area/storage;
             area/load;
-            area/load;
+            area/stream-load;
+            area/broker-load;
             area/routine-load;
             area/export;
             area/spark-connector;
+            area/flink-connector;
             area/datax;
             area/config
-
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
