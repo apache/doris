@@ -80,6 +80,7 @@ void ExplodeBitmapTableFunction::_reset_iterator() {
     }
     _cur_iter = new BitmapValueIterator(*_cur_bitmap);
     _cur_value = **_cur_iter;
+    _cur_offset = 0;
 }
 
 Status ExplodeBitmapTableFunction::reset() {
