@@ -457,7 +457,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
             channel2rows[target_channel_id].push_back(i);
         }
 
-        for (int i = 0; i < num_channels; ++i)
+        for (int i = 0; i < num_channels; ++i) {
             if (!channel2rows[i].empty()) {
                 RETURN_IF_ERROR(_channels[i]->add_rows(block, channel2rows[i]));
             }
