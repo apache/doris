@@ -67,8 +67,8 @@ under the License.
         </mailingList>
     </mailingLists>
     <properties>
-        <scala.version>${env.SCALA_VERSION}</scala.version>
-        <flink.version>${env.FLINK_VERSION}</flink.version>
+        <scala.version>${env.scala.version}</scala.version>
+        <flink.version>${env.flink.version}</flink.version>
         <libthrift.version>0.13.0</libthrift.version>
         <arrow.version>5.0.0</arrow.version>
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -115,28 +115,22 @@ under the License.
             </pluginRepositories>
         </profile>
         <profile>
-            <id>fink-version</id>
+            <id>flink.version</id>
+            <properties>
+                <env.flink.version>1.11.6</env.flink.version>
+            </properties>
             <activation>
                 <activeByDefault>true</activeByDefault>
-                <property>
-                    <name>!env.FLINK_VERSION</name>
-                </property>
             </activation>
-            <properties>
-                <env.FLINK_VERSION>1.11.6</env.FLINK_VERSION>
-            </properties>
         </profile>
         <profile>
-            <id>scala-version</id>
+            <id>scala.version</id>
+            <properties>
+                <env.scala.version>2.12</env.scala.version>
+            </properties>
             <activation>
                 <activeByDefault>true</activeByDefault>
-                <property>
-                    <name>!env.SCALA_VERSION</name>
-                </property>
             </activation>
-            <properties>
-                <env.SCALA_VERSION>2.12</env.SCALA_VERSION>
-            </properties>
         </profile>
 
         <!-- for general repository -->
