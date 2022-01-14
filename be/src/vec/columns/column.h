@@ -215,7 +215,7 @@ public:
      *  used by lazy materialization to filter column by selected rowids
      */
     virtual Ptr filter_by_selector(const uint16_t* sel, size_t sel_size, Ptr* ptr = nullptr) {
-        return nullptr;
+        LOG(FATAL) << "column not support filter_by_selector";
     };
 
     /// Permutes elements using specified permutation. Is used in sortings.
@@ -333,6 +333,8 @@ public:
     /// True if column contains something nullable inside. It's true for ColumnNullable, can be true or false for ColumnConst, etc.
     virtual bool is_nullable() const { return false; }
 
+    virtual bool is_bitmap() const { return false; }
+
     // true iff column has null element
     virtual bool has_null() const { return false; }
 
@@ -414,10 +416,15 @@ public:
     // only used in ColumnNullable replace_column_data
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
-    bool is_date_type() { return is_date; }
+    virtual bool is_date_type() { return is_date; }
+    virtual bool is_datetime_type() { return is_date_time; }
 
-    // todo(wb): a temporary implemention, need refactor here
+    virtual void set_date_type() { is_date = true; }
+    virtual void set_datetime_type() { is_date_time = true; }
+
+    // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
+    bool is_date_time = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.

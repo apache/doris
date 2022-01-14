@@ -257,15 +257,26 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     const int32_t* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
-    // todo(wb) support nullable
-    if (dst->is_predicate_column()) {
+    auto* dst_col_ptr = dst.get();
+    if (dst->is_nullable()) {
+        auto nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+        dst_col_ptr = nullable_column->get_nested_column_ptr().get();
+        
+        // fill null bitmap here, not null;
+        // todo(wb) using SIMD speed up here
+        for (int i = 0; i < max_fetch; i++) {
+            nullable_column->get_null_map_data().push_back(0);
+        }
+    }
+
+    if (dst_col_ptr->is_predicate_column()) {
         // cast columnptr to columnstringvalue just for avoid virtual function call overhead
-        vectorized::ColumnStringValue& string_value_vector = reinterpret_cast<vectorized::ColumnStringValue&>(*dst);
+        auto* string_value_column_ptr = reinterpret_cast<vectorized::ColumnStringValue*>(dst_col_ptr);
         for (int i = 0; i < max_fetch; i++, start_index++) {
             int32_t codeword = data_array[start_index];
             uint32_t start_offset = _start_offset_array[codeword];
             uint32_t str_len = _len_array[codeword];
-            string_value_vector.insert_data(&_dict_decoder->_data[start_offset], str_len);
+            string_value_column_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
         }
     } else {
              // todo(wb) research whether using batch memcpy to insert columnString can has better performance when data set is big
@@ -273,7 +284,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
             int32_t codeword = data_array[start_index];
             const uint32_t start_offset = _start_offset_array[codeword];
             const uint32_t str_len = _len_array[codeword];
-            dst->insert_data(&_dict_decoder->_data[start_offset], str_len);
+            dst_col_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
         }
     }
     _bit_shuffle_ptr->_cur_index += max_fetch;

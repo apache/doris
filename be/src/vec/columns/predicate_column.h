@@ -97,6 +97,14 @@ private:
         }
     }
 
+    void insert_byte_to_res_column(const uint16_t* sel, size_t sel_size, vectorized::IColumn* res_ptr) {
+        for (size_t i = 0; i < sel_size; i++) {
+            uint16_t n = sel[i];
+            char* ch_val = reinterpret_cast<char*>(&data[n]);
+            res_ptr->insert_data(ch_val, 0);
+        }
+    }
+
     template <typename Y>
     ColumnPtr filter_default_type_by_selector(const uint16_t* sel, size_t sel_size, ColumnPtr* ptr = nullptr) {
         static_assert(std::is_same_v<T, Y>);
@@ -371,6 +379,23 @@ public:
         return *ptr;
     }
 
+    ColumnPtr filter_bool_by_selector(const uint16_t* sel, size_t sel_size, ColumnPtr* ptr = nullptr) {
+        if (ptr == nullptr) {
+            auto res = vectorized::ColumnVector<vectorized::UInt8>::create();
+            if (sel_size == 0) {
+                return res;
+            }
+            res->reserve(sel_size);
+            insert_byte_to_res_column(sel, sel_size, res.get());
+        } else {
+            if (sel_size != 0) {
+                MutableColumnPtr ptr_res = (*std::move(*ptr)).assume_mutable();
+                insert_byte_to_res_column(sel, sel_size, ptr_res.get());
+            }
+        }
+        return *ptr;
+    }
+
     //todo(wb) need refactor this method, using return status to check unexpect args instead of LOG(FATAL)
     ColumnPtr filter_by_selector(const uint16_t* sel, size_t sel_size, ColumnPtr* ptr = nullptr) override {
         if constexpr (std::is_same_v<T, StringValue>) {
@@ -396,7 +421,7 @@ public:
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
             return filter_default_type_by_selector<doris::vectorized::Int128>(sel, sel_size, ptr);
         } else if (std::is_same_v<T, bool>) {
-            LOG(FATAL) << "bool will be support later";
+            return filter_bool_by_selector(sel, sel_size, ptr);
         } else {
             LOG(FATAL) << "unexpected type in predicate column";
         }
