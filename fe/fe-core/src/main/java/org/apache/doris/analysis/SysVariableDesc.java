@@ -189,6 +189,15 @@ public class SysVariableDesc extends Expr {
         if (!setType.equals(((SysVariableDesc) obj).getSetType())) {
             return false;
         }
-        return literalExpr.equals(((SysVariableDesc) obj).getLiteralExpr());
+
+        if (literalExpr != null) {
+            return literalExpr.equals(((SysVariableDesc) obj).getLiteralExpr());
+        } else {
+            if (((SysVariableDesc) obj).getLiteralExpr() == null) {
+                return true;
+            } else {
+                return false;
+            }
+        }
     }
 }
