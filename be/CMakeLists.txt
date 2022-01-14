@@ -486,8 +486,6 @@ endif()
 set(COMMON_THIRDPARTY
     rocksdb
     cyrus-sasl
-    librdkafka_cpp
-    librdkafka
     libs2
     snappy
     Boost::date_time
@@ -525,6 +523,9 @@ set(COMMON_THIRDPARTY
     minizip
     breakpad
     ${AWS_LIBS}
+    # put this after lz4 to avoid using lz4 lib in librdkafka
+    librdkafka_cpp
+    librdkafka
 )
 
 if (${MAKE_TEST} STREQUAL "ON")
