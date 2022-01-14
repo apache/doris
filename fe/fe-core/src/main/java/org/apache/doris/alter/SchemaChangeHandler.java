@@ -1971,6 +1971,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    /**
+     * Returns true if the index already exists, there is no need to create the job to add the index.
+     * Otherwise return false, there is need to create a job to add the index.
+     */
     private boolean processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
             throws UserException {
         if (alterClause.getIndex() == null) {
@@ -2010,6 +2014,10 @@ public class SchemaChangeHandler extends AlterHandler {
         return false;
     }
 
+    /**
+     * Returns true if the index does not exist, there is no need to create the job to drop the index.
+     * Otherwise return false, there is need to create a job to drop the index.
+     */
     private boolean processDropIndex(DropIndexClause alterClause, OlapTable olapTable, List<Index> indexes) throws DdlException {
         String indexName = alterClause.getIndexName();
         List<Index> existedIndexes = olapTable.getIndexes();
