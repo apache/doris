@@ -75,7 +75,7 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(nproc)/6+1]
+PARALLEL=$[$(nproc)/5+1]
 
 CLEAN=0
 RUN=0
