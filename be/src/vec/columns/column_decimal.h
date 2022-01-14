@@ -95,6 +95,13 @@ public:
     void insert_from(const IColumn& src, size_t n) override {
         data.push_back(static_cast<const Self&>(src).get_data()[n]);
     }
+
+    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override {
+        for (auto x = indices_begin; x != indices_end; ++x) {
+            Self::insert_from(src, *x);
+        }
+    }
+
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(T()); }
     void insert(const Field& x) override {

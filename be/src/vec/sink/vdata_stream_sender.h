@@ -72,7 +72,7 @@ public:
 private:
     class Channel;
 
-    Status get_partition_column_result(Block* block, int* result) {
+    Status get_partition_column_result(Block* block, int* result) const {
         int counter = 0;
         for (auto ctx : _partition_expr_ctxs) {
             RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
@@ -215,9 +215,9 @@ public:
         return uid.to_string();
     }
 
-    TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
+    TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
-    bool is_local() { return _is_local; }
+    bool is_local() const { return _is_local; }
 
 private:
     inline Status _wait_last_brpc() {

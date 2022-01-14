@@ -27,6 +27,7 @@
 #include <cstring>
 
 #include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
 #include "vec/common/exception.h"
 #include "vec/common/nan_utils.h"
@@ -219,6 +220,15 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
     size_t old_size = data.size();
     data.resize(old_size + length);
     memcpy(data.data() + old_size, &src_vec.data[start], length * sizeof(data[0]));
+}
+
+template <typename T>
+void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) {
+    const Self& src_vec = assert_cast<const Self&>(src);
+    data.reserve(size() + (indices_end - indices_begin));
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        data.push_back(src_vec.get_element(*x));
+    }
 }
 
 template <typename T>

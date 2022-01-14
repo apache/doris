@@ -160,6 +160,10 @@ public:
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) insert_from(src, position);
     }
+ 
+    /// Appends a batch elements from other column with the same type
+    /// indices_begin + indices_end represent the row indices of column src
+    virtual void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// Is used to optimize some computations (in aggregation, for example).
