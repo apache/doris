@@ -340,3 +340,77 @@ To ensure the unique data order between different replicas, refer to the  [Seque
 Sometimes when restarting the Fe, the above error will occur (usually only in the case of multiple followers), and the difference between the two values in the error is 2. As a result, the Fe startup fails.
 
 This is a bug in bdbje that has not been resolved. In this case, metadata can only be recovered through fault recovery in [metadata operation and maintenance manual](../administrator-guide/operation/metadata-operation.md).
+
+### Q24. Multiple FEs cannot log in when using Nginx to implement web UI load balancing
+
+Doris can deploy multiple FEs. When accessing the Web UI, if you use Nginx for load balancing, you will be prompted to log in again because of Session problems. This problem is actually a session sharing problem. Nginx provides centralized session sharing. The solution, here we use the ip_hash technology in nginx, ip_hash can direct the request of a certain ip to the same backend, so that a certain client and a certain backend under this ip can establish a stable The session, ip_hash is defined in the upstream configuration:
+
+```
+upstream  doris.com {
+   server    172.22.197.238:8030 weight=3;
+   server    172.22.197.239:8030 weight=4;
+   server    172.22.197.240:8030 weight=4;
+   ip_hash;
+}
+```
+The complete Nginx example configuration is as follows:
+
+```
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+# Load dynamic modules. See /usr/share/doc/nginx/README.dynamic.
+include /usr/share/nginx/modules/*.conf;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 2048;
+
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
+
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    include /etc/nginx/conf.d/*.conf;
+    #include /etc/nginx/custom/*.conf;
+    upstream  doris.com {
+      server    172.22.197.238:8030 weight=3;
+      server    172.22.197.239:8030 weight=4;
+      server    172.22.197.240:8030 weight=4;
+      ip_hash;
+    }
+
+    server {
+        listen       80;
+        server_name  gaia-pro-bigdata-fe02;
+        if ($request_uri ~ _load) {
+           return 307 http://$host$request_uri ;
+        }
+
+        location / {
+            proxy_pass http://doris.com;
+            proxy_redirect default;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+ }
+```
