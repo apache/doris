@@ -69,5 +69,5 @@ under the License.
      broker.property_key: broker读取ETL生成的中间文件时需要指定的认证信息等。
 
 ## keyword
-    CREATE RESOURCE
+    CREATE, RESOURCE
 
