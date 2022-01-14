@@ -32,6 +32,8 @@ import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Strings;
 
+import java.util.Objects;
+
 // System variable
 // Converted to StringLiteral in analyze, if this variable is not exist, throw AnalysisException.
 public class SysVariableDesc extends Expr {
@@ -190,14 +192,6 @@ public class SysVariableDesc extends Expr {
             return false;
         }
 
-        if (literalExpr != null) {
-            return literalExpr.equals(((SysVariableDesc) obj).getLiteralExpr());
-        } else {
-            if (((SysVariableDesc) obj).getLiteralExpr() == null) {
-                return true;
-            } else {
-                return false;
-            }
-        }
+        return Objects.equals(literalExpr, ((SysVariableDesc) obj).getLiteralExpr());
     }
 }
