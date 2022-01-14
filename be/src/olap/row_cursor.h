@@ -31,30 +31,29 @@
 namespace doris {
 class Field;
 
-// 代理一行数据的操作
+// Delegate the operation of a row of data
 class RowCursor {
 public:
     static const int DEFAULT_TEXT_LENGTH = 128;
 
     RowCursor();
 
-    // 遍历销毁field指针
+    // Traverse and destroy the field cursor
     ~RowCursor();
 
-    // 根据传入schema的创建RowCursor
+    // Create a RowCursor based on the schema
     OLAPStatus init(const TabletSchema& schema);
     OLAPStatus init(const std::vector<TabletColumn>& schema);
 
-    // 根据传入schema的前n列创建RowCursor
+    // Create a RowCursor based on the first n columns of the schema
     OLAPStatus init(const std::vector<TabletColumn>& schema, size_t column_count);
     OLAPStatus init(const TabletSchema& schema, size_t column_count);
 
-    // 根据传入schema和column id list创建RowCursor，
-    // 用于计算过程只使用部分非前缀连续列的场景
+    // Create a RowCursor based on the schema and column id list
+    // which is used for the calculation process only uses some discontinuous prefix columns
     OLAPStatus init(const TabletSchema& schema, const std::vector<uint32_t>& columns);
 
-    // 用传入的key的size来初始化
-    // 目前仅用在拆分key区间的时候
+    // Initialize with the size of the key, currently only used when splitting the range of key
     OLAPStatus init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
 
     OLAPStatus init_scan_key(const TabletSchema& schema,
@@ -66,10 +65,10 @@ public:
 
     RowCursorCell cell(uint32_t cid) const { return RowCursorCell(nullable_cell_ptr(cid)); }
 
-    // RowCursor attach到一段连续的buf
+    // RowCursor received a continuous buf
     inline void attach(char* buf) { _fixed_buf = buf; }
 
-    // 输出一列的index到buf
+    // Output the index of a column to buf
     void write_index_by_index(size_t index, char* index_ptr) const {
         auto dst_cell = RowCursorCell(index_ptr);
         column_schema(index)->to_index(&dst_cell, cell(index));
@@ -93,15 +92,15 @@ public:
         return column_schema(index)->convert_from(dest, src, src_type, mem_pool);
     }
 
-    // 从传入的字符串数组反序列化内部各field的值
-    // 每个字符串必须是一个\0结尾的字符串
-    // 要求输入字符串和row cursor有相同的列数，
+    // Deserialize the value of each field from the string array,
+    // Each array item must be a \0 terminated string
+    // and the input string and line cursor need the same number of columns
     OLAPStatus from_tuple(const OlapTuple& tuple);
 
-    // 返回当前row cursor中列的个数
+    // Returns the number of columns in the current row cursor
     size_t field_count() const { return _schema->column_ids().size(); }
 
-    // 以string格式输出rowcursor内容，仅供log及debug使用
+    // Output row cursor content in string format, only for using of log and debug
     std::string to_string() const;
     OlapTuple to_tuple() const;
 
