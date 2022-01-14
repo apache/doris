@@ -67,13 +67,7 @@ export MVN_CMD
 
 rm -rf output/
 
-if [ -z "$1" ]; then
-    export SPARK_VERSION="$1"
-fi
-if [ -z "$2" ]; then
-    export SCALA_VERSION="$2"
-fi
-${MVN_CMD} clean package
+${MVN_CMD} clean package -Dscala.version=$2 -Dspark.version=$1
 
 mkdir -p output/
 cp target/doris-spark-*.jar ./output/
