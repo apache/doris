@@ -119,6 +119,13 @@ private:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
+    void insert_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<T>* res_ptr) {
+        for (size_t i = 0; i < sel_size; i++) {
+            T* val_ptr = &data[sel[i]];
+            res_ptr->insert_data((char*)val_ptr, 0);
+        }
+    }
+
 public:
     bool is_numeric() const override { return IsNumber<T>; }
 
@@ -194,6 +201,25 @@ public:
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+
+    // note(wb) this method is only used in storage layer now
+    ColumnPtr filter_by_selector(const uint16_t* sel, size_t sel_size, ColumnPtr* ptr = nullptr) override {
+        if (ptr == nullptr) {
+            auto res_ptr = vectorized::ColumnVector<T>::create();
+            if (sel_size == 0) {
+                return res_ptr;
+            }
+            insert_res_column(sel, sel_size, res_ptr.get());
+            return res_ptr;
+        } else {
+            auto res_ptr = (*std::move(*ptr)).assume_mutable();
+            if (sel_size == 0) {
+                return res_ptr;
+            }
+            insert_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<T>*>(res_ptr.get()));
+            return *ptr;
+        }
+    }
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 

@@ -188,7 +188,7 @@ COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=)
     void CLASS<type>::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {                                                   \
         if (column.is_nullable()) {                                                                                                                   \
             auto* nullable_column = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);                                             \
-            auto& data_array = reinterpret_cast<const vectorized::ColumnVector<type>&>(nullable_column->get_nested_column()).get_data();              \
+            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<type>&>(nullable_column->get_nested_column()).get_data();              \
             auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(*(nullable_column->get_null_map_column_ptr())).get_data(); \
             for (uint16_t i = 0; i < size; i++) {                                                                                                     \
                 flags[i] = (data_array[i] OP _value) && (!null_bitmap[i]);                                                                            \
