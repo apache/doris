@@ -29,6 +29,7 @@ import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.MetaCleaner;
 import org.apache.doris.persist.Storage;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 
 import org.apache.logging.log4j.LogManager;
@@ -49,7 +50,7 @@ public class Checkpoint extends MasterDaemon {
     private static final int PUT_TIMEOUT_SECOND = 3600;
     private static final int CONNECT_TIMEOUT_SECOND = 1;
     private static final int READ_TIMEOUT_SECOND = 1;
-    
+
     private Catalog catalog;
     private String imageDir;
     private EditLog editLog;
@@ -70,6 +71,12 @@ public class Checkpoint extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        doCheckpoint();
+    }
+
+    // public for unit test, so that we can trigger checkpoint manually.
+    // DO NOT call it manually outside the unit test.
+    public synchronized void doCheckpoint() {
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;
@@ -103,6 +110,7 @@ public class Checkpoint extends MasterDaemon {
         LOG.info("begin to generate new image: image.{}", checkPointVersion);
         catalog = Catalog.getCurrentCatalog();
         catalog.setEditLog(editLog);
+        createStaticFieldForCkpt();
         try {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
@@ -128,8 +136,9 @@ public class Checkpoint extends MasterDaemon {
             // destroy checkpoint catalog, reclaim memory
             catalog = null;
             Catalog.destroyCheckpoint();
+            destroyStaticFieldForCkpt();
         }
-        
+
         // push image file to all the other non master nodes
         // DO NOT get other nodes from HaProtocol, because node may not in bdbje replication group yet.
         List<Frontend> allFrontends = Catalog.getServingCatalog().getFrontends(null);
@@ -144,7 +153,7 @@ public class Checkpoint extends MasterDaemon {
                     continue;
                 }
                 int port = Config.http_port;
-                
+
                 String url = "http://" + host + ":" + port + "/put?version=" + replayedJournalId
                         + "&port=" + port;
                 LOG.info("Put image:{}", url);
@@ -213,7 +222,7 @@ public class Checkpoint extends MasterDaemon {
                     }
                     deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
                 }
-                
+
                 editLog.deleteJournals(deleteVersion + 1);
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_EDIT_LOG_CLEAN_SUCCESS.increase(1L);
@@ -242,7 +251,19 @@ public class Checkpoint extends MasterDaemon {
             }
         }
     }
-    
+
+    // Some classes use static variables to store information,
+    // and we need to generate new temporary objects for these static variables
+    // during the checkpoint process to cope with changes made to these variables
+    // during the checkpoint process
+    private void createStaticFieldForCkpt() {
+        VariableMgr.createDefaultSessionVariableForCkpt();
+    }
+
+    private void destroyStaticFieldForCkpt() {
+        VariableMgr.destroyDefaultSessionVariableForCkpt();
+    }
+
     /*
      * Check whether can we do the checkpoint due to the memory used percent.
      */
@@ -255,7 +276,7 @@ public class Checkpoint extends MasterDaemon {
                     memUsedPercent, Config.metadata_checkpoint_memory_threshold);
             return false;
         }
-       
+
         return true;
     }
 
@@ -287,5 +308,4 @@ public class Checkpoint extends MasterDaemon {
             return used * 100 / max;
         }
     }
-
 }
