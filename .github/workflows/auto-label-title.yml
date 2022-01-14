@@ -26,58 +26,63 @@ jobs:
   auto-filling-pull-request:
     runs-on: ubuntu-latest
     steps:
-      - name: Add labels based on PR title
-        uses: ./.github/actions/set-label-based-on-pr-title
-        with:
-          words: >-
-            [fix];
-            [feature];
-            [improvement];
-            [docs];
-            [typo];
-            [refactor];
-            [performance];
-            [test];
-            [chore];
-            [revert];
-            [community];
-            
-            (vectorized);
-            (planner);
-            (storage);
-            (load);
-            (stream-load);
-            (broker-load);
-            (routine-load);
-            (export);
-            (spark-connector);
-            (flink-connector);
-            (datax);
-            (config)
-            
-          labels: >-
-            kind/fix;
-            kind/feature;
-            kind/improvement;
-            kind/docs;
-            kind/typo;
-            kind/refactor;
-            kind/performance;
-            kind/test
-            kind/chore;
-            kind/revert;
-            kind/community;
-            
-            area/vectorized;
-            area/planner;
-            area/storage;
-            area/load;
-            area/stream-load;
-            area/broker-load;
-            area/routine-load;
-            area/export;
-            area/spark-connector;
-            area/flink-connector;
-            area/datax;
-            area/config
-          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+    - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      uses: actions/checkout@v2
+      with:
+        persist-credentials: false
+        submodules: recursive
+    - name: Add labels based on PR title
+      uses: ./.github/actions/set-label-based-on-pr-title
+      with:
+        words: >-
+          [fix];
+          [feature];
+          [improvement];
+          [docs];
+          [typo];
+          [refactor];
+          [performance];
+          [test];
+          [chore];
+          [revert];
+          [community];
+          
+          (vectorized);
+          (planner);
+          (storage);
+          (load);
+          (stream-load);
+          (broker-load);
+          (routine-load);
+          (export);
+          (spark-connector);
+          (flink-connector);
+          (datax);
+          (config)
+          
+        labels: >-
+          kind/fix;
+          kind/feature;
+          kind/improvement;
+          kind/docs;
+          kind/typo;
+          kind/refactor;
+          kind/performance;
+          kind/test
+          kind/chore;
+          kind/revert;
+          kind/community;
+          
+          area/vectorized;
+          area/planner;
+          area/storage;
+          area/load;
+          area/stream-load;
+          area/broker-load;
+          area/routine-load;
+          area/export;
+          area/spark-connector;
+          area/flink-connector;
+          area/datax;
+          area/config
+        repo-token: "${{ secrets.GITHUB_TOKEN }}"
