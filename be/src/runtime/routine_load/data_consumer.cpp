@@ -164,6 +164,7 @@ Status KafkaDataConsumer::assign_topic_partitions(
     if (err) {
         LOG(WARNING) << "failed to assign topic partitions: " << ctx->brief(true)
                      << ", err: " << RdKafka::err2str(err);
+        _k_consumer->unassign();
         return Status::InternalError("failed to assign topic partitions");
     }
 
@@ -382,6 +383,7 @@ Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
 Status KafkaDataConsumer::reset() {
     std::unique_lock<std::mutex> l(_lock);
     _cancelled = false;
+    _k_consumer->unassign();
     // reset will be called before this consumer being returned to the pool.
     // so update _last_visit_time is reasonable.
     _last_visit_time = time(nullptr);
