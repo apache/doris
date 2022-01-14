@@ -36,6 +36,7 @@ void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory)
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_stddev_variance(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
     static AggregateFunctionSimpleFactory instance;
@@ -51,10 +52,11 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_reader(instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
         register_aggregate_function_stddev_variance(instance);
-        
+        register_aggregate_function_topn(instance);
+
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);
-        
+
         register_aggregate_function_reader_no_spread(instance);
         register_aggregate_function_window_lead_lag(instance);
     });
