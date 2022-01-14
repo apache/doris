@@ -33,19 +33,47 @@ under the License.
         SHOW TABLE CREATION [FROM db_name] [LIKE table_name_wild];
         
     说明：
-        1) 如果不指定 db_name，使用当前默认 db
-        2) 如果使用 LIKE，则会匹配表名中包含 table_name_wild 的建表任务
-
+        1. 使用说明
+            1) 如果不指定 db_name，使用当前默认 db
+            2) 如果使用 LIKE，则会匹配表名中包含 table_name_wild 的建表任务
+        2. 各列含义说明
+            1）Table：要创建表的名字
+            2）Status：表的创建状态，`success`/`fail`
+            3）CreateTime：执行创建该表任务的时间
+            4）Error Msg：创建表失败的错误信息，如果成功，则为空。
 ## example
 
     1. 展示默认 Iceberg db 中所有的建表任务
         SHOW TABLE CREATION;
+
+        mysql> show table creation ;
+        +--------+---------+---------------------+----------------------------------------------------------+
+        | Table  | Status  | Create Time         | Error Msg                                                |
+        +--------+---------+---------------------+----------------------------------------------------------+
+        | logs   | fail    | 2022-01-10 15:59:21 | Cannot convert Iceberg type[list<string>] to Doris type. |
+        | logs_1 | success | 2022-01-10 15:59:21 |                                                          |
+        +--------+---------+---------------------+----------------------------------------------------------+
     
     2. 展示指定 Iceberg db 中的建表任务
         SHOW TABLE CREATION FROM example_db;
+
+        mysql> show table creation from iceberg_db;
+        +--------+---------+---------------------+----------------------------------------------------------+
+        | Table  | Status  | Create Time         | Error Msg                                                |
+        +--------+---------+---------------------+----------------------------------------------------------+
+        | logs   | fail    | 2022-01-10 15:59:21 | Cannot convert Iceberg type[list<string>] to Doris type. |
+        | logs_1 | success | 2022-01-10 15:59:21 |                                                          |
+        +--------+---------+---------------------+----------------------------------------------------------+
         
     3. 展示指定 Iceberg db 中的建表任务，表名中包含字符串 "log" 的任务
         SHOW TABLE CREATION FROM example_db LIKE '%log%';
+
+        mysql> show table creation from iceberg_db like "%1";
+        +--------+---------+---------------------+-----------+
+        | Table  | Status  | Create Time         | Error Msg |
+        +--------+---------+---------------------+-----------+
+        | logs_1 | success | 2022-01-10 15:59:21 |           |
+        +--------+---------+---------------------+-----------+
         
 ## keyword
 
