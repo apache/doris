@@ -24,8 +24,8 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 
-// 用于表示用户对于某种资源的访问权限
-// 优于当前支持两种权限，所以当前使用简单的优先级标志比较完成
+// Indicates the access permission of a user to a resource
+// better than the current support for both permissions, so the current comparison is done using a simple priority flag
 public enum AccessPrivilege {
     READ_ONLY(1, "READ_ONLY"),
     READ_WRITE(2, "READ_WRITE"),
