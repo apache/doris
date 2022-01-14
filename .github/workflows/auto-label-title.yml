@@ -68,7 +68,7 @@ jobs:
           kind/typo;
           kind/refactor;
           kind/performance;
-          kind/test
+          kind/test;
           kind/chore;
           kind/revert;
           kind/community;
