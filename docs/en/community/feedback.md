@@ -36,4 +36,9 @@ If you find any problems or suggestions while using Doris, you can provide feedb
 
 2. Github
 
-     Submit a [Github Issue](https://github.com/apache/incubator-doris/issues/new/choose)
+    Submit a [Github Issue](https://github.com/apache/incubator-doris/issues/new/choose)
+
+    - Describe the problem in detail, providing important details (logs, critical errors, investigations/analyses that have been performed)
+    - Minimize the problem, analyze the problem by yourself - narrow the scope of the problem, easy to answer / troubleshoot
+    - Give the minimization specific reproduction steps
+    - focus on the problem itself, as unrelated to the business/scenario as possible (if necessary, provide as clear and unambiguous context as possible)
