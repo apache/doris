@@ -81,10 +81,10 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
         LOG.info("Register a new table[{}] to database[{}]", identifier.name(), db.getFullName());
     }
 
-    public void deregisterdb(Database db) {
+    public void deregisterDb(Database db) {
         dbToTableIdentifiers.remove(db);
         dbToTableToCreationRecord.remove(db.getFullName());
-        LOG.info("DeRegister database[{}]", db.getFullName());
+        LOG.info("Deregister database[{}]", db.getFullName());
     }
 
     public void deregisterTable(Database db, IcebergTable table) {
@@ -97,7 +97,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             Map<String, IcebergTableCreationRecord> recordMap = dbToTableToCreationRecord.get(db.getFullName());
             recordMap.remove(table.getName());
         }
-        LOG.info("DeRegister table[{}] from database[{}]", table.getName(), db.getFullName());
+        LOG.info("Deregister table[{}] from database[{}]", table.getName(), db.getFullName());
     }
 
     // remove already created tables or failed tables

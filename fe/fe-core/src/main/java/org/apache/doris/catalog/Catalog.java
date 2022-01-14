@@ -2796,7 +2796,7 @@ public class Catalog {
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay) {
         // drop Iceberg database table creation records
         if (db.getDbProperties().getIcebergProperty().isExist()) {
-            icebergTableCreationRecordMgr.deregisterdb(db);
+            icebergTableCreationRecordMgr.deregisterDb(db);
         }
         for (Table table : db.getTables()) {
             table.writeLock();
