@@ -24,6 +24,7 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_common.h"
 #include "vec/common/typeid_cast.h"
 
 namespace doris::vectorized {
@@ -173,18 +174,13 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         memcpy(&res_elems[elems_size_old], &src_elems[arr_offset], arr_size * sizeof(T));
     };
 
-#ifdef __SSE2__
-    const __m128i zero_vec = _mm_setzero_si128();
-    static constexpr size_t SIMD_BYTES = 16;
+    static constexpr size_t SIMD_BYTES = 32;
     const auto filt_end_aligned = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_aligned) {
-        const auto mask = _mm_movemask_epi8(_mm_cmpgt_epi8(
-                _mm_loadu_si128(reinterpret_cast<const __m128i*>(filt_pos)), zero_vec));
+        auto mask = bytes32_mask_to_bits32_mask(filt_pos);
 
-        if (mask == 0) {
-            /// SIMD_BYTES consecutive rows do not pass the filter
-        } else if (mask == 0xffff) {
+        if (mask == 0xffffffff) {
             /// SIMD_BYTES consecutive rows pass the filter
             const auto first = offsets_pos == offsets_begin;
 
@@ -199,14 +195,16 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
             res_elems.resize(elems_size_old + chunk_size);
             memcpy(&res_elems[elems_size_old], &src_elems[chunk_offset], chunk_size * sizeof(T));
         } else {
-            for (size_t i = 0; i < SIMD_BYTES; ++i)
-                if (filt_pos[i]) copy_array(offsets_pos + i);
+            while (mask) {
+                const size_t bit_pos = __builtin_ctzll(mask);
+                copy_array(offsets_pos + bit_pos);
+                mask = mask & (mask - 1);
+            }
         }
 
         filt_pos += SIMD_BYTES;
         offsets_pos += SIMD_BYTES;
     }
-#endif
 
     while (filt_pos < filt_end) {
         if (*filt_pos) copy_array(offsets_pos);
