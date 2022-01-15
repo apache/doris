@@ -26,7 +26,7 @@ under the License.
 
 # 常见报错
 
-本文档主要用于记录 Doris 使用过程中的报错，如果您有预计一些报错，欢迎贡献给我们更新。
+本文档主要用于记录 Doris 使用过程中的报错，如果您有遇见一些报错，欢迎贡献给我们更新。
 
 ### E1. 查询报错：Failed to get scan range, no queryable replica found in tablet: xxxx
 
