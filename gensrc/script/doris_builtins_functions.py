@@ -189,6 +189,9 @@ visible_functions = [
     [['dayofweek'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions11day_of_weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', ''],
+    [['weekday'], 'INT', ['DATETIME'],
+        '_ZN5doris18TimestampFunctions8week_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
+        '', '', 'vec', ''],
     [['day', 'dayofmonth'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions12day_of_monthEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE', '', '', 'vec', ''],

@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-`INT DayOfWeek (DATETIME date)`
+`INT DAYOFWEEK (DATETIME date)`
 
 
 The DAYOFWEEK function returns the index value of the working day of the date, that is, 1 on Sunday, 2 on Monday, and 7 on Saturday.

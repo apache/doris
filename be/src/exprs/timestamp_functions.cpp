@@ -152,6 +152,17 @@ IntVal TimestampFunctions::day_of_week(FunctionContext* context, const DateTimeV
     return IntVal::null();
 }
 
+IntVal TimestampFunctions::week_day(FunctionContext* context, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return IntVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.weekday());
+    }
+    return IntVal::null();
+}
+
 IntVal TimestampFunctions::day_of_month(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
