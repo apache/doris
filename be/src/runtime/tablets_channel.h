@@ -54,7 +54,7 @@ class OlapTableSchemaParam;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker);
+    TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority);
 
     ~TabletsChannel();
 
@@ -124,6 +124,8 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
+
+    bool _is_high_priority = false;
 };
 
 } // namespace doris
