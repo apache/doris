@@ -30,7 +30,7 @@ public class IndexDefTest {
 
     @Before
     public void setUp() throws Exception {
-        def = new IndexDef("index1", Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
+        def = new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
     }
 
     @Test
@@ -46,7 +46,7 @@ public class IndexDefTest {
                             + "xxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxinde"
                             + "x1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxx"
                             + "xxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxx"
-                            + "xxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxx",
+                            + "xxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxx", false,
                     Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP,
                     "balabala");
             def.analyze();
@@ -55,7 +55,7 @@ public class IndexDefTest {
             Assert.assertTrue(e instanceof AnalysisException);
         }
         try {
-            def = new IndexDef("", Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
+            def = new IndexDef("", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
             def.analyze();
             Assert.fail("No exception throws.");
         } catch (AnalysisException e) {
