@@ -19,7 +19,7 @@ package org.apache.doris.stack.service;
 
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.HardwareInfo;
-import org.apache.doris.stack.model.request.BeJoinReq;
+import org.apache.doris.stack.model.request.BuildClusterReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
@@ -49,7 +49,7 @@ public interface AgentProcess {
      */
     void startService(HttpServletRequest request, HttpServletResponse response, DorisStartReq dorisStart) throws Exception;
 
-    void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception;
+    void buildCluster(HttpServletRequest request, HttpServletResponse response, BuildClusterReq buildClusterReq) throws Exception;
 
     boolean register(AgentRoleRegister agentReg);
 

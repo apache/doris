@@ -31,6 +31,4 @@ public class Constants {
     public static final Integer DORIS_DEFAULT_FE_EDIT_LOG_PORT = 9010;
     public static final Integer DORIS_DEFAULT_BROKER_IPC_PORT = 8000;
 
-    public static final String BE_EXIST_MSG = "Same backend already exists";
-
 }

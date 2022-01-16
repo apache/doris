@@ -20,8 +20,7 @@ package org.apache.doris.manager.agent.common;
 public class AgentConstants {
     public static final int COMMAND_EXECUTE_SUCCESS_CODE = 0;
     public static final int COMMAND_EXECUTE_UNHEALTH_CODE = -10;
-    public static final int COMMAND_EXECUTE_TIMEOUT_CODE = -11;
-    public static final int COMMAND_EXECUTE_TIMEOUT_MILSECOND = 180000;
+    public static final int COMMAND_EXECUTE_DETECT_DURATION_MILSECOND = 10000;
 
     public static final int COMMAND_HISTORY_SAVE_MAX_COUNT = 100;
 
@@ -44,4 +43,9 @@ public class AgentConstants {
     public static final int TASK_ERROR_CODE_EXCEPTION = -502;
 
     public static final String LOG_TYPE_TASK = "TASK_LOG";
+
+    public static final String PROCESS_KEYWORD_FE = "org.apache.doris.PaloFe";
+    public static final String PROCESS_KEYWORD_BE = "palo_be";
+    public static final String PROCESS_KEYWORD_BROKER = "org.apache.doris.broker.hdfs.BrokerBootstrap";
+
 }

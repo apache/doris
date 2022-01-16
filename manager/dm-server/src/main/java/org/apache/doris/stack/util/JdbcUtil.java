@@ -57,7 +57,6 @@ public class JdbcUtil {
             stmt = conn.prepareStatement(sql);
             return stmt.execute();
         } finally {
-            closeConn(conn);
             closeStmt(stmt);
         }
     }

@@ -29,9 +29,11 @@ import java.util.List;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class BeJoinReq {
+public class BuildClusterReq {
 
     private int processId;
 
-    private List<String> hosts;
+    private List<String> feHosts;
+
+    private List<String> beHosts;
 }

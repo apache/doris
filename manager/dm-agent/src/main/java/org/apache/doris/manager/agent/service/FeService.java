@@ -115,4 +115,9 @@ public class FeService extends Service {
             }
         }
     }
+
+    @Override
+    public String serviceProcessKeyword() {
+        return AgentConstants.PROCESS_KEYWORD_FE;
+    }
 }

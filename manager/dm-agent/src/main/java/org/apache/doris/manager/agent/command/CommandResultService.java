@@ -80,33 +80,33 @@ public class CommandResultService {
             return new CommandResult(tmpTaskResult);
         }
 
+        if (Objects.isNull(task.getTaskResult().getStartTime())
+                || task.getTaskResult().getStartTime().getTime() + AgentConstants.COMMAND_EXECUTE_DETECT_DURATION_MILSECOND > System.currentTimeMillis()) {
+            tmpTaskResult.setTaskState(TaskState.RUNNING);
+            tmpTaskResult.setRetCode(AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
+            return new CommandResult(tmpTaskResult);
+        }
+
         int retCode = AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
         Boolean health = false;
-        TaskState taskState = TaskState.RUNNING;
         if (CommandType.START_FE == commandType) {
-            health = ServiceContext.getServiceMap().get(ServiceRole.FE).isHealth();
+            health = ServiceContext.getServiceMap().get(ServiceRole.FE).processExist();
             retCode = health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
-            taskState = health ? TaskState.FINISHED : TaskState.RUNNING;
         } else if (CommandType.STOP_FE == commandType) {
-            health = ServiceContext.getServiceMap().get(ServiceRole.FE).isHealth();
+            health = ServiceContext.getServiceMap().get(ServiceRole.FE).processExist();
             retCode = !health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
-            taskState = !health ? TaskState.FINISHED : TaskState.RUNNING;
         } else if (CommandType.START_BE == commandType) {
-            health = ServiceContext.getServiceMap().get(ServiceRole.BE).isHealth();
+            health = ServiceContext.getServiceMap().get(ServiceRole.BE).processExist();
             retCode = health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
-            taskState = health ? TaskState.FINISHED : TaskState.RUNNING;
         } else if (CommandType.STOP_BE == commandType) {
-            health = ServiceContext.getServiceMap().get(ServiceRole.BE).isHealth();
+            health = ServiceContext.getServiceMap().get(ServiceRole.BE).processExist();
             retCode = !health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
-            taskState = !health ? TaskState.FINISHED : TaskState.RUNNING;
         } else if (CommandType.START_BROKER == commandType) {
-            health = ServiceContext.getServiceMap().get(ServiceRole.BROKER).isHealth();
+            health = ServiceContext.getServiceMap().get(ServiceRole.BROKER).processExist();
             retCode = health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
-            taskState = health ? TaskState.FINISHED : TaskState.RUNNING;
         } else if (CommandType.STOP_BROKER == commandType) {
-            health = ServiceContext.getServiceMap().get(ServiceRole.BROKER).isHealth();
+            health = ServiceContext.getServiceMap().get(ServiceRole.BROKER).processExist();
             retCode = !health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
-            taskState = !health ? TaskState.FINISHED : TaskState.RUNNING;
         }
 
         if (health && (CommandType.START_FE == commandType || CommandType.START_BE == commandType || CommandType.START_BROKER == commandType)) {
@@ -116,13 +116,8 @@ public class CommandResultService {
             taskFinalStatus.put(task.getTaskId(), AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE);
         }
 
-        if (task.getTaskResult().getSubmitTime().getTime() + AgentConstants.COMMAND_EXECUTE_TIMEOUT_MILSECOND < System.currentTimeMillis()) {
-            taskFinalStatus.put(task.getTaskId(), AgentConstants.COMMAND_EXECUTE_TIMEOUT_CODE);
-            tmpTaskResult.setTaskState(TaskState.FINISHED);
-        }
-
         tmpTaskResult.setRetCode(retCode);
-        tmpTaskResult.setTaskState(taskState);
+        tmpTaskResult.setTaskState(TaskState.FINISHED);
         return new CommandResult(tmpTaskResult);
     }
 }
