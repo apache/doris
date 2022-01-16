@@ -141,7 +141,7 @@ Adding FE processes is described in detail in the [Deployment and Upgrade Docume
 1. Notes
 
 	* Before adding a new FE, make sure that the current Master FE runs properly (connection is normal, JVM is normal, image generation is normal, bdbje data directory is too large, etc.)
-	* The first time you start a new FE, you must make sure that the `-helper` parameter is added to point to Master FE. There is no need to add `-helper` when restarting. (If `-helper` is specified, FE will directly ask the helper node for its role. If not, FE will try to obtain information from `ROLE` and `VERSION` files in the `palo-meta/image/` directory.
+	* The first time you start a new FE, you must make sure that the `--helper` parameter is added to point to Master FE. There is no need to add `--helper` when restarting. (If `--helper` is specified, FE will directly ask the helper node for its role. If not, FE will try to obtain information from `ROLE` and `VERSION` files in the `palo-meta/image/` directory.
 	* The first time you start a new FE, you must make sure that the `meta_dir` of the FE is created, has correct permissions and is empty.
 	* Starting a new FE and executing the `ALTER SYSTEM ADD FOLLOWER/OBSERVER` statement adds FE to metadata in a sequence that is not required. If a new FE is started first and no statement is executed, the `current node is not added to the group. Please add it first.` in the new FE log. When the statement is executed, it enters the normal process.
 	* Make sure that after the previous FE is added successfully, the next FE is added.
