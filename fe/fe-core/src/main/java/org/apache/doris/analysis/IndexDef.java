@@ -29,12 +29,14 @@ import java.util.TreeSet;
 
 public class IndexDef {
     private String indexName;
+    private boolean ifNotExists;
     private List<String> columns;
     private IndexType indexType;
     private String comment;
 
-    public IndexDef(String indexName, List<String> columns, IndexType indexType, String comment) {
+    public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType, String comment) {
         this.indexName = indexName;
+        this.ifNotExists = ifNotExists;
         this.columns = columns;
         if (indexType == null) {
             this.indexType = IndexType.BITMAP;
@@ -116,6 +118,10 @@ public class IndexDef {
 
     public String getComment() {
         return comment;
+    }
+
+    public boolean isSetIfNotExists() {
+        return ifNotExists;
     }
 
     public enum IndexType {
