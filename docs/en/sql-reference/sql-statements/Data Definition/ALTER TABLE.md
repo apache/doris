@@ -231,13 +231,13 @@ under the License.
     Bitmap index supports the following modifications:
     1. create bitmap index
         grammar:
-            ADD INDEX index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+            ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
         note:
             1. only supports bitmap index for current version
             2. BITMAP index only supports apply on single column
     2. drop index
         grammar:
-            DROP INDEX index_name;
+            DROP INDEX [IF EXISTS] index_name;
 
 ## example
 
@@ -418,9 +418,9 @@ under the License.
     
     [index]
     1. create index on table1 column siteid using bitmap 
-        ALTER TABLE table1 ADD INDEX index_name  [USING BITMAP] (siteid) COMMENT 'balabala';
+        ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name  [USING BITMAP] (siteid) COMMENT 'balabala';
     2. drop bitmap index of table1
-        ALTER TABLE table1 DROP INDEX index_name;
+        ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
 
 ## keyword
 
