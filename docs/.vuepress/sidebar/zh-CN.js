@@ -304,6 +304,7 @@ module.exports = [
               "unix_timestamp",
               "utc_timestamp",
               "week",
+              "weekday",
               "weekofyear",
               "year",
               "yearweek",

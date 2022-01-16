@@ -88,6 +88,33 @@ TEST_F(TimestampFunctionsTest, day_of_week_test) {
     delete context;
 }
 
+TEST_F(TimestampFunctionsTest, week_day_test) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    doris_udf::DateTimeVal tv;
+    // 2001-02-03 12:34:56
+    tv.packed_time = 1830650338932162560L;
+    tv.type = TIME_DATETIME;
+
+    ASSERT_EQ(5, TimestampFunctions::week_day(context, tv).val);
+
+    // 2020-00-01 00:00:00
+    DateTimeValue dtv2(20200001000000);
+    dtv2.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv2;
+    dtv2.to_datetime_val(&tv2);
+    ASSERT_EQ(true, TimestampFunctions::week_day(context, tv2).is_null);
+
+    // 2020-01-00 00:00:00
+    DateTimeValue dtv3(20200100000000);
+    dtv3.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv3;
+    dtv3.to_datetime_val(&tv3);
+    ASSERT_EQ(true, TimestampFunctions::week_day(context, tv3).is_null);
+
+    delete context;
+}
+
 TEST_F(TimestampFunctionsTest, day_of_month_test) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
