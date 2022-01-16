@@ -24,8 +24,8 @@
 namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                         const std::shared_ptr<MemTracker>& mem_tracker)
-        : _load_id(load_id), _timeout_s(timeout_s) {
+                         const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority)
+        : _load_id(load_id), _timeout_s(timeout_s), _is_high_priority(is_high_priority) {
     _mem_tracker = MemTracker::CreateTracker(
             mem_limit, "LoadChannel:" + _load_id.to_string(), mem_tracker, true, false, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
@@ -36,11 +36,15 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
 
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel mem peak usage=" << _mem_tracker->peak_consumption()
-              << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id;
+              << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
+              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     int64_t index_id = params.index_id();
+    if (params.has_sender_ip()) {
+        _sender_ip = params.sender_ip();
+    }
     std::shared_ptr<TabletsChannel> channel;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -50,7 +54,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _mem_tracker));
+            channel.reset(new TabletsChannel(key, _mem_tracker, _is_high_priority));
             _tablets_channels.insert({index_id, channel});
         }
     }
