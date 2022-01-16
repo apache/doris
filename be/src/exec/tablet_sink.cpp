@@ -1064,11 +1064,11 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
             }
             case TYPE_STRING: {
                 StringValue* str_val = (StringValue*)slot;
-                if (str_val->len > desc->type().MAX_STRING_LENGTH) {
+                if (str_val->len > OLAP_STRING_MAX_LENGTH) {
                     fmt::format_to(error_msg, "{}", "the length of input is too long than schema. ");
                     fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
                     fmt::format_to(error_msg, "first 128 bytes of input str: [{}] ", std::string(str_val->ptr, 128));
-                    fmt::format_to(error_msg, "schema length: {}; ", desc->type().MAX_STRING_LENGTH);
+                    fmt::format_to(error_msg, "schema length: {}; ", OLAP_STRING_MAX_LENGTH);
                     fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
                     row_valid = false;
                     continue;
