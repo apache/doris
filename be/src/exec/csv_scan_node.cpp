@@ -471,13 +471,6 @@ bool CsvScanNode::check_and_write_text_slot(const std::string& column_name,
         }
     }
 
-    if (!slot->is_nullable() && is_null(value, value_length)) {
-        (*error_msg) << "value cannot be null. column name: " << column_name
-                     << "; type: " << slot->type() << "; input_str: ["
-                     << std::string(value, value_length) << "].";
-        return false;
-    }
-
     char* value_to_convert = const_cast<char*>(value);
     int value_to_convert_length = value_length;
 
