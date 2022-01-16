@@ -32,8 +32,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
-                               const std::shared_ptr<MemTracker>& mem_tracker)
-        : _key(key), _state(kInitialized), _closed_senders(64) {
+                               const std::shared_ptr<MemTracker>& mem_tracker,
+                               bool is_high_priority)
+        : _key(key), _state(kInitialized), _closed_senders(64), _is_high_priority(is_high_priority) {
     _mem_tracker = MemTracker::CreateTracker(-1, "TabletsChannel", mem_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
@@ -274,6 +275,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.need_gen_rollup = params.need_gen_rollup();
         request.tuple_desc = _tuple_desc;
         request.slots = index_slots;
+        request.is_high_priority = _is_high_priority;
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&request, _mem_tracker, &writer);
