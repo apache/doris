@@ -218,7 +218,7 @@ Default：100 * 1024 * 1024  （100MB）
 
 This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 100MB
 
-### jetty_session_timeout
+### jetty_session_timeout_minute
 
 Default: 120 (minutes)
 
