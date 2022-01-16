@@ -224,7 +224,6 @@ private:
 
     // this should be set in init() using config
     int _rpc_timeout_ms = 60000;
-    static const int _min_rpc_timeout_ms = 1000; // The min query timeout is 1 second.
     int64_t _next_packet_seq = 0;
     MonotonicStopWatch _timeout_watch;
 
@@ -380,6 +379,7 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
+    bool _is_high_priority = false;
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;

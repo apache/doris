@@ -74,6 +74,8 @@ message PTabletWriterOpenRequest {
     required bool need_gen_rollup = 7;
     optional int64 load_mem_limit = 8;
     optional int64 load_channel_timeout_s = 9;
+    optional bool is_high_priority = 10 [default = false];
+    optional string sender_ip = 11 [default = ""];
 };
 
 message PTabletWriterOpenResult {
@@ -100,6 +102,7 @@ message PTabletWriterAddBatchRequest {
     optional int64 backend_id = 9 [default = -1];
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
+    optional bool is_high_priority = 11 [default = false];
 };
 
 message PTabletWriterAddBatchResult {

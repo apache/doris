@@ -116,6 +116,8 @@ void NodeChannel::open() {
     request.set_need_gen_rollup(_parent->_need_gen_rollup);
     request.set_load_mem_limit(_parent->_load_mem_limit);
     request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
+    request.set_is_high_priority(_parent->_is_high_priority);
+    request.set_sender_ip(BackendOptions::get_localhost());
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -332,8 +334,8 @@ void NodeChannel::cancel(const std::string& cancel_msg) {
 
     closure->ref();
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
-    if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
-        remain_ms = _min_rpc_timeout_ms;
+    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
+        remain_ms = config::min_load_rpc_timeout_ms;
     }
     closure->cntl.set_timeout_ms(remain_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
@@ -387,11 +389,11 @@ void NodeChannel::try_send_batch() {
 
     _add_batch_closure->reset();
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
-    if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
+    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
         } else {
-            remain_ms = _min_rpc_timeout_ms;
+            remain_ms = config::min_load_rpc_timeout_ms;
         }
     }
     _add_batch_closure->cntl.set_timeout_ms(remain_ms);
@@ -562,6 +564,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
+    _is_high_priority = (state->query_options().query_timeout <= config::load_task_high_priority_threshold_second);
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
