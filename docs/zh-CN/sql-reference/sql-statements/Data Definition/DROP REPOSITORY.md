@@ -38,5 +38,5 @@ under the License.
         DROP REPOSITORY `bos_repo`;
             
 ## keyword
-    DROP REPOSITORY
+    DROP, REPOSITORY
 
