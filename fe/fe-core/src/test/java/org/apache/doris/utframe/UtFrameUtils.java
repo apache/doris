@@ -33,7 +33,6 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -55,7 +54,9 @@ import org.apache.commons.io.FileUtils;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
+import java.net.DatagramSocket;
 import java.net.ServerSocket;
+import java.net.SocketException;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.util.List;
@@ -226,21 +227,22 @@ public class UtFrameUtils {
     }
 
     public static int findValidPort() {
-        ServerSocket socket = null;
-        try {
-            socket = new ServerSocket(0);
-            socket.setReuseAddress(true);
-            return socket.getLocalPort();
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (Exception e) {
+        int port = 0;
+        while (true) {
+            try (ServerSocket socket = new ServerSocket(0)) {
+                socket.setReuseAddress(true);
+                port = socket.getLocalPort();
+                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
+                    datagramSocket.setReuseAddress(true);
+                    break;
+                } catch (SocketException e) {
+                    System.out.println("The port " + port  + " is invalid and try another port.");
                 }
+            } catch (IOException e) {
+                throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
             }
         }
+        return port;
     }
 
     public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {
