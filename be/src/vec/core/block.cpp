@@ -837,9 +837,18 @@ size_t MutableBlock::rows() const {
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
-    auto& src_columns_with_schema = block->get_columns_with_type_and_name();
+    auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
-        _columns[i]->insert_from(*src_columns_with_schema[i].column.get(), row);
+        _columns[i]->insert_from(*block_data[i].column.get(), row);
+    }
+}
+
+void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
+    auto& block_data = block->get_columns_with_type_and_name();
+    for (size_t i = 0; i < _columns.size(); ++i) {
+        auto& dst = _columns[i];
+        auto& src = *block_data[i].column.get();
+        dst->insert_indices_from(src, row_begin, row_end);
     }
 }
 
