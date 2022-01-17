@@ -227,7 +227,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
     const Self& src_vec = assert_cast<const Self&>(src);
     data.reserve(size() + (indices_end - indices_begin));
     for (auto x = indices_begin; x != indices_end; ++x) {
-        data.push_back(src_vec.get_element(*x));
+        data.push_back_without_reserve(src_vec.get_element(*x));
     }
 }
 
