@@ -80,6 +80,10 @@ public:
         s += length;
     }
 
+    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override {
+        s += (indices_end - indices_begin);
+    }
+
     ColumnPtr filter(const Filter& filt, ssize_t /*result_size_hint*/) const override {
         return clone_dummy(count_bytes_in_filter(filt));
     }

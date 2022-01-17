@@ -200,6 +200,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
+    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
+
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
 
     // note(wb) this method is only used in storage layer now

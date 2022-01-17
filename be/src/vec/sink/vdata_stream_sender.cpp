@@ -169,6 +169,42 @@ Status VDataStreamSender::Channel::add_row(Block* block, int row) {
     return Status::OK();
 }
 
+Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>& rows) {
+    if (_fragment_instance_id.lo == -1) {
+        return Status::OK();
+    }
+
+    if (_mutable_block.get() == nullptr) {
+        auto empty_block = block->clone_empty();
+        _mutable_block.reset(
+                new MutableBlock(empty_block.mutate_columns(), empty_block.get_data_types()));
+    }
+
+    int row_wait_add = rows.size();
+    int batch_size = _parent->state()->batch_size();
+    const int* begin = &rows[0];
+
+    while (row_wait_add > 0) {
+        int row_add, max_add = batch_size - _mutable_block->rows();
+        if (row_wait_add >= max_add)  {
+            row_add = max_add;
+        } else {
+            row_add = row_wait_add;
+        }
+
+        _mutable_block->add_rows(block, begin, begin + row_add);
+
+        row_wait_add -= row_add;
+        begin += row_add;
+
+        if (row_add == max_add) {
+            RETURN_IF_ERROR(send_current_block());
+        }
+    }
+
+    return Status::OK();
+}
+
 Status VDataStreamSender::Channel::close_wait(RuntimeState* state) {
     if (_need_close) {
         Status st = _wait_last_brpc();
@@ -394,51 +430,49 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         int num_channels = _channels.size();
         // will only copy schema
         // we don't want send temp columns
-        auto send_block = *block;
 
-        std::vector<int> result(_partition_expr_ctxs.size());
-        int counter = 0;
+        int result_size = _partition_expr_ctxs.size();
+        int result[result_size];
+        RETURN_IF_ERROR(get_partition_column_result(block, result));
 
-        for (auto ctx : _partition_expr_ctxs) {
-            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
-        }
         // vectorized caculate hash
         int rows = block->rows();
         // for each row, we have a siphash val
         std::vector<SipHash> siphashs(rows);
         // result[j] means column index, i means rows index
-        for (int j = 0; j < result.size(); ++j) {
+        for (int j = 0; j < result_size; ++j) {
             auto column = block->get_by_position(result[j]).column;
             for (int i = 0; i < rows; ++i) {
                 column->update_hash_with_value(i, siphashs[i]);
             }
         }
 
+        // channel2rows' subscript means channel id 
+        std::vector<vectorized::UInt64> hash_vals(rows);
         for (int i = 0; i < rows; i++) {
-            auto target_channel_id = siphashs[i].get64() % num_channels;
-            RETURN_IF_ERROR(_channels[target_channel_id]->add_row(&send_block, i));
+            hash_vals[i] = siphashs[i].get64();
         }
 
+        RETURN_IF_ERROR(channel_add_rows(_channels, num_channels, hash_vals, rows, block));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         // 1. caculate hash
         // 2. dispatch rows to channel
         int num_channels = _channel_shared_ptrs.size();
-        auto send_block = *block;
-        std::vector<int> result(_partition_expr_ctxs.size());
-        int counter = 0;
-        for (auto ctx : _partition_expr_ctxs) {
-            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
-        }
+
+        int result_size = _partition_expr_ctxs.size();
+        int result[result_size];
+        RETURN_IF_ERROR(get_partition_column_result(block, result));
+
         // vectorized caculate hash val
         int rows = block->rows();
         // for each row, we have a hash_val
         std::vector<size_t> hash_vals(rows);
 
         // result[j] means column index, i means rows index
-        for (int j = 0; j < result.size(); ++j) {
+        for (int j = 0; j < result_size; ++j) {
+            auto& column = block->get_by_position(result[j]).column;
             for (int i = 0; i < rows; ++i) {
-                auto val = block->get_by_position(result[j]).column->get_data_at(i);
-
+                auto val = column->get_data_at(i);
                 if (val.data == nullptr) {
                     // nullptr is treat as 0 when hash
                     static const int INT_VALUE = 0;
@@ -446,17 +480,12 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                     hash_vals[i] = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_vals[i]);
                 } else {
                     hash_vals[i] = RawValue::zlib_crc32(val.data, val.size,
-                                                        _partition_expr_ctxs[j]->root()->type(),
-                                                        hash_vals[i]);
+                                                _partition_expr_ctxs[j]->root()->type(), hash_vals[i]);
                 }
             }
         }
 
-        for (int i = 0; i < rows; i++) {
-            auto target_channel_id = hash_vals[i] % num_channels;
-            RETURN_IF_ERROR(_channel_shared_ptrs[target_channel_id]->add_row(&send_block, i));
-        }
-
+        RETURN_IF_ERROR(channel_add_rows(_channel_shared_ptrs, num_channels, hash_vals, rows, block));
     } else {
         // Range partition
         // 1. caculate range

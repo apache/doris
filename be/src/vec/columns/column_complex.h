@@ -127,6 +127,14 @@ public:
         data.insert(data.end(), st, ed);
     }
 
+    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        data.reserve(size() + (indices_end - indices_begin));
+        for (auto x = indices_begin; x != indices_end; ++x) {
+            data.push_back(src_vec.get_element(*x));
+        }
+    }
+
     void pop_back(size_t n) { data.erase(data.end() - n, data.end()); }
     // it's impossable to use ComplexType as key , so we don't have to implemnt them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
