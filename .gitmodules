@@ -7,7 +7,3 @@
 [submodule ".github/actions/clang-format-lint-action"]
 	path = .github/actions/clang-format-lint-action
 	url = https://github.com/DoozyX/clang-format-lint-action.git
-[submodule ".github/actions/set-label-based-on-pr-title"]
-	path = .github/actions/set-label-based-on-pr-title
-	url = https://github.com/jackwener/set-label-based-on-pr-title.git
-
