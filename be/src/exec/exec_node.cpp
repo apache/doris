@@ -82,6 +82,7 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vschema_scan_node.h"
+#include "vec/exec/vrepeat_node.h"
 namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
@@ -389,6 +390,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::SCHEMA_SCAN_NODE:
         case TPlanNodeType::ANALYTIC_EVAL_NODE:
         case TPlanNodeType::SELECT_NODE:
+        case TPlanNodeType::REPEAT_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -568,7 +570,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::REPEAT_NODE:
-        *node = pool->add(new RepeatNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VRepeatNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new RepeatNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::ASSERT_NUM_ROWS_NODE:

@@ -1394,10 +1394,10 @@ visible_functions = [
     # grouping sets functions
     [['grouping_id'], 'BIGINT', ['BIGINT'],
         '_ZN5doris21GroupingSetsFunctions11grouping_idEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
-        '', '', '', 'ALWAYS_NOT_NULLABLE'],
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['grouping'], 'BIGINT', ['BIGINT'],
         '_ZN5doris21GroupingSetsFunctions8groupingEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
-        '' ,'', '', 'ALWAYS_NOT_NULLABLE'],
+        '' ,'', 'vec', 'ALWAYS_NOT_NULLABLE'],
 ]
 
 # Except the following functions, other function will directly return

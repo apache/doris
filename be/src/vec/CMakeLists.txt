@@ -86,6 +86,7 @@ set(VEC_FILES
   exec/vempty_set_node.cpp
   exec/vanalytic_eval_node.cpp
   exec/vassert_num_rows_node.cpp
+  exec/vrepeat_node.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
@@ -139,6 +140,7 @@ set(VEC_FILES
   functions/function_date_or_datetime_computation.cpp
   functions/function_date_or_datetime_to_string.cpp
   functions/function_datetime_string_to_string.cpp
+  functions/function_grouping.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
