@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "function_grouping.h"
+#include "vec/functions/function_grouping.h"
 
 namespace doris::vectorized {
 void register_function_grouping(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGrouping>();
     factory.register_function<FunctionGroupingId>();
 }
-}
+} // namespace doris::vectorized
