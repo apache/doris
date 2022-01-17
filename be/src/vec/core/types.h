@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
 
 namespace doris::vectorized {
@@ -237,6 +238,12 @@ struct Decimal {
     Decimal(const Decimal<T>&) = default;
 
     Decimal(const T& value_) : value(value_) {}
+
+    static Decimal double_to_decimal(double value_) {
+        DecimalV2Value decimal_value;
+        decimal_value.assign_from_double(value_);
+        return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
+    }
 
     template <typename U>
     Decimal(const Decimal<U>& x) : value(x) {}
