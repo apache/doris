@@ -404,6 +404,7 @@ public:
                                              const ColumnNumbers& /*arguments*/,
                                              size_t /*result*/) const final {
         LOG(FATAL) << "prepare is not implemented for IFunction";
+        __builtin_unreachable();
     }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -412,10 +413,12 @@ public:
 
     [[noreturn]] const DataTypes& get_argument_types() const final {
         LOG(FATAL) << "get_argument_types is not implemented for IFunction";
+        __builtin_unreachable();
     }
 
     [[noreturn]] const DataTypePtr& get_return_type() const final {
         LOG(FATAL) << "get_return_type is not implemented for IFunction";
+        __builtin_unreachable();
     }
 
 protected:
