@@ -220,6 +220,7 @@ public:
      */
     virtual Ptr filter_by_selector(const uint16_t* sel, size_t sel_size, Ptr* ptr = nullptr) {
         LOG(FATAL) << "column not support filter_by_selector";
+        __builtin_unreachable();
     };
 
     /// Permutes elements using specified permutation. Is used in sortings.
