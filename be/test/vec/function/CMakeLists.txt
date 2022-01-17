@@ -18,7 +18,6 @@
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/vec/function")
 
-ADD_BE_TEST(function_abs_test)
 ADD_BE_TEST(function_bitmap_test)
 ADD_BE_TEST(function_comparison_test)
 ADD_BE_TEST(function_hash_test)

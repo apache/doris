@@ -298,7 +298,8 @@ public:
                 is_date_or_datetime(get_return_type(arguments)->is_nullable()
                                             ? ((DataTypeNullable*)get_return_type(arguments).get())
                                                       ->get_nested_type()
-                                            : get_return_type(arguments))));
+                                            : get_return_type(arguments))))
+                << " with " << return_type->get_name() << " and " << func_return_type->get_name();
 
         return build_impl(arguments, return_type);
     }
