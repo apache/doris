@@ -52,6 +52,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -99,7 +100,7 @@ public class HeartbeatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
-        
+
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend);
@@ -213,62 +214,79 @@ public class HeartbeatMgr extends MasterDaemon {
 
             TNetworkAddress beAddr = new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort());
             boolean ok = false;
-            try {
-                TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
-                copiedMasterInfo.setBackendIp(backend.getHost());
-                long flags = heartbeatFlags.getHeartbeatFlags();
-                copiedMasterInfo.setHeartbeatFlags(flags);
-                copiedMasterInfo.setBackendId(backendId);
-                THeartbeatResult result;
-                if (!FeConstants.runningUnitTest) {
-                    client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
-                    result = client.heartbeat(copiedMasterInfo);
-                } else {
-                    // Mocked result
-                    TBackendInfo backendInfo = new TBackendInfo();
-                    backendInfo.setBePort(1);
-                    backendInfo.setHttpPort(2);
-                    backendInfo.setBeRpcPort(3);
-                    backendInfo.setBrpcPort(4);
-                    backendInfo.setVersion("test-1234");
-                    result = new THeartbeatResult();
-                    result.setStatus(new TStatus(TStatusCode.OK));
-                    result.setBackendInfo(backendInfo);
-                }
-
-                ok = true;
-                if (result.getStatus().getStatusCode() == TStatusCode.OK) {
-                    TBackendInfo tBackendInfo = result.getBackendInfo();
-                    int bePort = tBackendInfo.getBePort();
-                    int httpPort = tBackendInfo.getHttpPort();
-                    int brpcPort = -1;
-                    if (tBackendInfo.isSetBrpcPort()) {
-                        brpcPort = tBackendInfo.getBrpcPort();
-                    }
-                    String version = "";
-                    if (tBackendInfo.isSetVersion()) {
-                        version = tBackendInfo.getVersion();
-                    }
-                    long beStartTime = tBackendInfo.isSetBeStartTime() ? tBackendInfo.getBeStartTime() : System.currentTimeMillis();
-                    // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), beStartTime, version);
-                } else {
-                    return new BackendHbResponse(backendId, result.getStatus().getErrorMsgs().isEmpty() ? "Unknown error"
-                            : result.getStatus().getErrorMsgs().get(0));
-                }
-            } catch (Exception e) {
-                LOG.warn("backend heartbeat got exception", e);
-                return new BackendHbResponse(backendId,
-                        Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
-            } finally {
-                if (client != null) {
-                    if (ok) {
-                        ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
+            TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
+            copiedMasterInfo.setBackendIp(backend.getHost());
+            long flags = heartbeatFlags.getHeartbeatFlags();
+            copiedMasterInfo.setHeartbeatFlags(flags);
+            copiedMasterInfo.setBackendId(backendId);
+            THeartbeatResult result;
+            int maxAttempts = 3;
+            for (int i = maxAttempts; i > 0; --i) {
+                try {
+                    if (!FeConstants.runningUnitTest) {
+                        client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
+                        result = client.heartbeat(copiedMasterInfo);
                     } else {
-                        ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
+                        // Mocked result
+                        TBackendInfo backendInfo = new TBackendInfo();
+                        backendInfo.setBePort(1);
+                        backendInfo.setHttpPort(2);
+                        backendInfo.setBeRpcPort(3);
+                        backendInfo.setBrpcPort(4);
+                        backendInfo.setVersion("test-1234");
+                        result = new THeartbeatResult();
+                        result.setStatus(new TStatus(TStatusCode.OK));
+                        result.setBackendInfo(backendInfo);
+                    }
+
+                    ok = true;
+                    if (result.getStatus().getStatusCode() == TStatusCode.OK) {
+                        TBackendInfo tBackendInfo = result.getBackendInfo();
+                        int bePort = tBackendInfo.getBePort();
+                        int httpPort = tBackendInfo.getHttpPort();
+                        int brpcPort = -1;
+                        if (tBackendInfo.isSetBrpcPort()) {
+                            brpcPort = tBackendInfo.getBrpcPort();
+                        }
+                        String version = "";
+                        if (tBackendInfo.isSetVersion()) {
+                            version = tBackendInfo.getVersion();
+                        }
+                        long beStartTime = tBackendInfo.isSetBeStartTime() ? tBackendInfo.getBeStartTime() : System.currentTimeMillis();
+                        // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
+                        return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), beStartTime, version);
+                    } else {
+                        return new BackendHbResponse(backendId, result.getStatus().getErrorMsgs().isEmpty() ? "Unknown error"
+                                : result.getStatus().getErrorMsgs().get(0));
+                    }
+                } catch (Exception e) {
+                    if (e.getCause() != null && e.getCause() instanceof SocketTimeoutException) {
+                        LOG.warn("backend [{}] heartbeat timeout, retry remains:{}", backendId, i - 1);
+                        if ( i == 1) {
+                            LOG.warn("backend heartbeat timeout", e);
+                            return new BackendHbResponse(backendId, "backend heartbeat timeout");
+                        }
+                        try {
+                            Thread.sleep(500);
+                        } catch (InterruptedException ie) {
+                            LOG.warn("backend heartbeat retry interrupted");
+                        }
+                    } else {
+                        LOG.warn("backend heartbeat got exception", e);
+                        return new BackendHbResponse(backendId,
+                                Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
+                    }
+                } finally {
+                    if (client != null) {
+                        if (ok) {
+                            ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
+                        } else {
+                            ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
+                        }
                     }
                 }
             }
+            return new BackendHbResponse(backendId, "unreachable code.");
         }
     }
 
