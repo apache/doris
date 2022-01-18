@@ -147,7 +147,7 @@ set(VEC_FILES
   sink/mysql_result_writer.cpp
   sink/result_sink.cpp
   sink/vdata_stream_sender.cpp
-  sink/vtabet_sink.cpp
+  sink/vtablet_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp

@@ -145,7 +145,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (is_vec) {
-            sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+            // sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+            return Status::NotSupported("VOlapTableSink is not supported yet");
         } else {
             sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
         }
