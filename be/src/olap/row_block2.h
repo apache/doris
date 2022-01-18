@@ -73,6 +73,9 @@ public:
     // convert RowBlockV2 to RowBlock
     Status convert_to_row_block(RowCursor* helper, RowBlock* dst);
 
+    // convert RowBlockV2 to vectorized::Block
+    Status convert_to_vec_block(vectorized::Block* block);
+
     // low-level API to access memory for each column block(including data array and nullmap).
     // `cid` must be one of `schema()->column_ids()`.
     ColumnBlock column_block(ColumnId cid) const {
@@ -106,6 +109,8 @@ public:
     std::string debug_string();
 
 private:
+    Status _copy_data_to_column(int cid, vectorized::MutableColumnPtr& mutable_column_ptr);
+
     Schema _schema;
     size_t _capacity;
     // _column_vector_batches[cid] == null if cid is not in `_schema`.
