@@ -165,6 +165,11 @@ def generate_fe_registry_init(filename):
         java_registry_file.write("        nondeterministicFuncNames.add(\"%s\");\n" % entry)
     java_registry_file.write("        functionSet.buildNondeterministicFunctions(nondeterministicFuncNames);\n");
 
+    java_registry_file.write("        funcNames = Sets.newHashSet();\n")
+    for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
+        java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
+    java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
+
     java_registry_file.write(java_registry_epilogue)
     java_registry_file.close()
 

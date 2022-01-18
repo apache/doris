@@ -34,8 +34,6 @@ enum TDataSinkType {
     MEMORY_SCRATCH_SINK,
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
-    VRESULT_SINK,
-    VDATA_STREAM_SINK,
 }
 
 enum TResultSinkType {

@@ -330,6 +330,7 @@ module.exports = [
               "ascii",
               "bit_length",
               "char_length",
+              "coalesce",
               "concat",
               "concat_ws",
               "ends_with",
@@ -449,6 +450,11 @@ module.exports = [
             title: "Hash Functions",
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
+          },
+          {
+            title: "Math Functions",
+            directoryPath: "math-functions/",
+            children: ["conv"],
           },
           {
             title: "table functions",

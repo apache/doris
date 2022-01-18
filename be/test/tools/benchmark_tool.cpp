@@ -177,10 +177,10 @@ public:
             PageDecoderOptions decoder_options;
             BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
             page_decoder.init();
+
             page_decoder.set_dict_decoder(dict_page_decoder.get());
 
             //check values
-
             size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
 
             auto tracker = std::make_shared<MemTracker>();

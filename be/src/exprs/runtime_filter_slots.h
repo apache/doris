@@ -20,9 +20,9 @@
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
-
 // this class used in a hash join node
 // Provide a unified interface for other classes
 template <typename ExprCtxType>
@@ -129,6 +129,40 @@ public:
             }
         }
     }
+    void insert(std::unordered_map<const vectorized::Block*, std::vector<int>>& datas) {
+        for (int i = 0; i < _build_expr_context.size(); ++i) {
+            auto iter = _runtime_filters.find(i);
+            if (iter == _runtime_filters.end()) continue;
+
+            int result_column_id = _build_expr_context[i]->get_last_result_column_id();
+            for (auto it : datas) {
+                auto& column = it.first->get_by_position(result_column_id).column;
+
+                if (auto* nullable =
+                            vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
+                    auto& column_nested = nullable->get_nested_column();
+                    auto& column_nullmap = nullable->get_null_map_column();
+                    for (int row_num : it.second) {
+                        if (column_nullmap.get_bool(row_num)) {
+                            continue;
+                        }
+                        const auto& ref_data = column_nested.get_data_at(row_num);
+                        for (auto filter : iter->second) {
+                            filter->insert(ref_data);
+                        }
+                    }
+
+                } else {
+                    for (int row_num : it.second) {
+                        const auto& ref_data = column->get_data_at(row_num);
+                        for (auto filter : iter->second) {
+                            filter->insert(ref_data);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // should call this method after insert
     void ready_for_publish() {
@@ -166,5 +200,5 @@ private:
 };
 
 using RuntimeFilterSlots = RuntimeFilterSlotsBase<ExprContext>;
-
+using VRuntimeFilterSlots = RuntimeFilterSlotsBase<vectorized::VExprContext>;
 } // namespace doris

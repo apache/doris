@@ -47,6 +47,7 @@ Usage: $0 <options>
      --clean    clean and build ut
      --run      build and run all ut
      --run xx   build and run specified ut
+     -v         build and run all vectorized ut
      -j         build parallel
 
   Eg.
@@ -65,6 +66,7 @@ OPTS=$(getopt \
   -l 'run' \
   -l 'clean' \
   -o 'j:' \
+  -o 'v' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -73,20 +75,17 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(nproc)/4+1]
-CLEAN=
-RUN=
-if [ $# == 1 ] ; then
-    #default
-    CLEAN=0
-    RUN=0
-else
-    CLEAN=0
-    RUN=0
+PARALLEL=$[$(nproc)/5+1]
+
+CLEAN=0
+RUN=0
+VECTORIZED_ONLY=0
+if [ $# != 1 ] ; then
     while true; do 
         case "$1" in
             --clean) CLEAN=1 ; shift ;;
             --run) RUN=1 ; shift ;;
+            -v) VECTORIZED_ONLY=1 ; shift ;;
             -j) PARALLEL=$2; shift 2 ;;
             --) shift ;  break ;;
             *) echo "Internal error" ; exit 1 ;;
@@ -168,6 +167,12 @@ cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 cp -r ${DORIS_HOME}/be/test/plugin/plugin_test ${DORIS_TEST_BINARY_DIR}/plugin/
 
 # find all executable test files
+
+if [ ${VECTORIZED_ONLY} -eq 1 ]; then
+    echo "Run Vectorized ut only"
+    export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/vec
+fi
+
 test_files=`find ${DORIS_TEST_BINARY_DIR} -type f -perm -111 -name "*test"`
 
 for test in ${test_files[@]}
@@ -178,5 +183,4 @@ do
         $test --gtest_output=xml:${GTEST_OUTPUT_DIR}/${file_name}.xml
     fi
 done
-
 echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"

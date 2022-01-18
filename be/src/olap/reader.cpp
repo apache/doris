@@ -41,6 +41,7 @@
 #include "runtime/string_value.hpp"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
+#include "vec/olap/vcollect_iterator.h"
 
 using std::nothrow;
 using std::set;
@@ -57,8 +58,8 @@ void TabletReader::ReaderParams::check_validation() const {
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
     ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
-       << " aggregation=" << aggregation << " version=" << version << " start_key_include=" << start_key_include
-       << " end_key_include=" << end_key_include;
+       << " aggregation=" << aggregation << " version=" << version
+       << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
     for (const auto& key : start_key) {
         ss << " keys=" << key;
@@ -230,6 +231,7 @@ OLAPStatus TabletReader::_capture_rs_readers(const ReaderParams& read_params,
 OLAPStatus TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
+    _direct_mode = read_params.direct_mode;
     _aggregation = read_params.aggregation;
     _need_agg_finalize = read_params.need_agg_finalize;
     _reader_type = read_params.reader_type;
@@ -699,7 +701,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition, 
             break;
         }
         case OLAP_FIELD_TYPE_VARCHAR:
-        case OLAP_FIELD_TYPE_STRING:{
+        case OLAP_FIELD_TYPE_STRING: {
             phmap::flat_hash_set<StringValue> values;
             for (auto& cond_val : condition.condition_values) {
                 StringValue value;
@@ -806,7 +808,8 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
         return;
     }
     FieldType type = _tablet->tablet_schema().column(max_equal_index).type();
-    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING)|| max_equal_index + 1 > _tablet->num_short_key_columns()) {
+    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING) ||
+        max_equal_index + 1 > _tablet->num_short_key_columns()) {
         load_bf_columns->erase(max_equal_index);
     }
 }

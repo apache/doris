@@ -31,7 +31,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
+import org.apache.doris.common.util.VectorizedUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -631,6 +631,9 @@ public class AnalyticExpr extends Expr {
                 fnCall = new FunctionCallExpr(new FunctionName(LASTVALUE),
                                               getFnCall().getParams());
             } else {
+                //TODO: Now we don't want to first_value to rewrite in vectorized mode;
+                //if have to rewrite in future, could exec this rule;
+                if(!VectorizedUtil.isVectorized()) {
                 List<Expr> paramExprs = Expr.cloneList(getFnCall().getParams().exprs());
 
                 if (window.getRightBoundary().getType() == BoundaryType.PRECEDING) {
@@ -650,6 +653,7 @@ public class AnalyticExpr extends Expr {
                 fnCall = new FunctionCallExpr("FIRST_VALUE_REWRITE",
                                               new FunctionParams(paramExprs));
                 //        fnCall_.setIsInternalFnCall(true);
+                }
             }
 
             fnCall.setIsAnalyticFnCall(true);

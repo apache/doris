@@ -251,6 +251,53 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     return Status::OK();
 }
 
+Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
+    // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
+    auto st = none_of({_cancelled, _eos_is_produced});
+    if (!st.ok()) {
+        if (_cancelled) {
+            std::lock_guard<SpinLock> l(_cancel_msg_lock);
+            return Status::InternalError("add row failed. " + _cancel_msg);
+        } else {
+            return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
+        }
+    }
+
+    // We use OlapTableSink mem_tracker which has the same ancestor of _plan node,
+    // so in the ideal case, mem limit is a matter for _plan node.
+    // But there is still some unfinished things, we do mem limit here temporarily.
+    // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
+    // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
+    while (!_cancelled && _parent->_mem_tracker->AnyLimitExceeded(MemLimit::HARD) &&
+           _pending_batches_num > 0) {
+        SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
+        SleepFor(MonoDelta::FromMilliseconds(10));
+    }
+
+    auto row_no = _cur_batch->add_row();
+    if (row_no == RowBatch::INVALID_ROW_INDEX) {
+        {
+            SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
+            std::lock_guard<std::mutex> l(_pending_batches_lock);
+            //To simplify the add_row logic, postpone adding batch into req until the time of sending req
+            _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
+            _pending_batches_num++;
+        }
+
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+        _cur_add_batch_request.clear_tablet_ids();
+
+        row_no = _cur_batch->add_row();
+    }
+    DCHECK_NE(row_no, RowBatch::INVALID_ROW_INDEX);
+
+    _cur_batch->get_row(row_no)->set_tuple(0,
+            block_row.first->deep_copy_tuple(*_tuple_desc, _cur_batch->tuple_data_pool(), block_row.second, 0, true));
+    _cur_batch->commit_last_row();
+    _cur_add_batch_request.add_tablet_ids(tablet_id);
+    return Status::OK();
+}
+
 Status NodeChannel::mark_close() {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -501,6 +548,29 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     return Status::OK();
 }
 
+Status IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
+    auto it = _channels_by_tablet.find(tablet_id);
+    DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
+    std::stringstream ss;
+    for (auto channel : it->second) {
+        // if this node channel is already failed, this add_row will be skipped
+        auto st = channel->add_row(block_row, tablet_id);
+        if (!st.ok()) {
+            mark_as_failed(channel);
+            ss << st.get_error_msg() << "; ";
+        }
+    }
+
+    if (has_intolerable_failure()) {
+        std::stringstream ss2;
+        ss2 << "index channel has intolerable failure. " << BackendOptions::get_localhost()
+            << ", err: " << ss.str();
+        return Status::InternalError(ss2.str());
+    }
+
+    return Status::OK();
+}
+
 bool IndexChannel::has_intolerable_failure() {
     for (const auto& it : _failed_channels) {
         if (it.second.size() >= ((_parent->_num_replicas + 1) / 2)) {
@@ -731,7 +801,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
         batch = _output_batch.get();
     }
     int num_invalid_rows = 0;
-    if (_need_validate_data) {
+    {
         SCOPED_RAW_TIMER(&_validate_data_ns);
         _filter_bitmap.Reset(batch->num_rows());
         num_invalid_rows = _validate_data(state, batch, &_filter_bitmap);

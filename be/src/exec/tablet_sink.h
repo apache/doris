@@ -160,6 +160,8 @@ public:
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
+    Status add_row(BlockRow& block_row, int64_t tablet_id);
+
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
@@ -276,6 +278,8 @@ public:
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
+    Status add_row(BlockRow& block_row, int64_t tablet_id);
+
     void for_each_node_channel(const std::function<void(NodeChannel*)>& func) {
         for (auto& it : _node_channels) {
             func(it.second);
@@ -350,7 +354,7 @@ private:
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
-private:
+protected:
     friend class NodeChannel;
     friend class IndexChannel;
 

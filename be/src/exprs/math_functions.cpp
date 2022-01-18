@@ -178,11 +178,11 @@ ONE_ARG_MATH_FN(ln, DoubleVal, DoubleVal, std::log);
 ONE_ARG_MATH_FN(log10, DoubleVal, DoubleVal, std::log10);
 ONE_ARG_MATH_FN(exp, DoubleVal, DoubleVal, std::exp);
 
-FloatVal MathFunctions::sign(FunctionContext* ctx, const DoubleVal& v) {
+TinyIntVal MathFunctions::sign(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
-        return FloatVal::null();
+        return TinyIntVal::null();
     }
-    return FloatVal((v.val > 0) ? 1.0f : ((v.val < 0) ? -1.0f : 0.0f));
+    return TinyIntVal((v.val > 0) ? 1 : ((v.val < 0) ? -1 : 0));
 }
 
 DoubleVal MathFunctions::radians(FunctionContext* ctx, const DoubleVal& v) {

@@ -71,7 +71,6 @@ add_library(Exprs
   hll_function.cpp
   grouping_sets_functions.cpp
   topn_function.cpp
-
   table_function/explode_split.cpp
   table_function/explode_bitmap.cpp
   table_function/explode_json_array.cpp

@@ -1466,6 +1466,8 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
 }
 
 bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit unit) {
+    if (!is_valid_date()) return false;
+
     int sign = interval.is_neg ? -1 : 1;
     switch (unit) {
     case MICROSECOND:

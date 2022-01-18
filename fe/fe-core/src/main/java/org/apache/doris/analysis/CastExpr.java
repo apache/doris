@@ -451,4 +451,11 @@ public class CastExpr extends Expr {
         }
         return -1;
     }
+
+    @Override
+    public boolean isNullable() {
+        return children.get(0).isNullable() ||
+                (children.get(0).getType().isStringType() && !getType().isStringType()) ||
+                (!children.get(0).getType().isDateType() && getType().isDateType());
+    }
 }

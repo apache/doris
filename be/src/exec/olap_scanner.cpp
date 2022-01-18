@@ -19,9 +19,9 @@
 
 #include <string>
 
-#include "gen_cpp/PaloInternalService_types.h"
 #include "common/utils.h"
 #include "exprs/expr_context.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
 #include "olap/uint24.h"
@@ -176,8 +176,10 @@ Status OlapScanner::_init_tablet_reader_params(
              _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_tablet_reader_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
 
+    _tablet_reader_params.origin_return_columns = &_return_columns;
     if (_aggregation || single_version) {
         _tablet_reader_params.return_columns = _return_columns;
+        _tablet_reader_params.direct_mode = true;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
@@ -239,7 +241,8 @@ Status OlapScanner::_init_return_columns() {
             }
         }
         if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) == _return_columns.end()) {
+            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                                         sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);
         }
     }

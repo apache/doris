@@ -50,7 +50,9 @@ import java.util.regex.Pattern;
 public class ProfileTreeBuilder {
 
     private static final String PROFILE_NAME_DATA_STREAM_SENDER = "DataStreamSender";
+    private static final String PROFILE_NAME_VDATA_STREAM_SENDER = "VDataStreamSender";
     private static final String PROFILE_NAME_DATA_BUFFER_SENDER = "DataBufferSender";
+    private static final String PROFILE_NAME_VDATA_BUFFER_SENDER = "VDataBufferSender";
     private static final String PROFILE_NAME_OLAP_TABLE_SINK = "OlapTableSink";
     private static final String PROFILE_NAME_BLOCK_MGR = "BlockMgr";
     private static final String PROFILE_NAME_BUFFER_POOL = "Buffer pool";
@@ -207,6 +209,8 @@ public class ProfileTreeBuilder {
         for (Pair<RuntimeProfile, Boolean> pair : instanceChildren) {
             RuntimeProfile profile = pair.first;
             if (profile.getName().startsWith(PROFILE_NAME_DATA_STREAM_SENDER)
+                    || profile.getName().startsWith(PROFILE_NAME_VDATA_STREAM_SENDER)
+                    || profile.getName().startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)
                     || profile.getName().startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)
                     || profile.getName().startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
                 senderNode = buildTreeNode(profile, null, fragmentId, instanceId);
@@ -297,6 +301,8 @@ public class ProfileTreeBuilder {
             return PROFILE_NAME_DATA_BUFFER_SENDER;
         } else if (name.startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
             return PROFILE_NAME_OLAP_TABLE_SINK;
+        } else if (name.startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)) {
+            return PROFILE_NAME_VDATA_BUFFER_SENDER;
         } else {
             return null;
         }

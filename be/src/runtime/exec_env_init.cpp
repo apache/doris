@@ -63,6 +63,7 @@
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/priority_thread_pool.hpp"
+#include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
 
@@ -85,6 +86,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _store_paths = store_paths;
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _stream_mgr = new DataStreamMgr();
+    _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
