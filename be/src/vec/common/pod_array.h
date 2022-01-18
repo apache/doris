@@ -333,6 +333,9 @@ public:
     const_iterator cbegin() const { return t_start(); }
     const_iterator cend() const { return t_end(); }
 
+    void* get_end_ptr() const { return this->c_end; }
+    void set_end_ptr(void* ptr) { this->c_end = (char*)ptr; }
+
     /// Same as resize, but zeroes new elements.
     void resize_fill(size_t n) {
         size_t old_size = this->size();

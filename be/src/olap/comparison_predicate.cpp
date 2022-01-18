@@ -191,13 +191,13 @@ COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=)
             auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<type>&>(nullable_column->get_nested_column()).get_data();              \
             auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(*(nullable_column->get_null_map_column_ptr())).get_data(); \
             for (uint16_t i = 0; i < size; i++) {                                                                                                     \
-                flags[i] = (data_array[i] OP _value) && (!null_bitmap[i]);                                                                            \
+                flags[i] &= (data_array[i] OP _value) && (!null_bitmap[i]);                                                                            \
             }                                                                                                                                         \
         } else {                                                                                                                                      \
             auto& predicate_column = reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);                                                \
             auto& data_array = predicate_column.get_data();                                                                                           \
             for (uint16_t i = 0; i < size; i++) {                                                                                                     \
-                flags[i] = data_array[i] OP _value;                                                                                                   \
+                flags[i] &= data_array[i] OP _value;                                                                                                   \
             }                                                                                                                                         \
         }                                                                                                                                             \
         if (_opposite) {                                                                                                                              \

@@ -215,14 +215,8 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_vec(block, size, flags);
     } else {
-        bool new_flags[size];
         for (auto block_column_predicate : _block_column_predicate_vec) {
-            memset(new_flags, true, size);
-            block_column_predicate->evaluate_vec(block, size, new_flags);
- 
-            for (uint16_t j = 0; j < size; j++) {
-                flags[j] &= new_flags[j] ;
-            }
+            block_column_predicate->evaluate_vec(block, size, flags);
         }
     }
 }
