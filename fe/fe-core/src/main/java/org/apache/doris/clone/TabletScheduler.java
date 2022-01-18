@@ -371,6 +371,10 @@ public class TabletScheduler extends MasterDaemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletSchedCtx tabletCtx : currentBatch) {
             try {
+                if (Config.disable_tablet_scheduler) {
+                    // do not schedule more tablet is tablet scheduler is disabled.
+                    throw new SchedException(Status.FINISHED, "tablet scheduler is disabled");
+                }
                 scheduleTablet(tabletCtx, batchTask);
             } catch (SchedException e) {
                 tabletCtx.increaseFailedSchedCounter();
@@ -403,7 +407,7 @@ public class TabletScheduler extends MasterDaemon {
                         dynamicAdjustPrioAndAddBackToPendingTablets(tabletCtx, e.getMessage());
                     }
                 } else if (e.getStatus() == Status.FINISHED) {
-                    // schedule redundant tablet will throw this exception
+                    // schedule redundant tablet or scheduler disabled will throw this exception
                     stat.counterTabletScheduledSucceeded.incrementAndGet();
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getMessage());
                 } else {
@@ -1309,7 +1313,6 @@ public class TabletScheduler extends MasterDaemon {
         schedHistory.add(tabletCtx);
         LOG.info("remove the tablet {}. because: {}", tabletCtx.getTabletId(), reason);
     }
-
 
     // get next batch of tablets from queue.
     private synchronized List<TabletSchedCtx> getNextTabletCtxBatch() {
