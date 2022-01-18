@@ -23,6 +23,7 @@ import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.exception.StreamLoadException;
 import org.apache.doris.flink.rest.RestService;
+import org.apache.doris.flink.rest.models.Schema;
 import org.apache.flink.api.common.io.RichOutputFormat;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.util.ExecutorThreadFactory;
@@ -71,6 +72,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
     private static final String ESCAPE_DELIMITERS_KEY = "escape_delimiters";
     private static final String ESCAPE_DELIMITERS_DEFAULT = "false";
     private static final String DORIS_DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+    private static final String UNIQUE_KEYS_TYPE = "UNIQUE_KEYS";
     private final String[] fieldNames;
     private final boolean jsonFormat;
     private final RowData.FieldGetter[] fieldGetters;
@@ -81,8 +83,9 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
     private DorisReadOptions readOptions;
     private DorisExecutionOptions executionOptions;
     private DorisStreamLoad dorisStreamLoad;
-    private transient volatile boolean closed = false;
+    private String keysType;
 
+    private transient volatile boolean closed = false;
     private transient ScheduledExecutorService scheduler;
     private transient ScheduledFuture<?> scheduledFuture;
     private transient volatile Exception flushException;
@@ -97,11 +100,26 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         this.executionOptions = executionOptions;
         this.fieldNames = fieldNames;
         this.jsonFormat = FORMAT_JSON_VALUE.equals(executionOptions.getStreamLoadProp().getProperty(FORMAT_KEY));
+        this.keysType = parseKeysType();
 
         handleStreamloadProp();
         this.fieldGetters = new RowData.FieldGetter[logicalTypes.length];
         for (int i = 0; i < logicalTypes.length; i++) {
             fieldGetters[i] = createFieldGetter(logicalTypes[i], i);
+        }
+    }
+
+    /**
+     * parse table keysType
+     *
+     * @return keysType
+     */
+    private String parseKeysType() {
+        try {
+            Schema schema = RestService.getSchema(options, readOptions, LOG);
+            return schema.getKeysType();
+        } catch (DorisException e) {
+            throw new RuntimeException("Failed fetch doris table schema: " + options.getTableIdentifier());
         }
     }
 
@@ -136,7 +154,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         //add column key when fieldNames is not empty
         if (!streamLoadProp.containsKey(COLUMNS_KEY) && fieldNames != null && fieldNames.length > 0) {
             String columns = String.join(",", Arrays.stream(fieldNames).map(item -> String.format("`%s`", item.trim().replace("`", ""))).collect(Collectors.toList()));
-            if (executionOptions.getEnableDelete()) {
+            if (enableBatchDelete()) {
                 columns = String.format("%s,%s", columns, DORIS_DELETE_SIGN);
             }
             streamLoadProp.put(COLUMNS_KEY, columns);
@@ -153,6 +171,10 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         }
         m.appendTail(buf);
         return buf.toString();
+    }
+
+    private boolean enableBatchDelete() {
+        return executionOptions.getEnableDelete() && UNIQUE_KEYS_TYPE.equals(keysType);
     }
 
     @Override
@@ -218,7 +240,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
                 }
             }
             // add doris delete sign
-            if (executionOptions.getEnableDelete()) {
+            if (enableBatchDelete()) {
                 if (jsonFormat) {
                     valueMap.put(DORIS_DELETE_SIGN, parseDeleteSign(rowData.getRowKind()));
                 } else {
@@ -243,6 +265,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
             throw new RuntimeException("Unrecognized row kind:" + rowKind.toString());
         }
     }
+
 
     @Override
     public synchronized void close() throws IOException {
@@ -376,5 +399,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
                     optionsBuilder.build(), readOptions, executionOptions, logicalTypes, fieldNames
             );
         }
+
+
     }
 }

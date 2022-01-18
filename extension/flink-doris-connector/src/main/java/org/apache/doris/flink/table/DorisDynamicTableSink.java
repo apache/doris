@@ -51,7 +51,6 @@ public class DorisDynamicTableSink implements DynamicTableSink {
                 .addContainedKind(RowKind.INSERT)
                 .addContainedKind(RowKind.DELETE)
                 .addContainedKind(RowKind.UPDATE_AFTER)
-                .addContainedKind(RowKind.UPDATE_BEFORE)
                 .build();
     }
 

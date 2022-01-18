@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-Used to obtain the table structure information of the specified table. This interface is currently used in Spark-Doris-Connector. Spark obtains Doris table structure information.
+Used to obtain the table structure information of the specified table. This interface is currently used in Spark/Flink Doris Connector.  obtains Doris table structure information.
     
 ## Path parameters
 
@@ -70,6 +70,7 @@ None
 			"comment": "",
 			"aggregation_type":"MAX"
 		}],
+		"keysType":UNIQUE_KEYS,
 		"status": 200
 	},
 	"count": 0
@@ -97,6 +98,7 @@ None
     			"name": "k2",
     			"comment": ""
     		}],
+    		"keysType":UNIQUE_KEYS,
     		"status": 200
     	},
     	"count": 0

@@ -139,7 +139,7 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
     private static final ConfigOption<Boolean> SINK_ENABLE_DELETE = ConfigOptions
             .key("sink.enable-delete")
             .booleanType()
-            .defaultValue(false)
+            .defaultValue(true)
             .withDescription("whether to enable the delete function");
 
     @Override
@@ -188,7 +188,7 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
         // or use the provided helper utility
         final FactoryUtil.TableFactoryHelper helper = FactoryUtil.createTableFactoryHelper(this, context);
         // validate all options
-        helper.validate();
+        helper.validateExcept(STREAM_LOAD_PROP_PREFIX);
         // get the validated options
         final ReadableConfig options = helper.getOptions();
         // derive the produced data type (excluding computed columns) from the catalog table
