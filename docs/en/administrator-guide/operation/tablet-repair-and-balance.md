@@ -684,3 +684,91 @@ The following parameters do not support modification for the time being, just fo
 * In some cases, the default replica repair and balancing strategy may cause the network to be full (mostly in the case of gigabit network cards and a large number of disks per BE). At this point, some parameters need to be adjusted to reduce the number of simultaneous balancing and repair tasks.
 
 * Current balancing strategies for copies of Colocate Table do not guarantee that copies of the same Tablet will not be distributed on the BE of the same host. However, the repair strategy of the copy of Colocate Table detects this distribution error and corrects it. However, it may occur that after correction, the balancing strategy regards the replicas as unbalanced and rebalances them. As a result, the Colocate Group cannot achieve stability because of the continuous alternation between the two states. In view of this situation, we suggest that when using Colocate attribute, we try to ensure that the cluster is isomorphic, so as to reduce the probability that replicas are distributed on the same host.
+
+## Best Practices
+
+### Control and manage the progress of replica repair and balancing of clusters
+
+In most cases, Doris can automatically perform replica repair and cluster balancing by default parameter configuration. However, in some cases, we need to manually intervene to adjust the parameters to achieve some special purposes. Such as prioritizing the repair of a table or partition, disabling cluster balancing to reduce cluster load, prioritizing the repair of non-colocation table data, and so on.
+
+This section describes how to control and manage the progress of replica repair and balancing of the cluster by modifying the parameters.
+
+1. Deleting Corrupt Replicas
+
+    In some cases, Doris may not be able to automatically detect some corrupt replicas, resulting in frequent query or import errors on the corrupt replicas. In this case, we need to delete the corrupted copies manually. This method can be used to: delete a copy with a high version number resulting in a -235 error, delete a corrupted copy of a file, etc.
+    
+    First, find the tablet id of the corresponding copy, let's say 10001, and use `show tablet 10001;` and execute the `show proc` statement to see the details of each copy of the corresponding tablet.
+    
+    Assuming that the backend id of the copy to be deleted is 20001, the following statement is executed to mark the copy as `bad`.
+    
+    ```
+    ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "10001", "backend_id" = "20001", "status" = "bad");
+    ```
+    
+    At this point, the `show proc` statement again shows that the `IsBad` column of the corresponding copy has a value of `true`.
+    
+    The replica marked as `bad` will no longer participate in imports and queries. The replica repair logic will automatically replenish a new replica at the same time. 2.
+    
+2. prioritize repairing a table or partition
+
+    `help admin repair table;` View help. This command attempts to repair the tablet of the specified table or partition as a priority.
+    
+3. Stop the balancing task
+
+    The balancing task will take up some network bandwidth and IO resources. If you wish to stop the generation of new balancing tasks, you can do so with the following command.
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("disable_balance" = "true");
+    ```
+
+4. Stop all replica scheduling tasks
+
+    Copy scheduling tasks include balancing and repair tasks. These tasks take up some network bandwidth and IO resources. All replica scheduling tasks (excluding those already running, including colocation tables and common tables) can be stopped with the following command.
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("disable_tablet_scheduler" = "true");
+    ```
+
+5. Stop the copy scheduling task for all colocation tables.
+
+    The colocation table copy scheduling is run separately and independently from the regular table. In some cases, users may wish to stop the balancing and repair of colocation tables first and use the cluster resources for normal table repair with the following command.
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("disable_colocate_balance" = "true");
+    ```
+
+6. Repair replicas using a more conservative strategy
+
+    Doris automatically repairs replicas when it detects missing replicas, BE downtime, etc. However, in order to reduce some errors caused by jitter (e.g., BE being down briefly), Doris delays triggering these tasks.
+    
+    * The `tablet_repair_delay_factor_second` parameter. Default 60 seconds. Depending on the priority of the repair task, it will delay triggering the repair task for 60 seconds, 120 seconds, or 180 seconds. This time can be extended so that longer exceptions can be tolerated to avoid triggering unnecessary repair tasks by using the following command.
+
+    ```
+    ADMIN SET FRONTEND CONFIG ("tablet_repair_delay_factor_second" = "120");
+    ```
+
+7. use a more conservative strategy to trigger redistribution of colocation groups
+
+    Redistribution of colocation groups may be accompanied by a large number of tablet migrations. `colocate_group_relocate_delay_second` is used to control the redistribution trigger delay. The default is 1800 seconds. If a BE node is likely to be offline for a long time, you can try to increase this parameter to avoid unnecessary redistribution by.
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("colocate_group_relocate_delay_second" = "3600");
+    ```
+
+8. Faster Replica Balancing
+
+    Doris' replica balancing logic adds a normal replica first and then deletes the old one for the purpose of replica migration. When deleting the old replica, Doris waits for the completion of the import task that has already started on this replica to avoid the balancing task from affecting the import task. However, this will slow down the execution speed of the balancing logic. In this case, you can make Doris ignore this wait and delete the old replica directly by modifying the following parameters.
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("enable_force_drop_redundant_replica" = "true");
+    ```
+
+    This operation may cause some import tasks to fail during balancing (requiring a retry), but it will speed up balancing significantly.
+    
+Overall, when we need to bring the cluster back to a normal state quickly, consider handling it along the following lines.
+
+1. find the tablet that is causing the highly optimal task to report an error and set the problematic copy to bad.
+2. repair some tables with the `admin repair` statement.
+3. Stop the replica balancing logic to avoid taking up cluster resources, and then turn it on again after the cluster is restored.
+4. Use a more conservative strategy to trigger repair tasks to deal with the avalanche effect caused by frequent BE downtime.
+5. Turn off scheduling tasks for colocation tables on-demand and focus cluster resources on repairing other high-optimality data.

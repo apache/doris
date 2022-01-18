@@ -64,7 +64,7 @@ public class Tablet extends MetaObject implements Writable {
         REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster.
         REPLICA_MISSING_FOR_TAG, // not enough healthy replicas in backend with specified tag.
         FORCE_REDUNDANT, // some replica is missing or bad, but there is no other backends for repair,
-                         // at least one replica has to be deleted first to make room for new replica.
+        // at least one replica has to be deleted first to make room for new replica.
         COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
         COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
@@ -86,28 +86,28 @@ public class Tablet extends MetaObject implements Writable {
     // last time that the tablet checker checks this tablet.
     // no need to persist
     private long lastStatusCheckTime = -1;
-    
+
     public Tablet() {
         this(0L, new ArrayList<>());
     }
-    
+
     public Tablet(long tabletId) {
         this(tabletId, new ArrayList<>());
     }
-    
+
     public Tablet(long tabletId, List<Replica> replicas) {
         this.id = tabletId;
         this.replicas = replicas;
         if (this.replicas == null) {
             this.replicas = new ArrayList<>();
         }
-        
+
         checkedVersion = -1L;
         checkedVersionHash = -1L;
 
         isConsistent = true;
     }
-    
+
     public void setIdForRestore(long tabletId) {
         this.id = tabletId;
     }
@@ -115,7 +115,7 @@ public class Tablet extends MetaObject implements Writable {
     public long getId() {
         return this.id;
     }
-    
+
     public long getCheckedVersion() {
         return this.checkedVersion;
     }
@@ -163,7 +163,7 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
     }
-    
+
     public void addReplica(Replica replica) {
         addReplica(replica, false);
     }
@@ -171,7 +171,7 @@ public class Tablet extends MetaObject implements Writable {
     public List<Replica> getReplicas() {
         return this.replicas;
     }
-    
+
     public Set<Long> getBackendIds() {
         Set<Long> beIds = Sets.newHashSet();
         for (Replica replica : replicas) {
@@ -180,7 +180,6 @@ public class Tablet extends MetaObject implements Writable {
         return beIds;
     }
 
-    // for loading data
     public List<Long> getNormalReplicaBackendIds() {
         List<Long> beIds = Lists.newArrayList();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -188,7 +187,7 @@ public class Tablet extends MetaObject implements Writable {
             if (replica.isBad()) {
                 continue;
             }
-            
+
             ReplicaState state = replica.getState();
             if (infoService.checkBackendAlive(replica.getBackendId()) && state.canLoad()) {
                 beIds.add(replica.getBackendId());
@@ -198,6 +197,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // return map of (BE id -> path hash) of normal replicas
+    // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -246,7 +246,7 @@ public class Tablet extends MetaObject implements Writable {
         }
         return null;
     }
-    
+
     public Replica getReplicaByBackendId(long backendId) {
         for (Replica replica : replicas) {
             if (replica.getBackendId() == backendId) {
@@ -255,7 +255,7 @@ public class Tablet extends MetaObject implements Writable {
         }
         return null;
     }
-    
+
     public boolean deleteReplica(Replica replica) {
         if (replicas.contains(replica)) {
             replicas.remove(replica);
@@ -264,7 +264,7 @@ public class Tablet extends MetaObject implements Writable {
         }
         return false;
     }
-    
+
     public boolean deleteReplicaByBackendId(long backendId) {
         Iterator<Replica> iterator = replicas.iterator();
         while (iterator.hasNext()) {
@@ -277,7 +277,7 @@ public class Tablet extends MetaObject implements Writable {
         }
         return false;
     }
-    
+
     @Deprecated
     public Replica deleteReplicaById(long replicaId) {
         Iterator<Replica> iterator = replicas.iterator();
@@ -297,7 +297,7 @@ public class Tablet extends MetaObject implements Writable {
     public void clearReplica() {
         this.replicas.clear();
     }
-   
+
     public void setTabletId(long tabletId) {
         this.id = tabletId;
     }
@@ -306,7 +306,7 @@ public class Tablet extends MetaObject implements Writable {
         // sort replicas by version. higher version in the tops
         replicas.sort(Replica.VERSION_DESC_COMPARATOR);
     }
- 
+
     @Override
     public String toString() {
         return "tabletId=" + this.id;
@@ -327,6 +327,7 @@ public class Tablet extends MetaObject implements Writable {
         out.writeLong(checkedVersionHash);
         out.writeBoolean(isConsistent);
     }
+
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -346,13 +347,13 @@ public class Tablet extends MetaObject implements Writable {
             isConsistent = in.readBoolean();
         }
     }
-    
+
     public static Tablet read(DataInput in) throws IOException {
         Tablet tablet = new Tablet();
         tablet.readFields(in);
         return tablet;
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -361,9 +362,9 @@ public class Tablet extends MetaObject implements Writable {
         if (!(obj instanceof Tablet)) {
             return false;
         }
-        
+
         Tablet tablet = (Tablet) obj;
-        
+
         if (replicas != tablet.replicas) {
             if (replicas.size() != tablet.replicas.size()) {
                 return false;
@@ -554,10 +555,10 @@ public class Tablet extends MetaObject implements Writable {
      * 1. Mismatch:
      *      backends set:       1,2,3
      *      tablet replicas:    1,2,5
-     *      
+     *
      *      backends set:       1,2,3
      *      tablet replicas:    1,2
-     *      
+     *
      *      backends set:       1,2,3
      *      tablet replicas:    1,2,4,5
      *

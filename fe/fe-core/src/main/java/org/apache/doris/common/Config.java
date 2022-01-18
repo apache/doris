@@ -1561,4 +1561,25 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean repair_slow_replica = true;
+
+    /*
+     * The relocation of a colocation group may involve a large number of tablets moving within the cluster.
+     * Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
+     * Reloaction usually occurs after a BE node goes offline or goes down.
+     * This parameter is used to delay the determination of BE node unavailability.
+     * The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group
+     * will not be triggered.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long colocate_group_relocate_delay_second = 1800; // 30 min
+
+    /*
+     * If set to true, when creating table, Doris will allow to locate replicas of a tablet
+     * on same host. And also the tablet repair and balance will be disabled.
+     * This is only for local test, so that we can deploy multi BE on same host and create table
+     * with multi replicas.
+     * DO NOT use it for production env.
+     */
+    @ConfField
+    public static boolean allow_replica_on_same_host = false;
 }
