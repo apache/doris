@@ -50,7 +50,8 @@ public:
     static doris_udf::IntVal abs(doris_udf::FunctionContext*, const doris_udf::SmallIntVal&);
     static doris_udf::SmallIntVal abs(doris_udf::FunctionContext*, const doris_udf::TinyIntVal&);
 
-    static doris_udf::FloatVal sign(doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
+    static doris_udf::TinyIntVal sign(doris_udf::FunctionContext* ctx,
+                                      const doris_udf::DoubleVal& v);
 
     static doris_udf::DoubleVal sin(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
     static doris_udf::DoubleVal asin(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
@@ -182,11 +183,6 @@ public:
 
     static double my_double_round(double value, int64_t dec, bool dec_unsigned, bool truncate);
 
-private:
-    static const int32_t MIN_BASE = 2;
-    static const int32_t MAX_BASE = 36;
-    static const char* _s_alphanumeric_chars;
-
     // Converts src_num in decimal to dest_base,
     // and fills expr_val.string_val with the result.
     static doris_udf::StringVal decimal_to_base(doris_udf::FunctionContext* ctx, int64_t src_num,
@@ -207,6 +203,12 @@ private:
     // Returns false otherwise, indicating some other error condition.
     static bool handle_parse_result(int8_t dest_base, int64_t* num,
                                     StringParser::ParseResult parse_res);
+
+    static const int32_t MIN_BASE = 2;
+    static const int32_t MAX_BASE = 36;
+
+private:
+    static const char* _s_alphanumeric_chars;
 };
 
 } // namespace doris

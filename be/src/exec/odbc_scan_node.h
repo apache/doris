@@ -35,7 +35,8 @@ class Status;
 
 class OdbcScanNode : public ScanNode {
 public:
-    OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
+                 std::string scan_node_type = "OdbcScanNode");
     ~OdbcScanNode();
 
     // initialize _odbc_scanner, and create _text_converter.
@@ -53,6 +54,12 @@ public:
 
     // No use
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
+    const TupleDescriptor* get_tuple_desc() { return _tuple_desc; }
+    TextConverter* get_text_converter() { return _text_converter.get(); }
+    ODBCConnector* get_odbc_scanner() { return _odbc_scanner.get(); }
+    const std::string& get_scan_node_type() { return _scan_node_type; }
+
+    bool is_init() { return _is_init; }
 
 protected:
     // Write debug string of this into out.
@@ -65,6 +72,9 @@ private:
                            RuntimeState* state);
 
     bool _is_init;
+
+    std::string _scan_node_type;
+
     // Name of Odbc table
     std::string _table_name;
 

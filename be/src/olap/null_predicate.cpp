@@ -20,6 +20,9 @@
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
+#include "vec/columns/column_nullable.h"
+
+using namespace doris::vectorized;
 
 namespace doris {
 
@@ -118,4 +121,44 @@ Status NullPredicate::evaluate(const Schema& schema,
     return Status::OK();
 }
 
+void NullPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
+    uint16_t new_size = 0;
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < *size; ++i) {
+            uint16_t idx = sel[i];
+            sel[new_size] = idx;
+            new_size += (null_map[idx] == _is_null);
+        }
+        *size = new_size;
+    } else {
+        if (_is_null) *size = 0;
+    }
+}
+
+void NullPredicate::evaluate_or(IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < size; ++i) {
+            if (flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] |= (null_map[idx] == _is_null);
+        }
+    } else {
+        if (!_is_null) memset(flags, true, size);
+    }
+}
+
+void NullPredicate::evaluate_and(IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < size; ++i) {
+            if (flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] &= (null_map[idx] == _is_null);
+        }
+    } else {
+        if (_is_null) memset(flags, false, size);
+    }
+}
 } //namespace doris

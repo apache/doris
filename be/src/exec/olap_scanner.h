@@ -58,7 +58,7 @@ public:
 
     Status open();
 
-    Status get_batch(RuntimeState* state, RowBatch* batch, bool* eof);
+    virtual Status get_batch(RuntimeState* state, RowBatch* batch, bool* eof);
 
     Status close(RuntimeState* state);
 
@@ -103,7 +103,7 @@ protected:
     // Update profile that need to be reported in realtime.
     void _update_realtime_counter();
 
-    virtual void set_tablet_reader() { _tablet_reader.reset(new TupleReader); }
+    virtual void set_tablet_reader() { _tablet_reader = std::make_unique<TupleReader>(); }
 
 protected:
     RuntimeState* _runtime_state;

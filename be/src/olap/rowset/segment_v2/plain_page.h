@@ -186,6 +186,10 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+        return Status::NotSupported("plain page not implement vec op now");
+    };
+
     template <bool forward_index>
     inline Status next_batch(size_t* n, ColumnBlockView* dst) {
         DCHECK(_parsed);

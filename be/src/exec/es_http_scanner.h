@@ -68,7 +68,7 @@ public:
 
     void close();
 
-private:
+protected:
     RuntimeState* _state;
     RuntimeProfile* _profile;
     TupleId _tuple_id;
