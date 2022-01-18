@@ -95,7 +95,7 @@ private:
     void _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t& selected_size);
     void _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t* selected_size);
     void _output_non_pred_columns(vectorized::Block* block, bool is_block_mem_reuse);
-    void _output_column_by_sel_idx(vectorized::Block* block, std::vector<ColumnId> columnids, uint16_t* sel_rowid_idx, uint16_t select_size, bool is_block_mem_reuse);
+    void _output_column_by_sel_idx(vectorized::Block* block, const std::vector<ColumnId>& columnids, uint16_t* sel_rowid_idx, uint16_t select_size, bool is_block_mem_reuse);
     void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids, std::vector<rowid_t>& rowid_vector, 
         uint16_t* sel_rowid_idx, size_t select_size, vectorized::MutableColumns* mutable_columns);
 
