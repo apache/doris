@@ -2099,3 +2099,25 @@ Default: true
 IsMutable：true
 MasterOnly: true
 If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version difference between the fastest and slowest replica exceeds 100, and the difference exceeds 30% of the fastest replica
+
+### colocate_group_relocate_delay_second
+
+Default: 1800
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The relocation of a colocation group may involve a large number of tablets moving within the cluster. Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
+Reloaction usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
+
+### allow_replica_on_same_host
+
+Default: false
+
+Dynamically configured: false
+
+Only for Master FE: false
+
+Whether to allow multiple replicas of the same tablet to be distributed on the same host. This parameter is mainly used for local testing, to facilitate building multiple BEs to test certain multi-replica situations. Do not use it for non-test environments.
+

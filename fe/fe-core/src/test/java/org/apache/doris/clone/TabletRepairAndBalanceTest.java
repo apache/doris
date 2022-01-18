@@ -108,6 +108,7 @@ public class TabletRepairAndBalanceTest {
         FeConstants.runningUnitTest = true;
         FeConstants.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
+        Config.colocate_group_relocate_delay_second = 1;
         // 5 backends:
         // 127.0.0.1
         // 127.0.0.2
