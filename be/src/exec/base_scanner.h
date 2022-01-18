@@ -57,8 +57,8 @@ public:
     virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) = 0;
 
     // Close this scanner
-    virtual void close();
-    bool fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
+    virtual void close() = 0;
+    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
@@ -102,6 +102,10 @@ protected:
     RuntimeProfile::Counter* _rows_read_counter;
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _materialize_timer;
+
+    // Used to record whether a row of data is successfully read.
+    bool _success = false;
+    bool _scanner_eof = false;
 };
 
 } /* namespace doris */

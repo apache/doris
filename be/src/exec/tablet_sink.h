@@ -342,12 +342,14 @@ public:
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
     // this is only used in insert statement.
-    void _convert_batch(RuntimeState* state, RowBatch* input_batch, RowBatch* output_batch);
+    Status _convert_batch(RuntimeState* state, RowBatch* input_batch, RowBatch* output_batch);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    int _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap);
+    // set stop_processing is we want to stop the whole process now.
+    Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap, int* filtered_rows,
+                          bool* stop_processing);
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.

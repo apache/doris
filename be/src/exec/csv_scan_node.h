@@ -35,6 +35,7 @@ class RuntimeState;
 class MemPool;
 class Status;
 
+// Now, CsvScanNode and CsvScanner are only for unit test
 class CsvScanNode : public ScanNode {
 public:
     CsvScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);

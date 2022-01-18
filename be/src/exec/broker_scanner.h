@@ -87,10 +87,9 @@ private:
     // Convert one row to one tuple
     //  'ptr' and 'len' is csv text line
     //  output is tuple
-    bool convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
+    Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
 
-    Status line_to_src_tuple();
-    bool line_to_src_tuple(const Slice& line);
+    Status _line_to_src_tuple(const Slice& line);
 
 private:
     const std::vector<TBrokerRangeDesc>& _ranges;
@@ -110,8 +109,6 @@ private:
     Decompressor* _cur_decompressor;
     int _next_range;
     bool _cur_line_reader_eof;
-
-    bool _scanner_eof;
 
     // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line

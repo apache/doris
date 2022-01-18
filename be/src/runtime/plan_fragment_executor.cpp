@@ -386,7 +386,11 @@ Status PlanFragmentExecutor::open_internal() {
         if (_collect_query_statistics_with_every_batch) {
             _collect_query_statistics();
         }
-        RETURN_IF_ERROR(_sink->send(runtime_state(), batch));
+        const Status& st = _sink->send(runtime_state(), batch);
+        if (st.is_end_of_file()) {
+            break;
+        }
+        RETURN_IF_ERROR(st);
     }
 
     // Close the sink *before* stopping the report thread. Close may
