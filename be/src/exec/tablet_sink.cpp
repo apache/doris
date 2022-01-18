@@ -609,8 +609,8 @@ void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
     std::lock_guard<SpinLock> l(_fail_lock); 
     for (const auto& it : _failed_channels_msgs) {
         TErrorTabletInfo error_info;
-        error_info.tabletId = it.first;
-        error_info.msg = it.second;
+        error_info.__set_tabletId(it.first);
+        error_info.__set_msg(it.second);
         error_tablet_infos.emplace_back(error_info);
     }
 }

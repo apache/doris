@@ -409,8 +409,8 @@ struct TTabletCommitInfo {
 }
 
 struct TErrorTabletInfo {
-    1: required i64 tabletId
-    2: required string msg
+    1: optional i64 tabletId
+    2: optional string msg
 }
 
 enum TLoadType {
