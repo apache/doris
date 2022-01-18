@@ -50,6 +50,8 @@ public interface LoadTaskInfo {
     public boolean isReadJsonByLine();
     public String getPath();
 
+    public double getMaxFilterRatio();
+
     public ImportColumnDescs getColumnExprDescs();
     public boolean isStrictMode();
 

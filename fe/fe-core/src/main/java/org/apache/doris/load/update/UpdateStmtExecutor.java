@@ -139,7 +139,7 @@ public class UpdateStmtExecutor {
     private void executePlan() throws Exception {
         LOG.info("begin execute update stmt, query id:{}", DebugUtil.printId(queryId));
         coordinator = new Coordinator(Catalog.getCurrentCatalog().getNextId(), queryId, analyzer.getDescTbl(),
-                updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE);
+                updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
         coordinator.setQueryType(TQueryType.LOAD);
         QeProcessorImpl.INSTANCE.registerQuery(queryId, coordinator);
         analyzer.getContext().getExecutor().setCoord(coordinator);

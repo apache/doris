@@ -27,7 +27,7 @@ include "PlanNodes.thrift"
 enum TDataSinkType {
     DATA_STREAM_SINK,
     RESULT_SINK,
-    DATA_SPLIT_SINK,
+    DATA_SPLIT_SINK, // deprecated
     MYSQL_TABLE_SINK,
     EXPORT_SINK,
     OLAP_TABLE_SINK,

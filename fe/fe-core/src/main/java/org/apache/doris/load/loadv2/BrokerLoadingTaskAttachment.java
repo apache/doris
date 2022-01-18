@@ -37,7 +37,7 @@ public class BrokerLoadingTaskAttachment extends TaskAttachment {
     }
 
     public String getCounter(String key) {
-        return counters.get(key);
+        return counters.getOrDefault(key, "0");
     }
 
     public String getTrackingUrl() {

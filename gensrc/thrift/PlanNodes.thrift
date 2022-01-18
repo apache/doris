@@ -26,7 +26,7 @@ include "Partitions.thrift"
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
   MYSQL_SCAN_NODE,
-  CSV_SCAN_NODE,
+  CSV_SCAN_NODE, // deprecated
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
   MERGE_JOIN_NODE,
@@ -39,7 +39,7 @@ enum TPlanNodeType {
   CROSS_JOIN_NODE,
   META_SCAN_NODE,
   ANALYTIC_EVAL_NODE,
-  OLAP_REWRITE_NODE,
+  OLAP_REWRITE_NODE, // deprecated
   KUDU_SCAN_NODE, // Deprecated
   BROKER_SCAN_NODE,
   EMPTY_SET_NODE, 

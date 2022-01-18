@@ -85,6 +85,9 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
 
     BlockRow block_row;
     SCOPED_RAW_TIMER(&_send_data_ns);
+    // TODO(cmy): vtablet_sink does not implement this "stop_processing" logic.
+    // This is just for passing compilation.
+    bool stop_processing = false;
     for (int i = 0; i < num_rows; ++i) {
         if (num_invalid_rows > 0 && _filter_vec[i] != 0) {
             continue;
@@ -93,14 +96,12 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         uint32_t dist_hash = 0;
         block_row = {&block, i};
         if (!_vpartition->find_tablet(&block_row, &partition, &dist_hash)) {
-            std::stringstream ss;
-            ss << "no partition for this tuple. tuple="
-               << block.dump_data(i, 1);
-#if BE_TEST
-            LOG(INFO) << ss.str();
-#else
-            state->append_error_msg_to_file("", ss.str());
-#endif
+            RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
+                    [&]() -> std::string {
+                    fmt::memory_buffer buf;
+                    fmt::format_to(buf, "no partition for this tuple. tuple=[]");
+                    return buf.data();
+                    }, &stop_processing));
             _number_filtered_rows++;
             continue;
         }
@@ -123,6 +124,9 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
 int VOlapTableSink::_validate_data(doris::RuntimeState* state, doris::vectorized::Block* block,
                                    bool* filter_map) {
+    // TODO(cmy): implement it
+    return 0;
+#if 0
     const auto num_rows = block->rows();
     // set all row is valid
     memset(filter_map, 0, num_rows * sizeof(bool));
@@ -269,6 +273,7 @@ int VOlapTableSink::_validate_data(doris::RuntimeState* state, doris::vectorized
         filter_row += filter_map[i];
     }
     return filter_row;
+#endif
 }
 
 } // namespace stream_load

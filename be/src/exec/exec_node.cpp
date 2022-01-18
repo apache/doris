@@ -29,7 +29,6 @@
 #include "exec/assert_num_rows_node.h"
 #include "exec/broker_scan_node.h"
 #include "exec/cross_join_node.h"
-#include "exec/csv_scan_node.h"
 #include "exec/empty_set_node.h"
 #include "exec/es_http_scan_node.h"
 #include "exec/es_scan_node.h"
@@ -41,7 +40,6 @@
 #include "exec/merge_node.h"
 #include "exec/mysql_scan_node.h"
 #include "exec/odbc_scan_node.h"
-#include "exec/olap_rewrite_node.h"
 #include "exec/olap_scan_node.h"
 #include "exec/partitioned_aggregation_node.h"
 #include "exec/repeat_node.h"
@@ -407,10 +405,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
     switch (tnode.node_type) {
-    case TPlanNodeType::CSV_SCAN_NODE:
-        *node = pool->add(new CsvScanNode(pool, tnode, descs));
-        return Status::OK();
-
     case TPlanNodeType::MYSQL_SCAN_NODE:
 #ifdef DORIS_WITH_MYSQL
         if (state->enable_vectorized_exec()) {
@@ -511,10 +505,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         } else {
             *node = pool->add(new SelectNode(pool, tnode, descs));
         }
-        return Status::OK();
-
-    case TPlanNodeType::OLAP_REWRITE_NODE:
-        *node = pool->add(new OlapRewriteNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::SORT_NODE:

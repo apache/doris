@@ -452,7 +452,7 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
                     id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
-                    TimeUtils.DEFAULT_TIME_ZONE);
+                    TimeUtils.DEFAULT_TIME_ZONE, true);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }

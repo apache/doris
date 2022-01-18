@@ -233,6 +233,7 @@ public class Coordinator {
 
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestampMs(new Date().getTime());
+        this.queryGlobals.setLoadZeroTolerance(false);
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
             this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
         } else {
@@ -249,7 +250,8 @@ public class Coordinator {
 
     // Used for broker load task/export task/update coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
-            List<PlanFragment> fragments, List<ScanNode> scanNodes, String timezone) {
+                       List<PlanFragment> fragments, List<ScanNode> scanNodes, String timezone,
+                       boolean loadZeroTolerance) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -260,6 +262,7 @@ public class Coordinator {
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestampMs(new Date().getTime());
         this.queryGlobals.setTimeZone(timezone);
+        this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.nextInstanceId = new TUniqueId();
@@ -333,6 +336,10 @@ public class Coordinator {
 
     public void setTimeout(int timeout) {
         this.queryOptions.setQueryTimeout(timeout);
+    }
+
+    public void setLoadZeroTolerance(boolean loadZeroTolerance) {
+        this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
     }
 
     public void clearExportStatus() {

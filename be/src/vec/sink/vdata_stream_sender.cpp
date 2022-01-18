@@ -17,7 +17,6 @@
 
 #include "vec/sink/vdata_stream_sender.h"
 
-#include <boost/bind.hpp>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
@@ -363,8 +362,8 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
-            boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
-                                 profile()->total_time_counter()),
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
+                               profile()->total_time_counter()),
             "");
     _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
     for (int i = 0; i < _channels.size(); ++i) {

@@ -128,7 +128,6 @@ ORCScanner::ORCScanner(RuntimeState* state, RuntimeProfile* profile,
           // _splittable(params.splittable),
           _next_range(0),
           _cur_file_eof(true),
-          _scanner_eof(false),
           _total_groups(0),
           _current_group(0),
           _rows_of_group(0),
@@ -358,12 +357,9 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* 
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            if (fill_dest_tuple(tuple, tuple_pool)) {
-               *fill_tuple = true;
-            } else {
-               *fill_tuple = false;
-            }
-            break;  //break always
+            RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool));
+            *fill_tuple = _success;
+            break;
         }
         return Status::OK();
     } catch (orc::ParseError& e) {

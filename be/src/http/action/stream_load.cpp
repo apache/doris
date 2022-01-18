@@ -522,13 +522,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
         request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
     }
-    // plan this load
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-#ifndef BE_TEST
+
     if (!http_req->header(HTTP_MAX_FILTER_RATIO).empty()) {
         ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
+        request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
 
+#ifndef BE_TEST
+    // plan this load
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,

@@ -26,7 +26,6 @@
 #include "exec/tablet_sink.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
-#include "runtime/data_spliter.h"
 #include "runtime/data_stream_sender.h"
 #include "runtime/export_sink.h"
 #include "runtime/memory_scratch_sink.h"
@@ -132,17 +131,6 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         sink->reset(odbc_tbl_sink);
         break;
     }
-    case TDataSinkType::DATA_SPLIT_SINK: {
-        if (!thrift_sink.__isset.split_sink) {
-            return Status::InternalError("Missing data split buffer sink.");
-        }
-
-        // TODO: figure out good buffer size based on size of output row
-        std::unique_ptr<DataSpliter> data_spliter(new DataSpliter(row_desc));
-        RETURN_IF_ERROR(DataSpliter::from_thrift(pool, thrift_sink.split_sink, data_spliter.get()));
-        sink->reset(data_spliter.release());
-        break;
-    }
 
     case TDataSinkType::EXPORT_SINK: {
         if (!thrift_sink.__isset.export_sink) {
@@ -157,7 +145,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (is_vec) {
-            sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+            // sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+            return Status::NotSupported("VOlapTableSink is not supported yet");
         } else {
             sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
         }

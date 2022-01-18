@@ -79,7 +79,6 @@ private:
     ParquetReaderWrap* _cur_file_reader;
     int _next_range;
     bool _cur_file_eof; // is read over?
-    bool _scanner_eof;
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
