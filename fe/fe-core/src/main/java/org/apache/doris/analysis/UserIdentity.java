@@ -63,14 +63,14 @@ public class UserIdentity implements Writable {
     }
 
     public UserIdentity(String user, String host) {
-        this.user = Strings.emptyToNull(user);
-        this.host = Strings.emptyToNull(host);
+        this.user = Strings.nullToEmpty(user);
+        this.host = Strings.nullToEmpty(host);
         this.isDomain = false;
     }
 
     public UserIdentity(String user, String host, boolean isDomain) {
-        this.user = Strings.emptyToNull(user);
-        this.host = Strings.emptyToNull(host);
+        this.user = Strings.nullToEmpty(user);
+        this.host = Strings.nullToEmpty(host);
         this.isDomain = isDomain;
     }
 
@@ -120,6 +120,14 @@ public class UserIdentity implements Writable {
         FeNameFormat.checkUserName(user);
         if (!user.equals(PaloAuth.ROOT_USER) && !user.equals(PaloAuth.ADMIN_USER)) {
             user = ClusterNamespace.getFullName(clusterName, user);
+        }
+
+        if (Strings.isNullOrEmpty(host)) {
+            if (!isDomain) {
+                host = "%";
+            } else {
+                throw new AnalysisException("Domain is empty");
+            }
         }
 
         // reuse createMysqlPattern to validate host pattern
@@ -230,3 +238,4 @@ public class UserIdentity implements Writable {
         isAnalyzed = true;
     }
 }
+

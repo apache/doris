@@ -55,8 +55,6 @@ public class DataPartition {
     // for hash partition: exprs used to compute hash value
     private ImmutableList<Expr> partitionExprs = ImmutableList.of();
 
-    private List<DataSplitSink.EtlRangePartitionInfo> partitions;
-
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
         Preconditions.checkState(!exprs.isEmpty());
@@ -65,14 +63,6 @@ public class DataPartition {
                   || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
-    }
-
-    public DataPartition(
-            List<Expr> partitionExprs,
-            List<DataSplitSink.EtlRangePartitionInfo> partitions) {
-        this.type = TPartitionType.RANGE_PARTITIONED;
-        this.partitionExprs = ImmutableList.copyOf(partitionExprs);
-        this.partitions = partitions;
     }
 
     public void substitute(ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
@@ -111,9 +101,6 @@ public class DataPartition {
         TDataPartition result = new TDataPartition(type);
         if (partitionExprs != null) {
             result.setPartitionExprs(Expr.treesToThrift(partitionExprs));
-        }
-        if (partitions != null) {
-            result.setPartitionInfos(DataSplitSink.EtlRangePartitionInfo.listToThrift(partitions));
         }
         return result;
     }
