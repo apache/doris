@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
@@ -150,7 +151,7 @@ struct AggregateFunctionTopNData {
 
     int top_num;
     uint64_t capacity;
-    std::unordered_map<std::string, uint64_t> counter_map;
+    phmap::flat_hash_map<std::string, uint64_t> counter_map;
 };
 
 // specific to_string()
