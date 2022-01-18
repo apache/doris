@@ -795,14 +795,15 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 }
 
 void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t& selected_size) {
-    uint16_t new_size = 0;
     if (_vec_pred_column_ids.size() == 0) {
-        for (uint32_t i = 0; i < selected_size; ++i) {
-            sel_rowid_idx[new_size++] = i;
+        auto* __restrict lc_sel_rowid_idx = sel_rowid_idx;
+        for (uint16_t i = 0; i < selected_size; ++i) {
+            lc_sel_rowid_idx[i] = i;
         }
         return;
     }
 
+    uint16_t new_size = 0;
     uint16_t original_size = selected_size;
     bool ret_flags[selected_size];
     memset(ret_flags, 1, selected_size);
