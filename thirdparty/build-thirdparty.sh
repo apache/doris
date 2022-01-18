@@ -262,7 +262,8 @@ build_thrift() {
     cd $TP_SOURCE_DIR/$THRIFT_SOURCE
 
     echo ${TP_LIB_DIR}
-    ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
+    # NOTE(amos): libtool discard -static. --static works.
+    ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR} --static" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
     --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-shared --disable-tests \
     --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs \
     --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby \
@@ -468,6 +469,7 @@ build_boost() {
     check_if_source_exist $BOOST_SOURCE
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
+    CXXFLAGS="-static" \
     ./bootstrap.sh --prefix=$TP_INSTALL_DIR --with-toolset=$boost_toolset
     # -q: Fail at first error
     ./b2 -q link=static runtime-link=static -j $PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
@@ -486,11 +488,13 @@ build_mysql() {
         cp -rf $TP_SOURCE_DIR/$BOOST_SOURCE ./
     fi
 
-    ${CMAKE_CMD} -G "${GENERATOR}" ../ -DWITH_BOOST=`pwd`/$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
-    -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 -DWITH_ZLIB=$TP_INSTALL_DIR \
+    CFLAGS="-static -pthread -lrt" CXXFLAGS="-static -pthread -lrt" \
+    ${CMAKE_CMD} -G "${GENERATOR}" ../ -DCMAKE_LINK_SEARCH_END_STATIC=1 \
+    -DWITH_BOOST=`pwd`/$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
+    -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT=$TP_INSTALL_DIR \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
     -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DENABLE_DTRACE=0
-    ${BUILD_SYSTEM} -j $PARALLEL mysqlclient
+    ${BUILD_SYSTEM} -v -j $PARALLEL mysqlclient
 
     # copy headers manually
     rm -rf ../../../installed/include/mysql/
@@ -612,8 +616,8 @@ build_arrow() {
     export ARROW_Thrift_URL=${TP_SOURCE_DIR}/${THRIFT_NAME}
     export ARROW_SNAPPY_URL=${TP_SOURCE_DIR}/${SNAPPY_NAME}
     export ARROW_ZLIB_URL=${TP_SOURCE_DIR}/${ZLIB_NAME}
-    export LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
 
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
     -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
     -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
@@ -787,8 +791,8 @@ build_orc() {
 build_cctz() {
     check_if_source_exist $CCTZ_SOURCE
     cd $TP_SOURCE_DIR/$CCTZ_SOURCE
-    export PREFIX=$TP_INSTALL_DIR
-    make -j $PARALLEL && make install
+    PREFIX=$TP_INSTALL_DIR make -j $PARALLEL
+    PREFIX=$TP_INSTALL_DIR make install
 }
 
 # all js and csss related
@@ -952,7 +956,7 @@ build_benchmark() {
     cmake -E make_directory "build"
     # NOTE(amos): -DHAVE_STD_REGEX=1 avoid runtime checks as it will fail when compiling with non-standard toolchain
     CXXFLAGS="-lresolv -pthread -lrt" cmake -E chdir "build" \
-    cmake ../ -DBENCHMARK_ENABLE_GTEST_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DHAVE_STD_REGEX=1
+    cmake ../ -DBENCHMARK_ENABLE_GTEST_TESTS=OFF -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DHAVE_STD_REGEX=1
     cmake --build "build" --config Release
 
     mkdir $TP_INCLUDE_DIR/benchmark

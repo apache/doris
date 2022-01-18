@@ -48,7 +48,7 @@ if (GLIBC_COMPATIBILITY)
         list(APPEND glibc_compatibility_sources musl/getentropy.c)
     endif()
 
-    list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c)
+    list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c memcpy_wrapper.c)
 
     # Need to omit frame pointers to match the performance of glibc
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer")
@@ -57,7 +57,10 @@ if (GLIBC_COMPATIBILITY)
     # without glibc-compatibility. Also sanitizers might generate getrandom
     # libcalls. Workaround: Use object file so that linker will always take a
     # look at its symbol table.
-    add_library(glibc-compatibility-getrandom OBJECT musl/getrandom.c)
+    # NOTE(amos): sanitizers might generate memcpy references that are too late to
+    # refer. Let's also extract memcpy definitions explicitly to avoid UNDEF GLIBC 2.14.
+    add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c memcpy_wrapper.c)
+    target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
 
     if (COMPILER_CLANG)
@@ -67,7 +70,7 @@ if (GLIBC_COMPATIBILITY)
     endif ()
 
     target_include_directories(glibc-compatibility PRIVATE ${musl_arch_include_dir})
-    target_include_directories(glibc-compatibility-getrandom PRIVATE ${musl_arch_include_dir})
+    target_include_directories(glibc-compatibility-explicit PRIVATE ${musl_arch_include_dir})
 
     message (STATUS "Some symbols from glibc will be replaced for compatibility")
 else()

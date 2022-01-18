@@ -70,6 +70,9 @@ if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
     fi
     export CC=${DORIS_GCC_HOME}/bin/gcc
     export CXX=${DORIS_GCC_HOME}/bin/g++
+    if test -x ${DORIS_GCC_HOME}/bin/ld; then
+        export DORIS_BIN_UTILS=${DORIS_GCC_HOME}/bin/
+    fi
 elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     # set CLANG HOME
     if [[ -z ${DORIS_CLANG_HOME} ]]; then
@@ -85,15 +88,15 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     fi
     export CC=${DORIS_CLANG_HOME}/bin/clang
     export CXX=${DORIS_CLANG_HOME}/bin/clang++
+    if test -x ${DORIS_CLANG_HOME}/bin/ld.lld; then
+        export DORIS_BIN_UTILS=${DORIS_CLANG_HOME}/bin/
+    fi
 else
     echo "Error: unknown DORIS_TOOLCHAIN=${DORIS_TOOLCHAIN}, currently only 'gcc' and 'clang' are supported"
     exit 1
 fi
 
-# find binutils
-if test -x ${DORIS_GCC_HOME}/bin/ld; then
-    export DORIS_BIN_UTILS=${DORIS_GCC_HOME}/bin/
-else
+if [ -z "$DORIS_BIN_UTILS" ]; then
     export DORIS_BIN_UTILS=/usr/bin/
 fi
 

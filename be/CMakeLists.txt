@@ -611,7 +611,7 @@ endif()
 # NOTE(amos): This should come before -lc -lm to interpose symbols correctly.
 if (GLIBC_COMPATIBILITY)
     add_subdirectory(${SRC_DIR}/glibc-compatibility)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-getrandom glibc-compatibility)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
 endif()
 
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
