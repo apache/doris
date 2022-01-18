@@ -560,34 +560,14 @@ void IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
 
 // Used for vectorized engine.
 // TODO(cmy): deprecated, need refactor
-Status IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
+void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     auto it = _channels_by_tablet.find(tablet_id);
     DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
-    std::stringstream ss;
     for (auto channel : it->second) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(block_row, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel);
-            ss << st.get_error_msg() << "; ";
-        }
-    }
-
-    if (has_intolerable_failure()) {
-        std::stringstream ss2;
-        ss2 << "index channel has intolerable failure. " << BackendOptions::get_localhost()
-            << ", err: " << ss.str();
-        return Status::InternalError(ss2.str());
-    }
-
-    return Status::OK();
-}
-
-Status IndexChannel::check_intolerable_failure() {
-    std::lock_guard<SpinLock> l(_fail_lock); 
-    for (const auto& it : _failed_channels) {
-        if (it.second.size() >= ((_parent->_num_replicas + 1) / 2)) {
-            return Status::InternalError(_failed_channels_msgs[it.first]);
+            mark_as_failed(channel, st.get_error_msg(), tablet_id);
         }
     }
 }
