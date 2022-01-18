@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "bthread/id.h"
 #include "common/object_pool.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "google/protobuf/descriptor.h"

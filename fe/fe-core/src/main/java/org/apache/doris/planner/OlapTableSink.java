@@ -100,8 +100,7 @@ public class OlapTableSink extends DataSink {
         tSink.setDbId(dbId);
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
-        tDataSink = new TDataSink(TDataSinkType.DATA_SPLIT_SINK);
-        tDataSink.setType(TDataSinkType.OLAP_TABLE_SINK);
+        tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlapTableSink(tSink);
 
         if (partitionIds == null) {
