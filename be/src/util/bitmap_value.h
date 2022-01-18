@@ -1691,6 +1691,12 @@ public:
         }
         return count;
     }
+    
+    void clear() {
+        _type = EMPTY;
+        _bitmap.clear();
+        _sv = 0;
+    }
 
     // Implement an iterator for convenience
     friend class BitmapValueIterator;

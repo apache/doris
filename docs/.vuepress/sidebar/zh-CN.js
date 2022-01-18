@@ -334,6 +334,7 @@ module.exports = [
               "ascii",
               "bit_length",
               "char_length",
+              "coalesce",
               "concat",
               "concat_ws",
               "ends_with",
@@ -441,6 +442,11 @@ module.exports = [
             title: "Hash函数",
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
+          },
+          {
+            title: "数学函数",
+            directoryPath: "math-functions/",
+            children: ["conv"],
           },
           {
             title: "加密和信息摘要函数",

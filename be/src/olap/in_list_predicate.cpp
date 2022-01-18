@@ -20,6 +20,8 @@
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
+#include "vec/columns/predicate_column.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris {
 
@@ -114,6 +116,43 @@ IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
+
+#define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)                                                    \
+    template <class type>                                                                          \
+    void CLASS<type>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const { \
+        uint16_t new_size = 0;                                                                     \
+        if (column.is_nullable()) {                                                                \
+            auto* nullable_column =                                                                \
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(column);              \
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(*(      \
+                nullable_column->get_null_map_column_ptr())).get_data();                           \
+            auto* nest_column_vector = vectorized::check_and_get_column                            \
+                <vectorized::PredicateColumnType<type>>(nullable_column->get_nested_column());     \
+            auto& data_array = nest_column_vector->get_data();                                     \
+            for (uint16_t i = 0; i < *size; i++) {                                                 \
+                uint16_t idx = sel[i];                                                             \
+                sel[new_size] = idx;                                                               \
+                const type& cell_value = reinterpret_cast<const type&>(data_array[idx]);           \
+                bool ret = !null_bitmap[idx] && (_values.find(cell_value) OP _values.end());       \
+                new_size += _opposite ? !ret : ret;                                                \
+            }                                                                                      \
+            *size = new_size;                                                                      \
+        } else {                                                                                   \
+            auto& number_column = reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);\
+            auto& data_array = number_column.get_data();                                           \
+            for (uint16_t i = 0; i < *size; i++) {                                                 \
+                uint16_t idx = sel[i];                                                             \
+                sel[new_size] = idx;                                                               \
+                const type& cell_value = reinterpret_cast<const type&>(data_array[idx]);           \
+                auto result = (_values.find(cell_value) OP _values.end());                         \
+                new_size += _opposite ? !result : result;                                          \
+            }                                                                                      \
+        }                                                                                          \
+        *size = new_size;                                                                          \
+    }
+
+IN_LIST_PRED_COLUMN_EVALUATE(InListPredicate, !=)
+IN_LIST_PRED_COLUMN_EVALUATE(NotInListPredicate, ==)
 
 #define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                         \
     template <class type>                                                                        \

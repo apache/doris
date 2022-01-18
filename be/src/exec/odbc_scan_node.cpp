@@ -29,9 +29,11 @@
 
 namespace doris {
 
-OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
+                           std::string scan_node_type)
         : ScanNode(pool, tnode, descs),
           _is_init(false),
+          _scan_node_type(scan_node_type),
           _table_name(tnode.odbc_scan_node.table_name),
           _connect_string(std::move(tnode.odbc_scan_node.connect_string)),
           _query_string(std::move(tnode.odbc_scan_node.query_string)),
@@ -42,7 +44,7 @@ OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
 OdbcScanNode::~OdbcScanNode() {}
 
 Status OdbcScanNode::prepare(RuntimeState* state) {
-    VLOG_CRITICAL << "OdbcScanNode::Prepare";
+    VLOG_CRITICAL << _scan_node_type << "::Prepare";
 
     if (_is_init) {
         return Status::OK();
@@ -91,7 +93,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
 
 Status OdbcScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    VLOG_CRITICAL << "OdbcScanNode::Open";
+    VLOG_CRITICAL << _scan_node_type << "::Open";
 
     if (nullptr == state) {
         return Status::InternalError("input pointer is null.");
@@ -125,7 +127,7 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescript
 }
 
 Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    VLOG_CRITICAL << "OdbcScanNode::GetNext";
+    VLOG_CRITICAL << _scan_node_type << "::GetNext";
 
     if (nullptr == state || nullptr == row_batch || nullptr == eos) {
         return Status::InternalError("input is nullptr pointer");
@@ -240,7 +242,7 @@ Status OdbcScanNode::close(RuntimeState* state) {
 
 void OdbcScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
-    *out << "OdbcScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
+    *out << _scan_node_type << "(tupleid=" << _tuple_id << " table=" << _table_name;
     *out << ")" << std::endl;
 
     for (int i = 0; i < _children.size(); ++i) {

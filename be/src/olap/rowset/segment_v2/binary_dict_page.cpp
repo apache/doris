@@ -19,9 +19,12 @@
 
 #include "common/logging.h"
 #include "gutil/strings/substitute.h" // for Substitute
-#include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h" // for Slice
+#include "vec/columns/column_vector.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/predicate_column.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -220,6 +223,8 @@ Status BinaryDictPageDecoder::init() {
     return Status::OK();
 }
 
+BinaryDictPageDecoder::~BinaryDictPageDecoder() {}
+
 Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
     return _data_page_decoder->seek_to_position_in_page(pos);
 }
@@ -230,7 +235,63 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
 
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
+    _bit_shuffle_ptr = reinterpret_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(_data_page_decoder.get());
 };
+
+Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+    if (_encoding_type == PLAIN_ENCODING) {
+        return _data_page_decoder->next_batch(n, dst);
+    }
+    // dictionary encoding
+    DCHECK(_parsed);
+    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
+ 
+    if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
+        *n = 0;
+        return Status::OK();
+    }
+ 
+    size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle_ptr->_num_elements - _bit_shuffle_ptr->_cur_index));
+    *n = max_fetch;
+ 
+    const int32_t* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
+    size_t start_index = _bit_shuffle_ptr->_cur_index;
+
+    auto* dst_col_ptr = dst.get();
+    if (dst->is_nullable()) {
+        auto nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+        dst_col_ptr = nullable_column->get_nested_column_ptr().get();
+        
+        // fill null bitmap here, not null;
+        // todo(wb) using SIMD speed up here
+        for (int i = 0; i < max_fetch; i++) {
+            nullable_column->get_null_map_data().push_back(0);
+        }
+    }
+
+    if (dst_col_ptr->is_predicate_column()) {
+        // cast columnptr to columnstringvalue just for avoid virtual function call overhead
+        auto* string_value_column_ptr = reinterpret_cast<vectorized::ColumnStringValue*>(dst_col_ptr);
+        for (int i = 0; i < max_fetch; i++, start_index++) {
+            int32_t codeword = data_array[start_index];
+            uint32_t start_offset = _start_offset_array[codeword];
+            uint32_t str_len = _len_array[codeword];
+            string_value_column_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
+        }
+    } else {
+             // todo(wb) research whether using batch memcpy to insert columnString can has better performance when data set is big
+        for (int i = 0; i < max_fetch; i++, start_index++) {
+            int32_t codeword = data_array[start_index];
+            const uint32_t start_offset = _start_offset_array[codeword];
+            const uint32_t str_len = _len_array[codeword];
+            dst_col_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
+        }
+    }
+    _bit_shuffle_ptr->_cur_index += max_fetch;
+ 
+    return Status::OK();
+ 
+}
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (_encoding_type == PLAIN_ENCODING) {

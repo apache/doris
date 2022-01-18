@@ -29,6 +29,8 @@
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
+#include "vec/exprs/vexpr.h"
+
 namespace doris {
 
 ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,

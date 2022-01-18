@@ -23,8 +23,13 @@
 
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "vec/core/block.h"
 
 namespace doris {
+
+namespace vectorized {
+class Block;
+}
 
 class RowBlock;
 class RowsetReader;
@@ -33,6 +38,7 @@ using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 class RowsetReader {
 public:
     enum RowsetReaderType { ALPHA, BETA };
+
     virtual ~RowsetReader() {}
 
     // reader init
@@ -44,6 +50,8 @@ public:
     //      OLAP_ERR_DATA_EOF and set *block to null when there is no more block.
     //      Others when error happens.
     virtual OLAPStatus next_block(RowBlock** block) = 0;
+
+    virtual OLAPStatus next_block(vectorized::Block* block) = 0;
 
     virtual bool delete_flag() = 0;
 
