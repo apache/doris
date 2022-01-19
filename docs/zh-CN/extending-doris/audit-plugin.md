@@ -73,7 +73,7 @@ create table doris_audit_tbl__
     cpu_time_ms bigint comment "Total scan cpu time in millisecond of this query",
     sql_hash varchar(48) comment "Hash value for this query",
     peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
-    stmt varchar(5000) comment "The original statement, trimed if longer than 5000 bytes"
+    stmt string comment "The original statement, trimed if longer than 2G "
 ) engine=OLAP
 duplicate key(query_id, time, client_ip)
 partition by range(time) ()
@@ -88,6 +88,10 @@ properties(
     "replication_num" = "3"
 );
 ```
+
+>**注意**
+>
+> 上面表结构中：stmt string ，这个只能在0.15及之后版本中使用，之前版本，字段类型使用varchar
 
 其中 `dynamic_partition` 属性根据自己的需要，选择审计日志安保留的天数。
 
