@@ -103,7 +103,7 @@ Status IndexPageIterator::seek_at_or_before(const Slice& search_key) {
     // no exact match, the insertion point is `left`
     if (left == 0) {
         // search key is smaller than all keys
-        return Status::NotFound("no page contains the given key");
+        return Status::NotFound("given key is smaller than all keys in page");
     }
     // index entry records the first key of the indexed page,
     // therefore the first page with keys >= searched key is the one before the insertion point
