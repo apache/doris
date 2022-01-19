@@ -311,8 +311,9 @@ struct TypeDescriptor {
         case TYPE_STRING:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
-        case TYPE_HLL:
             return std::make_shared<vectorized::DataTypeString>();
+        case TYPE_HLL:
+            return std::make_shared<vectorized::DataTypeHLL>();
         case TYPE_OBJECT:
             return std::make_shared<vectorized::DataTypeBitMap>();
 

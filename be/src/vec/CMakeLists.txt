@@ -54,6 +54,7 @@ set(VEC_FILES
   core/materialize_block.cpp
   data_types/data_type.cpp
   data_types/data_type_bitmap.cpp
+  data_types/data_type_hll.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nullable.cpp

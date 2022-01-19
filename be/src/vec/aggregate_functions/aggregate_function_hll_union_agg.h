@@ -30,13 +30,14 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
+#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
 struct AggregateFunctionHLLData {
     HyperLogLog dst_hll {};
 
-    void add(const StringRef& src) { dst_hll.merge(HyperLogLog(Slice(src.data, src.size))); }
+    void add(const HyperLogLog& src) { dst_hll.merge(src); }
 
     void merge(const AggregateFunctionHLLData& rhs) { dst_hll.merge(rhs.dst_hll); }
 
@@ -55,13 +56,10 @@ struct AggregateFunctionHLLData {
 
     Int64 get_cardinality() const { return dst_hll.estimate_cardinality(); }
 
-    std::string get() const {
-        std::string result(dst_hll.max_serialized_size(), '0');
-        int size = dst_hll.serialize((uint8_t*)result.c_str());
-        result.resize(size);
-
-        return result;
+    HyperLogLog get() const {
+        return dst_hll;
     }
+
 };
 
 class AggregateFunctionHLLUnionAgg
@@ -82,8 +80,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& column = static_cast<const ColumnString&>(*columns[0]);
-        this->data(place).add(column.get_data_at(row_num));
+        const auto& column = static_cast<const ColumnHLL&>(*columns[0]);
+        this->data(place).add(column.get_element(row_num));
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
@@ -116,12 +114,11 @@ public:
     AggregateFunctionHLLUnion(const IDataType& data_type, const DataTypes& argument_types_)
             : AggregateFunctionHLLUnionAgg(data_type, argument_types_) {}
 
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeHLL>(); } 
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColumnString&>(to);
-        auto result = this->data(place).get();
-        column.insert_data(result.c_str(), result.length());
+        auto& column = static_cast<ColumnHLL&>(to);
+        column.get_data().emplace_back(this->data(place).get());
     }
 };
 
