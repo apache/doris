@@ -219,6 +219,14 @@ Status AggregationNode::prepare(RuntimeState* state) {
     _mem_pool = std::make_unique<MemPool>(mem_tracker().get());
 
     int j = _probe_expr_ctxs.size();
+    for (int i = 0; i < j; ++i) {
+        auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
+        auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
+        if (nullable_output != nullable_input) {
+            DCHECK(nullable_output);
+            _make_nullable_keys.emplace_back(i);
+        }
+    }
     for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
@@ -377,9 +385,11 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         }
         // pre stream agg need use _num_row_return to decide whether to do pre stream agg
         _num_rows_returned += block->rows();
-        if (*eos) COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+        _make_nullable_output_key(block);
+        COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     } else {
         RETURN_IF_ERROR(_executor.get_result(state, block, eos));
+        _make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
         reached_limit(block, eos);
@@ -556,6 +566,17 @@ void AggregationNode::_close_without_key() {
     release_tracker();
 }
 
+void AggregationNode::_make_nullable_output_key(Block* block) {
+    if (block->rows() != 0) {
+        for (auto cid : _make_nullable_keys) {
+            block->get_by_position(cid).column =
+                    make_nullable(block->get_by_position(cid).column);
+            block->get_by_position(cid).type =
+                    make_nullable(block->get_by_position(cid).type);
+        }
+    }
+}
+
 bool AggregationNode::_should_expand_preagg_hash_tables() {
     if (!_should_expand_hash_table) return false;
 
@@ -707,7 +728,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             for (int i = 0; i < key_size; ++i) {
                                 columns_with_schema.emplace_back(
                                         key_columns[i]->clone_resized(rows),
-                                        _probe_expr_ctxs[i]->root()->data_type(), "");
+                                        _probe_expr_ctxs[i]->root()->data_type(),
+                                        _probe_expr_ctxs[i]->root()->expr_name());
                             }
                             for (int i = 0; i < value_columns.size(); ++i) {
                                 columns_with_schema.emplace_back(std::move(value_columns[i]),
@@ -979,7 +1001,7 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
         ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             columns_with_schema.emplace_back(std::move(key_columns[i]),
-                                             _probe_expr_ctxs[i]->root()->data_type(), "");
+                                             _probe_expr_ctxs[i]->root()->data_type(), _probe_expr_ctxs[i]->root()->expr_name());
         }
         for (int i = 0; i < agg_size; ++i) {
             columns_with_schema.emplace_back(std::move(value_columns[i]), value_data_types[i], "");

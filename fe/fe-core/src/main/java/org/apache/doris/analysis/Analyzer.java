@@ -722,7 +722,9 @@ public class Analyzer {
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
         result.setColumn(col);
-        result.setIsNullable(true);
+        // now virtual slot: only use in grouping set to generate grouping id,
+        // so it should always is not nullable
+        result.setIsNullable(false);
         slotRefMap.put(key, result);
         return result;
     }

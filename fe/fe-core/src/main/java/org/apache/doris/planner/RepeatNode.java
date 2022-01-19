@@ -131,7 +131,8 @@ public class RepeatNode extends PlanNode {
         // build tupleDesc according to child's tupleDesc info
         outputTupleDesc = groupingInfo.getVirtualTuple();
         //set aggregate nullable
-        for (Expr slot : groupByClause.getGroupingExprs()) {
+        for (int i = 0; i < groupByClause.getGroupingExprs().size() - 1; i++) {
+            Expr slot = groupByClause.getGroupingExprs().get(i);
             if (slot instanceof SlotRef) {
                 ((SlotRef) slot).getDesc().setIsNullable(true);
             }
