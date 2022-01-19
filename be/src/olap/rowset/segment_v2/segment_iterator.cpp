@@ -32,7 +32,7 @@
 #include "olap/short_key_index.h"
 #include "olap/in_list_predicate.h"
 #include "util/doris_metrics.h"
-#include "vec/columns/columns_common.h"
+#include "util/simd/bits.h"
 
 using strings::Substitute;
 
@@ -816,8 +816,7 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
     const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
     while (sel_pos < sel_end_simd) {
-        auto mask = vectorized::bytes32_mask_to_bits32_mask(
-                reinterpret_cast<const uint8_t*>(ret_flags + sel_pos));
+        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
         while (mask) {
             const size_t bit_pos = __builtin_ctzll(mask);
             sel_rowid_idx[new_size++] = sel_pos + bit_pos;
