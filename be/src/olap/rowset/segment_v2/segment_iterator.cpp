@@ -673,7 +673,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
 
     } else if (is_predicate_column_exists && !is_non_predicate_column_exists) {
         _first_read_column_ids.assign(pred_column_ids.cbegin(), pred_column_ids.cend());
-    } else if (!is_predicate_column_exists) {
+    } else if (!is_predicate_column_exists && is_non_predicate_column_exists) {
         for (auto cid : _non_predicate_columns) {
             _first_read_column_ids.push_back(cid);
         }
@@ -798,7 +798,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
 void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t& selected_size) {
     uint16_t new_size = 0;
-    if (_vec_pred_column_ids.empty()) {
+    if (_vec_pred_column_ids.size() == 0) {
         for (uint32_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[new_size++] = i;
         }
@@ -818,15 +818,10 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
     while (sel_pos < sel_end_simd) {
         auto mask = vectorized::bytes32_mask_to_bits32_mask(
                 reinterpret_cast<const uint8_t*>(ret_flags + sel_pos));
-        if (mask == 0xffffffff) {
-            memset(sel_rowid_idx + new_size, true, SIMD_BYTES);
-            new_size += SIMD_BYTES;
-        } else {
-            while (mask) {
-                const size_t bit_pos = __builtin_ctzll(mask);
-                sel_rowid_idx[new_size++] = sel_pos + bit_pos;
-                mask = mask & (mask - 1);
-            }
+        while (mask) {
+            const size_t bit_pos = __builtin_ctzll(mask);
+            sel_rowid_idx[new_size++] = sel_pos + bit_pos;
+            mask = mask & (mask - 1);
         }
         sel_pos += SIMD_BYTES;
     }
