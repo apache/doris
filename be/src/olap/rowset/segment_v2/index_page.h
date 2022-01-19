@@ -126,6 +126,8 @@ public:
     // Return other error status otherwise.
     Status seek_at_or_before(const Slice& search_key);
 
+    void seek_to_first() { _pos = 0; }
+
     // Move to the next index entry.
     // Return true on success, false when no more entries can be read.
     bool move_next() {
