@@ -340,7 +340,7 @@ void BrokerScanner::split_line(const Slice& line) {
             _split_values.emplace_back(buf, len);
         }
         delete row;
-        delete ptr;
+        delete[] ptr;
     } else {
         const char* value = line.data;
         size_t start = 0;  // point to the start pos of next col value.

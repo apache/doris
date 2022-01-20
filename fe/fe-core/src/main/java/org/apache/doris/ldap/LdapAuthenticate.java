@@ -29,8 +29,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -73,7 +73,7 @@ public class LdapAuthenticate {
         try {
             if (!LdapClient.checkPassword(userName, password)) {
                 LOG.debug("user:{} use error LDAP password.", userName);
-                ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, usePasswd);
+                ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, context.getRemoteIP(), usePasswd);
                 return false;
             }
         } catch (Exception e) {

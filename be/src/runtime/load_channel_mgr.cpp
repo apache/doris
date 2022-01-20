@@ -112,7 +112,8 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
-            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, _mem_tracker, is_high_priority));
+            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, _mem_tracker, is_high_priority,
+                                          params.sender_ip()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -124,7 +125,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
 Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
-                                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+                                 PTabletWriterAddBatchResult* response) {
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
@@ -156,7 +157,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
     // 3. add batch to load channel
     // batch may not exist in request(eg: eos request without batch),
     // this case will be handled in load channel's add batch method.
-    RETURN_IF_ERROR(channel->add_batch(request, tablet_vec));
+    RETURN_IF_ERROR(channel->add_batch(request, response));
 
     // 4. handle finish
     if (channel->is_finished()) {
