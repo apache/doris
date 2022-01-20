@@ -41,6 +41,7 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris::vectorized {
 /** Type conversion functions.
   * toType - conversion in "natural way";
@@ -117,8 +118,9 @@ struct ConvertImpl {
                         vec_to[i] = convert_to_decimal<FromDataType, ToDataType>(
                                 vec_from[i], vec_to.get_scale());
                     else if constexpr (IsTimeType<FromDataType> && IsDataTypeDecimal<ToDataType>) {
-                        vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>
-                                (reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64(), vec_to.get_scale());
+                        vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>(
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64(),
+                                vec_to.get_scale());
                     }
                 } else if constexpr (IsTimeType<FromDataType>) {
                     if constexpr (IsTimeType<ToDataType>) {
@@ -129,7 +131,8 @@ struct ConvertImpl {
                             DataTypeDate::cast_to_date(vec_to[i]);
                         }
                     } else {
-                        vec_to[i] = reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
+                        vec_to[i] =
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
                     }
                 } else
                     vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
@@ -191,13 +194,15 @@ struct ConvertImplToTimeType {
                 if constexpr (IsDecimalNumber<FromFieldType>) {
                     vec_null_map_to[i] = !date_value.from_date_int64(
                             convert_from_decimal<FromDataType, DataTypeInt64>(
-                                vec_from[i], vec_from.get_scale()));
+                                    vec_from[i], vec_from.get_scale()));
                 } else {
                     vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
                 }
                 // DateType of VecDateTimeValue should cast to date
                 if constexpr (IsDateType<ToDataType>) {
                     date_value.cast_to_date();
+                } else if constexpr (IsDateTimeType<ToDataType>) {
+                    date_value.to_datetime();
                 }
             }
             block.get_by_position(result).column =
@@ -673,7 +678,7 @@ protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         /// drop second argument, pass others
-        ColumnNumbers new_arguments{arguments.front()};
+        ColumnNumbers new_arguments {arguments.front()};
         if (arguments.size() > 2)
             new_arguments.insert(std::end(new_arguments), std::next(std::begin(arguments), 2),
                                  std::end(arguments));
@@ -1209,7 +1214,7 @@ private:
 
         LOG(FATAL) << fmt::format("Conversion from {} to {} is not supported",
                                   from_type->get_name(), to_type->get_name());
-        return WrapperType{};
+        return WrapperType {};
     }
 };
 
