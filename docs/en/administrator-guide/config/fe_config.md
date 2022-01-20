@@ -2098,7 +2098,7 @@ When there are a large number of replicas waiting to be balanced or repaired in 
 Default: true
 IsMutable：true
 MasterOnly: true
-If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version difference between the fastest and slowest replica exceeds 100, and the difference exceeds 30% of the fastest replica
+If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version difference between the fastest and slowest replica exceeds the value of min_version_count_indicate_replica_compaction_too_slow, and the difference exceeds 30% of the fastest replica
 
 ### colocate_group_relocate_delay_second
 
@@ -2121,3 +2121,22 @@ Only for Master FE: false
 
 Whether to allow multiple replicas of the same tablet to be distributed on the same host. This parameter is mainly used for local testing, to facilitate building multiple BEs to test certain multi-replica situations. Do not use it for non-test environments.
 
+### min_version_count_indicate_replica_compaction_too_slow
+
+Default: 100
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The version count threshold used to judge whether replica compaction is too slow
+
+### min_bytes_indicate_replica_too_large
+
+Default: 2 * 1024 * 1024 * 1024 (2G)
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The data size threshold used to judge whether replica is too large
