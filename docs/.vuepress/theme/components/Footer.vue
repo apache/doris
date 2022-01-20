@@ -31,7 +31,11 @@ under the License.
     </p>
     <p>
       <br />
-        <span class="footer-text">© Copyright {{ thisYear }}, Apache Doris(Incubating) </span>
+      <span
+        class="footer-text"
+      >
+        Copyright © {{ thisYear }} The Apache Software Foundation. Licensed under the Apache License, Version 2.0. Apache Doris(Incubating), Apache Incubator, Apache, the Apache feather logo, the Apache Doris(Incubating) logo and the Apache Incubator project logo are trademarks of The Apache Software Foundation.
+      </span>
       <br />
       <span
         class="footer-text"

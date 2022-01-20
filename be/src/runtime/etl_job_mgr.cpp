@@ -26,7 +26,6 @@
 #include "gen_cpp/Status_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/client_cache.h"
-#include "runtime/data_spliter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"

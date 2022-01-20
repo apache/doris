@@ -76,6 +76,7 @@ public:
         // decode
         PageDecoderOptions decoder_options;
         BinaryDictPageDecoder page_decoder(s.slice(), decoder_options);
+
         page_decoder.set_dict_decoder(dict_page_decoder.get());
 
         status = page_decoder.init();
@@ -171,6 +172,7 @@ public:
             PageDecoderOptions decoder_options;
             BinaryDictPageDecoder page_decoder(results[slice_index].slice(), decoder_options);
             status = page_decoder.init();
+
             page_decoder.set_dict_decoder(dict_page_decoder.get());
             ASSERT_TRUE(status.ok());
 

@@ -156,7 +156,17 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
         // seek index to determine the data page to seek
         std::string encoded_key;
         _reader->_value_key_coder->full_encode_ascending(key, &encoded_key);
-        RETURN_IF_ERROR(_value_iter.seek_at_or_before(encoded_key));
+        Status st = _value_iter.seek_at_or_before(encoded_key);
+        if (st.is_not_found()) {
+            // all keys in page is greater than `encoded_key`, point to the first page.
+            // otherwise, we may missing some pages.
+            // For example, the predicate is `col1 > 2`, and the index page is [3,5,7].
+            // so the `seek_at_or_before(2)` will return Status::NotFound().
+            // But actually, we expect it to point to page `3`.
+            _value_iter.seek_to_first();
+        } else if (!st.ok()) {
+            return st;
+        }
         data_page_pp = _value_iter.current_page_pointer();
         _current_iter = &_value_iter;
         if (_data_page == nullptr || _data_page->page_pointer != data_page_pp) {

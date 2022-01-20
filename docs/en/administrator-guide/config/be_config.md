@@ -678,6 +678,12 @@ Default：10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
 
+### `kafka_broker_version_fallback`
+
+Default：0.10.0
+
+If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+
 ### `load_data_reserve_hours`
 
 Default：4（hour）
@@ -1149,9 +1155,9 @@ Cache for storage page size
 
     eg.1: `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
 
-    * 1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
-    * 2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
-    * 3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
+    * 1./home/disk1/doris.HDD,50, indicates capacity limit is 50GB, HDD;
+    * 2./home/disk2/doris.SSD,1, indicates capacity limit is 1GB, SSD;
+    * 3./home/disk2/doris, indicates capacity limit is disk capacity, HDD(default)
     
     eg.2: `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
       
@@ -1468,3 +1474,30 @@ The default value is currently only an empirical value, and may need to be modif
 * Type: bool
 * Description: When obtaining a brpc connection, judge the availability of the connection through hand_shake rpc, and re-establish the connection if it is not available 。
 * Default value: false
+
+### `high_priority_flush_thread_num_per_store`
+
+* Type: int32
+* Description: The number of flush threads per store path allocated for the high priority import task.
+* Default value: 1
+
+### `routine_load_consumer_pool_size`
+
+* Type: int32
+* Description: The number of caches for the data consumer used by the routine load.
+* Default: 10
+
+### `load_task_high_priority_threshold_second`
+
+* Type: int32
+* Description: When the timeout of an import task is less than this threshold, Doris will consider it to be a high priority task. High priority tasks use a separate pool of flush threads.
+* Default: 120
+
+### `min_load_rpc_timeout_ms`
+
+* Type: int32
+* Description: The minimum timeout for each rpc in the load job.
+* Default: 20
+
+Translated with www.DeepL.com/Translator (free version)
+

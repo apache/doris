@@ -24,8 +24,10 @@
 namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                         const std::shared_ptr<MemTracker>& mem_tracker)
-        : _load_id(load_id), _timeout_s(timeout_s) {
+                         const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
+                         const std::string& sender_ip)
+        : _load_id(load_id), _timeout_s(timeout_s), _is_high_priority(is_high_priority),
+          _sender_ip(sender_ip) {
     _mem_tracker = MemTracker::CreateTracker(
             mem_limit, "LoadChannel:" + _load_id.to_string(), mem_tracker, true, false, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
@@ -36,7 +38,8 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
 
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel mem peak usage=" << _mem_tracker->peak_consumption()
-              << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id;
+              << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
+              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -50,7 +53,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _mem_tracker));
+            channel.reset(new TabletsChannel(key, _mem_tracker, _is_high_priority));
             _tablets_channels.insert({index_id, channel});
         }
     }
@@ -63,7 +66,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
 }
 
 Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
-                              google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+                              PTabletWriterAddBatchResult* response) {
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
@@ -87,7 +90,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
 
     // 3. add batch to tablets channel
     if (request.has_row_batch()) {
-        RETURN_IF_ERROR(channel->add_batch(request));
+        RETURN_IF_ERROR(channel->add_batch(request, response));
     }
 
     // 4. handle eos
@@ -96,7 +99,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         bool finished = false;
         RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
                                        &finished, request.partition_ids(),
-                                       tablet_vec));
+                                       response->mutable_tablet_vec()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);

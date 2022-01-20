@@ -62,19 +62,13 @@ if [[ -n ${CUSTOM_MVN} ]]; then
     MVN_CMD=${CUSTOM_MVN}
 fi
 
-if [ -z "$1" ]; then
-    export FLINK_VERSION="$1"
-fi
-if [ -z "$2" ]; then
-    export SCALA_VERSION="$2"
-fi
 if ! ${MVN_CMD} --version; then
     echo "Error: mvn is not found"
     exit 1
 fi
 export MVN_CMD
 rm -rf output/
-${MVN_CMD} clean package
+${MVN_CMD} clean package -Dscala.version=$2 -Dflink.version=$1
 
 mkdir -p output/
 cp target/doris-flink-*.jar ./output/

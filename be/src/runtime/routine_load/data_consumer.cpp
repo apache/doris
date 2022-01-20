@@ -77,6 +77,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(set_conf("auto.offset.reset", "error"));
     RETURN_IF_ERROR(set_conf("api.version.request", "true"));
     RETURN_IF_ERROR(set_conf("api.version.fallback.ms", "0"));
+    RETURN_IF_ERROR(set_conf("broker.version.fallback", config::kafka_broker_version_fallback));
 
     for (auto& item : ctx->kafka_info->properties) {
         if (starts_with(item.second, "FILE:")) {
@@ -163,6 +164,7 @@ Status KafkaDataConsumer::assign_topic_partitions(
     if (err) {
         LOG(WARNING) << "failed to assign topic partitions: " << ctx->brief(true)
                      << ", err: " << RdKafka::err2str(err);
+        _k_consumer->unassign();
         return Status::InternalError("failed to assign topic partitions");
     }
 
@@ -381,6 +383,7 @@ Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
 Status KafkaDataConsumer::reset() {
     std::unique_lock<std::mutex> l(_lock);
     _cancelled = false;
+    _k_consumer->unassign();
     // reset will be called before this consumer being returned to the pool.
     // so update _last_visit_time is reasonable.
     _last_visit_time = time(nullptr);

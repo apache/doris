@@ -68,6 +68,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1069,6 +1070,16 @@ public class SingleNodePlanner {
                 && groupingInfo != null);
         root = new RepeatNode(ctx_.getNextNodeId(), root, groupingInfo, groupByClause);
         root.init(analyzer);
+        // set agg outtuple nullable
+        AggregateInfo aggInfo = selectStmt.getAggInfo();
+        TupleId aggOutTupleId = aggInfo.getOutputTupleId();
+        TupleDescriptor aggOutTupleDescriptor = analyzer.getDescTbl().getTupleDesc(aggOutTupleId);
+        int aggregateExprStartIndex = groupByClause.getGroupingExprs().size();
+        for (int i = 0; i < aggregateExprStartIndex; ++i) {
+            SlotDescriptor slot = aggOutTupleDescriptor.getSlots().get(i);
+            if (!slot.getIsNullable())
+                slot.setIsNullable(true);
+        }
         return root;
     }
 
@@ -1366,7 +1377,8 @@ public class SingleNodePlanner {
         // inline view's plan.
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
-        if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+        // Vec exec engine not need the function of TupleIsNull, So here just skip wrap it
+        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping

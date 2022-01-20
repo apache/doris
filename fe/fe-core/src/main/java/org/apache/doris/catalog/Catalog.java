@@ -217,7 +217,6 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
@@ -253,15 +252,11 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
-import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.DataInputStream;
@@ -290,6 +285,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
+
+import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.NetworkRestore;
+import com.sleepycat.je.rep.NetworkRestoreConfig;
+import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -715,6 +715,11 @@ public class Catalog {
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
         return getCurrentCatalog().getAuditEventProcessor();
+    }
+
+    // For unit test only
+    public Checkpoint getCheckpointer() {
+        return checkpointer;
     }
 
     public StatisticsManager getStatisticsManager() {
@@ -2236,10 +2241,6 @@ public class Catalog {
     public long saveGlobalVariable(CountingDataOutputStream dos, long checksum) throws IOException {
         VariableMgr.write(dos);
         return checksum;
-    }
-
-    public void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
-        VariableMgr.replayGlobalVariable(variable);
     }
 
     public void replayGlobalVariableV2(GlobalVarPersistInfo info) throws IOException, DdlException {
@@ -5955,12 +5956,12 @@ public class Catalog {
         return functionSet.getFunction(desc, mode, true);
     }
 
-    public boolean isNullResultWithOneNullParamFunction(String funcName) {
-        return functionSet.isNullResultWithOneNullParamFunctions(funcName);
-    }
-
     public boolean isNondeterministicFunction(String funcName) {
         return functionSet.isNondeterministicFunction(funcName);
+    }
+
+    public boolean isNullResultWithOneNullParamFunction(String funcName) {
+        return functionSet.isNullResultWithOneNullParamFunctions(funcName);
     }
 
     /**

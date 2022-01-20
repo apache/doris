@@ -1071,9 +1071,9 @@ alter_table_clause ::=
     {:
         RESULT = new CreateIndexClause(null, indexDef, true);
     :}
-    | KW_DROP KW_INDEX ident:indexName
+    | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName
     {:
-        RESULT = new DropIndexClause(indexName, null, true);
+        RESULT = new DropIndexClause(indexName, ifExists, null, true);
     :}
     | KW_ENABLE KW_FEATURE STRING_LITERAL:featureName opt_enable_feature_properties:properties
     {:
@@ -1302,9 +1302,9 @@ create_stmt ::=
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
-    | KW_CREATE KW_INDEX ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
     {:
-        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, cols, indexType, comment), false)));
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, comment), false)));
     :}
     /* resource */
     | KW_CREATE opt_external:isExternal KW_RESOURCE ident_or_text:resourceName opt_properties:properties
@@ -2011,9 +2011,9 @@ drop_stmt ::=
     {:
         RESULT = new DropFileStmt(fileName, dbName, properties);
     :}
-    | KW_DROP KW_INDEX ident:indexName KW_ON table_name:tableName
+    | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
-        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, tableName, false)));
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
     | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
     {:
@@ -2416,9 +2416,9 @@ column_definition ::=
     ;
 
 index_definition ::=
-    KW_INDEX ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
     {:
-        RESULT = new IndexDef(indexName, cols, indexType, comment);
+        RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, comment);
     :}
     ;
 

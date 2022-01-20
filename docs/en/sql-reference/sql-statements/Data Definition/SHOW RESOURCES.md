@@ -60,5 +60,5 @@ under the License.
 
 
 ## keyword
-    SHOW RESOURCES
+    SHOW, RESOURCES
 

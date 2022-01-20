@@ -109,6 +109,7 @@ public class PlanTreeBuilder {
         }
 
         if (planNode.getPlanNodeName().equals(ExchangeNode.EXCHANGE_NODE)
+                || planNode.getPlanNodeName().equals(ExchangeNode.VEXCHANGE_NODE)
                 || planNode.getPlanNodeName().equals(ExchangeNode.MERGING_EXCHANGE_NODE)) {
             exchangeNodes.add(node);
         } else {

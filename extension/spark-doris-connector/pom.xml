@@ -68,8 +68,8 @@
     </mailingLists>
 
     <properties>
-        <scala.version>${env.SCALA_VERSION}</scala.version>
-        <spark.version>${env.SPARK_VERSION}</spark.version>
+        <scala.version>${env.scala.version}</scala.version>
+        <spark.version>${env.spark.version}</spark.version>
         <libthrift.version>0.13.0</libthrift.version>
         <arrow.version>5.0.0</arrow.version>
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -105,28 +105,22 @@
             </pluginRepositories>
         </profile>
         <profile>
-            <id>spark-version</id>
+            <id>spark.version</id>
+            <properties>
+                <env.spark.version>2.3.4</env.spark.version>
+            </properties>
             <activation>
                 <activeByDefault>true</activeByDefault>
-                <property>
-                    <name>!env.SPARK_VERSION</name>
-                </property>
             </activation>
-            <properties>
-                <env.SPARK_VERSION>2.3.4</env.SPARK_VERSION>
-            </properties>
         </profile>
         <profile>
-            <id>scala-version</id>
+            <id>scala.version</id>
+            <properties>
+                <env.scala.version>2.11</env.scala.version>
+            </properties>
             <activation>
                 <activeByDefault>true</activeByDefault>
-                <property>
-                    <name>!env.SCALA_VERSION</name>
-                </property>
             </activation>
-            <properties>
-                <env.SCALA_VERSION>2.11</env.SCALA_VERSION>
-            </properties>
         </profile>
         <!-- for general repository -->
         <profile>

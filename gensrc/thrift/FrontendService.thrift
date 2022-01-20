@@ -400,6 +400,8 @@ struct TReportExecStatusParams {
   16: optional i64 backend_id
 
   17: optional i64 loaded_bytes
+
+  18: optional list<Types.TErrorTabletInfo> errorTabletInfos
 }
 
 struct TFeResult {
@@ -594,6 +596,7 @@ struct TStreamLoadPutRequest {
     33: optional bool read_json_by_line
     34: optional string auth_code_uuid
     35: optional i32 send_batch_parallelism
+    36: optional double max_filter_ratio
 }
 
 struct TStreamLoadPutResult {
@@ -718,32 +721,32 @@ struct TWaitingTxnStatusResult {
 }
 
 service FrontendService {
-    TGetDbsResult getDbNames(1:TGetDbsParams params)
-    TGetTablesResult getTableNames(1:TGetTablesParams params)
-    TDescribeTableResult describeTable(1:TDescribeTableParams params)
-    TShowVariableResult showVariables(1:TShowVariableRequest params)
-    TReportExecStatusResult reportExecStatus(1:TReportExecStatusParams params)
+    TGetDbsResult getDbNames(1: TGetDbsParams params)
+    TGetTablesResult getTableNames(1: TGetTablesParams params)
+    TDescribeTableResult describeTable(1: TDescribeTableParams params)
+    TShowVariableResult showVariables(1: TShowVariableRequest params)
+    TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
 
-    MasterService.TMasterResult finishTask(1:MasterService.TFinishTaskRequest request)
-    MasterService.TMasterResult report(1:MasterService.TReportRequest request)
+    MasterService.TMasterResult finishTask(1: MasterService.TFinishTaskRequest request)
+    MasterService.TMasterResult report(1: MasterService.TReportRequest request)
     MasterService.TFetchResourceResult fetchResource()
     
     // those three method are used for asynchronous mini load which will be abandoned
-    TFeResult miniLoad(1:TMiniLoadRequest request)
-    TFeResult updateMiniEtlTaskStatus(1:TUpdateMiniEtlTaskStatusRequest request)
-    TFeResult loadCheck(1:TLoadCheckRequest request)
+    TFeResult miniLoad(1: TMiniLoadRequest request)
+    TFeResult updateMiniEtlTaskStatus(1: TUpdateMiniEtlTaskStatusRequest request)
+    TFeResult loadCheck(1: TLoadCheckRequest request)
     // this method is used for streaming mini load
-    TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request)
-    TFeResult isMethodSupported(TIsMethodSupportedRequest request)
+    TMiniLoadBeginResult miniLoadBegin(1: TMiniLoadBeginRequest request)
+    TFeResult isMethodSupported(1: TIsMethodSupportedRequest request)
 
-    TMasterOpResult forward(TMasterOpRequest params)
+    TMasterOpResult forward(1: TMasterOpRequest params)
 
-    TListTableStatusResult listTableStatus(1:TGetTablesParams params)
-    TListPrivilegesResult listTablePrivilegeStatus(1:TGetTablesParams params)
-    TListPrivilegesResult listSchemaPrivilegeStatus(1:TGetTablesParams params)
-    TListPrivilegesResult listUserPrivilegeStatus(1:TGetTablesParams params)
+    TListTableStatusResult listTableStatus(1: TGetTablesParams params)
+    TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
+    TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
+    TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
 
-    TFeResult updateExportTaskStatus(1:TUpdateExportTaskStatusRequest request)
+    TFeResult updateExportTaskStatus(1: TUpdateExportTaskStatusRequest request)
 
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
     TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)

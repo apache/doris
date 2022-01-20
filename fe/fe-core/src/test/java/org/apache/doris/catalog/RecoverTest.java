@@ -53,7 +53,6 @@ public class RecoverTest {
         connectContext = UtFrameUtils.createDefaultCtx();
     }
 
-
     @AfterClass
     public static void tearDown() {
         File file = new File(runningDir);
@@ -61,7 +60,7 @@ public class RecoverTest {
     }
 
     private static void createDb(String db) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt)UtFrameUtils.parseAndAnalyzeStmt("create database " + db, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database " + db, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
     }
 
@@ -71,7 +70,7 @@ public class RecoverTest {
     }
 
     private static void dropDb(String db) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt)UtFrameUtils.parseAndAnalyzeStmt("drop database " + db, connectContext);
+        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + db, connectContext);
         Catalog.getCurrentCatalog().dropDb(dropDbStmt);
     }
 
@@ -159,15 +158,15 @@ public class RecoverTest {
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
 
-        dropTable("test","table1");
+        dropTable("test", "table1");
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertFalse(checkTableExist("test", "table1"));
 
-        recoverTable("test","table1");
+        recoverTable("test", "table1");
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
 
-        dropTable("test","table1");
+        dropTable("test", "table1");
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertFalse(checkTableExist("test", "table1"));
 
@@ -201,17 +200,17 @@ public class RecoverTest {
         Assert.assertTrue(checkTableExist("test", "table1"));
 
         try {
-            recoverTable("test","table1");
+            recoverTable("test", "table1");
             Assert.fail("should not recover succeed");
         } catch (DdlException e) {
             e.printStackTrace();
         }
 
         Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
-        dropPartition("test","table1", "p1");
+        dropPartition("test", "table1", "p1");
         Assert.assertFalse(checkPartitionExist("test", "table1", "p1"));
 
-        recoverPartition("test","table1", "p1");
+        recoverPartition("test", "table1", "p1");
         Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
     }
 

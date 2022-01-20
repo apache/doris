@@ -100,7 +100,7 @@ public class BackendTest {
         // first update
         backend.updateDisks(diskInfos);
         Assert.assertEquals(disk1.getDiskTotalCapacity() + disk2.getDiskTotalCapacity(),
-                            backend.getTotalCapacityB());
+                backend.getTotalCapacityB());
         Assert.assertEquals(1, backend.getAvailableCapacityB());
 
         // second update
@@ -118,7 +118,7 @@ public class BackendTest {
         File file = new File("./backendTest");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         List<Backend> list1 = new LinkedList<Backend>();
         List<Backend> list2 = new LinkedList<Backend>();
 
@@ -144,7 +144,7 @@ public class BackendTest {
         }
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         for (int count = 0; count < 200; ++count) {
@@ -176,26 +176,26 @@ public class BackendTest {
         Assert.assertFalse(list1.get(1).equals(list1.get(2)));
         Assert.assertFalse(list1.get(1).equals(this));
         Assert.assertTrue(list1.get(1).equals(list1.get(1)));
-        
+
         Backend back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         Backend back2 = new Backend(2, "a", 1);
         back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
-        
+
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "b", 1);
         back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
-        
+
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "a", 2);
         back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
 
-        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true]", back1.toString());
+        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tag: {\"location\" : \"default\"}]", back1.toString());
 
         // 3. delete files
         dis.close();

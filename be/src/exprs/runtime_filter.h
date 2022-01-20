@@ -128,6 +128,7 @@ public:
     // insert data to build filter
     // only used for producer
     void insert(const void* data);
+    void insert(const StringRef& data);
 
     // publish filter
     // push filter to remote node or push down it to scan_node

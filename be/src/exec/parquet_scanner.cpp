@@ -58,8 +58,7 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
           // _splittable(params.splittable),
           _cur_file_reader(nullptr),
           _next_range(0),
-          _cur_file_eof(false),
-          _scanner_eof(false) {}
+          _cur_file_eof(false) {}
 
 ParquetScanner::~ParquetScanner() {
     close();
@@ -92,11 +91,8 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bo
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(tuple, tuple_pool)) {
-            *fill_tuple = true;
-        } else {
-            *fill_tuple = false;
-        }
+        RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool));
+        *fill_tuple = _success;
         break; // break always
     }
     if (_scanner_eof) {

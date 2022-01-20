@@ -679,6 +679,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 BloomFilter/Min/Max等统计信息缓存的容量
 
+### `kafka_broker_version_fallback`
+
+默认值：0.10.0
+
+如果依赖的 kafka 版本低于routine load依赖的 kafka 客户端版本, 将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0、0.8.2、0.8.1、0.8.0。
+
 ### `load_data_reserve_hours`
 
 默认值：4 （小时）
@@ -1160,8 +1166,8 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 
   `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
 
-  * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
-  * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+  * /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
+  * /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
   * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
   
   示例2如下：
@@ -1487,3 +1493,27 @@ webserver默认工作线程数
 * 类型: bool
 * 描述: 获取brpc连接时，通过hand_shake rpc 判断连接的可用性，如果不可用则重新建立连接 
 * 默认值: false
+
+### `high_priority_flush_thread_num_per_store`
+
+* 类型：int32
+* 描述：每个存储路径所分配的用于高优导入任务的 flush 线程数量。
+* 默认值：1
+
+### `routine_load_consumer_pool_size`
+
+* 类型：int32
+* 描述：routine load 所使用的 data consumer 的缓存数量。
+* 默认值：10
+
+### `load_task_high_priority_threshold_second`
+
+* 类型：int32
+* 描述：当一个导入任务的超时时间小于这个阈值是，Doris 将认为他是一个高优任务。高优任务会使用独立的 flush 线程池。
+* 默认：120
+
+### `min_load_rpc_timeout_ms`
+
+* 类型：int32
+* 描述：load 作业中各个rpc 的最小超时时间。
+* 默认：20
