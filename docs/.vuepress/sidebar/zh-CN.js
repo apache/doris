@@ -200,6 +200,7 @@ module.exports = [
       "bucket-shuffle-join",
       "dynamic-partition",
       "export-manual",
+      "export_with_mysql_dump",
       "outfile",
       "partition_cache",
       "privilege",

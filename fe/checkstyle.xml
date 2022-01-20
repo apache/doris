@@ -17,22 +17,17 @@
   ~ specific language governing permissions and limitations
   ~ under the License.
   -->
-
 <!-- See https://checkstyle.org/ for details -->
-
 <!DOCTYPE module PUBLIC "-//Puppy Crawl//DTD Check Configuration 1.3//EN"
         "http://www.puppycrawl.com/dtds/configuration_1_3.dtd">
 <module name="Checker">
-
     <module name="Header">
         <property name="headerFile" value="checkstyle-apache-header.txt"/>
         <property name="fileExtensions" value="java"/>
     </module>
-
     <module name="SuppressWarningsFilter"/>
     <module name="TreeWalker">
         <module name="AvoidStarImport"/>
         <module name="UnusedImports"/>
     </module>
-
 </module>

@@ -85,9 +85,7 @@ Switch to the flink connector directory, let’s take flink version 1.11.6 and s
    export DORIS_HOME=$PWD/../../
    source ${DORIS_HOME}/env.sh
    if [ -f ${DORIS_HOME}/custom_env.sh ]; then source ${DORIS_HOME}/custom_env.sh; fi
-   export FLINK_VERSION="1.11.6"
-   export SCALA_VERSION="2.12"
-   mvn deploy
+   mvn deploy -Dflink.version=1.11.6 -Dscala.version=2.12
    ```
 
 
@@ -101,9 +99,7 @@ Switch to the spark connector directory, let’s take spark version 2.3.4 and sc
    export DORIS_HOME=$PWD/../../
    source ${DORIS_HOME}/env.sh
    if [ -f ${DORIS_HOME}/custom_env.sh ]; then source ${DORIS_HOME}/custom_env.sh; fi
-   export SPARK_VERSION="2.3.4"
-   export SCALA_VERSION="2.11"
-   mvn deploy
+   mvn deploy -Dscala.version=2.11 -Dspark.version=2.3.4
    ```
 ## Publish to Release
 
@@ -123,10 +119,8 @@ Take the release of Doris Flink Connector 1.0.0 as an example, the flink version
 cd extension/flink-doris-connector/
 export DORIS_HOME=$PWD/../../
 source ${DORIS_HOME}/env.sh
-export FLINK_VERSION=1.13.5
-export SCALA_VERSION=2.12
-mvn release:clean
-mvn release:prepare
+mvn release:clean -Dflink.version=1.13.5 -Dscala.version=2.12
+mvn release:prepare -Dflink.version=1.13.5 -Dscala.version=2.12
 ```
 After that, maven needs to enter three information
 1. The version information of Doris Flink Connector, we can do it by default, you can directly press Enter or enter the version you want

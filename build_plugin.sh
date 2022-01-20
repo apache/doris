@@ -82,12 +82,6 @@ echo "Get params:
     CLEAN                  -- $CLEAN
 "
 
-# check if palo-fe.jar exist
-if [ ! -f "$DORIS_HOME/fe/fe-core/target/palo-fe.jar" ]; then
-    echo "ERROR: palo-fe.jar does not exist. Please build FE first"
-    exit -1
-fi
-
 cd ${DORIS_HOME}
 PLUGIN_MODULE=
 if [ ${ALL_PLUGIN} -eq 1 ] ; then
