@@ -131,7 +131,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         cur_col++;
     }
 
-    // Fill grouping ID to tuple
+    // Fill grouping ID to block
     for (auto slot_idx = 0; slot_idx < _grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, _virtual_tuple_desc->slots().size());
         const SlotDescriptor* _virtual_slot_desc = _virtual_tuple_desc->slots()[slot_idx];
@@ -139,21 +139,13 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         DCHECK_EQ(_virtual_slot_desc->col_name(), _output_slots[cur_col]->col_name());
         int64_t val = _grouping_list[slot_idx][repeat_id_idx];
         auto* column_ptr = columns[cur_col].get();
-        if (_output_slots[cur_col]->is_nullable()) {
-            auto* nullable_column = reinterpret_cast<ColumnNullable *>(columns[cur_col].get());
-            auto& null_map = nullable_column->get_null_map_data();
-            column_ptr = &nullable_column->get_nested_column();
-
-            for (size_t i = 0; i < child_block->rows(); ++i) {
-                null_map.push_back(0);
-            }
-        }
+        DCHECK(!_output_slots[cur_col]->is_nullable());
 
         auto* col = assert_cast<ColumnVector<Int64> *>(column_ptr);
         for (size_t i = 0; i < child_block->rows(); ++i) {
             col->insert_value(val);
         }
-        cur_col ++;
+        cur_col++;
     }
 
     DCHECK_EQ(cur_col, column_size);
@@ -194,9 +186,10 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(child(0)->get_next(state, _child_block.get(), &_child_eos));
+        while (_child_block->rows() == 0 && ! _child_eos)
+            RETURN_IF_ERROR(child(0)->get_next(state, _child_block.get(), &_child_eos));
 
-        if (_child_block->rows() == 0) {
+        if (_child_eos and _child_block->rows() == 0) {
             *eos = true;
             return Status::OK();
         }

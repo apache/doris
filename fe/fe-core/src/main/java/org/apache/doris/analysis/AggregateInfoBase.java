@@ -127,14 +127,15 @@ public abstract class AggregateInfoBase {
         int aggregateExprStartIndex = groupingExprs_.size();
         // if agg is grouping set, so we should set all groupingExpr unless last groupingExpr
         // must set be be nullable
-        boolean isGroupingSet = groupingExprs_.get(groupingExprs_.size() - 1) instanceof VirtualSlotRef;
+        boolean isGroupingSet = !groupingExprs_.isEmpty() &&
+                groupingExprs_.get(groupingExprs_.size() - 1) instanceof VirtualSlotRef;
 
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
             slotDesc.initFromExpr(expr);
-            // Not change the nullable of slot desc when is not grouping set
-            if (isGroupingSet && i < aggregateExprStartIndex - 1) {
+            // Not change the nullable of slot desc when is not grouping set id
+            if (isGroupingSet && i < aggregateExprStartIndex - 1 && !(expr instanceof VirtualSlotRef)) {
                 slotDesc.setIsNullable(true);
             }
             if (i < aggregateExprStartIndex) {
