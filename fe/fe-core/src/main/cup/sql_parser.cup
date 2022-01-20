@@ -5409,6 +5409,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_COMMIT:id
     {: RESULT = id; :}
+    | KW_COMPACT:id
+    {: RESULT = id; :}
     | KW_CONFIG:id
     {: RESULT = id; :}
     | KW_CONNECTION:id
