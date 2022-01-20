@@ -85,7 +85,7 @@ OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken) {
     return close_status;
 }
 
@@ -257,8 +257,9 @@ TEST_F(LoadChannelMgrTest, normal) {
             row_batch.commit_last_row();
         }
         row_batch.serialize(request.mutable_row_batch());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        // google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -423,11 +424,14 @@ TEST_F(LoadChannelMgrTest, add_failed) {
             row_batch.commit_last_row();
         }
         row_batch.serialize(request.mutable_row_batch());
+        // DeltaWriter's write will return -215
         add_status = OLAP_ERR_TABLE_NOT_FOUND;
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
-        ASSERT_FALSE(st.ok());
+        // st is still ok.
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(2, response.tablet_errors().size());
     }
 }
 
@@ -514,12 +518,12 @@ TEST_F(LoadChannelMgrTest, close_failed) {
         }
         row_batch.serialize(request.mutable_row_batch());
         close_status = OLAP_ERR_TABLE_NOT_FOUND;
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         // even if delta close failed, the return status is still ok, but tablet_vec is empty
         ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(tablet_vec.empty());
+        ASSERT_TRUE(response.tablet_vec().empty());
     }
 }
 
@@ -602,8 +606,8 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
             row_batch.commit_last_row();
         }
         row_batch.serialize(request.mutable_row_batch());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -688,11 +692,11 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
             row_batch.commit_last_row();
         }
         row_batch.serialize(request.mutable_row_batch());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec1;
-        auto st = mgr.add_batch(request, &tablet_vec1);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         ASSERT_TRUE(st.ok());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec2;
-        st = mgr.add_batch(request, &tablet_vec2);
+        PTabletWriterAddBatchResult response2;
+        st = mgr.add_batch(request, &response2);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -704,8 +708,8 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         request.set_sender_id(0);
         request.set_eos(true);
         request.set_packet_seq(0);
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }

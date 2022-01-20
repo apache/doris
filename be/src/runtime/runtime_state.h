@@ -368,6 +368,12 @@ public:
 
     std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
 
+    const std::vector<TErrorTabletInfo>& error_tablet_infos() const {
+        return _error_tablet_infos;
+    }
+
+    std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
+
     /// Helper to call QueryState::StartSpilling().
     Status StartSpilling(MemTracker* mem_tracker);
 
@@ -508,6 +514,7 @@ private:
     std::unique_ptr<LoadErrorHub> _error_hub;
     std::mutex _create_error_hub_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
+    std::vector<TErrorTabletInfo> _error_tablet_infos;
 
     //TODO chenhao , remove this to QueryState
     /// Pool of buffer reservations used to distribute initial reservations to operators

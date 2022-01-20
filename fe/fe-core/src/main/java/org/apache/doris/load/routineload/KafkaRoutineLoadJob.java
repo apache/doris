@@ -280,7 +280,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // If user does not specify kafka partition,
         // We will fetch partition from kafka server periodically
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
-            if (customKafkaPartitions == null && !customKafkaPartitions.isEmpty()) {
+            if (customKafkaPartitions != null && !customKafkaPartitions.isEmpty()) {
                 return;
             }
             updateKafkaPartitions();

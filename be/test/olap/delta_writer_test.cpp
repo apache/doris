@@ -376,7 +376,7 @@ TEST_F(TestDeltaWriter, open) {
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
     SAFE_DELETE(delta_writer);
 
@@ -472,7 +472,7 @@ TEST_F(TestDeltaWriter, write) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
@@ -552,7 +552,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
