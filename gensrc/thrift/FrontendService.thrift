@@ -400,6 +400,8 @@ struct TReportExecStatusParams {
   16: optional i64 backend_id
 
   17: optional i64 loaded_bytes
+
+  18: optional list<Types.TErrorTabletInfo> errorTabletInfos
 }
 
 struct TFeResult {

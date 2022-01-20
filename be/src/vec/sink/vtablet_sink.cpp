@@ -109,7 +109,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         uint32_t tablet_index = dist_hash % partition->num_buckets;
         for (int j = 0; j < partition->indexes.size(); ++j) {
             int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
-            RETURN_IF_ERROR(_channels[j]->add_row(block_row, tablet_id));
+            _channels[j]->add_row(block_row, tablet_id);
             _number_output_rows++;
         }
     }

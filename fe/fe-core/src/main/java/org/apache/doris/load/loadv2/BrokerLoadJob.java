@@ -220,7 +220,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 txnState.addTableIndexes(table);
             }
         } finally {
-           MetaLockUtils.readUnlockTables(tableList);
+            MetaLockUtils.readUnlockTables(tableList);
         }
         // Submit task outside the database lock, cause it may take a while if task queue is full.
         for (LoadTask loadTask : newLoadingTasks) {
@@ -342,6 +342,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
+        errorTabletInfos.addAll(attachment.getErrorTabletInfos());
+
         progress = (int) ((double) finishedTaskIds.size() / idToTasks.size() * 100);
         if (progress == 100) {
             progress = 99;

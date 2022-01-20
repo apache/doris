@@ -144,9 +144,10 @@ private:
     std::function<void(const T&, bool)> success_handler;
 };
 
+class IndexChannel;
 class NodeChannel {
 public:
-    NodeChannel(OlapTableSink* parent, int64_t index_id, int64_t node_id, int32_t schema_hash);
+    NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id, int32_t schema_hash);
     ~NodeChannel() noexcept;
 
     // called before open, used to add tablet located in this backend
@@ -195,6 +196,7 @@ public:
     }
 
     int64_t node_id() const { return _node_id; }
+    std::string host() const { return _node_info.host; }
     std::string name() const { return _name; }
 
     Status none_of(std::initializer_list<bool> vars);
@@ -203,10 +205,7 @@ public:
     void clear_all_batches();
 
     std::string channel_info() const {
-        // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
-        //             But I don't know why. so here I print node_info->id instead of node_info->host
-        //             to avoid BE crash. It needs further observation.
-        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.id,
+        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
                            _node_info.brpc_port);
     }
 
@@ -215,7 +214,7 @@ private:
 
 private:
     OlapTableSink* _parent = nullptr;
-    int64_t _index_id = -1;
+    IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
     int32_t _schema_hash = 0;
     std::string _load_info;
@@ -276,9 +275,9 @@ public:
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
-    Status add_row(Tuple* tuple, int64_t tablet_id);
+    void add_row(Tuple* tuple, int64_t tablet_id);
 
-    Status add_row(BlockRow& block_row, int64_t tablet_id);
+    void add_row(BlockRow& block_row, int64_t tablet_id);
 
     void for_each_node_channel(const std::function<void(NodeChannel*)>& func) {
         for (auto& it : _node_channels) {
@@ -286,20 +285,17 @@ public:
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch) {
-        const auto& it = _tablets_by_channel.find(ch->node_id());
-        if (it == _tablets_by_channel.end()) {
-            return;
-        }
-        for (const auto tablet_id : it->second) {
-            _failed_channels[tablet_id].insert(ch->node_id());
-        }
-    }
-    bool has_intolerable_failure();
+    void mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id = -1);
+    Status check_intolerable_failure();
+
+    // set error tablet info in runtime state, so that it can be returned to FE.
+    void set_error_tablet_in_state(RuntimeState* state);
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
 private:
+    friend class NodeChannel;
+
     OlapTableSink* _parent;
     int64_t _index_id;
     int32_t _schema_hash;
@@ -310,8 +306,14 @@ private:
     std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
     // from backend channel to tablet_id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
+
+    // lock to protect _failed_channels and _failed_channels_msgs
+    mutable SpinLock _fail_lock;
     // key is tablet_id, value is a set of failed node id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
+    // key is tablet_id, value is error message
+    std::unordered_map<int64_t, std::string> _failed_channels_msgs;
+    Status _intolerable_failure_status = Status::OK();
 };
 
 // Write data to Olap Table.

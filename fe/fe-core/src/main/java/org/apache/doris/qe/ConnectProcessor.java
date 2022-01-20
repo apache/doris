@@ -470,19 +470,6 @@ public class ConnectProcessor {
         }
 
         ctx.setThreadLocalInfo();
-
-        if (ctx.getCurrentUserIdentity() == null) {
-            // if we upgrade Master FE first, the request from old FE does not set "current_user_ident".
-            // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
-            // return error directly.
-            TMasterOpResult result = new TMasterOpResult();
-            ctx.getState().setError(ErrorCode.ERR_COMMON_ERROR, "Missing current user identity. You need to upgrade this Frontend " +
-                    "to the same version as Master Frontend.");
-            result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
-            result.setPacket(getResultPacket());
-            return result;
-        }
-
         StmtExecutor executor = null;
         try {
             // 0 for compatibility.

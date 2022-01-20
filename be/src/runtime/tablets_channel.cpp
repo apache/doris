@@ -51,33 +51,34 @@ TabletsChannel::~TabletsChannel() {
     delete _schema;
 }
 
-Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
+Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kOpened) {
         // Normal case, already open by other sender
         return Status::OK();
     }
-    LOG(INFO) << "open tablets channel: " << _key << ", tablets num: " << params.tablets().size()
-              << ", timeout(s): " << params.load_channel_timeout_s();
-    _txn_id = params.txn_id();
-    _index_id = params.index_id();
+    LOG(INFO) << "open tablets channel: " << _key << ", tablets num: " << request.tablets().size()
+              << ", timeout(s): " << request.load_channel_timeout_s();
+    _txn_id = request.txn_id();
+    _index_id = request.index_id();
     _schema = new OlapTableSchemaParam();
-    RETURN_IF_ERROR(_schema->init(params.schema()));
+    RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
     _row_desc = new RowDescriptor(_tuple_desc, false);
 
-    _num_remaining_senders = params.num_senders();
+    _num_remaining_senders = request.num_senders();
     _next_seqs.resize(_num_remaining_senders, 0);
     _closed_senders.Reset(_num_remaining_senders);
 
-    RETURN_IF_ERROR(_open_all_writers(params));
+    RETURN_IF_ERROR(_open_all_writers(request));
 
     _state = kOpened;
     return Status::OK();
 }
 
-Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
-    DCHECK(params.tablet_ids_size() == params.row_batch().num_rows());
+Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
+        PTabletWriterAddBatchResult* response) {
+    DCHECK(request.tablet_ids_size() == request.row_batch().num_rows());
     int64_t cur_seq;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -87,23 +88,27 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
                 : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
                             _key.to_string(), _state));
         }
-        cur_seq = _next_seqs[params.sender_id()];
+        cur_seq = _next_seqs[request.sender_id()];
         // check packet
-        if (params.packet_seq() < cur_seq) {
+        if (request.packet_seq() < cur_seq) {
             LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
-                << ", recept_seq=" << params.packet_seq();
+                << ", recept_seq=" << request.packet_seq();
             return Status::OK();
-        } else if (params.packet_seq() > cur_seq) {
+        } else if (request.packet_seq() > cur_seq) {
             LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
-                << ", recept_seq=" << params.packet_seq();
+                << ", recept_seq=" << request.packet_seq();
             return Status::InternalError("lost data packet");
         }
     }
 
-    RowBatch row_batch(*_row_desc, params.row_batch(), _mem_tracker.get());
+    RowBatch row_batch(*_row_desc, request.row_batch(), _mem_tracker.get());
     std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
-    for (int i = 0; i < params.tablet_ids_size(); ++i) {
-        int64_t tablet_id = params.tablet_ids(i);
+    for (int i = 0; i < request.tablet_ids_size(); ++i) {
+        int64_t tablet_id = request.tablet_ids(i);
+        if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
+            // skip broken tablets
+            continue;
+        }
         auto it = tablet_to_rowidxs.find(tablet_id);
         if (it == tablet_to_rowidxs.end()) {
             tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int>{ i });
@@ -112,6 +117,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         }
     }
 
+    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors = response->mutable_tablet_errors(); 
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
         auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
         if (tablet_writer_it == _tablet_writers.end()) {
@@ -125,13 +131,18 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
                     "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",
                     tablet_to_rowidxs_it.first, _txn_id, st);
             LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
+            PTabletError* error = tablet_errors->Add();
+            error->set_tablet_id(tablet_to_rowidxs_it.first);
+            error->set_msg(err_msg);
+            _broken_tablets.insert(tablet_to_rowidxs_it.first);
+            // continue write to other tablet.
+            // the error will return back to sender.
         }
     }
 
     {
         std::lock_guard<std::mutex> l(_lock);
-        _next_seqs[params.sender_id()] = cur_seq + 1;
+        _next_seqs[request.sender_id()] = cur_seq + 1;
     }
     return Status::OK();
 }
@@ -186,7 +197,7 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         for (auto writer : need_wait_writers) {
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            writer->close_wait(tablet_vec);
+            writer->close_wait(tablet_vec, (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()));
         }
         // TODO(gaodayue) clear and destruct all delta writers to make sure all memory are freed
         // DCHECK_EQ(_mem_tracker->consumption(), 0);
@@ -249,7 +260,7 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     return Status::OK();
 }
 
-Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params) {
+Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {
@@ -264,21 +275,21 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         ss << "unknown index id, key=" << _key;
         return Status::InternalError(ss.str());
     }
-    for (auto& tablet : params.tablets()) {
-        WriteRequest request;
-        request.tablet_id = tablet.tablet_id();
-        request.schema_hash = schema_hash;
-        request.write_type = WriteType::LOAD;
-        request.txn_id = _txn_id;
-        request.partition_id = tablet.partition_id();
-        request.load_id = params.id();
-        request.need_gen_rollup = params.need_gen_rollup();
-        request.tuple_desc = _tuple_desc;
-        request.slots = index_slots;
-        request.is_high_priority = _is_high_priority;
+    for (auto& tablet : request.tablets()) {
+        WriteRequest wrequest;
+        wrequest.tablet_id = tablet.tablet_id();
+        wrequest.schema_hash = schema_hash;
+        wrequest.write_type = WriteType::LOAD;
+        wrequest.txn_id = _txn_id;
+        wrequest.partition_id = tablet.partition_id();
+        wrequest.load_id = request.id();
+        wrequest.need_gen_rollup = request.need_gen_rollup();
+        wrequest.tuple_desc = _tuple_desc;
+        wrequest.slots = index_slots;
+        wrequest.is_high_priority = _is_high_priority;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&request, _mem_tracker, &writer);
+        auto st = DeltaWriter::open(&wrequest, _mem_tracker, &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
@@ -290,7 +301,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         _tablet_writers.emplace(tablet.tablet_id(), writer);
     }
     _s_tablet_writer_count += _tablet_writers.size();
-    DCHECK_EQ(_tablet_writers.size(), params.tablets_size());
+    DCHECK_EQ(_tablet_writers.size(), request.tablets_size());
     return Status::OK();
 }
 

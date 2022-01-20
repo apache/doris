@@ -36,6 +36,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
 
 import org.apache.logging.log4j.LogManager;
@@ -109,7 +110,7 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     @Override
-    protected void executeTask() throws Exception{
+    protected void executeTask() throws Exception {
         LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
@@ -127,8 +128,8 @@ public class LoadLoadingTask extends LoadTask {
         /*
          * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
          * And the variable 'load_mem_limit' does not make any effect.
-         * However, in order to ensure the consistency of semantics when executing on the BE side, 
-         * and to prevent subsequent modification from incorrectly setting the load_mem_limit, 
+         * However, in order to ensure the consistency of semantics when executing on the BE side,
+         * and to prevent subsequent modification from incorrectly setting the load_mem_limit,
          * here we use exec_mem_limit to directly override the load_mem_limit property.
          */
         curCoordinator.setLoadMemLimit(execMemLimit);
@@ -150,10 +151,10 @@ public class LoadLoadingTask extends LoadTask {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                              .add("task_id", signature)
-                              .add("query_id", DebugUtil.printId(curCoordinator.getQueryId()))
-                              .add("msg", "begin to execute plan")
-                              .build());
+                    .add("task_id", signature)
+                    .add("query_id", DebugUtil.printId(curCoordinator.getQueryId()))
+                    .add("msg", "begin to execute plan")
+                    .build());
         }
         curCoordinator.exec();
         if (curCoordinator.join(waitSecond)) {
@@ -162,7 +163,8 @@ public class LoadLoadingTask extends LoadTask {
                 attachment = new BrokerLoadingTaskAttachment(signature,
                         curCoordinator.getLoadCounters(),
                         curCoordinator.getTrackingUrl(),
-                        TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()));
+                        TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
+                        ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()));
                 // Create profile of this task and add to the job profile.
                 createProfile(curCoordinator);
             } else {
