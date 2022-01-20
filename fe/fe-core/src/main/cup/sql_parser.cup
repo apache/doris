@@ -2754,7 +2754,7 @@ show_param ::=
     :}
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
-        RESULT = new ShowTabletStmt(null, tabletId);
+        RESULT = new ShowTabletfe/fe-core/src/main/java/org/apache/doris/common/Config.javaStmt(null, tabletId);
     :}
     | KW_TABLET KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:

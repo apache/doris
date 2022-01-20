@@ -1622,4 +1622,22 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean iceberg_table_creation_strict_mode = true;
 
+    // statistics
+    /*
+     * the max unfinished statistics job number
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_statistics_job_num = 20;
+    /*
+     * the concurrency of statistics task
+     */
+    // TODO change it to mutable true
+    @ConfField(mutable = false, masterOnly = true)
+    public static int concurrency_statistics_task_num = 1;
+    /*
+     * default sample percentage
+     * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int default_sample_percentage = 10;
 }
