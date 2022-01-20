@@ -65,6 +65,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
@@ -198,6 +199,7 @@ public class Coordinator {
     private List<String> exportFiles;
 
     private List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
+    private List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -362,6 +364,10 @@ public class Coordinator {
         return commitInfos;
     }
 
+    public List<TErrorTabletInfo> getErrorTabletInfos() {
+        return errorTabletInfos;
+    }
+
     // Initialize
     private void prepare() {
         for (PlanFragment fragment : fragments) {
@@ -472,11 +478,11 @@ public class Coordinator {
                     && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
                 // set the broker address for OUTFILE sink
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
-                    FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr()
-                            .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+                FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr()
+                        .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
                 topResultFileSink.setBrokerAddr(broker.ip, broker.port);
             }
-        }  else {
+        } else {
             // This is a load process.
             this.queryOptions.setIsReportSuccess(true);
             deltaUrls = Lists.newArrayList();
@@ -699,6 +705,15 @@ public class Coordinator {
         lock.lock();
         try {
             this.commitInfos.addAll(commitInfos);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void updateErrorTabletInfos(List<TErrorTabletInfo> errorTabletInfos) {
+        lock.lock();
+        try {
+            this.errorTabletInfos.addAll(errorTabletInfos);
         } finally {
             lock.unlock();
         }
@@ -1193,10 +1208,10 @@ public class Coordinator {
     // Traverse the expected runtimeFilterID in each fragment, and establish the corresponding relationship
     // between runtimeFilterID and fragment instance addr and select the merge instance of runtimeFilter
     private void assignRuntimeFilterAddr() throws Exception {
-        for (PlanFragment fragment: fragments) {
+        for (PlanFragment fragment : fragments) {
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
             // Transform <fragment, runtimeFilterId> to <runtimeFilterId, fragment>
-            for (RuntimeFilterId rid: fragment.getTargetRuntimeFilterIds()) {
+            for (RuntimeFilterId rid : fragment.getTargetRuntimeFilterIds()) {
                 List<FRuntimeFilterTargetParam> targetFragments =
                         ridToTargetParam.computeIfAbsent(rid, k -> new ArrayList<>());
                 for (final FInstanceExecParam instance : params.instanceExecParams) {
@@ -1204,7 +1219,7 @@ public class Coordinator {
                 }
             }
 
-            for (RuntimeFilterId rid: fragment.getBuilderRuntimeFilterIds()) {
+            for (RuntimeFilterId rid : fragment.getBuilderRuntimeFilterIds()) {
                 ridToBuilderNum.merge(rid, params.instanceExecParams.size(), Integer::sum);
             }
         }
@@ -1262,7 +1277,7 @@ public class Coordinator {
 
     // weather we can overwrite the first parameter or not?
     private List<TScanRangeParams> findOrInsert(Map<Integer, List<TScanRangeParams>> m, Integer key,
-            ArrayList<TScanRangeParams> defaultVal) {
+                                                ArrayList<TScanRangeParams> defaultVal) {
         List<TScanRangeParams> value = m.get(key);
         if (value == null) {
             m.put(key, defaultVal);
@@ -1419,8 +1434,8 @@ public class Coordinator {
     }
 
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
-                                          HashMap<TNetworkAddress, Long> assignedBytesPerHost,
-                                          Reference<Long> backendIdRef) throws UserException {
+                                                         HashMap<TNetworkAddress, Long> assignedBytesPerHost,
+                                                         Reference<Long> backendIdRef) throws UserException {
         if (!Config.enable_local_replica_selection) {
             return selectBackendsByRoundRobin(seqLocation.getLocations(), assignedBytesPerHost, backendIdRef);
         }
@@ -1540,6 +1555,9 @@ public class Coordinator {
             }
             if (params.isSetCommitInfos()) {
                 updateCommitInfos(params.getCommitInfos());
+            }
+            if (params.isSetErrorTabletInfos()) {
+                updateErrorTabletInfos(params.getErrorTabletInfos());
             }
             profileDoneSignal.markedCountDown(params.getFragmentInstanceId(), -1L);
         }
@@ -1706,7 +1724,7 @@ public class Coordinator {
 
         // make sure each host have average bucket to scan
         private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation, PlanFragmentId fragmentId, Integer bucketSeq,
-            ImmutableMap<Long, Backend> idToBackend, Map<TNetworkAddress, Long> addressToBackendID) throws Exception {
+                                                              ImmutableMap<Long, Backend> idToBackend, Map<TNetworkAddress, Long> addressToBackendID) throws Exception {
             Map<Long, Integer> buckendIdToBucketCountMap = fragmentIdToBuckendIdBucketCountMap.get(fragmentId);
             int maxBucketNum = Integer.MAX_VALUE;
             long buckendId = Long.MAX_VALUE;
@@ -1860,7 +1878,7 @@ public class Coordinator {
         long lastMissingHeartbeatTime = -1;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId, int profileFragmentId,
-            TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID) {
+                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.instanceId = instanceId;
@@ -2076,18 +2094,18 @@ public class Coordinator {
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
-                    for (Map.Entry<RuntimeFilterId, List<FRuntimeFilterTargetParam>> entry: ridToTargetParam.entrySet()) {
+                    for (Map.Entry<RuntimeFilterId, List<FRuntimeFilterTargetParam>> entry : ridToTargetParam.entrySet()) {
                         List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
-                        for (FRuntimeFilterTargetParam targetParam: entry.getValue()) {
+                        for (FRuntimeFilterTargetParam targetParam : entry.getValue()) {
                             targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
                                     targetParam.targetFragmentInstanceAddr));
                         }
                         params.params.runtime_filter_params.putToRidToTargetParam(entry.getKey().asInt(), targetParams);
                     }
-                    for (Map.Entry<RuntimeFilterId, Integer> entry: ridToBuilderNum.entrySet()) {
+                    for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
                         params.params.runtime_filter_params.putToRuntimeFilterBuilderNum(entry.getKey().asInt(), entry.getValue());
                     }
-                    for (RuntimeFilter rf: assignedRuntimeFilters) {
+                    for (RuntimeFilter rf : assignedRuntimeFilters) {
                         params.params.runtime_filter_params.putToRidToRuntimeFilter(rf.getFilterId().asInt(), rf.toThrift());
                     }
                 }
@@ -2185,7 +2203,7 @@ public class Coordinator {
         }
 
         public FInstanceExecParam(TUniqueId id, TNetworkAddress host,
-                int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
+                                  int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
             this.instanceId = id;
             this.host = host;
             this.perFragmentInstanceIdx = perFragmentInstanceIdx;
@@ -2229,7 +2247,8 @@ public class Coordinator {
 
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
-        public TUniqueId targetFragmentInstanceId;;
+        public TUniqueId targetFragmentInstanceId;
+        ;
         public TNetworkAddress targetFragmentInstanceAddr;
 
         public FRuntimeFilterTargetParam(TUniqueId id, TNetworkAddress host) {

@@ -68,7 +68,7 @@ public:
     OLAPStatus close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -87,6 +87,8 @@ public:
 
     // Wait all memtable in flush queue to be flushed
     OLAPStatus wait_flush();
+
+    int64_t tablet_id() { return _tablet->tablet_id(); }
 
 private:
     DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,

@@ -105,12 +105,18 @@ message PTabletWriterAddBatchRequest {
     optional bool is_high_priority = 11 [default = false];
 };
 
+message PTabletError {
+    optional int64 tablet_id = 1;
+    optional string msg = 2;
+}
+
 message PTabletWriterAddBatchResult {
     required PStatus status = 1;
     repeated PTabletInfo tablet_vec = 2;
     optional int64 execution_time_us = 3;
     optional int64 wait_lock_time_us = 4;
     optional int64 wait_execution_time_us = 5;
+    repeated PTabletError tablet_errors = 6;
 };
 
 // tablet writer cancel
