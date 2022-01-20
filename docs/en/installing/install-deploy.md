@@ -172,21 +172,21 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 	Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).
 	
     eg.1: 
-    
+  
     Note: For SSD disks, '.SSD 'is followed by the directory, and for HDD disks,'.HDD 'is followed by the directory
-    
+  
     `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
 
     **instructions**
-    
+  
     * 1./home/disk1/doris.HDD,50, indicates capacity limit is 50GB, HDD;
     * 2./home/disk2/doris.SSD,1, indicates  capacity limit is 1GB, SSD;
     * 3./home/disk2/doris, indicates capacity limit is disk capacity, HDD(default)
-    
+  
     eg.2: 
-    
+  
     Note: you do not need to add the suffix to either HHD or SSD disk directories. You only need to set the medium parameter
-    
+  
     `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
       
     **instructions**
@@ -224,7 +224,7 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
 #### (Optional) FS_Broker deployment
 
-Broker is deployed as a plug-in, independent of Doris. If you need to import data from a third-party storage system, you need to deploy the corresponding Broker. By default, it provides fs_broker to read HDFS and Baidu cloud BOS. Fs_broker is stateless and it is recommended that each FE and BE node deploy a Broker.
+Broker is deployed as a plug-in, independent of Doris. If you need to import data from a third-party storage system, you need to deploy the corresponding Broker. By default, it provides fs_broker to read HDFS ,Baidu cloud BOS and Amazon S3. Fs_broker is stateless and it is recommended that each FE and BE node deploy a Broker.
 
 * Copy the corresponding Broker directory in the output directory of the source fs_broker to all the nodes that need to be deployed. It is recommended to maintain the same level as the BE or FE directories.
 
@@ -357,7 +357,7 @@ DECOMMISSION clause:
 > 4. The progress of DECOMMISSION can be viewed through `SHOW PROC '/backends';` Tablet Num, and if it is in progress, Tablet Num will continue to decrease.
 > 5. The operation can be carried out by:
 > 		```CANCEL ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
-> The order was cancelled. When cancelled, the data on the BE will maintain the current amount of data remaining. Follow-up Doris re-load balancing
+> 	The order was cancelled. When cancelled, the data on the BE will maintain the current amount of data remaining. Follow-up Doris re-load balancing
 
 **For expansion and scaling of BE nodes in multi-tenant deployment environments, please refer to the [Multi-tenant Design Document] (./administrator-guide/operation/multi-tenant.md).**
 
