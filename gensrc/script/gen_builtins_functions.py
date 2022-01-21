@@ -24,6 +24,7 @@ This module is doris builtin functions
 
 import sys
 import os
+import errno
 from string import Template
 import doris_builtins_functions
 
