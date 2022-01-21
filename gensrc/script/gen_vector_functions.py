@@ -34,6 +34,7 @@
 
 import string
 import os
+import errno
 
 filter_binary_op = string.Template("\
 bool VectorComputeFunctions::${fn_signature}(\n\
@@ -482,8 +483,11 @@ if __name__ == "__main__":
 
     try:
         os.makedirs(BE_PATH)
-    except FileExistsError:
-        pass
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            pass
+        else:
+            raise
 
     h_file = open(BE_PATH + 'vector-functions.h', 'w')
     cc_file = open(BE_PATH + 'vector-functions.cc', 'w')

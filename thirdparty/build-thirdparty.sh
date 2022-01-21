@@ -616,6 +616,7 @@ build_arrow() {
     export ARROW_Thrift_URL=${TP_SOURCE_DIR}/${THRIFT_NAME}
     export ARROW_SNAPPY_URL=${TP_SOURCE_DIR}/${SNAPPY_NAME}
     export ARROW_ZLIB_URL=${TP_SOURCE_DIR}/${ZLIB_NAME}
+    export ARROW_XSIMD_URL=${TP_SOURCE_DIR}/${XSIMD_NAME}
 
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
