@@ -1253,7 +1253,7 @@ public class StmtExecutor implements ProfileWriter {
                     coord.cancel();
                     if (notTimeout) {
                         errMsg = coord.getExecStatus().getErrorMsg();
-                        ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_UNHEALTHY_BACKEND_EXISTS);
+                        ErrorReport.reportDdlException("There exists unhealthy backend. " + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
                     }
