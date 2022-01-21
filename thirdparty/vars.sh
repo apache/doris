@@ -44,6 +44,9 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 # all java libraries will be unpacked to here
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
+# source of all dependencies
+export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+
 #####################################################
 # Download url, filename and unpaced filename
 # of all thirdparties
@@ -393,6 +396,13 @@ BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
 BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
 BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
 
+# xsimd
+# for arrow-5.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/e9234cd6e6f4428fc260073b2c34ffe86fda1f34.tar.gz"
+XSIMD_NAME=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34.tar.gz
+XSIMD_SOURCE=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34
+XSIMD_MD5SUM="9f230757cf4acd3d544c4a79a020c9dc"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -450,4 +460,5 @@ HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
-BREAKPAD"
+BREAKPAD
+XSIMD"
