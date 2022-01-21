@@ -50,6 +50,10 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 | Java | 1.8 and above |
 | GCC  | 4.8.2 and above |
 
+#### Clock synchronization
+
+The metadata of Doris requires the time precision to be less than 5000ms, so all machines in the cluster need to synchronize the clocks to avoid service exceptions caused by inconsistencies in metadata caused by clock problems.
+
 #### Development Test Environment
 
 | Module | CPU | Memory | Disk | Network | Instance Number|
