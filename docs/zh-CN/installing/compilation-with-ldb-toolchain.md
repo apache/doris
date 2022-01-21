@@ -36,7 +36,7 @@ under the License.
 
 1. 下载 `ldb_toolchain_gen.sh`
 
-    可以从 [这里]() 下载最新的 `ldb_toolchain_gen.sh`。该脚本用于生成 ldb toolchain。
+    可以从 [这里](https://github.com/amosbird/ldb_toolchain_gen/releases) 下载最新的 `ldb_toolchain_gen.sh`。该脚本用于生成 ldb toolchain。
     
     > 更多信息，可访问 [https://github.com/amosbird/ldb_toolchain_gen](https://github.com/amosbird/ldb_toolchain_gen)
 
@@ -65,7 +65,7 @@ under the License.
     2. [Apache Maven 3.8.4](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz)
     3. [Node v12.13.0](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz)
 
-	同时需要自行安装 python。
+    同时需要自行安装 python。
 
 4. 下载 Doris 源码
 

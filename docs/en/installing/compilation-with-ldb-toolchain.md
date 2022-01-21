@@ -65,7 +65,7 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     2. [Apache Maven 3.8.4](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz)
     3. [Node v12.13.0](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz)
 
-	python is also needed.
+    python is also needed.
 
 4. Download Doris source code
 
