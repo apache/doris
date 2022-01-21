@@ -44,6 +44,9 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 # all java libraries will be unpacked to here
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
+# source of all dependencies
+export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+
 #####################################################
 # Download url, filename and unpaced filename
 # of all thirdparties
