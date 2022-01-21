@@ -64,9 +64,8 @@ public:
     void insert_default() override { data.push_back(T()); }
 
     void insert_many_defaults(size_t length) override {
-        for (size_t i = 0; i < length; ++i) {
-            data.push_back(T());
-        } 
+        size_t old_size = data.size();
+        data.resize(old_size + length);
     }
 
     void clear() override { data.clear(); }

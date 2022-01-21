@@ -207,8 +207,13 @@ public:
         size_t chars_old_size = chars.size();
         chars.resize(chars_old_size + length);
         memset(chars.data() + chars_old_size, 0, length);
-        for (size_t i = 0; i < length; i++) {
-            offsets.push_back(offsets.back() + 1);
+
+        const size_t old_size = offsets.size();
+        const size_t new_size = old_size + length;
+        const auto num = offsets.back() + 1; 
+        offsets.resize_fill(new_size, num);
+        for (size_t i = old_size, j = 0; i < new_size; i++, j++) {
+            offsets[i] += j;
         }
     }
 
