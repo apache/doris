@@ -420,7 +420,7 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT> {
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT> {
     using CppType = int128_t;
-    using UnsignedCppType = unsigned int128_t;
+    using UnsignedCppType = uint128_t;
 };
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_FLOAT> {

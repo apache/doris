@@ -51,21 +51,6 @@ public:
     void resize(size_t _size);
 };
 
-template class DataBuffer<bool>;
-template class DataBuffer<int8_t>;
-template class DataBuffer<int16_t>;
-template class DataBuffer<int32_t>;
-template class DataBuffer<uint32_t>;
-template class DataBuffer<int64_t>;
-template class DataBuffer<uint64_t>;
-template class DataBuffer<int128_t>;
-template class DataBuffer<float>;
-template class DataBuffer<double>;
-template class DataBuffer<decimal12_t>;
-template class DataBuffer<uint24_t>;
-template class DataBuffer<Slice>;
-template class DataBuffer<CollectionValue>;
-
 // struct that contains column data(null bitmap), data array in sub class.
 class ColumnVectorBatch {
 public:
@@ -266,19 +251,5 @@ private:
     // Stores each array's start offsets in _elements.
     std::unique_ptr<ScalarColumnVectorBatch<uint32_t>> _offsets;
 };
-
-template class ScalarColumnVectorBatch<bool>;
-template class ScalarColumnVectorBatch<int8_t>;
-template class ScalarColumnVectorBatch<int16_t>;
-template class ScalarColumnVectorBatch<int32_t>;
-template class ScalarColumnVectorBatch<uint32_t>;
-template class ScalarColumnVectorBatch<int64_t>;
-template class ScalarColumnVectorBatch<uint64_t>;
-template class ScalarColumnVectorBatch<int128_t>;
-template class ScalarColumnVectorBatch<float>;
-template class ScalarColumnVectorBatch<double>;
-template class ScalarColumnVectorBatch<decimal12_t>;
-template class ScalarColumnVectorBatch<uint24_t>;
-template class ScalarColumnVectorBatch<Slice>;
 
 } // namespace doris
