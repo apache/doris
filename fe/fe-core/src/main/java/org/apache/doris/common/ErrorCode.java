@@ -1685,7 +1685,8 @@ public enum ErrorCode {
             "data cannot be inserted into table with empty partition. " +
                     "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),
     ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE(5084, new byte[]{'4', '2', '0', '0', '0'},
-            "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.")
+            "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule."),
+    ERR_UNHEALTHY_BACKEND_EXISTS(5085, new byte[]{'H', 'Y', '0', '0', '0'}, "There exists unhealthy backend.")
     ;
 
     // This is error code

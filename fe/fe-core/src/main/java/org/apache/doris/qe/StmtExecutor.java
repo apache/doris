@@ -1248,10 +1248,15 @@ public class StmtExecutor implements ProfileWriter {
 
                 coord.exec();
 
-                coord.join(context.getSessionVariable().getQueryTimeoutS());
+                boolean notTimeout = coord.join(context.getSessionVariable().getQueryTimeoutS());
                 if (!coord.isDone()) {
                     coord.cancel();
-                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+                    if (notTimeout) {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_UNHEALTHY_BACKEND_EXISTS);
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+                    }
+
                 }
 
                 if (!coord.getExecStatus().ok()) {
