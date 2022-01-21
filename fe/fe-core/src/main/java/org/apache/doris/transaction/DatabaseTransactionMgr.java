@@ -1240,7 +1240,7 @@ public class DatabaseTransactionMgr {
                                     "SHOW TRANSACTION",
                                     ConnectContext.get().getQualifiedUser(),
                                     ConnectContext.get().getRemoteIP(),
-                                    tbl.getName());
+                                    db.getFullName() + ": " + tbl.getName());
                         }
                     }
                 }

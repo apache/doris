@@ -161,7 +161,7 @@ public class ExportStmt extends StatementBase {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                    tblName.getTbl());
+                                                tblName.getDb() + ": " + tblName.getTbl());
         }
 
         // check table && partitions whether exist

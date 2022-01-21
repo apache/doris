@@ -71,7 +71,7 @@ public class StatisticsManager {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(),
-                        tableName);
+                        dbName + ": " + tableName);
             }
             // get stats
             result.add(showTableStats(table));
@@ -100,7 +100,7 @@ public class StatisticsManager {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    tableName.getTbl());
+                    tableName.getDb() + ": " + tableName.getTbl());
         }
         // get stats
         List<List<String>> result = Lists.newArrayList();

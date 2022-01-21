@@ -59,7 +59,7 @@ public class AlterViewStmt extends BaseViewStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    tableName.getTbl());
+                    tableName.getDb() + ": " + tableName.getTbl());
         }
 
         if (cols != null) {

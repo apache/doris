@@ -77,7 +77,7 @@ public class CancelAlterTableStmt extends CancelStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL ALTER TABLE",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getTbl());
+                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
         }
     }
 

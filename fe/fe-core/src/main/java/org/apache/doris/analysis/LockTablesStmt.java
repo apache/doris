@@ -71,7 +71,7 @@ public class LockTablesStmt extends StatementBase {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(),
-                        tableName);
+                        dbName + ": " + tableName);
             }
         }
     }

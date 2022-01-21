@@ -107,7 +107,7 @@ public class ShowPartitionsStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                tableName);
+                                                dbName + ": " + tableName);
         }
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);

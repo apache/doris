@@ -203,7 +203,7 @@ public class InsertStmt extends DdlStmt {
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
+                                                ConnectContext.get().getRemoteIP(), dbName + ": " + tableName);
         }
 
         tableMap.put(table.getId(), table);
@@ -271,7 +271,7 @@ public class InsertStmt extends DdlStmt {
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
+                                                ConnectContext.get().getRemoteIP(), tblName.getDb() + ": " + tblName.getTbl());
         }
 
         // check partition

@@ -58,7 +58,7 @@ public class RecoverTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "RECOVERY",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                dbTblName.getTbl());
+                                                dbTblName.getDb() + ": " + dbTblName.getTbl());
         }
     }
 

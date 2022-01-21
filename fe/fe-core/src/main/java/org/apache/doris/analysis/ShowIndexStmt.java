@@ -72,7 +72,7 @@ public class ShowIndexStmt extends ShowStmt {
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
-                    tableName.toString());
+                    tableName.getDb() + ": " + tableName.toString());
         }
     }
 

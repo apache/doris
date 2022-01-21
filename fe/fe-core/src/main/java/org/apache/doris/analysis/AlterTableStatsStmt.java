@@ -63,7 +63,7 @@ public class AlterTableStatsStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE STATS",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    tableName.getTbl());
+                    tableName.getDb() + ": " + tableName.getTbl());
         }
     }
 

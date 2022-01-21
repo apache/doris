@@ -789,7 +789,7 @@ public class DataDescription {
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), tableName);
+                    ConnectContext.get().getRemoteIP(), fullDbName + ": " + tableName);
         }
 
         // check hive table auth
@@ -798,7 +798,7 @@ public class DataDescription {
                     PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(), srcTableName);
+                        ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
             }
         }
     }
