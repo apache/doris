@@ -942,11 +942,11 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
 }
 
 Status IRuntimeFilter::serialize(PMergeFilterRequest* request, void** data, int* len) {
-    return _serialize(request, data, len);
+    return serialize_impl(request, data, len);
 }
 
 Status IRuntimeFilter::serialize(PPublishFilterRequest* request, void** data, int* len) {
-    return _serialize(request, data, len);
+    return serialize_impl(request, data, len);
 }
 
 Status IRuntimeFilter::create_wrapper(const MergeRuntimeFilterParams* param, MemTracker* tracker,
@@ -1034,7 +1034,7 @@ void batch_copy(PInFilter* filter, HybridSetBase::IteratorBase* it,
 }
 
 template <class T>
-Status IRuntimeFilter::_serialize(T* request, void** data, int* len) {
+Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
     request->set_filter_type(get_type(_runtime_filter_type));
 
     if (_runtime_filter_type == RuntimeFilterType::IN_FILTER) {

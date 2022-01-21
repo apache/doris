@@ -630,8 +630,6 @@ header_template = string.Template("\
   static void* ${fn_signature}(Expr* e, TupleRow* row);\n")
 
 BE_PATH = "../gen_cpp/opcode/"
-if not os.path.exists(BE_PATH):
-    os.makedirs(BE_PATH)
 
 def initialize_sub(op, return_type, arg_types):
     """
@@ -654,6 +652,12 @@ def initialize_sub(op, return_type, arg_types):
     return sub
 
 if __name__ == "__main__":
+
+    try:
+        os.makedirs(BE_PATH)
+    except FileExistsError:
+        pass
+
     h_file = open(BE_PATH + 'functions.h', 'w')
     cc_file = open(BE_PATH + 'functions.cc', 'w')
     python_file = open('generated_functions.py', 'w')

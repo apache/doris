@@ -58,7 +58,9 @@ bool CIDR::reset(const std::string& cidr_str) {
     if ((errno == ERANGE && (mask_length == LONG_MAX || mask_length == LONG_MIN)) ||
         (errno != 0 && mask_length == 0)) {
         char errmsg[64];
-        strerror_r(errno, errmsg, 64);
+        // Ignore unused return value
+        if (strerror_r(errno, errmsg, 64))
+            ;
         LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str
                      << ", mask_length=" << mask_length << ", errno=" << errno
                      << ", errmsg=" << errmsg;

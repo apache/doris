@@ -96,15 +96,12 @@ public:
         while (end - begin + 1 >= REGISTER_SIZE) {
             const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i *>(str.ptr + begin));
             const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern);
-            const auto offset = __builtin_ctz(mask ^ 0xffff);
-            /// means not found
-            if (offset == 0)
-            {
-                return StringVal(str.ptr + begin, end - begin + 1);
-            } else if (offset > REGISTER_SIZE) {
+            const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
+            /// zero means not found
+            if (mask == 0) {
                 begin += REGISTER_SIZE;
             } else {
+                const auto offset = __builtin_ctz(mask);
                 begin += offset;
                 return StringVal(str.ptr + begin, end - begin + 1);
             }
