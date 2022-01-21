@@ -88,10 +88,9 @@ option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
-        message(FATAL_ERROR "Need GCC version at least 7.3.0")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
+        message(FATAL_ERROR "Need GCC version at least 11.0")
     endif()
-    message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
 endif()
 
 set(PIC_LIB_PATH "${THIRDPARTY_DIR}")
