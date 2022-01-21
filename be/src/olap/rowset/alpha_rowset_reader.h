@@ -79,7 +79,7 @@ public:
 
     int64_t filtered_rows() override;
 
-    RowsetReaderType type() const override { return RowsetReaderType::ALPHA; }
+    RowsetTypePB type() const override { return RowsetTypePB::ALPHA_ROWSET; }
 
 private:
     OLAPStatus _init_merge_ctxs(RowsetReaderContext* read_context);

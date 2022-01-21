@@ -55,7 +55,7 @@ public:
         return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
     }
 
-    RowsetReaderType type() const override { return RowsetReaderType::BETA; }
+    RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
 private:
     RowsetReaderContext* _context;

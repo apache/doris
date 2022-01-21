@@ -174,7 +174,7 @@ LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
 BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.0.0.tar.gz"
-BRPC_NAME="1.0.0.tar.gz"
+BRPC_NAME="incubator-brpc-1.0.0.tar.gz"
 BRPC_SOURCE="incubator-brpc-1.0.0"
 BRPC_MD5SUM="73b201192a10107628e3af5ccd643676"
 
