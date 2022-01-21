@@ -30,7 +30,6 @@
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
-using doris::operator<<;
 
 namespace doris {
 class FrameOfReferencePageTest : public testing::Test {

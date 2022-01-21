@@ -24,6 +24,7 @@
 #include <boost/stacktrace.hpp>
 #include <cerrno>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 

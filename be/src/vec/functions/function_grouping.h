@@ -52,7 +52,7 @@ public:
         const ColumnWithTypeAndName& src_column = block.get_by_position(arguments[0]);
         const ColumnWithTypeAndName& rel_column = block.get_by_position(result);
         if (!src_column.column)
-            return Status::InternalError("Illegal column " + src_column.column->get_name() + " of first argument of function " + name);
+            return Status::InternalError("Illegal column " + src_column.name + " of first argument of function " + name);
 
         DCHECK(src_column.type->is_nullable() == true);
         MutableColumnPtr res_column = rel_column.type->create_column();
@@ -76,7 +76,7 @@ public:
         const ColumnWithTypeAndName& src_column = block.get_by_position(arguments[0]);
         const ColumnWithTypeAndName& rel_column = block.get_by_position(result);
         if (!src_column.column)
-            return Status::InternalError("Illegal column " + src_column.column->get_name() + " of first argument of function " + name);
+            return Status::InternalError("Illegal column " + src_column.name + " of first argument of function " + name);
 
         DCHECK(src_column.type->is_nullable() == true);
         MutableColumnPtr res_column = rel_column.type->create_column();

@@ -16,15 +16,6 @@
 # under the License.
 
 cmake_minimum_required(VERSION 3.19.2)
- 
-# set CMAKE_C_COMPILER, this must set before project command
-if (DEFINED ENV{DORIS_GCC_HOME})
-    set(CMAKE_C_COMPILER "$ENV{DORIS_GCC_HOME}/bin/gcc")
-    set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
-    set(GCC_HOME $ENV{DORIS_GCC_HOME})
-else()
-    message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
-endif()
 
 project(doris_udf)
 
