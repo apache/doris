@@ -2123,7 +2123,7 @@ Whether to allow multiple replicas of the same tablet to be distributed on the s
 
 ### min_version_count_indicate_replica_compaction_too_slow
 
-Default: 100
+Default: 300
 
 Dynamically configured: true
 

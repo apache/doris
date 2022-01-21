@@ -2147,7 +2147,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### min_version_count_indicate_replica_compaction_too_slow
 
-默认值：100
+默认值：300
 
 是否可以动态配置：true
 

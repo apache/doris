@@ -1587,7 +1587,7 @@ public class Config extends ConfigBase {
      *  The version count threshold used to judge whether replica compaction is too slow
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int min_version_count_indicate_replica_compaction_too_slow = 100;
+    public static int min_version_count_indicate_replica_compaction_too_slow = 300;
 
     /**
      * The data size threshold used to judge whether replica is too large
