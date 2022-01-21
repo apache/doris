@@ -130,7 +130,7 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
                                                 createRoutineLoadStmt.getDBName(),
-                                                reateRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
+                                                createRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
         }
 
         RoutineLoadJob routineLoadJob = null;
