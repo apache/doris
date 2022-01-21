@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -67,15 +67,15 @@ This document focuses on how to code Doris through source code.
 > 3. From docker image of build-env-1.3.1, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
 >
 >   Switch to JDK 8:
->   
+>
 >   ```
 >   $ alternatives --set java java-1.8.0-openjdk.x86_64
 >   $ alternatives --set javac java-1.8.0-openjdk.x86_64
 >   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
 >   ```
->   
+>
 >   Switch to JDK 11:
->   
+>
 >   ```
 >   $ alternatives --set java java-11-openjdk.x86_64
 >   $ alternatives --set javac java-11-openjdk.x86_64
@@ -117,7 +117,7 @@ This document focuses on how to code Doris through source code.
      > `sh build.sh --clean --be --fe --ui`
      >
      > This is because from build-env-for-0.15.0, we upgraded thrift (0.9 -> 0.13), you need to use the --clean command to force the use of the new version of thrift to generate code files, otherwise incompatible code will appear.
-    
+
     After compilation, the output file is in the `output/` directory.
 
 ### Self-compiling Development Environment Mirror
@@ -133,30 +133,30 @@ You can try to compile Doris directly in your own Linux environment.
     * Before commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
        `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+ Bison 3.0+`
-    
+
        If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
-    
+
        `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python autopoint pkg-config`
-    
+
        If you are using CentOS you can use the following command to install the dependencies
-    
+
        `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
-    
+
     * After commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
        `GCC 10+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+ Bison 3.0+`
-    
+
        If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
-    
+
        ```
        sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python
        sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
        sudo apt update
-       sudo apt install gcc-10 g++-10 
+       sudo apt install gcc-10 g++-10
        sudo apt-get install autoconf automake libtool autopoint
        ```
         If you are using CentOS you can use the following command to install the dependencies
-    
+
        ```
        sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
        sudo yum install centos-release-scl
@@ -174,7 +174,7 @@ You can try to compile Doris directly in your own Linux environment.
        ```
        After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
        Doris 0.14.0 will use gcc7 env to compile.
-    
+
 2. Compile Doris
 
     ```

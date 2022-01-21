@@ -22,7 +22,7 @@
 ############################################################
 
 ###################################################
-# DO NOT change variables bellow unless you known 
+# DO NOT change variables bellow unless you known
 # what you are doing.
 ###################################################
 
@@ -88,10 +88,10 @@ GLOG_SOURCE=glog-0.4.0
 GLOG_MD5SUM="0daea8785e6df922d7887755c3d100d0"
 
 # gtest
-GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.10.0.tar.gz"
-GTEST_NAME=googletest-release-1.10.0.tar.gz
-GTEST_SOURCE=googletest-release-1.10.0
-GTEST_MD5SUM="ecd1fa65e7de707cd5c00bdac56022cd"
+GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.11.0.tar.gz"
+GTEST_NAME=googletest-release-1.11.0.tar.gz
+GTEST_SOURCE=googletest-release-1.11.0
+GTEST_MD5SUM="e8a8df240b6938bb6384155d4c37d937"
 
 # snappy
 SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.8.tar.gz"
@@ -108,7 +108,7 @@ GPERFTOOLS_MD5SUM="e340f1b247ff512119a2db98c1538dc1"
 # zlib
 ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
 ZLIB_NAME=zlib-1.2.11.tar.gz
-ZLIB_SOURCE=zlib-1.2.11 
+ZLIB_SOURCE=zlib-1.2.11
 ZLIB_MD5SUM="1c9f62f0778697a09d36121ead88e08e"
 
 # lz4
@@ -184,7 +184,7 @@ ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
 
-#cyrus-sasl
+# cyrus-sasl
 CYRUS_SASL_DOWNLOAD="https://github.com/cyrusimap/cyrus-sasl/releases/download/cyrus-sasl-2.1.27/cyrus-sasl-2.1.27.tar.gz"
 CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
@@ -349,6 +349,12 @@ XML2_NAME="libxml2-v2.9.10.tar.gz"
 XML2_SOURCE="libxml2-v2.9.10"
 XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
 
+# idn
+IDN_DOWNLOAD="https://ftp.gnu.org/gnu/libidn/libidn-1.38.tar.gz"
+IDN_NAME="libidn-1.38.tar.gz"
+IDN_SOURCE="libidn-1.38"
+IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
+
 # gsasl
 GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
 GSASL_NAME="libgsasl-1.10.0.tar.gz"
@@ -438,10 +444,10 @@ AWS_S2N
 AWS_SDK
 LZMA
 XML2
+IDN
 GSASL
 HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
 BREAKPAD"
-
