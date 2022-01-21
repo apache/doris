@@ -73,7 +73,7 @@ used to build this image before)
 
 ```console
 $ docker run -it -v /your/local/path/incubator-doris/:/root/incubator-doris/ doris:v1.0
-$ $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ doris:v1.0
+$ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ doris:v1.0
 ```
 
 Then you can build source code inside the container.
@@ -97,4 +97,4 @@ The version of jdk you used to run FE must be the same version you used to compi
 
 ### Latest update time
 
-2021-12-15
+2022-1-23

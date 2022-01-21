@@ -28,6 +28,8 @@ under the License.
 
 本文档主要介绍如何使用 LDB toolchain 编译 Doris。该方式目前作为 Docker 编译方式的补充，方便没有 Docker 环境的开发者和用户编译 Doris 源码。
 
+> 您依然可以使用 Docker 开发镜像编译最新代码：`apache/incubator-doris:build-env-ldb-toolchain-latest`
+
 > 感谢 [Amos Bird](https://github.com/amosbird) 的贡献。
 
 ## 准备编译环境
