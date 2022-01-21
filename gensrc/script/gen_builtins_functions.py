@@ -177,8 +177,11 @@ if __name__ == "__main__":
 
     try:
         os.makedirs(FE_PATH)
-    except FileExistsError:
-        pass
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            pass
+        else:
+            raise
 
     # Read the function metadata inputs
     for function in doris_builtins_functions.visible_functions:
