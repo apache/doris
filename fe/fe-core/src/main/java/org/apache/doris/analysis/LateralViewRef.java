@@ -176,5 +176,18 @@ public class LateralViewRef extends TableRef {
             throw new AnalysisException("Subquery is not allowed in lateral view");
         }
     }
+
+    @Override
+    public void reset() {
+        isAnalyzed = false;
+        expr.reset();
+        fnExpr = null;
+        originSlotRefList = Lists.newArrayList();
+        view = null;
+        explodeSlotRef = null;
+        // There is no need to call the reset function of @relatedTableRef here.
+        // The main reason is that @lateralViewRef itself is an attribute of @relatedTableRef
+        // The reset of @lateralViewRef happens in the reset() of @relatedTableRef.
+    }
 }
 

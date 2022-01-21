@@ -716,6 +716,11 @@ public class TableRef implements ParseNode, Writable {
         allMaterializedTupleIds_.clear();
         correlatedTupleIds_.clear();
         desc = null;
+        if (lateralViewRefs != null) {
+            for (LateralViewRef lateralViewRef : lateralViewRefs) {
+                lateralViewRef.reset();
+            }
+        }
     }
 
     /**
