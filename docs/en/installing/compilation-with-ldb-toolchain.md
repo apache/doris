@@ -26,7 +26,7 @@ under the License.
 
 # Compiling with LDB toolchain
 
-This document describes how to compile Doris using the LDB toolchain, which will later replace the Docker development image as the default source code compilation method for Doris.
+This document describes how to compile Doris using the LDB toolchain. This method is currently used as a supplement to the Docker compilation method to facilitate developers and users without a Docker environment to compile Doris source code.
 
 > Thanks to [Amos Bird](https://github.com/amosbird) for this contribution.
 
@@ -65,7 +65,28 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     2. [Apache Maven 3.8.4](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz)
     3. [Node v12.13.0](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz)
 
-    python is also needed.
+    If your environment is somehow minimal, additional packages should be installed before compiling Doris. The following instructions describe how to setup a minimal CentOS 6 box to compile Doris. Other linux distros should be similar.
+
+    ```
+    # install required system packages
+    yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2
+    
+    # install autoconf-2.69
+    wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
+        tar zxf autoconf-2.69.tar.gz && \
+        cd autoconf-2.69 && \
+        ./configure && \
+        make && \
+        make install
+    
+    # install bison-3.0.4
+    wget http://ftp.gnu.org/gnu/bison/bison-3.0.4.tar.gz && \
+        tar xzf bison-3.0.4.tar.gz && \
+        cd bison-3.0.4 && \
+        ./configure && \
+        make && \
+        make install
+    ```
 
 4. Download Doris source code
 
