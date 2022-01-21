@@ -63,6 +63,12 @@ public:
 
     void insert_default() override { data.push_back(T()); }
 
+    void insert_many_defaults(size_t length) override {
+        for (size_t i = 0; i < length; ++i) {
+            data.push_back(T());
+        } 
+    }
+
     void clear() override { data.clear(); }
 
     // TODO: value_type is not a pod type, so we also need to

@@ -96,6 +96,11 @@ public:
         get_null_map_data().push_back(1);
     }
 
+    void insert_many_defaults(size_t length) override {
+        get_nested_column().insert_many_defaults(length);
+        get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);
+    }
+
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr filter_by_selector(const uint16_t* sel, size_t sel_size,

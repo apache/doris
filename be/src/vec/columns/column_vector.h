@@ -145,6 +145,12 @@ public:
 
     void insert_default() override { data.push_back(T()); }
 
+    void insert_many_defaults(size_t length) override {
+        size_t old_size = data.size();
+        data.resize(old_size + length);
+        memset(data.data() + old_size, 0, length * sizeof(data[0]));
+    }
+
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;

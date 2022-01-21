@@ -100,7 +100,7 @@ public:
         if (is_string_result) {
             result_column->reserve(input_rows_count);
         } else {
-            result_column->resize(input_rows_count);
+            result_column->insert_many_defaults(input_rows_count);
         }
 
         auto return_type = std::make_shared<DataTypeUInt8>();
