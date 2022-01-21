@@ -1252,11 +1252,11 @@ public class StmtExecutor implements ProfileWriter {
                 if (!coord.isDone()) {
                     coord.cancel();
                     if (notTimeout) {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_UNHEALTHY_BACKEND_EXISTS);
+                        errMsg = coord.getExecStatus().getErrorMsg();
+                        ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_UNHEALTHY_BACKEND_EXISTS);
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
                     }
-
                 }
 
                 if (!coord.getExecStatus().ok()) {
