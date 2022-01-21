@@ -160,6 +160,12 @@ struct TCloneReq {
     10: optional i32 timeout_s;
 }
 
+struct TCompactionReq {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TSchemaHash schema_hash
+    3: optional string type
+}
+
 struct TStorageMediumMigrateReq {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
@@ -318,6 +324,7 @@ struct TAgentTaskRequest {
     24: optional TAlterTabletReqV2 alter_tablet_req_v2
     25: optional i64 recv_time // time the task is inserted to queue
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
+    27: optional TCompactionReq compaction_req
 }
 
 struct TAgentResult {

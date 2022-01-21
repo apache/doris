@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
+import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
@@ -241,6 +242,8 @@ public class DdlExecutor {
             catalog.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
             catalog.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCompactTableStmt) {
+            catalog.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             catalog.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFileStmt) {
