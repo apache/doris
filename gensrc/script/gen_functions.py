@@ -34,6 +34,7 @@
 
 import string
 import os
+import errno
 
 unary_op = string.Template("\
 void* ComputeFunctions::${fn_signature}(Expr* e, TupleRow* row) {\n\
@@ -655,8 +656,11 @@ if __name__ == "__main__":
 
     try:
         os.makedirs(BE_PATH)
-    except FileExistsError:
-        pass
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            pass
+        else:
+            raise
 
     h_file = open(BE_PATH + 'functions.h', 'w')
     cc_file = open(BE_PATH + 'functions.cc', 'w')

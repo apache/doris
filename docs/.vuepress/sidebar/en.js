@@ -28,6 +28,7 @@ module.exports = [
     directoryPath: "installing/",
     children: [
       "compilation",
+      "compilation-with-ldb-toolchain",
       "compilation-arm",
       "install-deploy",
       "upgrade",
