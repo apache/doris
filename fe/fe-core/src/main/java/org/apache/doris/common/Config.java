@@ -1590,6 +1590,13 @@ public class Config extends ConfigBase {
     public static int min_version_count_indicate_replica_compaction_too_slow = 300;
 
     /**
+     * The valid ratio threshold of the difference between the version count of the slowest replica and the fastest replica.
+     * If repair_slow_replica is set to true, it is used to determine whether to repair the slowest replica
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double valid_version_count_delta_ratio_between_replicas = 0.5;
+
+    /**
      * The data size threshold used to judge whether replica is too large
      */
     @ConfField(mutable = true, masterOnly = true)
