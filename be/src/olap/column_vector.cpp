@@ -117,6 +117,10 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, std::sh
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_OBJECT>::CppType>(
                     type_info, is_nullable));
             break;
+        case OLAP_FIELD_TYPE_QUANTILE_STATE:
+            local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE>::CppType>(
+                type_info, is_nullable));
+            break;
         default:
             return Status::NotSupported("unsupported type for ColumnVectorBatch: " +
                                         std::to_string(type_info->type()));

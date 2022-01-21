@@ -164,8 +164,9 @@ struct TypeDescriptor {
     void to_protobuf(PTypeDesc* ptype) const;
 
     inline bool is_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||
-               type == TYPE_OBJECT || type == TYPE_STRING;
+
+        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || 
+                type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
     inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
@@ -175,8 +176,8 @@ struct TypeDescriptor {
     inline bool is_datetime_type() const { return type == TYPE_DATETIME; }
 
     inline bool is_var_len_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR ||
-               type == TYPE_OBJECT || type == TYPE_STRING;
+        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || 
+                type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
     inline bool is_complex_type() const {
@@ -193,6 +194,7 @@ struct TypeDescriptor {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
             return 0;
 
@@ -232,6 +234,7 @@ struct TypeDescriptor {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
             return sizeof(StringValue);
 

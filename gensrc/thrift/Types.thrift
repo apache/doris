@@ -80,7 +80,8 @@ enum TPrimitiveType {
   MAP,
   STRUCT,
   STRING,
-  ALL
+  ALL,
+  QUANTILE_STATE
 }
 
 enum TTypeNodeType {
@@ -145,7 +146,8 @@ enum TAggregationType {
     HLL_UNION,
     NONE,
     BITMAP_UNION,
-    REPLACE_IF_NOT_NULL
+    REPLACE_IF_NOT_NULL,
+    QUANTILE_UNION
 }
 
 enum TPushType {

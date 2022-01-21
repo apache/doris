@@ -246,6 +246,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING: {
         doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {

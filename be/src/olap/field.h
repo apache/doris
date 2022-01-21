@@ -675,6 +675,30 @@ public:
     }
 };
 
+class QuantileStateAggField : public Field {
+public:
+    explicit QuantileStateAggField() : Field() {}
+    explicit QuantileStateAggField(const TabletColumn& column) : Field(column) {}
+
+    // quantile_state storage data always not null
+    void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool,
+                  ObjectPool* agg_pool) const override {
+        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
+    }
+
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto slice = (Slice*)cell_ptr;
+        slice->data = nullptr;
+        return variable_ptr;
+    }
+
+    QuantileStateAggField* clone() const override {
+        auto* local = new QuantileStateAggField();
+        Field::clone(local);
+        return local;
+    }
+};
+
 class HllAggField : public Field {
 public:
     explicit HllAggField() : Field() {}
@@ -750,6 +774,8 @@ public:
             return new HllAggField(column);
         case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
             return new BitmapAggField(column);
+        case OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
+            return new QuantileStateAggField(column);
         case OLAP_FIELD_AGGREGATION_UNKNOWN:
             LOG(WARNING) << "WOW! value column agg type is unknown";
             return nullptr;

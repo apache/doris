@@ -81,6 +81,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_HLL:
     case TYPE_VARCHAR:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
         return pool->add(new StringVal);
 
@@ -147,6 +148,10 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_OBJECT:
         out.type = FunctionContext::TYPE_OBJECT;
         // FIXME(cmy): is this fallthrough meaningful?
+        break;    //TODO(weixiang):why no break here?
+    case TYPE_QUANTILE_STATE:
+        out.type = FunctionContext::TYPE_QUANTILE_STATE;
+        break;
     case TYPE_CHAR:
         out.type = FunctionContext::TYPE_CHAR;
         out.len = type.len;

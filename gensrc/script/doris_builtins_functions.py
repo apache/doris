@@ -1271,6 +1271,15 @@ visible_functions = [
     [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'],
         '_ZN5doris15BitmapFunctions10sub_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValES9_',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
+    # quantile_function
+    [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'],
+        '_ZN5doris22QuantileStateFunctions17to_quantile_stateEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', ''],
+    
+    [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'],
+        '_ZN5doris22QuantileStateFunctions16quantile_percentEPN9doris_udf15FunctionContextERNS1_9StringValE',
+        '', '', 'vec', ''],
+    
 
     # hash functions
     [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'],

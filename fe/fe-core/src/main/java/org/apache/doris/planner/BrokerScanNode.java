@@ -544,6 +544,7 @@ public class BrokerScanNode extends LoadScanNode {
         return rangeDesc;
     }
 
+    //TODO(wx):support quantile state column or forbidden it.
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         locationsList = Lists.newArrayList();

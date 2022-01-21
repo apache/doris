@@ -143,7 +143,8 @@ enum FieldType {
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
     OLAP_FIELD_TYPE_OBJECT = 25,
-    OLAP_FIELD_TYPE_STRING = 26
+    OLAP_FIELD_TYPE_STRING = 26,
+    OLAP_FIELD_TYPE_QUANTILE_STATE = 27
 };
 
 // Define all aggregation methods supported by Field
@@ -161,6 +162,7 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
 // Compression algorithm type

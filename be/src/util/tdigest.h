@@ -443,12 +443,16 @@ public:
     }
 
     uint32_t serialized_size() {
-        return sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
+        return sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
                _processed.size() * sizeof(Centroid) + _unprocessed.size() * sizeof(Centroid) +
                _cumulative.size() * sizeof(Weight);
     }
 
-    void serialize(uint8_t* writer) {
+    size_t serialize(uint8_t* writer) {
+        uint8_t* dst = writer;
+        uint32_t total_size = serialized_size();
+        memcpy(writer, &total_size, sizeof(uint32_t));
+        writer += sizeof(uint32_t);
         memcpy(writer, &_compression, sizeof(Value));
         writer += sizeof(Value);
         memcpy(writer, &_min, sizeof(Value));
@@ -475,6 +479,7 @@ public:
         size = _unprocessed.size();
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
+        //TODO(weixiang): may be once memcpy is enough!
         for (int i = 0; i < size; i++) {
             memcpy(writer, &_unprocessed[i], sizeof(Centroid));
             writer += sizeof(Centroid);
@@ -487,9 +492,13 @@ public:
             memcpy(writer, &_cumulative[i], sizeof(Weight));
             writer += sizeof(Weight);
         }
+        return writer - dst;
     }
 
     void unserialize(const uint8_t* type_reader) {
+        uint32_t total_length = 0;
+        memcpy(&total_length, type_reader, sizeof(uint32_t));
+        type_reader += sizeof(uint32_t);
         memcpy(&_compression, type_reader, sizeof(Value));
         type_reader += sizeof(Value);
         memcpy(&_min, type_reader, sizeof(Value));

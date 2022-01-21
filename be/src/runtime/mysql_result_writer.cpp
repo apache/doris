@@ -121,7 +121,8 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     }
 
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE: {
         if (_output_object_data) {
             const StringValue* string_val = (const StringValue*)(item);
 

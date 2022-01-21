@@ -544,6 +544,10 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 case BITMAP:
                     columnType = "BITMAP";
                     break;
+                // TODO(weixiang): not support in broker load.
+                case QUANTILE_STATE:
+                    columnType = "QUANTILE_STATE";
+                    break;
                 case DECIMALV2:
                     columnType = "DECIMAL";
                     break;

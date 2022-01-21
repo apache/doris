@@ -434,6 +434,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_VARCHAR:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
         case TYPE_STRING: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);

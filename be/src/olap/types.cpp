@@ -83,6 +83,7 @@ ScalarTypeInfoResolver::ScalarTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_STRING>();
     add_mapping<OLAP_FIELD_TYPE_HLL>();
     add_mapping<OLAP_FIELD_TYPE_OBJECT>();
+    add_mapping<OLAP_FIELD_TYPE_QUANTILE_STATE>();
 }
 
 ScalarTypeInfoResolver::~ScalarTypeInfoResolver() {}
