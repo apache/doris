@@ -2098,7 +2098,7 @@ When there are a large number of replicas waiting to be balanced or repaired in 
 Default: true
 IsMutable：true
 MasterOnly: true
-If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version difference between the fastest and slowest replica exceeds the value of min_version_count_indicate_replica_compaction_too_slow, and the difference exceeds 30% of the fastest replica
+If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version count of the fastest replica exceeds the value of min_version_count_indicate_replica_compaction_too_slow, and the version count difference exceeds 30% of the fastest replica
 
 ### colocate_group_relocate_delay_second
 
