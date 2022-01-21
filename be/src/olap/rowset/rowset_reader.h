@@ -21,6 +21,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"
@@ -37,8 +38,6 @@ using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 class RowsetReader {
 public:
-    enum RowsetReaderType { ALPHA, BETA };
-
     virtual ~RowsetReader() {}
 
     // reader init
@@ -63,7 +62,7 @@ public:
 
     virtual int64_t filtered_rows() = 0;
 
-    virtual RowsetReaderType type() const = 0;
+    virtual RowsetTypePB type() const = 0;
 };
 
 } // namespace doris
