@@ -17,15 +17,16 @@
 
 package org.apache.doris.spark.sql
 
+import com.alibaba.fastjson.{JSON, JSONArray}
 import org.apache.doris.spark.cfg.{ConfigurationOptions, SparkSettings}
 import org.apache.doris.spark.{CachedDorisStreamLoadClient, DorisStreamLoad}
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.streaming.Sink
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.slf4j.{Logger, LoggerFactory}
+
 import java.io.IOException
 import java.util
-
 import org.apache.doris.spark.rest.RestService
 
 import scala.util.control.Breaks
@@ -49,18 +50,22 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
 
   def write(queryExecution: QueryExecution): Unit = {
     queryExecution.toRdd.foreachPartition(iter => {
-      val rowsBuffer: util.List[util.List[Object]] = new util.ArrayList[util.List[Object]]()
+      val rowsBuffer: JSONArray = new JSONArray()
       iter.foreach(row => {
-        val line: util.List[Object] = new util.ArrayList[Object](maxRowCount)
-        for (i <- 0 until row.numFields) {
-          val field = row.copy().getUTF8String(i)
-          line.add(field.asInstanceOf[AnyRef])
+        try {
+          for (i <- 0 until row.numFields) {
+            val value = JSON.parseArray(row.copy().getUTF8String(i).toString)
+            rowsBuffer.fluentAddAll(value)
+          }
+        } catch {
+          case e: Exception =>
+            logger.error(s"Non JSON array format data writing is not supported.")
         }
-        rowsBuffer.add(line)
         if (rowsBuffer.size > maxRowCount - 1) {
           flush
         }
-      })
+      }
+      )
       // flush buffer
       if (!rowsBuffer.isEmpty) {
         flush
@@ -76,7 +81,7 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
 
           for (i <- 0 to maxRetryTimes) {
             try {
-              dorisStreamLoader.load(rowsBuffer)
+              dorisStreamLoader.load(rowsBuffer.toString())
               rowsBuffer.clear()
               loop.break()
             }
@@ -89,7 +94,7 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
                   Thread.sleep(1000 * i)
                 } catch {
                   case ex: InterruptedException =>
-                    logger.warn("Data that failed to load : " + dorisStreamLoader.listToString(rowsBuffer))
+                    logger.warn("Data that failed to load : " +  rowsBuffer.toString())
                     Thread.currentThread.interrupt()
                     throw new IOException("unable to flush; interrupted while doing another attempt", e)
                 }
@@ -97,7 +102,7 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
           }
 
           if(!rowsBuffer.isEmpty){
-            logger.warn("Data that failed to load : " + dorisStreamLoader.listToString(rowsBuffer))
+            logger.warn("Data that failed to load : " +  rowsBuffer.toString())
             throw new IOException(s"Failed to load data on BE: ${dorisStreamLoader.getLoadUrlStr} node and exceeded the max retry times.")
           }
         }

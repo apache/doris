@@ -93,7 +93,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister
 
           for (i <- 1 to maxRetryTimes) {
             try {
-              dorisStreamLoader.load(rowsBuffer)
+              dorisStreamLoader.loadV2(rowsBuffer)
               rowsBuffer.clear()
               loop.break()
             }
