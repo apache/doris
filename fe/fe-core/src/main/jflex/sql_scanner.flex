@@ -137,6 +137,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("comment", new Integer(SqlParserSymbols.KW_COMMENT));
         keywordMap.put("commit", new Integer(SqlParserSymbols.KW_COMMIT));
         keywordMap.put("committed", new Integer(SqlParserSymbols.KW_COMMITTED));
+        keywordMap.put("compact", new Integer(SqlParserSymbols.KW_COMPACT));
         keywordMap.put("config", new Integer(SqlParserSymbols.KW_CONFIG));
         keywordMap.put("connection", new Integer(SqlParserSymbols.KW_CONNECTION));
         keywordMap.put("connection_id", new Integer(SqlParserSymbols.KW_CONNECTION_ID));

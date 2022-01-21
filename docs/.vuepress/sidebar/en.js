@@ -497,6 +497,7 @@ module.exports = [
               "ADMIN CANCEL REPAIR",
               "ADMIN CLEAN TRASH",
               "ADMIN CHECK TABLET",
+              "ADMIN COMPACT",
               "ADMIN REPAIR",
               "ADMIN SET CONFIG",
               "ADMIN SET REPLICA STATUS",

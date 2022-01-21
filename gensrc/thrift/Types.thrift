@@ -182,7 +182,8 @@ enum TTaskType {
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
     ALTER,
     INSTALL_PLUGIN,
-    UNINSTALL_PLUGIN
+    UNINSTALL_PLUGIN,
+    COMPACTION
 }
 
 enum TStmtType {

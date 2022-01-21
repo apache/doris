@@ -30,6 +30,7 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
+import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterClause;
@@ -229,6 +230,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -7261,5 +7263,45 @@ public class Catalog {
 
     public static boolean isTableNamesCaseInsensitive() {
         return GlobalVariable.lowerCaseTableNames == 2;
+    }
+
+    public void compactTable(AdminCompactTableStmt stmt) throws DdlException {
+        String dbName = stmt.getDbName();
+        String tableName = stmt.getTblName();
+        String type = stmt.getCompactionType();
+
+
+        Database db = this.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+
+        AgentBatchTask batchTask = new AgentBatchTask();
+        olapTable.readLock();
+        try {
+            List<String> partitionNames = stmt.getPartitions();
+            LOG.info("Table compaction. database: {}, table: {}, partition: {}, type: {}", dbName, tableName,
+                    Joiner.on(", ").join(partitionNames), type);
+            for (String parName : partitionNames) {
+                Partition partition = olapTable.getPartition(parName);
+                if (partition == null) {
+                    throw new DdlException("partition[" + parName + "] not exist in table[" + tableName + "]");
+                }
+
+                for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    for (Tablet tablet : idx.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            CompactionTask compactionTask = new CompactionTask(replica.getBackendId(), db.getId(),
+                                    olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
+                                    olapTable.getSchemaHashByIndexId(idx.getId()), type);
+                            batchTask.addTask(compactionTask);
+                        }
+                    }
+                } // indices
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        // send task immediately
+        AgentTaskExecutor.submit(batchTask);
     }
 }
