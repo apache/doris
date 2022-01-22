@@ -173,12 +173,21 @@ public:
                     new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
             dict_page_decoder->init();
 
+            uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
+            uint32_t dict_len_array[dict_page_decoder->_num_elems];
+            for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
+                const uint32_t start_offset = dict_page_decoder->offset(i);
+                uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
+                dict_start_offset_array[i] = start_offset;
+                dict_len_array[i] = len;
+            }
+
             // decode
             PageDecoderOptions decoder_options;
             BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
             page_decoder.init();
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get());
+            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
 
             //check values
             size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
