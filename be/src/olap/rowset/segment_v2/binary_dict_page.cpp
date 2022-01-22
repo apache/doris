@@ -233,9 +233,11 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder) {
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, uint32_t* start_offset_array, uint32_t* len_array) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
     _bit_shuffle_ptr = reinterpret_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(_data_page_decoder.get());
+    _start_offset_array = start_offset_array;
+    _len_array = len_array;
 };
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
@@ -317,7 +319,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     for (int i = 0; i < len; ++i) {
         int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder
-        *out = _dict_decoder->string_at_index(codeword);
+        *out = Slice(&_dict_decoder->_data[_start_offset_array[codeword]], _len_array[codeword]);
         mem_len[i] = out->size;
         out++;
     }
