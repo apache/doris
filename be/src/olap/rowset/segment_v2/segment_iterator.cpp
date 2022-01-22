@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
+#include <memory>
 #include <set>
 #include <utility>
 
@@ -29,8 +30,9 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
-#include "util/doris_metrics.h"
 #include "olap/in_list_predicate.h"
+#include "util/doris_metrics.h"
+#include "util/simd/bits.h"
 
 using strings::Substitute;
 
@@ -197,8 +199,8 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             }
         }
     }
-    _seek_schema.reset(new Schema(key_fields, key_fields.size()));
-    _seek_block.reset(new RowBlockV2(*_seek_schema, 1, _mem_tracker));
+    _seek_schema = std::make_unique<Schema>(key_fields, key_fields.size());
+    _seek_block = std::make_unique<RowBlockV2>(*_seek_schema, 1, _mem_tracker);
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
@@ -453,7 +455,7 @@ void SegmentIterator::_init_lazy_materialization() {
         for (auto predicate : _col_predicates) {
             predicate_columns.insert(predicate->column_id());
         }
-        _opts.delete_condition_predicates.get()->get_all_column_ids(predicate_columns);
+        _opts.delete_condition_predicates->get_all_column_ids(predicate_columns);
 
         // when all return columns have predicates, disable lazy materialization to avoid its overhead
         if (_schema.column_ids().size() > predicate_columns.size()) {
@@ -542,7 +544,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     // phase 2: run vectorized evaluation on remaining predicates to prune rows.
     // block's selection vector will be set to indicate which rows have passed predicates.
     // TODO(hkp): optimize column predicate to check column block once for one column
-    if (!_col_predicates.empty() || _opts.delete_condition_predicates.get() != nullptr) {
+    if (!_col_predicates.empty() || _opts.delete_condition_predicates != nullptr) {
         // init selection position index
         uint16_t selected_size = block->selected_size();
         uint16_t original_size = selected_size;
@@ -596,13 +598,13 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     _is_all_column_basic_type = true;
     bool is_predicate_column_exists = false;
     bool is_non_predicate_column_exists = false;
-    
+
     if (!_col_predicates.empty()) {
         is_predicate_column_exists = true;
 
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
         std::set<ColumnId> vec_pred_col_id_set;
-        
+
         for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
             FieldType type = _schema.column(cid)->type();
@@ -649,7 +651,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // note(wb) in following cases we disable lazy materialization
-    // case 1: when all column is basic type(is_all_column_basic_type = true) 
+    // case 1: when all column is basic type(is_all_column_basic_type = true)
     //   because we think `seek and read` cost > read page cost, lazy materialize may cause more `seek and read`, so disable it
     // case 2: all column is predicate column
     // case 3: all column is not predicate column
@@ -662,7 +664,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
         for (int i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_ids()[i];
             if (pred_set.find(cid) != pred_set.end()) {
-                _first_read_column_ids.push_back(cid);    
+                _first_read_column_ids.push_back(cid);
             } else if (non_pred_set.find(cid) != non_pred_set.end()) {
                 _first_read_column_ids.push_back(cid);
                 _is_pred_column[cid] = true; // in this case, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
@@ -752,15 +754,15 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block, bool is
     }
  }
 
-void SegmentIterator::_output_column_by_sel_idx(vectorized::Block* block, std::vector<ColumnId> columnIds, 
+void SegmentIterator::_output_column_by_sel_idx(vectorized::Block* block, const std::vector<ColumnId>& columnIds,
         uint16_t* sel_rowid_idx, uint16_t select_size, bool is_block_mem_reuse) {
     for (auto cid : columnIds) {
         auto &column_ptr = _current_return_columns[cid];
         if (is_block_mem_reuse) {
-            column_ptr->filter_by_selector(sel_rowid_idx, select_size, 
+            column_ptr->filter_by_selector(sel_rowid_idx, select_size,
                 &block->get_by_position(_schema_block_id_map[cid]).column);
         } else {
-            block->replace_by_position(_schema_block_id_map[cid], 
+            block->replace_by_position(_schema_block_id_map[cid],
                 (*column_ptr).get_ptr()->filter_by_selector(sel_rowid_idx, select_size));
         }
     }
@@ -807,10 +809,25 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
     bool ret_flags[selected_size];
     memset(ret_flags, 1, selected_size);
     _pre_eval_block_predicate->evaluate_vec(_current_return_columns, selected_size, ret_flags);
-    
-    for (uint32_t i = 0; i < selected_size; ++i) {
-        if (ret_flags[i]) {
-            sel_rowid_idx[new_size++] = i;
+
+    uint32_t sel_pos = 0;
+    const uint32_t sel_end = sel_pos + selected_size;
+    static constexpr size_t SIMD_BYTES = 32;
+    const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
+
+    while (sel_pos < sel_end_simd) {
+        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+        while (mask) {
+            const size_t bit_pos = __builtin_ctzll(mask);
+            sel_rowid_idx[new_size++] = sel_pos + bit_pos;
+            mask = mask & (mask - 1);
+        }
+        sel_pos += SIMD_BYTES;
+    }
+
+    for (; sel_pos < sel_end; sel_pos++) {
+        if (ret_flags[sel_pos]) {
+            sel_rowid_idx[new_size++] = sel_pos;
         }
     }
 
@@ -822,7 +839,7 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
     if (_short_cir_pred_column_ids.size() == 0) {
         return;
     }
-    
+
     for (auto column_predicate : _short_cir_eval_predicate) {
         auto column_id = column_predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
@@ -854,10 +871,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init(true));
         _inited = true;
-        if (_vec_pred_column_ids.size() > 0 || _short_cir_pred_column_ids.size() > 0) {
+        if (!_vec_pred_column_ids.empty() || !_short_cir_pred_column_ids.empty()) {
             _block_rowids.reserve(_opts.block_row_max);
         }
-        _current_return_columns.resize(_schema.columns().size()); 
+        _current_return_columns.resize(_schema.columns().size());
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_ids()[i];
             if (_is_pred_column[cid]) {
@@ -869,7 +886,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     }
 
     _init_current_block(block, _current_return_columns);
-    
+
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
     _read_columns_by_index(nrows_read_limit, nrows_read, _col_predicates.size() > 0);
@@ -890,10 +907,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                     block->replace_by_position(i, data_type->create_column());
                 }
             }
-            // not sure whether block is clear before enter segmentIter, so clear it here.
-            if (is_mem_reuse) {
-                block->clear_column_data();
-            }
+        }
+        // not sure whether block is clear before enter segmentIter, so clear it here.
+        if (is_mem_reuse) {
+            block->clear_column_data();
         }
         return Status::EndOfFile("no more data in segment");
     }
@@ -920,7 +937,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
         _evaluate_short_circuit_predicate(sel_rowid_idx, &selected_size);
-        
+
         // step3: read non_predicate column
         if (_non_predicate_columns.size() != 0) {
             _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx, selected_size, &_current_return_columns);
