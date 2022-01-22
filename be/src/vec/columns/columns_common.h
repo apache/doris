@@ -22,39 +22,9 @@
 
 #include "vec/columns/column.h"
 
-#ifdef __AVX2__
-#include <immintrin.h>
-#elif __SSE2__
-#include <emmintrin.h>
-#endif
-
 /// Common helper methods for implementation of different columns.
 
 namespace doris::vectorized {
-
-/// Transform 32-byte mask to 32-bit mask
-inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* filt_pos) {
-#ifdef __AVX2__
-    auto zero32 = _mm256_setzero_si256();
-    uint32_t mask = static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpgt_epi8(
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(filt_pos)), zero32)));
-#elif __SSE2__
-    auto zero16 = _mm_setzero_si128();
-    uint32_t mask =
-            (static_cast<uint32_t>(_mm_movemask_epi8(_mm_cmpgt_epi8(
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(filt_pos)), zero16)))) |
-            ((static_cast<uint32_t>(_mm_movemask_epi8(_mm_cmpgt_epi8(
-                      _mm_loadu_si128(reinterpret_cast<const __m128i*>(filt_pos + 16)), zero16)))
-              << 16) &
-             0xffff0000);
-#else
-    uint32_t mask = 0;
-    for (size_t i = 0; i < 32; ++i) {
-        mask |= static_cast<uint32_t>(1 == *(filt_pos + i)) << i;
-    }
-#endif
-    return mask;
-}
 
 /// Counts how many bytes of `filt` are greater than zero.
 size_t count_bytes_in_filter(const IColumn::Filter& filt);

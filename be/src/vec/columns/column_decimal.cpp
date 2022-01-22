@@ -20,12 +20,12 @@
 
 #include "vec/columns/column_decimal.h"
 
-#include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/exception.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
+#include "util/simd/bits.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -171,7 +171,7 @@ ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, ssize_t result_s
     const UInt8* filt_end_sse = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_sse) {
-        uint32_t mask = bytes32_mask_to_bits32_mask(filt_pos);
+        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
 
         if (0xFFFFFFFF == mask) {
             res_data.insert(data_pos, data_pos + SIMD_BYTES);

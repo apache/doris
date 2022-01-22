@@ -26,6 +26,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/typeid_cast.h"
+#include "util/simd/bits.h"
 
 namespace doris::vectorized {
 
@@ -178,7 +179,7 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
     const auto filt_end_aligned = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_aligned) {
-        auto mask = bytes32_mask_to_bits32_mask(filt_pos);
+        auto mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
 
         if (mask == 0xffffffff) {
             /// SIMD_BYTES consecutive rows pass the filter
