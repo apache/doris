@@ -42,9 +42,9 @@ RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/bison-3.0.4.tar.
     make && \
     make install
 
-# install maven 3.8.4
+# install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
-    wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.8.4-bin.tar.gz && \
+    wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz && \
     tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \
     rm -f /tmp/apache-maven.tar.gz && \
     ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
