@@ -257,12 +257,14 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    private void registerToDesc() {
+    private void registerToDesc() throws UserException {
         TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
+        analyzer.registerTableRef(tableRef);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
+        exportTupleDesc.setAliases(tableRef.getAliases(), tableRef.hasExplicitAlias());
         if (exportColumns.isEmpty()) {
             for (Column column : exportTable.getBaseSchema()) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
