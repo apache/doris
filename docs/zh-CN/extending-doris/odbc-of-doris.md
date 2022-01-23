@@ -206,7 +206,7 @@ https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-inst
 https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-basic-19.13.0.0.0-2.x86_64.rpm
 ```
 
-## Ubuntu操作系统
+### Ubuntu操作系统
 
 使用的unixODBC版本是：2.3.4，Doris 0.15，Ubuntu 20.04
 
