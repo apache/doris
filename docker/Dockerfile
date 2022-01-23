@@ -21,11 +21,6 @@ FROM centos:7 AS builder
 RUN yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2 \
     bison java-11-openjdk-devel java-1.8.0-openjdk-devel
 
-# install ninjia
-RUN wget -q -O /tmp/ninja-linux.zip https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/ninja-linux.zip \
-    && unzip /tmp/ninja-linux.zip -d /usr/bin/ \
-    && rm /tmp/ninja-linux.zip
-
 # install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
     wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz && \
