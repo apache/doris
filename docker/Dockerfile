@@ -19,28 +19,12 @@ FROM centos:7 AS builder
 
 # install dependencies
 RUN yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2 \
-    java-11-openjdk-devel java-1.8.0-openjdk-devel
+    bison java-11-openjdk-devel java-1.8.0-openjdk-devel
 
 # install ninjia
 RUN wget -q -O /tmp/ninja-linux.zip https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/ninja-linux.zip \
     && unzip /tmp/ninja-linux.zip -d /usr/bin/ \
     && rm /tmp/ninja-linux.zip
-
-# install autoconf-2.69
-RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/autoconf-2.69.tar.gz && \
-    tar zxf autoconf-2.69.tar.gz && \
-    cd autoconf-2.69 && \
-    ./configure && \
-    make && \
-    make install
-
-# install bison-3.0.4
-RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/bison-3.0.4.tar.gz && \
-    tar xzf bison-3.0.4.tar.gz && \
-    cd bison-3.0.4 && \
-    ./configure && \
-    make && \
-    make install
 
 # install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
@@ -92,3 +76,4 @@ ENV JAVA_HOME="/usr/lib/jvm/java-11" \
 WORKDIR /root
 
 CMD ["/bin/bash"]
+
