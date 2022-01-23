@@ -23,6 +23,7 @@ import java.util.Objects;
 
 public class Schema {
     private int status = 0;
+    private String keysType;
     private List<Field> properties;
 
     public Schema() {
@@ -39,6 +40,14 @@ public class Schema {
 
     public void setStatus(int status) {
         this.status = status;
+    }
+
+    public String getKeysType() {
+        return keysType;
+    }
+
+    public void setKeysType(String keysType) {
+        this.keysType = keysType;
     }
 
     public List<Field> getProperties() {
