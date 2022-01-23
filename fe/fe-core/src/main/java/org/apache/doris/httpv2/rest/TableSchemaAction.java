@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -62,7 +63,7 @@ public class TableSchemaAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
-            Table table;
+            OlapTable table;
             try {
                 Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
                 table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
@@ -89,6 +90,7 @@ public class TableSchemaAction extends RestBaseController {
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
+                    resultMap.put("keysType", table.getKeysType().name());
                     resultMap.put("properties", propList);
                 } catch (Exception e) {
                     // Transform the general Exception to custom DorisHttpException
