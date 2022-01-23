@@ -73,7 +73,7 @@ Doris number of submissions per batch
 `doris. [string]`
 Doris stream_load properties,you can use 'doris.' prefix + stream_load properties
 
-[More Doris stream_load Configurations](https://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
+[More Doris stream_load Configurations](https://doris.apache.org/administrator-guide/load-data/stream-load-manual.html)
 
 ### Examples
 Hive to Doris
@@ -120,4 +120,94 @@ Doris {
 Start command
 ```
 sh bin/start-waterdrop-spark.sh --master local[4] --deploy-mode client --config ./config/spark.conf
+```
+
+
+## Flink Sink Doris(2.x)
+Flink Sink Doris [plugin code](https://github.com/apache/incubator-seatunnel/tree/dev/seatunnel-connectors/seatunnel-connector-flink-doris)
+
+### Options
+| name | type | required | default value | engine |
+| --- | --- | --- | --- | --- |
+| fenodes | string | yes | - | Flink |
+| database | string | yes | - | Flink  |
+| table | string | yes | - | Flink  |
+| user	 | string | yes | - | Flink  |
+| password	 | string | yes | - | Flink  |
+| batch_size	 | int | no |  100 | Flink  |
+| interval	 | int | no |1000 | Flink |
+| max_retries	 | int | no | 1 | Flink|
+| doris.*	 | - | no | - | Flink  |
+
+`fenodes [string]`
+
+Doris Fe http url, eg: 127.0.0.1:8030
+
+`database [string]`
+
+Doris database
+
+`table [string]`
+
+Doris table
+
+`user [string]`
+
+Doris user
+
+`password [string]`
+
+Doris password
+
+`batch_size [int]`
+
+The maximum number of lines to write to Doris at a time, the default value is 100
+
+`interval [int]`
+
+The flush interval (in milliseconds), after which the asynchronous thread writes the data in the cache to Doris. Set to 0 to turn off periodic writes.
+
+`max_retries [int]`
+
+Number of retries after writing to Doris fails
+
+`doris.* [string]`
+
+Import parameters for Stream load. For example: 'doris.column_separator' = ', ' etc.
+
+[More Stream Load parameter configuration](https://doris.apache.org/administrator-guide/load-data/stream-load-manual.html)
+
+### Examples
+Socket To Doris
+```
+env {
+  execution.parallelism = 1
+}
+source {
+    SocketStream {
+      host = 127.0.0.1
+      port = 9999
+      result_table_name = "socket"
+      field_name = "info"
+    }
+}
+transform {
+}
+sink {
+  DorisSink {
+      fenodes = "127.0.0.1:8030"
+      user = root
+      password = 123456
+      database = test
+      table = test_tbl
+      batch_size = 5
+      max_retries = 1
+      interval = 5000
+    }
+}
+
+```
+Start command
+```
+sh bin/start-seatunnel-flink.sh --config config/flink.streaming.conf
 ```
