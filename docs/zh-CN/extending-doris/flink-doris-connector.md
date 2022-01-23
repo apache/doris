@@ -319,7 +319,7 @@ outputFormat.close();
 | sink.max-retries     | 1              | 写BE失败之后的重试次数       |
 | sink.batch.interval     | 10s               | flush 间隔时间，超过该时间后异步线程将 缓存中数据写入BE。 默认值为10秒，支持时间单位ms、s、min、h和d。设置为0表示关闭定期写入。 |
 | sink.properties.*     | --               | Stream load 的导入参数<br /><br />例如:<br />'sink.properties.column_separator' = ', '<br />定义列分隔符<br /><br />'sink.properties.escape_delimiters' = 'true'<br />特殊字符作为分隔符,'\\x01'会被转换为二进制的0x01<br /><br /> 'sink.properties.format' = 'json'<br />'sink.properties.strip_outer_array' = 'true' <br />JSON格式导入|
-| sink.enable-delete     | true               | 是否启用删除。此选项需要Doris表开启批量删除功能|
+| sink.enable-delete     | true               | 是否启用删除。此选项需要Doris表开启批量删除功能(0.15+版本默认开启)，只支持Uniq模型。|
 
 ## Doris 和 Flink 列类型映射关系
 

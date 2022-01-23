@@ -174,7 +174,7 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
     }
 
     private boolean enableBatchDelete() {
-        return executionOptions.getEnableDelete() && UNIQUE_KEYS_TYPE.equals(keysType);
+        return executionOptions.getEnableDelete() || UNIQUE_KEYS_TYPE.equals(keysType);
     }
 
     @Override
