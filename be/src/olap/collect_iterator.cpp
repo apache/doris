@@ -186,7 +186,7 @@ OLAPStatus CollectIterator::next(const RowCursor** row, bool* delete_flag) {
 
 CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
         : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {
-    if (LIKELY(rs_reader->type() == RowsetReader::BETA)) {
+    if (LIKELY(rs_reader->type() == RowsetTypePB::BETA_ROWSET)) {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v2;
     } else {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v1;

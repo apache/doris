@@ -83,7 +83,7 @@ double my_double_round(double value, int64_t dec, bool dec_unsigned, bool trunca
             tmp2 = dec < 0 ? std::ceil(value_div_tmp) * tmp : std::ceil(value_mul_tmp) / tmp;
         }
     } else {
-        tmp2 = dec < 0 ? std::rint(value_div_tmp) * tmp : std::rint(value_mul_tmp) / tmp;
+        tmp2 = dec < 0 ? std::round(value_div_tmp) * tmp : std::round(value_mul_tmp) / tmp;
     }
 
     return tmp2;

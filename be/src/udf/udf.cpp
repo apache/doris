@@ -50,7 +50,7 @@ public:
         return reinterpret_cast<uint8_t*>(realloc(ptr, byte_size));
     }
 
-    void free(uint8_t* ptr) { free(ptr); }
+    void free(uint8_t* ptr) { ::free(ptr); }
 };
 
 class RuntimeState {

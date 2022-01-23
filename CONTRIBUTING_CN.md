@@ -1,4 +1,4 @@
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -32,7 +32,7 @@ under the License.
 初次来到 Doris 社区，您可以：
 
 * 关注 Doris [Github 代码库](https://github.com/apache/incubator-doris)
-* 订阅我们的 [邮件列表](./subscribe-mail-list.md)； 
+* 订阅我们的 [邮件列表](./subscribe-mail-list.md)；
 * 加入 Doris 微信群(加微信号：morningman-cmy, 备注：加入Doris群) 随时提问；
 * 进入 Doris 的 [Gitter](./gitter.md) 聊天室；
 
