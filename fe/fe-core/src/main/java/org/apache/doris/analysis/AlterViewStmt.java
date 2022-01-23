@@ -41,7 +41,7 @@ public class AlterViewStmt extends BaseViewStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (tableName == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
@@ -49,7 +49,7 @@ public class AlterViewStmt extends BaseViewStmt {
         tableName.analyze(analyzer);
 
 
-        Table table = analyzer.getTable(tableName);
+        Table table = analyzer.getTableOrAnalysisException(tableName);
         if (!(table instanceof View)) {
             throw new AnalysisException(String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
         }

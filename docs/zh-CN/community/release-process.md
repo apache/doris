@@ -84,11 +84,6 @@ yum install gnupg
 ```
 
 如果不存在这个目录或文件，可以直接创建一个空文件。
-编辑gpg.conf, 修改或者增加 keyserver 配置：
-
-```
-keyserver hkp://keys.gnupg.net
-```
 
 Apache 签名推荐 SHA512， 可以通过配置 gpg 完成。
 编辑gpg.conf, 增加下面的三行：
@@ -208,14 +203,14 @@ mQINBFwJEQ0BEACwqLluHfjBqD/RWZ4uoYxNYHlIzZvbvxAlwS2mn53BirLIU/G3
 公钥服务器是网络上专门储存用户公钥的服务器。send-keys 参数可以将公钥上传到服务器。
 
 ```
-gpg --send-keys xxxx
+gpg --send-keys xxxx --keyserver https://keyserver.ubuntu.com/
 
 ```
 其中 xxxx 为上一步 `--list-keys` 结果中 pub 后面的字符串，如上为：33DBF2E0
 
-也可以通过[网站](https://keys.gnupg.net)上传上述 public-key.txt 的内容：
+也可以通过[网站](https://keyserver.ubuntu.com/)上传上述 public-key.txt 的内容：
 
-上传成功之后，可以通过查询这个[网站](https://keys.gnupg.net)，输入 0x33DBF2E0 查询：
+上传成功之后，可以通过查询这个[网站](https://keyserver.ubuntu.com/)，输入 0x33DBF2E0 查询。（注意需要以 0x 开头）
 
 该网站查询有延迟，可能需要等1个小时。
 
@@ -241,17 +236,34 @@ sub   4096R/0E8182E6 2018-12-06
 
 https://id.apache.org
 
-OpenPGP Public Key Primary Fingerprint:
+`OpenPGP Public Key Primary Fingerprint:`
+
+> 注：每个人可以有多个 Public Key。
 
 #### 生成 keys
 
 ```
 svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
-# edit doris/KEY file
+# edit doris/KEYS file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
 svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
+
+注意，KEYS 文件要同时发布到如下 svn 库：
+
+```
+svn co https://dist.apache.org/repos/dist/release/incubator/doris
+# edit doris/KEYS file
+svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
+```
+
+之后会自动同步到：
+```
+https://downloads.apache.org/incubator/doris/KEYS
+```
+
+在后续的发版投票邮件中，要使用 `https://downloads.apache.org/incubator/doris/KEYS` 这里的 KEYS 文件。
 
 ## 准备发布
 
@@ -294,7 +306,7 @@ $ git checkout -b branch-0.9
 1. 下载编译镜像
 
 	```
-	docker pull apache/incubator-doris:build-env-1.2
+	docker pull apache/incubator-doris:build-env-1.3.1
 	```
 
 2. 使用官方文档编译新分支，编译方式见[Docker 开发镜像编译](http://doris.apache.org/master/zh-CN/installing/compilation.html)
@@ -396,7 +408,7 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc1/
 This has been signed with PGP key 33DBF2E0, corresponding to
 lide@apache.org.
 KEYS file is available here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -483,7 +495,7 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc01/
 
 This has been signed with PGP key 33DBF2E0, corresponding to lide@apache.org.
 KEYS file is available here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -497,12 +509,12 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apache/incubator-doris:build-env-1.3
+$ docker pull apache/incubator-doris:build-env-1.3.1
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apache/incubator-doris:build-env-1.3
+$ docker run -it apache/incubator-doris:build-env-1.3.1
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.

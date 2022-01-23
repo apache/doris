@@ -60,75 +60,64 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
     public static final ConfigOption<String> TABLE_IDENTIFIER = ConfigOptions.key("table.identifier").stringType().noDefaultValue().withDescription("the jdbc table name.");
     public static final ConfigOption<String> USERNAME = ConfigOptions.key("username").stringType().noDefaultValue().withDescription("the jdbc user name.");
     public static final ConfigOption<String> PASSWORD = ConfigOptions.key("password").stringType().noDefaultValue().withDescription("the jdbc password.");
-
+    // Prefix for Doris StreamLoad specific properties.
+    public static final String STREAM_LOAD_PROP_PREFIX = "sink.properties.";
     // doris options
     private static final ConfigOption<String> DORIS_READ_FIELD = ConfigOptions
             .key("doris.read.field")
             .stringType()
             .noDefaultValue()
             .withDescription("List of column names in the Doris table, separated by commas");
-
     private static final ConfigOption<String> DORIS_FILTER_QUERY = ConfigOptions
             .key("doris.filter.query")
             .stringType()
             .noDefaultValue()
             .withDescription("Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering");
-
     private static final ConfigOption<Integer> DORIS_TABLET_SIZE = ConfigOptions
             .key("doris.request.tablet.size")
             .intType()
             .defaultValue(DORIS_TABLET_SIZE_DEFAULT)
             .withDescription("");
-
     private static final ConfigOption<Integer> DORIS_REQUEST_CONNECT_TIMEOUT_MS = ConfigOptions
             .key("doris.request.connect.timeout.ms")
             .intType()
             .defaultValue(DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT)
             .withDescription("");
-
     private static final ConfigOption<Integer> DORIS_REQUEST_READ_TIMEOUT_MS = ConfigOptions
             .key("doris.request.read.timeout.ms")
             .intType()
             .defaultValue(DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT)
             .withDescription("");
-
     private static final ConfigOption<Integer> DORIS_REQUEST_QUERY_TIMEOUT_S = ConfigOptions
             .key("doris.request.query.timeout.s")
             .intType()
             .defaultValue(DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT)
             .withDescription("");
-
     private static final ConfigOption<Integer> DORIS_REQUEST_RETRIES = ConfigOptions
             .key("doris.request.retries")
             .intType()
             .defaultValue(DORIS_REQUEST_RETRIES_DEFAULT)
             .withDescription("");
-
     private static final ConfigOption<Boolean> DORIS_DESERIALIZE_ARROW_ASYNC = ConfigOptions
             .key("doris.deserialize.arrow.async")
             .booleanType()
             .defaultValue(DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT)
             .withDescription("");
-
     private static final ConfigOption<Integer> DORIS_DESERIALIZE_QUEUE_SIZE = ConfigOptions
             .key("doris.request.retriesdoris.deserialize.queue.size")
             .intType()
             .defaultValue(DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT)
             .withDescription("");
-
-
     private static final ConfigOption<Integer> DORIS_BATCH_SIZE = ConfigOptions
             .key("doris.batch.size")
             .intType()
             .defaultValue(DORIS_BATCH_SIZE_DEFAULT)
             .withDescription("");
-
     private static final ConfigOption<Long> DORIS_EXEC_MEM_LIMIT = ConfigOptions
             .key("doris.exec.mem.limit")
             .longType()
             .defaultValue(DORIS_EXEC_MEM_LIMIT_DEFAULT)
             .withDescription("");
-
     // flink write config options
     private static final ConfigOption<Integer> SINK_BUFFER_FLUSH_MAX_ROWS = ConfigOptions
             .key("sink.batch.size")
@@ -136,23 +125,22 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
             .defaultValue(100)
             .withDescription("the flush max size (includes all append, upsert and delete records), over this number" +
                     " of records, will flush data. The default value is 100.");
-
     private static final ConfigOption<Integer> SINK_MAX_RETRIES = ConfigOptions
             .key("sink.max-retries")
             .intType()
             .defaultValue(3)
             .withDescription("the max retry times if writing records to database failed.");
-
     private static final ConfigOption<Duration> SINK_BUFFER_FLUSH_INTERVAL = ConfigOptions
             .key("sink.batch.interval")
             .durationType()
             .defaultValue(Duration.ofSeconds(1))
             .withDescription("the flush interval mills, over this time, asynchronous threads will flush data. The " +
                     "default value is 1s.");
-
-
-    // Prefix for Doris StreamLoad specific properties.
-    public static final String STREAM_LOAD_PROP_PREFIX = "sink.properties.";
+    private static final ConfigOption<Boolean> SINK_ENABLE_DELETE = ConfigOptions
+            .key("sink.enable-delete")
+            .booleanType()
+            .defaultValue(true)
+            .withDescription("whether to enable the delete function");
 
     @Override
     public String factoryIdentifier() {
@@ -190,6 +178,7 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
         options.add(SINK_BUFFER_FLUSH_MAX_ROWS);
         options.add(SINK_MAX_RETRIES);
         options.add(SINK_BUFFER_FLUSH_INTERVAL);
+        options.add(SINK_ENABLE_DELETE);
         return options;
     }
 
@@ -199,7 +188,7 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
         // or use the provided helper utility
         final FactoryUtil.TableFactoryHelper helper = FactoryUtil.createTableFactoryHelper(this, context);
         // validate all options
-        helper.validate();
+        helper.validateExcept(STREAM_LOAD_PROP_PREFIX);
         // get the validated options
         final ReadableConfig options = helper.getOptions();
         // derive the produced data type (excluding computed columns) from the catalog table
@@ -245,6 +234,7 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
         builder.setMaxRetries(readableConfig.get(SINK_MAX_RETRIES));
         builder.setBatchIntervalMs(readableConfig.get(SINK_BUFFER_FLUSH_INTERVAL).toMillis());
         builder.setStreamLoadProp(streamLoadProp);
+        builder.setEnableDelete(readableConfig.get(SINK_ENABLE_DELETE));
         return builder.build();
     }
 
@@ -267,11 +257,14 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
         helper.validateExcept(STREAM_LOAD_PROP_PREFIX);
 
         Properties streamLoadProp = getStreamLoadProp(context.getCatalogTable().getOptions());
+        TableSchema physicalSchema =
+                TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
         // create and return dynamic table source
         return new DorisDynamicTableSink(
                 getDorisOptions(helper.getOptions()),
                 getDorisReadOptions(helper.getOptions()),
-                getDorisExecutionOptions(helper.getOptions(), streamLoadProp)
+                getDorisExecutionOptions(helper.getOptions(), streamLoadProp),
+                physicalSchema
         );
     }
 }

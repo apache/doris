@@ -25,6 +25,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -38,6 +39,7 @@ import org.junit.rules.ExpectedException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
 import mockit.Mock;
 import mockit.MockUp;
 
@@ -57,7 +59,7 @@ public class SelectStmtTest {
     public static void setUp() throws Exception {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
                 + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
@@ -109,7 +111,7 @@ public class SelectStmtTest {
         String tbl2 = "CREATE TABLE db1.table2 (\n" +
                 "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
                 "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
-                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `username` varchar(32) NOT NULL DEFAULT \"\" COMMENT \"\",\n" +
                 "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
@@ -269,14 +271,15 @@ public class SelectStmtTest {
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         String rewritedFragment1 = "((`t1`.`k2` = `t4`.`k2` AND `t3`.`k3` = `t1`.`k3` " +
-                "AND ((`t3`.`k1` = 'D' OR `t3`.`k1` = 'S' OR `t3`.`k1` = 'W') " +
+                "AND ((`t1`.`k4` >= 50 AND `t1`.`k4` <= 200) AND " +
+                "(`t3`.`k1` = 'D' OR `t3`.`k1` = 'S' OR `t3`.`k1` = 'W') " +
                 "AND (`t4`.`k3` = '2 yr Degree' OR `t4`.`k3` = 'Advanced Degree' OR `t4`.`k3` = 'Secondary') " +
                 "AND (`t4`.`k4` = 1 OR `t4`.`k4` = 3))) " +
                 "AND ((`t3`.`k1` = 'D' AND `t4`.`k3` = '2 yr Degree' " +
-                "AND `t1`.`k4` >= 100.00 AND `t1`.`k4` <= 150.00 AND `t4`.`k4` = 3) " +
-                "OR (`t3`.`k1` = 'S' AND `t4`.`k3` = 'Secondary' AND `t1`.`k4` >= 50.00 " +
-                "AND `t1`.`k4` <= 100.00 AND `t4`.`k4` = 1) OR (`t3`.`k1` = 'W' AND `t4`.`k3` = 'Advanced Degree' " +
-                "AND `t1`.`k4` >= 150.00 AND `t1`.`k4` <= 200.00 AND `t4`.`k4` = 1)))";
+                "AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 150 AND `t4`.`k4` = 3) " +
+                "OR (`t3`.`k1` = 'S' AND `t4`.`k3` = 'Secondary' AND `t1`.`k4` >= 50 " +
+                "AND `t1`.`k4` <= 100 AND `t4`.`k4` = 1) OR (`t3`.`k1` = 'W' AND `t4`.`k3` = 'Advanced Degree' " +
+                "AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 200 AND `t4`.`k4` = 1)))";
         String rewritedFragment2 = "((`t1`.`k1` = `t5`.`k1` AND `t5`.`k2` = 'United States' " +
                 "AND ((`t1`.`k4` >= 50 AND `t1`.`k4` <= 300) " +
                 "AND `t5`.`k3` IN ('CO', 'IL', 'MN', 'OH', 'MT', 'NM', 'TX', 'MO', 'MI'))) " +
@@ -521,6 +524,35 @@ public class SelectStmtTest {
     }
 
     @Test
+    public void testSelectHints() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        // hint with integer literal parameter
+        String sql = "select /*+ common_hint(1) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with float literal parameter
+        sql = "select /*+ common_hint(1.1) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with string literal parameter
+        sql = "select /*+ common_hint(\"string\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with key value parameter
+        sql = "select /*+ common_hint(k = \"v\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with multi-parameters
+        sql = "select /*+ common_hint(1, 1.1, \"string\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // multi-hints
+        sql = "select /*+ common_hint(1) another_hint(2) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+    }
+
+    @Test
     public void testSelectHintSetVar() throws Exception {
         String sql = "SELECT sleep(3);";
         Planner planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
@@ -714,5 +746,52 @@ public class SelectStmtTest {
         } catch (AnalysisException e) {
             System.out.println(e.getMessage());
         }
+    }
+
+    @Test
+    public void testWithUnionToSql() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql1 =
+                "select \n" +
+                "  t.k1 \n" +
+                "from (\n" +
+                "  with \n" +
+                "    v1 as (select t1.k1 from db1.tbl1 t1),\n" +
+                "    v2 as (select t2.k1 from db1.tbl1 t2)\n" +
+                "  select v1.k1 as k1 from v1\n" +
+                "  union\n" +
+                "  select v2.k1 as k1 from v2\n" +
+                ") t";
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        stmt1.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt1.toSql().equals("SELECT `t`.`k1` AS `k1` " +
+                "FROM (WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t1)," +
+                "v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2) " +
+                "SELECT `v1`.`k1` AS `k1` FROM `v1` UNION SELECT `v2`.`k1` AS `k1` FROM `v2`) t"));
+
+        String sql2 =
+                "with\n" +
+                "    v1 as (select t1.k1 from db1.tbl1 t1),\n" +
+                "    v2 as (select t2.k1 from db1.tbl1 t2)\n" +
+                "select\n" +
+                "  t.k1\n" +
+                "from (\n" +
+                "  select v1.k1 as k1 from v1\n" +
+                "  union\n" +
+                "  select v2.k1 as k1 from v2\n" +
+                ") t";
+        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+        stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM " +
+                "`default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2)"));
+    }
+
+    @Test
+    public void testSelectOuterJoinSql() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql1 = "select l.citycode, group_concat(r.username) from db1.table1 l left join db1.table2 r on l.citycode=r.citycode group by l.citycode";
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        Assert.assertTrue(stmt1.getAnalyzer().getSlotDesc(new SlotId(2)).getIsNullable());
+        Assert.assertTrue(stmt1.getAnalyzer().getSlotDescriptor("r.username").getIsNullable());
     }
 }

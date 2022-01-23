@@ -51,11 +51,11 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -75,7 +75,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     // Profile of this load job, including all tasks' profiles
     private RuntimeProfile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
-    private boolean isReportSuccess = false;
+    private boolean enableProfile = false;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -87,8 +87,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReportSucc()) {
-            isReportSuccess = true;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
+            enableProfile = true;
         }
     }
 
@@ -194,12 +194,14 @@ public class BrokerLoadJob extends BulkLoadJob {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                         isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
-                        getLoadParallelism(), isReportSuccess ? jobProfile : null);
+                        getLoadParallelism(), getSendBatchParallelism(),
+                        getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null);
+
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),
@@ -218,7 +220,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 txnState.addTableIndexes(table);
             }
         } finally {
-           MetaLockUtils.readUnlockTables(tableList);
+            MetaLockUtils.readUnlockTables(tableList);
         }
         // Submit task outside the database lock, cause it may take a while if task queue is full.
         for (LoadTask loadTask : newLoadingTasks) {
@@ -306,7 +308,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     private void writeProfile() {
-        if (!isReportSuccess) {
+        if (!enableProfile) {
             return;
         }
 
@@ -340,8 +342,20 @@ public class BrokerLoadJob extends BulkLoadJob {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
+        errorTabletInfos.addAll(attachment.getErrorTabletInfos());
+
         progress = (int) ((double) finishedTaskIds.size() / idToTasks.size() * 100);
         if (progress == 100) {
+            progress = 99;
+        }
+    }
+
+    @Override
+    public void updateProgress(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
+                               long scannedBytes, boolean isDone) {
+        super.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
+        progress = (int) ((double) loadStatistic.getLoadBytes() / loadStatistic.totalFileSizeB * 100);
+        if (progress >= 100) {
             progress = 99;
         }
     }

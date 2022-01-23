@@ -49,7 +49,7 @@ public class AggregateFunction extends Function {
     private static final Logger LOG = LogManager.getLogger(AggregateFunction.class);
 
     public static ImmutableSet<String> NOT_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
-            ImmutableSet.of(FunctionSet.COUNT, "ndv", FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize");
+            ImmutableSet.of("row_number", "rank", "dense_rank", FunctionSet.COUNT, "ndv", FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize");
 
     // Set if different from retType_, null otherwise.
     private Type intermediateType;
@@ -103,21 +103,44 @@ public class AggregateFunction extends Function {
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,
+                             Type retType, Type intermediateType, boolean hasVarArgs) {
+        super(fnName, argTypes, retType, hasVarArgs);
+        this.intermediateType = (intermediateType != null && intermediateType.equals(retType)) ? null : intermediateType;
+        ignoresDistinct = false;
+        isAnalyticFn = false;
+        isAggregateFn = true;
+        returnsNonNullOnEmpty = false;
+    }
+
+    public static AggregateFunction createBuiltin(String name,
+                                                  List<Type> argTypes, Type retType, Type intermediateType,
+                                                  boolean ignoresDistinct,
+                                                  boolean isAnalyticFn,
+                                                  boolean returnsNonNullOnEmpty) {
+        return createBuiltin(name, argTypes, retType, intermediateType, false, ignoresDistinct, isAnalyticFn, returnsNonNullOnEmpty);
+    }
+
+    public static AggregateFunction createBuiltin(String name,
+                                                  List<Type> argTypes, Type retType, Type intermediateType,
+                                                  boolean hasVarArgs, boolean ignoresDistinct,
+                                                  boolean isAnalyticFn,
+                                                  boolean returnsNonNullOnEmpty) {
+        AggregateFunction fn = new AggregateFunction(new FunctionName(name), argTypes, retType, intermediateType, hasVarArgs);
+        fn.setBinaryType(TFunctionBinaryType.BUILTIN);
+        fn.ignoresDistinct = ignoresDistinct;
+        fn.isAnalyticFn = isAnalyticFn;
+        fn.isAggregateFn = true;
+        fn.returnsNonNullOnEmpty = returnsNonNullOnEmpty;
+        return fn;
+    }
+
+    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
                              Type retType, Type intermediateType,
                              HdfsURI location, String updateFnSymbol, String initFnSymbol,
                              String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
                              String removeFnSymbol, String finalizeFnSymbol, boolean vectorized) {
         this(fnName, argTypes, retType, intermediateType, false, location, updateFnSymbol, initFnSymbol, serializeFnSymbol,
                 mergeFnSymbol, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, vectorized);
-    }
-
-    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
-                             Type retType, Type intermediateType, boolean hasVarArgs,
-                             HdfsURI location, String updateFnSymbol, String initFnSymbol,
-                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
-                             String removeFnSymbol, String finalizeFnSymbol) {
-        this(fnName, argTypes, retType, intermediateType, hasVarArgs, location, updateFnSymbol, initFnSymbol, serializeFnSymbol,
-                mergeFnSymbol, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, false);
     }
 
     public AggregateFunction(FunctionName fnName, List<Type> argTypes,
@@ -216,9 +239,9 @@ public class AggregateFunction extends Function {
     }
 
     public static AggregateFunction createAnalyticBuiltin(String name,
-            List<Type> argTypes, Type retType, Type intermediateType) {
+            List<Type> argTypes, Type retType, Type intermediateType, boolean vectorized) {
         return createAnalyticBuiltin(name, argTypes, retType, intermediateType, null,
-                null, null, null, null, true);
+                null, null, null, null, true, vectorized);
     }
 
     public static AggregateFunction createAnalyticBuiltin(String name,
@@ -227,16 +250,25 @@ public class AggregateFunction extends Function {
             String getValueFnSymbol, String finalizeFnSymbol) {
         return createAnalyticBuiltin(name, argTypes, retType, intermediateType,
                 initFnSymbol, updateFnSymbol, removeFnSymbol, getValueFnSymbol, finalizeFnSymbol,
-                true);
+                true, false);
     }
 
     public static AggregateFunction createAnalyticBuiltin(String name,
             List<Type> argTypes, Type retType, Type intermediateType,
             String initFnSymbol, String updateFnSymbol, String removeFnSymbol,
-            String getValueFnSymbol, String finalizeFnSymbol, boolean isUserVisible) {
+            String getValueFnSymbol, String finalizeFnSymbol, boolean vectorized) {
+        return createAnalyticBuiltin(name, argTypes, retType, intermediateType,
+                initFnSymbol, updateFnSymbol, removeFnSymbol, getValueFnSymbol, finalizeFnSymbol,
+                true, vectorized);
+    }
+
+    public static AggregateFunction createAnalyticBuiltin(String name,
+            List<Type> argTypes, Type retType, Type intermediateType,
+            String initFnSymbol, String updateFnSymbol, String removeFnSymbol,
+            String getValueFnSymbol, String finalizeFnSymbol, boolean isUserVisible, boolean vectorized) {
         AggregateFunction fn = new AggregateFunction(new FunctionName(name),
                 argTypes, retType, intermediateType, null, updateFnSymbol, initFnSymbol,
-                null, null, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol);
+                null, null, getValueFnSymbol, removeFnSymbol, finalizeFnSymbol, vectorized);
         fn.setBinaryType(TFunctionBinaryType.BUILTIN);
         fn.ignoresDistinct = false;
         fn.isAnalyticFn = true;

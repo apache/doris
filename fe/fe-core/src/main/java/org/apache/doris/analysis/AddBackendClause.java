@@ -17,33 +17,59 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.resource.Tag;
+
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 
 public class AddBackendClause extends BackendClause {
-
     // be in free state is not owned by any cluster
     protected boolean isFree;
     // cluster that backend will be added to 
     protected String destCluster;
+    protected Map<String, String> properties = Maps.newHashMap();
+    private Tag tag;
 
     public AddBackendClause(List<String> hostPorts) {
         super(hostPorts);
         this.isFree = true;
         this.destCluster = "";
     }
-   
-    public AddBackendClause(List<String> hostPorts, boolean isFree) {
+
+    public AddBackendClause(List<String> hostPorts, boolean isFree, Map<String, String> properties) {
         super(hostPorts);
         this.isFree = isFree;
         this.destCluster = "";
+        this.properties = properties;
+        if (this.properties == null) {
+            this.properties = Maps.newHashMap();
+        }
     }
 
     public AddBackendClause(List<String> hostPorts, String destCluster) {
         super(hostPorts);
         this.isFree = false;
         this.destCluster = destCluster;
+    }
+
+    public Tag getTag() {
+        return tag;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException {
+        super.analyze(analyzer);
+        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return properties;
     }
 
     @Override
@@ -77,3 +103,4 @@ public class AddBackendClause extends BackendClause {
     }
 
 }
+

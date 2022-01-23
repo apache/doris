@@ -108,8 +108,9 @@ public class SparkLoadPendingTask extends LoadTask {
     }
 
     @Override
-    void executeTask() throws LoadException {
+    void executeTask() throws UserException {
         LOG.info("begin to execute spark pending task. load job id: {}", loadJobId);
+        ((SparkLoadJob) callback).beginTxn();
         submitEtlJob();
     }
 
@@ -131,16 +132,13 @@ public class SparkLoadPendingTask extends LoadTask {
     }
 
     private void createEtlJobConf() throws LoadException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new LoadException("db does not exist. id: " + dbId);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
 
         Map<Long, EtlTable> tables = Maps.newHashMap();
         Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
         Set<Long> allPartitionsTableIds = Sets.newHashSet();
         prepareTablePartitionInfos(db, tableIdToPartitionIds, allPartitionsTableIds);
-        List<Table> tableList = null;
+        List<Table> tableList;
         try {
             tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(allPartitionsTableIds));
         } catch (MetaNotFoundException e) {
@@ -153,10 +151,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 FileGroupAggKey aggKey = entry.getKey();
                 long tableId = aggKey.getTableId();
 
-                OlapTable table = (OlapTable) db.getTable(tableId);
-                if (table == null) {
-                    throw new LoadException("table does not exist. id: " + tableId);
-                }
+                OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
 
                 EtlTable etlTable = null;
                 if (tables.containsKey(tableId)) {
@@ -166,7 +161,7 @@ public class SparkLoadPendingTask extends LoadTask {
                     List<EtlIndex> etlIndexes = createEtlIndexes(table);
                     // partition info
                     EtlPartitionInfo etlPartitionInfo = createEtlPartitionInfo(table,
-                                                                               tableIdToPartitionIds.get(tableId));
+                            tableIdToPartitionIds.get(tableId));
                     etlTable = new EtlTable(etlIndexes, etlPartitionInfo);
                     tables.put(tableId, etlTable);
 
@@ -204,13 +199,10 @@ public class SparkLoadPendingTask extends LoadTask {
                 continue;
             }
 
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
-                Set<Long> partitionIds = null;
+                Set<Long> partitionIds;
                 if (tableIdToPartitionIds.containsKey(tableId)) {
                     partitionIds = tableIdToPartitionIds.get(tableId);
                 } else {
@@ -326,7 +318,7 @@ public class SparkLoadPendingTask extends LoadTask {
         }
 
         return new EtlColumn(name, columnType, isAllowNull, isKey, aggregationType, defaultValue,
-                             stringLength, precision, scale);
+                stringLength, precision, scale);
     }
 
     private EtlPartitionInfo createEtlPartitionInfo(OlapTable table, Set<Long> partitionIds) throws LoadException {
@@ -457,7 +449,7 @@ public class SparkLoadPendingTask extends LoadTask {
         if (columnToHadoopFunction != null) {
             for (Map.Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                 columnMappings.put(entry.getKey(),
-                                   new EtlColumnMapping(entry.getValue().first, entry.getValue().second));
+                        new EtlColumnMapping(entry.getValue().first, entry.getValue().second));
             }
         }
         for (ImportColumnDesc columnDesc : copiedColumnExprList) {
@@ -486,10 +478,7 @@ public class SparkLoadPendingTask extends LoadTask {
         Map<String, String> hiveTableProperties = Maps.newHashMap();
         if (fileGroup.isLoadFromTable()) {
             long srcTableId = fileGroup.getSrcTableId();
-            HiveTable srcHiveTable = (HiveTable) db.getTable(srcTableId);
-            if (srcHiveTable == null) {
-                throw new LoadException("table does not exist. id: " + srcTableId);
-            }
+            HiveTable srcHiveTable = (HiveTable) db.getTableOrException(srcTableId, s -> new LoadException("table does not exist. id: " + s));
             hiveDbTableName = srcHiveTable.getHiveDbTable();
             hiveTableProperties.putAll(srcHiveTable.getHiveProperties());
         }
@@ -511,13 +500,13 @@ public class SparkLoadPendingTask extends LoadTask {
         EtlFileGroup etlFileGroup = null;
         if (fileGroup.isLoadFromTable()) {
             etlFileGroup = new EtlFileGroup(SourceType.HIVE, hiveDbTableName, hiveTableProperties,
-                                            fileGroup.isNegative(), columnMappings, where, partitionIds);
+                    fileGroup.isNegative(), columnMappings, where, partitionIds);
         } else {
             etlFileGroup = new EtlFileGroup(SourceType.FILE, fileGroup.getFilePaths(), fileFieldNames,
-                                            fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
-                                            fileGroup.getLineDelimiter(), fileGroup.isNegative(),
-                                            fileGroup.getFileFormat(), columnMappings,
-                                            where, partitionIds);
+                    fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
+                    fileGroup.getLineDelimiter(), fileGroup.isNegative(),
+                    fileGroup.getFileFormat(), columnMappings,
+                    where, partitionIds);
         }
 
         return etlFileGroup;
@@ -555,7 +544,8 @@ public class SparkLoadPendingTask extends LoadTask {
         String functionName = fn.getFnName().getFunction();
         if (!functionName.equalsIgnoreCase("to_bitmap")
                 && !functionName.equalsIgnoreCase("bitmap_hash")
-                && !functionName.equalsIgnoreCase("bitmap_dict")) {
+                && !functionName.equalsIgnoreCase("bitmap_dict")
+                && !functionName.equalsIgnoreCase("binary_bitmap")) {
             throw new LoadException(msg);
         }
 

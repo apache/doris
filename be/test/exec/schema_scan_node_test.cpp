@@ -145,7 +145,7 @@ TEST_F(SchemaScanNodeTest, normal_use) {
 TEST_F(SchemaScanNodeTest, Prepare_fail_1) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     TableDescriptor* old = _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc;
-    _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = NULL;
+    _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = nullptr;
     Status status = scan_node.prepare(&runtime_state);
     ASSERT_FALSE(status.ok());
     _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = old;
@@ -201,17 +201,17 @@ TEST_F(SchemaScanNodeTest, get_dest_desc_fail) {
 }
 TEST_F(SchemaScanNodeTest, invalid_param) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    Status status = scan_node.prepare(NULL);
+    Status status = scan_node.prepare(nullptr);
     ASSERT_FALSE(status.ok());
     status = scan_node.prepare(&runtime_state);
     ASSERT_TRUE(status.ok());
-    status = scan_node.open(NULL);
+    status = scan_node.open(nullptr);
     ASSERT_FALSE(status.ok());
     status = scan_node.open(&runtime_state);
     ASSERT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos;
-    status = scan_node.get_next(NULL, &row_batch, &eos);
+    status = scan_node.get_next(nullptr, &row_batch, &eos);
     ASSERT_FALSE(status.ok());
 }
 

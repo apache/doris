@@ -20,6 +20,7 @@ package org.apache.doris.flink.rest.models;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+@Deprecated
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class BackendRow {
 

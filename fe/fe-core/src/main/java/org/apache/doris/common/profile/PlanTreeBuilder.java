@@ -102,13 +102,14 @@ public class PlanTreeBuilder {
     }
 
     private void buildForPlanNode(PlanNode planNode, PlanTreeNode parent) {
-        PlanTreeNode node = new PlanTreeNode(planNode.getId(), planNode.getPlanTreeExplanStr());
+        PlanTreeNode node = new PlanTreeNode(planNode.getId(), planNode.getPlanTreeExplainStr());
 
         if (parent != null) {
             parent.addChild(node);
         }
 
         if (planNode.getPlanNodeName().equals(ExchangeNode.EXCHANGE_NODE)
+                || planNode.getPlanNodeName().equals(ExchangeNode.VEXCHANGE_NODE)
                 || planNode.getPlanNodeName().equals(ExchangeNode.MERGING_EXCHANGE_NODE)) {
             exchangeNodes.add(node);
         } else {

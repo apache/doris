@@ -20,14 +20,17 @@ package org.apache.doris.flink.cfg;
 import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
-import java.time.Duration;
 import java.util.Properties;
 
 /**
  * JDBC sink batch options.
  */
 public class DorisExecutionOptions implements Serializable {
+
     private static final long serialVersionUID = 1L;
+    public static final Integer DEFAULT_BATCH_SIZE = 10000;
+    public static final Integer DEFAULT_MAX_RETRY_TIMES = 1;
+    private static final Long DEFAULT_INTERVAL_MILLIS = 10000L;
 
     private final Integer batchSize;
     private final Integer maxRetries;
@@ -38,12 +41,27 @@ public class DorisExecutionOptions implements Serializable {
      */
     private final Properties streamLoadProp;
 
-    public DorisExecutionOptions(Integer batchSize, Integer maxRetries, Long batchIntervalMs, Properties streamLoadProp) {
+    private final Boolean enableDelete;
+
+
+    public DorisExecutionOptions(Integer batchSize, Integer maxRetries, Long batchIntervalMs, Properties streamLoadProp, Boolean enableDelete) {
         Preconditions.checkArgument(maxRetries >= 0);
         this.batchSize = batchSize;
         this.maxRetries = maxRetries;
         this.batchIntervalMs = batchIntervalMs;
         this.streamLoadProp = streamLoadProp;
+        this.enableDelete = enableDelete;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static DorisExecutionOptions defaults() {
+        Properties pro = new Properties();
+        pro.setProperty("format", "json");
+        pro.setProperty("strip_outer_array", "true");
+        return new Builder().setStreamLoadProp(pro).build();
     }
 
     public Integer getBatchSize() {
@@ -62,18 +80,19 @@ public class DorisExecutionOptions implements Serializable {
         return streamLoadProp;
     }
 
-    public static Builder builder() {
-        return new Builder();
+    public Boolean getEnableDelete() {
+        return enableDelete;
     }
 
     /**
      * Builder of {@link DorisExecutionOptions}.
      */
     public static class Builder {
-        private Integer batchSize;
-        private Integer maxRetries;
-        private Long batchIntervalMs;
-        private Properties streamLoadProp;
+        private Integer batchSize = DEFAULT_BATCH_SIZE;
+        private Integer maxRetries = DEFAULT_MAX_RETRY_TIMES;
+        private Long batchIntervalMs = DEFAULT_INTERVAL_MILLIS;
+        private Properties streamLoadProp = new Properties();
+        private Boolean enableDelete = false;
 
         public Builder setBatchSize(Integer batchSize) {
             this.batchSize = batchSize;
@@ -95,8 +114,13 @@ public class DorisExecutionOptions implements Serializable {
             return this;
         }
 
+        public Builder setEnableDelete(Boolean enableDelete) {
+            this.enableDelete = enableDelete;
+            return this;
+        }
+
         public DorisExecutionOptions build() {
-            return new DorisExecutionOptions(batchSize, maxRetries, batchIntervalMs, streamLoadProp);
+            return new DorisExecutionOptions(batchSize, maxRetries, batchIntervalMs, streamLoadProp, enableDelete);
         }
     }
 

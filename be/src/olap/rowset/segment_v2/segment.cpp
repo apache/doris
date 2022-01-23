@@ -37,16 +37,18 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
-Status Segment::open(std::string filename, uint32_t segment_id, const TabletSchema* tablet_schema,
+Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema,
                      std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(std::move(filename), segment_id, tablet_schema));
-    RETURN_IF_ERROR(segment->_open());
+    std::shared_ptr<Segment> segment(new Segment(path_desc, segment_id, tablet_schema));
+    if (!Env::get_env(path_desc.storage_medium)->is_remote_env()) {
+        RETURN_IF_ERROR(segment->_open());
+    }
     output->swap(segment);
     return Status::OK();
 }
 
-Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _fname(std::move(fname)), _segment_id(segment_id),
+Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema)
+        : _path_desc(path_desc), _segment_id(segment_id),
           _tablet_schema(tablet_schema) {
 #ifndef BE_TEST
     _mem_tracker = MemTracker::CreateTracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);
@@ -62,12 +64,16 @@ Segment::~Segment() {
 Status Segment::_open() {
     RETURN_IF_ERROR(_parse_footer());
     RETURN_IF_ERROR(_create_column_readers());
+    _is_open = true;
     return Status::OK();
 }
 
 Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
                              std::shared_ptr<MemTracker> parent,
                              std::unique_ptr<RowwiseIterator>* iter) {
+    if (!_is_open) {
+        RETURN_IF_ERROR(_open());
+    }
     DCHECK_NOTNULL(read_options.stats);
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
@@ -96,15 +102,15 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
 Status Segment::_parse_footer() {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::unique_ptr<fs::ReadableBlock> rblock;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
-    RETURN_IF_ERROR(block_mgr->open_block(_fname, &rblock));
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc.storage_medium);
+    RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
 
     uint64_t file_size;
     RETURN_IF_ERROR(rblock->size(&file_size));
 
     if (file_size < 12) {
         return Status::Corruption(
-                strings::Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
+                strings::Substitute("Bad segment file $0: file size $1 < 12", _path_desc.filepath, file_size));
     }
 
     uint8_t fixed_buf[12];
@@ -113,14 +119,14 @@ Status Segment::_parse_footer() {
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
         return Status::Corruption(
-                strings::Substitute("Bad segment file $0: magic number not match", _fname));
+                strings::Substitute("Bad segment file $0: magic number not match", _path_desc.filepath));
     }
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
         return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
-                                                      _fname, file_size, 12 + footer_length));
+                                                      _path_desc.filepath, file_size, 12 + footer_length));
     }
     _mem_tracker->Consume(footer_length);
 
@@ -133,14 +139,14 @@ Status Segment::_parse_footer() {
     uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2", _fname,
-                actual_checksum, expect_checksum));
+                "Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2",
+                _path_desc.filepath, actual_checksum, expect_checksum));
     }
 
     // deserialize footer PB
     if (!_footer.ParseFromString(footer_buf)) {
         return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: failed to parse SegmentFooterPB", _fname));
+                "Bad segment file $0: failed to parse SegmentFooterPB",  _path_desc.filepath));
     }
     return Status::OK();
 }
@@ -149,8 +155,8 @@ Status Segment::_load_index() {
     return _load_index_once.call([this] {
         // read and parse short key index page
         std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_mgr = fs::fs_util::block_manager();
-        RETURN_IF_ERROR(block_mgr->open_block(_fname, &rblock));
+        fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc.storage_medium);
+        RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
 
         PageReadOptions opts;
         opts.rblock = rblock.get();
@@ -190,7 +196,7 @@ Status Segment::_create_column_readers() {
         opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
-                                             _footer.num_rows(), _fname, &reader));
+                                             _footer.num_rows(), _path_desc, &reader));
         _column_readers[ordinal] = std::move(reader);
     }
     return Status::OK();

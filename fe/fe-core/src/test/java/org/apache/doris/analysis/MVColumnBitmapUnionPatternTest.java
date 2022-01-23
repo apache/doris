@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
@@ -35,7 +36,7 @@ import mockit.Injectable;
 public class MVColumnBitmapUnionPatternTest {
 
     @Test
-    public void testCorrectExpr1() {
+    public void testCorrectExpr1(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
@@ -45,12 +46,13 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
         Assert.assertTrue(pattern.match(expr));
     }
 
     @Test
-    public void testCorrectExpr2(@Injectable CastExpr castExpr) {
+    public void testCorrectExpr2(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
@@ -66,12 +68,13 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
         Assert.assertTrue(pattern.match(expr));
     }
 
     @Test
-    public void testUpperCaseOfFunction() {
+    public void testUpperCaseOfFunction(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
@@ -81,12 +84,13 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION.toUpperCase(), params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
         Assert.assertTrue(pattern.match(expr));
     }
 
     @Test
-    public void testIncorrectArithmeticExpr1() {
+    public void testIncorrectArithmeticExpr1(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
@@ -94,12 +98,13 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(arithmeticExpr);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
         Assert.assertFalse(pattern.match(expr));
     }
 
     @Test
-    public void testIncorrectArithmeticExpr2() {
+    public void testIncorrectArithmeticExpr2(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
@@ -110,12 +115,13 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
         Assert.assertFalse(pattern.match(expr));
     }
 
     @Test
-    public void testIncorrectDecimalSlotRef() {
+    public void testIncorrectDecimalSlotRef(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef1, "type", Type.DECIMALV2);
@@ -125,18 +131,20 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
         Assert.assertFalse(pattern.match(expr));
     }
 
     @Test
     public void testAggTableBitmapColumn(@Injectable SlotDescriptor desc,
-            @Injectable Column column) {
+            @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef1);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         slotRef1.setType(Type.BITMAP);
         slotRef1.setDesc(desc);
         new Expectations() {

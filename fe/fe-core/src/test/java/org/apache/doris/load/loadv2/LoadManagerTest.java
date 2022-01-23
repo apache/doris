@@ -91,7 +91,7 @@ public class LoadManagerTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = "label1";
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -117,10 +117,10 @@ public class LoadManagerTest {
                                         @Injectable Table table) throws Exception {
         new Expectations(){
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
                 table.getName();
@@ -133,7 +133,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "", "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         File file = serializeToFile(loadManager);
@@ -152,10 +152,10 @@ public class LoadManagerTest {
                                                 @Injectable Table table) throws Exception {
         new Expectations(){
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
                 table.getName();
@@ -168,7 +168,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "", "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         //make job1 don't serialize

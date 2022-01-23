@@ -28,7 +28,7 @@ under the License.
 ## description
 ### Syntax
 
-`DOUBLE get_json_double(VARCHAR json_str, VARCHAR json_path)
+`DOUBLE get_json_double(VARCHAR json_str, VARCHAR json_path)`
 
 
 解析并获取 json 字符串内指定路径的浮点型内容。

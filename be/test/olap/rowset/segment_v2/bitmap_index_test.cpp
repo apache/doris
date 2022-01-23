@@ -30,11 +30,12 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/file_utils.h"
 #include "test_util/test_util.h"
+#include "util/file_utils.h"
 
 namespace doris {
 namespace segment_v2 {
+using roaring::Roaring;
 
 class BitmapIndexTest : public testing::Test {
 public:
@@ -64,8 +65,8 @@ void write_index_file(std::string& filename, const void* values, size_t value_co
     const TypeInfo* type_info = get_type_info(type);
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({filename});
-        ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
+        fs::CreateBlockOptions opts(filename);
+        ASSERT_TRUE(fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
         BitmapIndexWriter::create(type_info, &writer);

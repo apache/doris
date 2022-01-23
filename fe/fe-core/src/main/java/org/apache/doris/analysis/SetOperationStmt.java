@@ -155,6 +155,13 @@ public class SetOperationStmt extends QueryStmt {
         setOpsResultExprs_.clear();
     }
 
+    @Override
+    public void resetSelectList() {
+        for (SetOperand operand : operands) {
+            operand.getQueryStmt().resetSelectList();
+        }
+    }
+
     public List<SetOperand> getOperands() { return operands; }
     public List<SetOperand> getDistinctOperands() { return distinctOperands_; }
     public boolean hasDistinctOps() { return !distinctOperands_.isEmpty(); }
@@ -258,6 +265,8 @@ public class SetOperationStmt extends QueryStmt {
         setOpsResultExprs_ = Expr.cloneList(resultExprs);
         if (evaluateOrderBy) createSortTupleInfo(analyzer);
         baseTblResultExprs = resultExprs;
+
+        if (hasOutFileClause()) outFileClause.analyze(analyzer, resultExprs);
     }
 
     /**
@@ -451,6 +460,7 @@ public class SetOperationStmt extends QueryStmt {
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(tupleDesc);
             slotDesc.setLabel(getColLabels().get(i));
             slotDesc.setType(expr.getType());
+            slotDesc.setIsNullable(expr.isNullable());
             // TODO(zc)
             // slotDesc.setStats(columnStats.get(i));
             SlotRef outputSlotRef = new SlotRef(slotDesc);
@@ -475,7 +485,9 @@ public class SetOperationStmt extends QueryStmt {
                 Expr resultExpr = op.getQueryStmt().getResultExprs().get(i);
                 slotDesc.addSourceExpr(resultExpr);
                 SlotRef slotRef = resultExpr.unwrapSlotRef(false);
-                if (slotRef == null || slotRef.getDesc().getIsNullable()
+                if (slotRef == null) {
+                    isNullable |= resultExpr.isNullable();
+                } else if (slotRef.getDesc().getIsNullable()
                         || analyzer.isOuterJoined(slotRef.getDesc().getParent().getId())) isNullable = true;
                 if (op.hasAnalyticExprs()) continue;
                 slotRef = resultExpr.unwrapSlotRef(true);
@@ -598,6 +610,10 @@ public class SetOperationStmt extends QueryStmt {
             return toSqlString;
         }
         StringBuilder strBuilder = new StringBuilder();
+        if (withClause_ != null) {
+            strBuilder.append(withClause_.toSql());
+            strBuilder.append(" ");
+        }
         Preconditions.checkState(operands.size() > 0);
         strBuilder.append(operands.get(0).getQueryStmt().toSql());
         for (int i = 1; i < operands.size() - 1; ++i) {

@@ -119,6 +119,24 @@ public class BrokerFileGroup implements Writable {
         this.fileFormat = table.getFileFormat();
     }
 
+    // Used for hive table, no need to parse
+    public BrokerFileGroup(HiveTable table,
+                           String columnSeparator,
+                           String lineDelimiter,
+                           String filePath,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           List<ImportColumnDesc> columnExprList) throws AnalysisException {
+        this.tableId = table.getId();
+        this.valueSeparator = Separator.convertSeparator(columnSeparator);
+        this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
+        this.isNegative = false;
+        this.filePaths = Lists.newArrayList(filePath);
+        this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
+        this.columnExprList = columnExprList;
+    }
+
     public BrokerFileGroup(DataDescription dataDescription) {
         this.fileFieldNames = dataDescription.getFileFieldNames();
         this.columnsFromPath = dataDescription.getColumnsFromPath();
@@ -135,17 +153,9 @@ public class BrokerFileGroup implements Writable {
     // This will parse the input DataDescription to list for BrokerFileInfo
     public void parse(Database db, DataDescription dataDescription) throws DdlException {
         // tableId
-        Table table = db.getTable(dataDescription.getTableName());
-        if (table == null) {
-            throw new DdlException("Unknown table " + dataDescription.getTableName()
-                    + " in database " + db.getFullName());
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new DdlException("Table " + table.getName() + " is not OlapTable");
-        }
-        OlapTable olapTable = (OlapTable) table;
-        tableId = table.getId();
-        table.readLock();
+        OlapTable olapTable = db.getOlapTableOrDdlException(dataDescription.getTableName());
+        tableId = olapTable.getId();
+        olapTable.readLock();
         try {
             // partitionId
             PartitionNames partitionNames = dataDescription.getPartitionNames();
@@ -154,14 +164,14 @@ public class BrokerFileGroup implements Writable {
                 for (String pName : partitionNames.getPartitionNames()) {
                     Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
                     if (partition == null) {
-                        throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
+                        throw new DdlException("Unknown partition '" + pName + "' in table '" + olapTable.getName() + "'");
                     }
                     partitionIds.add(partition.getId());
                 }
             }
 
             if (olapTable.getState() == OlapTableState.RESTORE) {
-                throw new DdlException("Table [" + table.getName() + "] is under restore");
+                throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
             }
 
             if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
@@ -170,14 +180,14 @@ public class BrokerFileGroup implements Writable {
 
             // check negative for sum aggregate type
             if (dataDescription.isNegative()) {
-                for (Column column : table.getBaseSchema()) {
+                for (Column column : olapTable.getBaseSchema()) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
                         throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
                     }
                 }
             }
         } finally {
-            table.readUnlock();
+            olapTable.readUnlock();
         }
 
         // column
@@ -208,10 +218,7 @@ public class BrokerFileGroup implements Writable {
         if (dataDescription.isLoadFromTable()) {
             String srcTableName = dataDescription.getSrcTableName();
             // src table should be hive table
-            Table srcTable = db.getTable(srcTableName);
-            if (srcTable == null) {
-                throw new DdlException("Unknown table " + srcTableName + " in database " + db.getFullName());
-            }
+            Table srcTable = db.getTableOrDdlException(srcTableName);
             if (!(srcTable instanceof HiveTable)) {
                 throw new DdlException("Source table " + srcTableName + " is not HiveTable");
             }

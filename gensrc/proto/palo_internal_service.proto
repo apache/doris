@@ -41,7 +41,6 @@ service PInternalService {
 
     rpc merge_filter(doris.PMergeFilterRequest) returns (doris.PMergeFilterResponse);
     rpc apply_filter(doris.PPublishFilterRequest) returns (doris.PPublishFilterResponse);
-
     rpc fold_constant_expr(doris.PConstantExprRequest) returns (doris.PConstantExprResult);
     rpc transmit_block(doris.PTransmitDataParams) returns (doris.PTransmitDataResult);
 };

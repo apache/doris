@@ -51,13 +51,13 @@ public class LikePredicate extends Predicate {
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        functionSet.addBuiltin(ScalarFunction.createBuiltin(
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
                 Operator.LIKE.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 false,
                 "_ZN5doris13LikePredicate4likeEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
                 "_ZN5doris13LikePredicate12like_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
                 "_ZN5doris13LikePredicate10like_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
-        functionSet.addBuiltin(ScalarFunction.createBuiltin(
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
                 Operator.REGEXP.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 false,
                 "_ZN5doris13LikePredicate5regexEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
@@ -113,9 +113,10 @@ public class LikePredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isNull()) {
+        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isFixedPointType()
+                && !getChild(0).getType().isNull()) {
             throw new AnalysisException(
-              "left operand of " + op.toString() + " must be of type STRING: " + toSql());
+              "left operand of " + op.toString() + " must be of type STRING or FIXED_POINT_TYPE: " + toSql());
         }
         if (!getChild(1).getType().isStringType() && !getChild(1).getType().isNull()) {
             throw new AnalysisException(
@@ -124,6 +125,7 @@ public class LikePredicate extends Predicate {
 
         fn = getBuiltinFunction(analyzer, op.toString(),
                 collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+
         if (!getChild(1).getType().isNull() && getChild(1).isLiteral() && (op == Operator.REGEXP)) {
             // let's make sure the pattern works
             // TODO: this checks that it's a Java-supported regex, but the syntax supported

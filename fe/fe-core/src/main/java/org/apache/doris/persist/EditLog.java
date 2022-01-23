@@ -40,6 +40,7 @@ import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -65,7 +66,6 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -194,11 +194,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db = catalog.getDb(info.getDbId());
-                    if (db == null) {
-                        LOG.warn("failed to get db[{}]", info.getDbId());
-                        break;
-                    }
+                    Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = "
                             + db.getFullName() + " table = " + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());
@@ -229,7 +225,7 @@ public class EditLog {
                 }
                 case OperationType.OP_BATCH_MODIFY_PARTITION: {
                     BatchModifyPartitionsInfo info = (BatchModifyPartitionsInfo) journal.getData();
-                    for(ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
+                    for (ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
                         catalog.getAlterInstance().replayModifyPartition(modifyPartitionInfo);
                     }
                     break;
@@ -429,6 +425,11 @@ public class EditLog {
                     Catalog.getCurrentSystemInfo().replayDropBackend(be);
                     break;
                 }
+                case OperationType.OP_MODIFY_BACKEND: {
+                    Backend be = (Backend) journal.getData();
+                    Catalog.getCurrentSystemInfo().replayModifyBackend(be);
+                    break;
+                }
                 case OperationType.OP_BACKEND_STATE_CHANGE: {
                     Backend be = (Backend) journal.getData();
                     Catalog.getCurrentSystemInfo().updateBackendState(be);
@@ -527,11 +528,6 @@ public class EditLog {
                         System.exit(-1);
                     }
                     MetaContext.get().setMetaVersion(version);
-                    break;
-                }
-                case OperationType.OP_GLOBAL_VARIABLE: {
-                    SessionVariable variable = (SessionVariable) journal.getData();
-                    catalog.replayGlobalVariable(variable);
                     break;
                 }
                 case OperationType.OP_CREATE_CLUSTER: {
@@ -767,14 +763,14 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
-                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo)journal.getData();
+                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
                         catalog.getRollupHandler().replayAlterJobV2(alterJobV2);
                     }
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
-                    TableInfo tableInfo = (TableInfo)journal.getData();
+                    TableInfo tableInfo = (TableInfo) journal.getData();
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
@@ -859,12 +855,31 @@ public class EditLog {
                     catalog.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
                     break;
                 }
+                case OperationType.OP_MODIFY_TABLE_ENGINE: {
+                    ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
+                    catalog.getAlterInstance().replayProcessModifyEngine(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
                     throw e;
                 }
             }
+        } catch (MetaNotFoundException e) {
+            /**
+             * In the following cases, doris may record metadata modification information for a table that no longer exists.
+             * 1. Thread 1: get TableA object
+             * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
+             * 3. Thread 1: lock table, modify table and record edit log of the modified TableA
+             * **The modified edit log is after the dropped edit log**
+             * Because the table has been dropped, the olapTable in here is null when the modified edit log is replayed.
+             * So in this case, we will ignore the edit log of the modified table after the table is dropped.
+             * This could make the meta inconsistent, for example, an edit log on a dropped table is ignored, but
+             * this table is restored later, so there may be an inconsistent situation between master and followers. We
+             * log a warning here to debug when happens. This could happen to other meta like DB.
+             */
+            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
         } catch (Exception e) {
             LOG.error("Operation Type {}", opCode, e);
             System.exit(-1);
@@ -1069,7 +1084,7 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ROLLUP, info);
     }
 
-    public void logBatchDropRollup (BatchDropInfo batchDropInfo) {
+    public void logBatchDropRollup(BatchDropInfo batchDropInfo) {
         logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
     }
 
@@ -1099,6 +1114,10 @@ public class EditLog {
 
     public void logDropBackend(Backend be) {
         logEdit(OperationType.OP_DROP_BACKEND, be);
+    }
+
+    public void logModifyBackend(Backend be) {
+        logEdit(OperationType.OP_MODIFY_BACKEND, be);
     }
 
     public void logAddFrontend(Frontend fe) {
@@ -1209,10 +1228,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
     }
 
-    public void logGlobalVariable(SessionVariable variable) {
-        logEdit(OperationType.OP_GLOBAL_VARIABLE, variable);
-    }
-
     public void logCreateCluster(Cluster cluster) {
         logEdit(OperationType.OP_CREATE_CLUSTER, cluster);
     }
@@ -1270,7 +1285,7 @@ public class EditLog {
     public void logInsertTransactionState(TransactionState transactionState) {
         logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
     }
-    
+
     public void logBackupJob(BackupJob job) {
         logEdit(OperationType.OP_BACKUP_JOB, job);
     }
@@ -1473,5 +1488,9 @@ public class EditLog {
 
     public void logDropSqlBlockRule(List<String> ruleNames) {
         logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
+    }
+
+    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 }

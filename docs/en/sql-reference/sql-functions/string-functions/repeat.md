@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR repeat (VARCHAR str, INT count)
+`VARCHAR repeat (VARCHAR str, INT count)`
 
 
 Repeat the str of the string count times, return empty string when count is less than 1, return NULL when str, count is any NULL

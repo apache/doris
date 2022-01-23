@@ -24,13 +24,12 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
-
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Optional;
@@ -52,15 +51,29 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public static final String SQL_HASH_PROPERTY = "sqlHash";
 
+    public static final String SCANNED_PARTITION_NUM = "partition_num";
+
+    public static final String SCANNED_TABLET_NUM = "tablet_num";
+
+    public static final String SCANNED_CARDINALITY = "cardinality";
+
     public static final String GLOBAL_PROPERTY = "global";
 
     public static final String ENABLE_PROPERTY = "enable";
+
+    public static final String STRING_NOT_SET = SqlBlockUtil.STRING_DEFAULT;
 
     private final String ruleName;
 
     private String sql;
 
     private String sqlHash;
+
+    private Long partitionNum;
+
+    private Long tabletNum;
+
+    private Long cardinality;
 
     // whether effective global, default is false
     private boolean global;
@@ -77,6 +90,9 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
             .add(SQL_HASH_PROPERTY)
             .add(GLOBAL_PROPERTY)
             .add(ENABLE_PROPERTY)
+            .add(SCANNED_PARTITION_NUM)
+            .add(SCANNED_TABLET_NUM)
+            .add(SCANNED_CARDINALITY)
             .build();
 
     public CreateSqlBlockRuleStmt(String ruleName, Map<String, String> properties) {
@@ -98,11 +114,18 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
     }
 
     private void setProperties(Map<String, String> properties) throws UserException {
-        this.sql = properties.get(SQL_PROPERTY);
-        this.sqlHash = properties.get(SQL_HASH_PROPERTY);
-        if ((StringUtils.isNotEmpty(sql) && StringUtils.isNotEmpty(sqlHash)) || (StringUtils.isEmpty(sql) && StringUtils.isEmpty(sqlHash))) {
-            throw new AnalysisException("Only one sql or sqlHash can be configured");
-        }
+        this.sql = properties.getOrDefault(SQL_PROPERTY, STRING_NOT_SET);
+        this.sqlHash = properties.getOrDefault(SQL_HASH_PROPERTY, STRING_NOT_SET);
+        String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
+        String tabletNumString = properties.get(SCANNED_TABLET_NUM);
+        String cardinalityString = properties.get(SCANNED_CARDINALITY);
+
+        SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
+        SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
+
+        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null, SCANNED_PARTITION_NUM + " should be a long");
+        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, 0L, null, SCANNED_TABLET_NUM + " should be a long");
+        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null, SCANNED_CARDINALITY + " should be a long");
 
         this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY), false, GLOBAL_PROPERTY + " should be a boolean");
         this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true, ENABLE_PROPERTY + " should be a boolean");
@@ -129,6 +152,18 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public String getSqlHash() {
         return sqlHash;
+    }
+
+    public Long getPartitionNum() {
+        return partitionNum;
+    }
+
+    public Long getTabletNum() {
+        return tabletNum;
+    }
+
+    public Long getCardinality() {
+        return cardinality;
     }
 
     public boolean isGlobal() {

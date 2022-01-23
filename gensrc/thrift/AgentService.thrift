@@ -49,6 +49,8 @@ struct TTabletSchema {
     8: optional bool is_in_memory
     9: optional i32 delete_sign_idx = -1
     10: optional i32 sequence_col_idx = -1
+    11: optional Types.TSortType sort_type
+    12: optional i32 sort_col_num
 }
 
 // this enum stands for different storage format in src_backends
@@ -156,6 +158,12 @@ struct TCloneReq {
     8: optional i64 src_path_hash;
     9: optional i64 dest_path_hash;
     10: optional i32 timeout_s;
+}
+
+struct TCompactionReq {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TSchemaHash schema_hash
+    3: optional string type
 }
 
 struct TStorageMediumMigrateReq {
@@ -316,6 +324,7 @@ struct TAgentTaskRequest {
     24: optional TAlterTabletReqV2 alter_tablet_req_v2
     25: optional i64 recv_time // time the task is inserted to queue
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
+    27: optional TCompactionReq compaction_req
 }
 
 struct TAgentResult {

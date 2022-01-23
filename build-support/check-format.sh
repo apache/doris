@@ -30,5 +30,5 @@ export DORIS_HOME=`cd "${ROOT}/.."; pwd`
 
 CLANG_FORMAT=${CLANG_FORMAT_BINARY:=$(which clang-format)}
 
-python3 ${DORIS_HOME}/build-support/run_clang_format.py --clang_format_binary="${CLANG_FORMAT}" --source_dirs="${DORIS_HOME}/be/src,${DORIS_HOME}/be/test" --quiet
+python3 ${DORIS_HOME}/build-support/run_clang_format.py "--clang-format-executable" "${CLANG_FORMAT}" "-r" "--style" "file" "--inplace" "false" "--extensions" "c,h,C,H,cpp,hpp,cc,hh,c++,h++,cxx,hxx" "--exclude" "none" "be/src be/test"
 

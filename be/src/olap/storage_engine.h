@@ -188,6 +188,11 @@ public:
     std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
     std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
 
+    // check cumulative compaction config
+    void check_cumulative_compaction_config();
+
+    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -218,9 +223,6 @@ private:
     // unused rowset monitor thread
     void _unused_rowset_monitor_thread_callback();
 
-    // check cumulative compaction config
-    void _check_cumulative_compaction_config();
-
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();
 
@@ -240,12 +242,12 @@ private:
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
 
-    void _start_clean_fd_cache();
+    void _start_clean_cache();
 
-    // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
-    // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
-    // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
-    // 重新加载数据。
+    // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
+    // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
+    // When the disk status is unusable, but the unused logo is not _push_tablet_into_submitted_compactiondetected, you need to download it from root_path
+    // Reload the data.
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
@@ -254,18 +256,22 @@ private:
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
 
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
+    void _update_cumulative_compaction_policy();
+
+    bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
                                                 CompactionType compaction_type);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
+    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+
 private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
                 : nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
-        uint32_t nice; // 优先度
+        uint32_t nice; // priority
         int64_t tablet_id;
         uint32_t disk_index = -1;
     };

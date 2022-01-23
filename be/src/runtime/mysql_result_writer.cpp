@@ -29,14 +29,22 @@
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
 
+#include "vec/core/block.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
-                                     const std::vector<ExprContext*>& output_expr_ctxs, RuntimeProfile* parent_profile)
-        : ResultWriter(),
+                                     const std::vector<ExprContext*>& output_expr_ctxs,
+                                     RuntimeProfile* parent_profile, bool output_object_data)
+        : ResultWriter(output_object_data),
           _sinker(sinker),
           _output_expr_ctxs(output_expr_ctxs),
-          _row_buffer(NULL),
+          _row_buffer(nullptr),
           _parent_profile(parent_profile) {}
 
 MysqlResultWriter::~MysqlResultWriter() {
@@ -45,12 +53,12 @@ MysqlResultWriter::~MysqlResultWriter() {
 
 Status MysqlResultWriter::init(RuntimeState* state) {
     _init_profile();
-    if (NULL == _sinker) {
-        return Status::InternalError("sinker is NULL pointer.");
+    if (nullptr == _sinker) {
+        return Status::InternalError("sinker is nullptr pointer.");
     }
 
-    _row_buffer = new(std::nothrow) MysqlRowBuffer();
-    if (NULL == _row_buffer) {
+    _row_buffer = new (std::nothrow) MysqlRowBuffer();
+    if (nullptr == _row_buffer) {
         return Status::InternalError("no memory to alloc.");
     }
 
@@ -89,8 +97,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         break;
 
     case TYPE_LARGEINT: {
-        auto string_value = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value);
-        buf_ret = _row_buffer->push_string(string_value.data(), string_value.size());
+        buf_ret = _row_buffer->push_largeint(reinterpret_cast<const PackedInt128*>(item)->value);
         break;
     }
 
@@ -103,25 +110,30 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         break;
 
     case TYPE_TIME: {
-        double time = *static_cast<double*>(item);
-        std::string time_str = time_str_from_double(time);
-        buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
+        buf_ret = _row_buffer->push_time(*static_cast<double*>(item));
         break;
     }
 
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        char buf[64];
-        const DateTimeValue* time_val = (const DateTimeValue*)(item);
-        // TODO(zhaochun), this function has core risk
-        char* pos = time_val->to_string(buf);
-        buf_ret = _row_buffer->push_string(buf, pos - buf - 1);
+        buf_ret = _row_buffer->push_datetime(*static_cast<DateTimeValue*>(item));
         break;
     }
 
     case TYPE_HLL:
     case TYPE_OBJECT: {
-        buf_ret = _row_buffer->push_null();
+        if (_output_object_data) {
+            const StringValue* string_val = (const StringValue*)(item);
+
+            if (string_val->ptr == nullptr) {
+                buf_ret = _row_buffer->push_null();
+            } else {
+                buf_ret = _row_buffer->push_string(string_val->ptr, string_val->len);
+            }
+        } else {
+            buf_ret = _row_buffer->push_null();
+        }
+
         break;
     }
 
@@ -130,7 +142,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     case TYPE_STRING: {
         const StringValue* string_val = (const StringValue*)(item);
 
-        if (string_val->ptr == NULL) {
+        if (string_val->ptr == nullptr) {
             if (string_val->len == 0) {
                 // 0x01 is a magic num, not useful actually, just for present ""
                 char* tmp_val = reinterpret_cast<char*>(0x01);
@@ -147,16 +159,8 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
 
     case TYPE_DECIMALV2: {
         DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-        std::string decimal_str;
         int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-
-        if (output_scale > 0 && output_scale <= 30) {
-            decimal_str = decimal_val.to_string(output_scale);
-        } else {
-            decimal_str = decimal_val.to_string();
-        }
-
-        buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
+        buf_ret = _row_buffer->push_decimal(decimal_val, output_scale);
         break;
     }
 
@@ -207,7 +211,6 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
 }
 
 Status MysqlResultWriter::_add_one_row(TupleRow* row) {
-    SCOPED_TIMER(_convert_tuple_timer);
     _row_buffer->reset();
     int num_columns = _output_expr_ctxs.size();
     int buf_ret = 0;
@@ -227,7 +230,7 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
 
 Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     SCOPED_TIMER(_append_row_batch_timer);
-    if (NULL == batch || 0 == batch->num_rows()) {
+    if (nullptr == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
 
@@ -255,7 +258,8 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     if (status.ok()) {
         SCOPED_TIMER(_result_send_timer);
         // push this batch to back
-        RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "fappend result batch to sink failed.");
+        RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result),
+                                       "fappend result batch to sink failed.");
         _written_rows += num_rows;
     }
     return Status::OK();

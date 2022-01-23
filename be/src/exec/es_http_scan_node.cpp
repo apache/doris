@@ -121,8 +121,8 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     // if conjunct is constant, compute direct and set eos = true
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
-            void* value = _conjunct_ctxs[conj_idx]->get_value(NULL);
-            if (value == NULL || *reinterpret_cast<bool*>(value) == false) {
+            void* value = _conjunct_ctxs[conj_idx]->get_value(nullptr);
+            if (value == nullptr || *reinterpret_cast<bool*>(value) == false) {
                 _eos = true;
             }
         }
@@ -437,10 +437,17 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
             properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
     // start scanner to scan
-    std::unique_ptr<EsHttpScanner> scanner(
-            new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
-                              scanner_expr_ctxs, &counter, doc_value_mode));
-    status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
+    if (!_vectorized) {
+        std::unique_ptr<EsHttpScanner> scanner(
+                new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
+                                  scanner_expr_ctxs, &counter, doc_value_mode));
+        status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
+    } else {
+        std::unique_ptr<VEsHttpScanner> scanner(
+                new VEsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
+                                  scanner_expr_ctxs, &counter, doc_value_mode));
+        status = scanner_scan(std::move(scanner));
+    }
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx
                      << "] process failed. status=" << status.get_error_msg();

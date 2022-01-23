@@ -17,6 +17,7 @@
 package org.apache.doris.mysql.nio;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -67,7 +68,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         MysqlProto.sendResponsePacket(context);
                         connection.setCloseListener(streamConnection -> connectScheduler.unregisterConnection(context));
                     } else {
-                        context.getState().setError("Reach limit of connections");
+                        context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Reach limit of connections");
                         MysqlProto.sendResponsePacket(context);
                         throw new AfterConnectedException("Reach limit of connections");
                     }

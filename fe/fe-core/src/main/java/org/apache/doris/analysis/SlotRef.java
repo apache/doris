@@ -244,6 +244,10 @@ public class SlotRef extends Expr {
         return tblName;
     }
 
+    public TableName getOriginTableName() {
+        return tblName;
+    }
+
     @Override
     public String toColumnLabel() {
         // return tblName == null ? col : tblName.getTbl() + "." + col;
@@ -282,6 +286,14 @@ public class SlotRef extends Expr {
         if (desc != null && other.desc != null) {
             return desc.getId().equals(other.desc.getId());
         }
+        return notCheckDescIdEquals(obj);
+    }
+
+    public boolean notCheckDescIdEquals(Object obj) {
+        if (!super.equals(obj)) {
+            return false;
+        }
+        SlotRef other = (SlotRef) obj;
         if ((tblName == null) != (other.tblName == null)) {
             return false;
         }
@@ -313,6 +325,23 @@ public class SlotRef extends Expr {
     public boolean isBound(SlotId slotId) {
         Preconditions.checkState(isAnalyzed);
         return desc.getId().equals(slotId);
+    }
+
+    @Override
+    public void getSlotRefsBoundByTupleIds(List<TupleId> tupleIds, Set<SlotRef> boundSlotRefs) {
+        if (desc == null) {
+            return;
+        }
+        if (tupleIds.contains(desc.getParent().getId())) {
+            boundSlotRefs.add(this);
+            return;
+        }
+        if (desc.getSourceExprs() == null) {
+            return;
+        }
+        for (Expr sourceExpr : desc.getSourceExprs()) {
+            sourceExpr.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
+        }
     }
 
     @Override
@@ -404,6 +433,7 @@ public class SlotRef extends Expr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkNotNull(desc);
         return desc.getIsNullable();
     }
 }

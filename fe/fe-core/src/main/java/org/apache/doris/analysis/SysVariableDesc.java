@@ -32,6 +32,8 @@ import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Strings;
 
+import java.util.Objects;
+
 // System variable
 // Converted to StringLiteral in analyze, if this variable is not exist, throw AnalysisException.
 public class SysVariableDesc extends Expr {
@@ -115,7 +117,6 @@ public class SysVariableDesc extends Expr {
 
     @Override
     public Expr getResultValue() throws AnalysisException {
-        Expr expr = super.getResultValue();
         if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
             // Return the string type here so that it can correctly match the subsequent function signature.
             // And we also set `beConverted` to session variable name in StringLiteral, so that it can be cast back
@@ -128,7 +129,7 @@ public class SysVariableDesc extends Expr {
                 throw new AnalysisException(e.getMessage());
             }
         }
-        return expr;
+        return super.getResultValue();
     }
 
     @Override
@@ -190,6 +191,7 @@ public class SysVariableDesc extends Expr {
         if (!setType.equals(((SysVariableDesc) obj).getSetType())) {
             return false;
         }
-        return literalExpr.equals(((SysVariableDesc) obj).getLiteralExpr());
+
+        return Objects.equals(literalExpr, ((SysVariableDesc) obj).getLiteralExpr());
     }
 }

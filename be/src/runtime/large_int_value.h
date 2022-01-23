@@ -37,6 +37,9 @@ const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 
 class LargeIntValue {
 public:
+    static int32_t to_buffer(__int128 value, char* buffer) {
+        return fmt::format_to(buffer, "{}", value) - buffer;
+    }
 
     static std::string to_string(__int128 value) {
         return fmt::format("{}", value);
@@ -50,5 +53,9 @@ std::istream& operator>>(std::istream& is, __int128& value);
 std::size_t hash_value(LargeIntValue const& value);
 
 } // namespace doris
+
+// Thirdparty printers like gtest needs operator<< to be exported into global namespace, so that ADL will work.
+inline std::ostream& operator<<(std::ostream& os, __int128 const& value) { return doris::operator<<(os, value); }
+inline std::istream& operator>>(std::istream& is, __int128& value) { return doris::operator>>(is, value); }
 
 #endif

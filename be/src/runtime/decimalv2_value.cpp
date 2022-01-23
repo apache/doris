@@ -354,50 +354,86 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
     return error;
 }
 
-std::string DecimalV2Value::to_string(int round_scale) const {
-    if (_value == 0) return std::string(1, '0');
-
-    int last_char_idx = PRECISION + 2 + (_value < 0);
-    std::string str = std::string(last_char_idx, '0');
-
-    int128_t remaining_value = _value;
-    int first_digit_idx = 0;
-    if (_value < 0) {
-        remaining_value = -_value;
-        first_digit_idx = 1;
-    }
-
-    int remaining_scale = SCALE;
-    do {
-        str[--last_char_idx] = (remaining_value % 10) + '0';
-        remaining_value /= 10;
-    } while (--remaining_scale > 0);
-    str[--last_char_idx] = '.';
-
-    do {
-        str[--last_char_idx] = (remaining_value % 10) + '0';
-        remaining_value /= 10;
-        if (remaining_value == 0) {
-            if (last_char_idx > first_digit_idx) str.erase(0, last_char_idx - first_digit_idx);
-            break;
+std::string DecimalV2Value::to_string(int scale) const {
+    int64_t int_val = int_value();
+    int32_t frac_val = abs(frac_value());
+    if (scale < 0 || scale > SCALE) {
+        if (frac_val == 0) {
+            scale = 0;
+        } else {
+            scale = SCALE;
+            while (frac_val != 0 && frac_val % 10 == 0) {
+                frac_val = frac_val / 10;
+                scale--;
+            }
         }
-    } while (last_char_idx > first_digit_idx);
-
-    if (_value < 0) str[0] = '-';
-
-    // right trim and round
-    int scale = 0;
-    int len = str.size();
-    for (scale = 0; scale < SCALE && scale < len; scale++) {
-        if (str[len - scale - 1] != '0') break;
+    } else {
+        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
     }
-    if (scale == SCALE) scale++; //integer, trim .
-    if (round_scale >= 0 && round_scale <= SCALE) {
-        scale = std::max(scale, SCALE - round_scale);
+    auto f_int = fmt::format_int(int_val);
+    if (scale == 0) {
+        return f_int.str();
     }
-    if (scale > 1 && scale <= len) str.erase(len - scale, len - 1);
-
+    std::string str;
+    if (_value < 0 && int_val == 0 && frac_val != 0) {
+        str.reserve(f_int.size() + scale + 2);
+        str.push_back('-');
+    } else {
+        str.reserve(f_int.size() + scale + 1);
+    }
+    str.append(f_int.data(), f_int.size());
+    str.push_back('.');
+    if (frac_val == 0) {
+        str.append(scale, '0');
+    } else {
+        auto f_frac = fmt::format_int(frac_val);
+        if (f_frac.size() < scale) {
+           str.append(scale - f_frac.size(), '0');
+        }
+        str.append(f_frac.data(), f_frac.size());
+    }
     return str;
+}
+
+int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
+    int64_t int_val = int_value();
+    int32_t frac_val = abs(frac_value());
+    if (scale < 0 || scale > SCALE) {
+        if (frac_val == 0) {
+            scale = 0;
+        } else {
+            scale = SCALE;
+            while (frac_val != 0 && frac_val % 10 == 0) {
+                frac_val = frac_val / 10;
+                scale--;
+            }
+        }
+    } else {
+        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+    }
+    int extra_sign_size = 0;
+    if (_value < 0 && int_val == 0 && frac_val != 0) {
+        *buffer++ = '-';
+        extra_sign_size = 1;
+    }
+    auto f_int = fmt::format_int(int_val);
+    memcpy(buffer, f_int.data(), f_int.size());
+    if (scale == 0) {
+        return f_int.size();
+    }
+    *(buffer + f_int.size()) = '.';
+    buffer = buffer + f_int.size() + 1;
+    if (frac_val == 0) {
+        memset(buffer, '0', scale);
+    } else {
+        auto f_frac = fmt::format_int(frac_val);
+        if (f_frac.size() < scale) {
+            memset(buffer, '0', scale - f_frac.size());
+            buffer = buffer + scale - f_frac.size();
+        }
+        memcpy(buffer, f_frac.data(), f_frac.size());
+    }
+    return f_int.size() + scale + 1 + extra_sign_size;
 }
 
 std::string DecimalV2Value::to_string() const {

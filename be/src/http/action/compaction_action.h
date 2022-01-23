@@ -66,6 +66,8 @@ private:
     /// check param and fetch tablet_id and schema_hash from req
     Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint32_t* schema_hash);
 
+    std::shared_ptr<CumulativeCompactionPolicy> _create_cumulative_compaction_policy();
+
 private:
     CompactionActionType _type;
 

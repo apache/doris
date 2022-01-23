@@ -21,9 +21,9 @@
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchema* schema, std::string rowset_path, RowsetMetaSharedPtr rowset_meta)
+Rowset::Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc, RowsetMetaSharedPtr rowset_meta)
         : _schema(schema),
-          _rowset_path(std::move(rowset_path)),
+          _rowset_path_desc(rowset_path_desc),
           _rowset_meta(std::move(rowset_meta)),
           _refs_by_reader(0),
           _rowset_state_machine(RowsetStateMachine()) {
@@ -36,7 +36,7 @@ Rowset::Rowset(const TabletSchema* schema, std::string rowset_path, RowsetMetaSh
     }
 }
 
-OLAPStatus Rowset::load(bool use_cache, std::shared_ptr<MemTracker> parent) {
+OLAPStatus Rowset::load(bool use_cache) {
     // if the state is ROWSET_UNLOADING it means close() is called
     // and the rowset is already loaded, and the resource is not closed yet.
     if (_rowset_state_machine.rowset_state() == ROWSET_LOADED) {
@@ -48,7 +48,7 @@ OLAPStatus Rowset::load(bool use_cache, std::shared_ptr<MemTracker> parent) {
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
             // first do load, then change the state
-            RETURN_NOT_OK(do_load(use_cache, parent));
+            RETURN_NOT_OK(do_load(use_cache));
             RETURN_NOT_OK(_rowset_state_machine.on_load());
         }
     }

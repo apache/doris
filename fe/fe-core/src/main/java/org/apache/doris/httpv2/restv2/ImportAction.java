@@ -210,19 +210,4 @@ public class ImportAction {
         private List<String> colNames;
         private List<List<String>> sampleFileLines;
     }
-
-
-    public static void main(String[] args) {
-        ImportAction importAction = new ImportAction();
-        String str = "1,2,3\n4,5,6\n,7,8,9,中国";
-        byte[] fileContentBytes = str.getBytes();
-        System.out.println(fileContentBytes.length);
-        String newStr = new String(fileContentBytes, 0,fileContentBytes.length - 2);
-        System.out.println(newStr);
-
-        FileSample fileSample = new FileSample();
-        importAction.parseContent(",", "\n", newStr.getBytes(), fileSample);
-        System.out.println(fileSample.sampleFileLines);
-    }
-
 }

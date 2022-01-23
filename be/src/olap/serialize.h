@@ -28,33 +28,33 @@ class ReadOnlyFileStream;
 
 namespace ser {
 
-// ZigZag变换: 将符号位放到最低位, 且在负数时翻转其他各位
+// ZigZag transformation: put the sign bit to the lowest bit, and flip the other bits when it is negative
 inline int64_t zig_zag_encode(int64_t value) {
     return (value << 1) ^ (value >> 63);
 }
 
-// ZigZag解码
+// ZigZag decoding
 inline int64_t zig_zag_decode(int64_t value) {
     return (((uint64_t)value) >> 1) ^ -(value & 1);
 }
 
-// 以变长编码写入unsigned数据, 变长编码使用最高位表示是否终止:
-//     - 1 后续还有数据
-//     - 0 这是最后一个字节的数据
-// 所谓unsigned数据, 指数据不容易出现符号位为1, 后续连续为0的情况; 或者从符号位
-// 起连续出现1的情况. 而signed数据表示负数时, 容易出现这种情况, 在这种情况下,
-// 无法有效利用变长编码减少码长, 为此请使用write_var_signed.
+// Variable-length encoding writes unsigned data, and variable-length encoding uses the highest bit to indicate whether to terminate:
+//-1 there will be data behind
+//-0 this is the last byte of the data
+// The so-called unsigned data means that the data is not easy to appear. The sign bit is 1, and the subsequent consecutive 0; or from the sign bit
+// 1 Continuous occurrence. This situation is prone to occur when the signature data represents a negative number. under these circumstances,
+// Variable length coding cannot effectively reduce the code length, for this, please use write_var_signed.
 OLAPStatus write_var_unsigned(OutStream* stream, int64_t value);
 
-// 以变长编码写入signed数据, 为了避免负数高位连续的1的问题, 将数据进行ZigZag变换
+// Write signed data with variable length encoding, in order to avoid the problem of continuous 1s in the high bits of negative numbers, the data is ZigZag transformed
 inline OLAPStatus write_var_signed(OutStream* stream, int64_t value) {
     return write_var_unsigned(stream, zig_zag_encode(value));
 }
 
-// 读入write_var_unsigned编码的数据
+// Read in write_var_unsigned encoded data
 OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value);
 
-// 读入write_var_signed编码的数据
+// Read in write_var_signed encoded data
 inline OLAPStatus read_var_signed(ReadOnlyFileStream* stream, int64_t* value) {
     OLAPStatus res = read_var_unsigned(stream, value);
 
@@ -65,10 +65,11 @@ inline OLAPStatus read_var_signed(ReadOnlyFileStream* stream, int64_t* value) {
     return res;
 }
 
-// 在RunLengthIntegerWriter中的bit_width都是5bit编码, 这样最多支持2^5=32种比特位
-// 长. 然而, 需要表示最多1~64位, 共64种比特位长, 于是在64种比特位长中取32种. 对
-// 其他剩余32个不在这32种的比特长度向上对齐到最接近的一个比特位长.
-// FixedBitSize给出了32种比特位长
+// The bit_width in RunLengthIntegerWriter is all 5bit encoding, 
+// so it supports up to 2^5=32 bit lengths. However, it needs to represent at most 1~64 bits, 
+// a total of 64 bit lengths, so in 64 bit lengths Take 32 types. 
+// The remaining 32 bit lengths that are not in these 32 types are aligned up to the nearest bit length.
+// FixedBitSize gives 32 bit lengths
 enum FixedBitSize {
     ONE = 0,
     TWO,
@@ -121,7 +122,7 @@ inline void compute_hists(int64_t* data, uint16_t count, uint16_t hists[65]) {
     }
 }
 
-// 返回大于等于n且最接近n的FixedBiteSize
+// Returns the FixedBiteSize greater than or equal to n and closest to n
 inline uint32_t get_closet_fixed_bits(uint32_t n) {
     static uint8_t bits_map[65] = {
             1,                              // 0
@@ -149,29 +150,29 @@ inline uint32_t percentile_bits_with_hist(uint16_t hists[65], uint16_t count, do
     return 0;
 }
 
-// 首先计算value的比特位长(1所在的最高位), 再使用get_closet_fixed_bits
-// 返回最接近的FixedBiteSize
+// First calculate the bit length of value (the highest bit of 1), and then use get_closet_fixed_bits
+// Return the closest FixedBiteSize
 uint32_t find_closet_num_bits(int64_t value);
 
 // Read n bytes in big endian order and convert to long
 OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* value);
 
-// 将位长编码为32个定长比特位之一, 返回值为0~31之间
+// Encode the bit length as one of 32 fixed-length bits, and the return value is between 0 and 31
 uint32_t encode_bit_width(uint32_t n);
 
-// 解码encode_bit_width编码的结果
+// Decode the result of encode_bit_width encoding
 uint32_t decode_bit_width(uint32_t n);
 
-// 将data中的数据按比特位长排序, 返回给定比例p下, 最大位长.
-// 例如: p == 1.0, 表示所有的数据的最大位长
-//       p == 0.9, 表示比特位最短的90%的数据的最大位长
-//       p == 0.5, 表示比特位最短的50%的数据的最大位长
+// Sort the data in data according to the bit length, and return the maximum bit length under a given ratio p.
+// For example: p == 1.0, which means the maximum bit length of all data
+// p == 0.9, which means the maximum bit length of 90% of the data with the shortest bit position
+// p == 0.5, which means the maximum bit length of the 50% data with the shortest bit position
 uint32_t percentile_bits(int64_t* data, uint16_t count, double p);
 
-// 以紧致方式向output输出一组整数
+// Output a set of integers to output in a compact manner
 OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t bit_width);
 
-// 读取write_ints输出的数据
+// Read the data output by write_ints
 OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, uint32_t bit_width);
 
 // Do not want to use Guava LongMath.checkedSubtract() here as it will throw

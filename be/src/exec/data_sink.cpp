@@ -26,25 +26,27 @@
 #include "exec/tablet_sink.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
-#include "runtime/data_spliter.h"
 #include "runtime/data_stream_sender.h"
 #include "runtime/export_sink.h"
 #include "runtime/memory_scratch_sink.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/odbc_table_sink.h"
+#include "runtime/result_file_sink.h"
 #include "runtime/result_sink.h"
 #include "runtime/runtime_state.h"
-#include "util/logging.h"
+
+#include "vec/sink/result_sink.h"
+#include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vtablet_sink.h"
 
 namespace doris {
 
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                   const std::vector<TExpr>& output_exprs,
                                   const TPlanFragmentExecParams& params,
-                                  const RowDescriptor& row_desc,
-                                  bool is_vec,
-                                  boost::scoped_ptr<DataSink>* sink) {
-    DataSink* tmp_sink = NULL;
+                                  const RowDescriptor& row_desc, bool is_vec,
+                                  std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl) {
+    DataSink* tmp_sink = nullptr;
 
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
@@ -57,28 +59,47 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                         : false;
         // TODO: figure out good buffer size based on size of output row
         if (is_vec) {
+            tmp_sink = new doris::vectorized::VDataStreamSender(
+                    pool, params.sender_id, row_desc, thrift_sink.stream_sink, params.destinations,
+                    16 * 1024, send_query_statistics_with_every_batch);
         } else {
-            tmp_sink = new DataStreamSender(pool, params.sender_id, row_desc, thrift_sink.stream_sink,
-                                 params.destinations, 16 * 1024,
-                                 send_query_statistics_with_every_batch);
+            tmp_sink = new DataStreamSender(pool, params.sender_id, row_desc,
+                                            thrift_sink.stream_sink, params.destinations, 16 * 1024,
+                                            send_query_statistics_with_every_batch);
         }
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         sink->reset(tmp_sink);
         break;
     }
-    case TDataSinkType::RESULT_SINK:
+    case TDataSinkType::RESULT_SINK: {
         if (!thrift_sink.__isset.result_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
 
         // TODO: figure out good buffer size based on size of output row
         if (is_vec) {
+            tmp_sink = new doris::vectorized::VResultSink(row_desc, output_exprs, thrift_sink.result_sink, 4096);
         } else {
             tmp_sink = new ResultSink(row_desc, output_exprs, thrift_sink.result_sink, 1024);
         }
         sink->reset(tmp_sink);
         break;
-    case TDataSinkType::MEMORY_SCRATCH_SINK:
+    }
+    case TDataSinkType::RESULT_FILE_SINK: {
+        if (!thrift_sink.__isset.result_file_sink) {
+            return Status::InternalError("Missing result file sink.");
+        }
+        // Result file sink is not the top sink
+        if (params.__isset.destinations && params.destinations.size() > 0) {
+            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink,
+                                          params.destinations, pool, params.sender_id, desc_tbl);
+        } else {
+            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink);
+        }
+        sink->reset(tmp_sink);
+        break;
+    }
+    case TDataSinkType::MEMORY_SCRATCH_SINK: {
         if (!thrift_sink.__isset.memory_scratch_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
@@ -86,6 +107,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         tmp_sink = new MemoryScratchSink(row_desc, output_exprs, thrift_sink.memory_scratch_sink);
         sink->reset(tmp_sink);
         break;
+    }
     case TDataSinkType::MYSQL_TABLE_SINK: {
 #ifdef DORIS_WITH_MYSQL
         if (!thrift_sink.__isset.mysql_table_sink) {
@@ -109,17 +131,6 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         sink->reset(odbc_tbl_sink);
         break;
     }
-    case TDataSinkType::DATA_SPLIT_SINK: {
-        if (!thrift_sink.__isset.split_sink) {
-            return Status::InternalError("Missing data split buffer sink.");
-        }
-
-        // TODO: figure out good buffer size based on size of output row
-        std::unique_ptr<DataSpliter> data_spliter(new DataSpliter(row_desc));
-        RETURN_IF_ERROR(DataSpliter::from_thrift(pool, thrift_sink.split_sink, data_spliter.get()));
-        sink->reset(data_spliter.release());
-        break;
-    }
 
     case TDataSinkType::EXPORT_SINK: {
         if (!thrift_sink.__isset.export_sink) {
@@ -133,12 +144,17 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
+        if (is_vec) {
+            // sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+            return Status::NotSupported("VOlapTableSink is not supported yet");
+        } else {
+            sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
+        }
         RETURN_IF_ERROR(status);
         break;
     }
 
-    default:
+    default: {
         std::stringstream error_msg;
         std::map<int, const char*>::const_iterator i =
                 _TDataSinkType_VALUES_TO_NAMES.find(thrift_sink.type);
@@ -151,8 +167,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         error_msg << str << " not implemented.";
         return Status::InternalError(error_msg.str());
     }
+    }
 
-    if (sink->get() != NULL) {
+    if (sink->get() != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
     }
 

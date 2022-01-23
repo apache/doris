@@ -24,6 +24,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/segment_loader.h"
 
 namespace doris {
 
@@ -39,6 +40,7 @@ public:
     // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
     // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
+    OLAPStatus next_block(vectorized::Block* block) override;
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
@@ -52,6 +54,8 @@ public:
     int64_t filtered_rows() override {
         return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
     }
+
+    RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
 private:
     RowsetReaderContext* _context;
@@ -67,6 +71,10 @@ private:
     std::unique_ptr<RowBlockV2> _input_block;
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
+
+    // make sure this handle is initialized and valid before
+    // reading data.
+    SegmentCacheHandle _segment_cache_handle;
 };
 
 } // namespace doris

@@ -76,6 +76,7 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
     default:
         DCHECK(false) << "Unsupported Compare type";
     }
+    __builtin_unreachable();
 }
 
 static const char* NEGATIVE_INFINITY = "-oo";
@@ -112,7 +113,7 @@ static const char base64_pad = '=';
 inline size_t base64_encode(const char* data, size_t length, char* encoded_data) {
     size_t output_length = (size_t)(4.0 * ceil((double)length / 3.0));
 
-    if (encoded_data == NULL) {
+    if (encoded_data == nullptr) {
         return 0;
     }
 

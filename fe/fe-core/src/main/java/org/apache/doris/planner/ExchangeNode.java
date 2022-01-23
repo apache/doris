@@ -51,6 +51,7 @@ public class ExchangeNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ExchangeNode.class);
 
     public static final String EXCHANGE_NODE = "EXCHANGE";
+    public static final String VEXCHANGE_NODE = "VEXCHANGE";
     public static final String MERGING_EXCHANGE_NODE = "MERGING-EXCHANGE";
 
     // The parameters based on which sorted input streams are merged by this
@@ -76,6 +77,13 @@ public class ExchangeNode extends PlanNode {
         // Only apply the limit at the receiver if there are multiple senders.
         if (inputNode.getFragment().isPartitioned()) limit = inputNode.limit;
         computeTupleIds();
+    }
+
+    public boolean isMergingExchange() {
+        if (mergeInfo != null) {
+            return true;
+        }
+        return false;
     }
 
     @Override

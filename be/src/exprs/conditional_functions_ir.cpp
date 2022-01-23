@@ -45,9 +45,9 @@ IF_NULL_COMPUTE_FUNCTION(LargeIntVal, large_int_val);
     TYPE NullIfExpr::get_##type_name(ExprContext* ctx, TupleRow* row) {                       \
         DCHECK_EQ(_children.size(), 2);                                                       \
         TYPE lhs_val = _children[0]->get_##type_name(ctx, row);                               \
-        /* Short-circuit in case lhs_val is NULL. Can never be equal to RHS. */               \
+        /* Short-circuit in case lhs_val is nullptr. Can never be equal to RHS. */            \
         if (lhs_val.is_null) return TYPE::null();                                             \
-        /* Get rhs and return NULL if lhs == rhs, lhs otherwise */                            \
+        /* Get rhs and return nullptr if lhs == rhs, lhs otherwise */                         \
         TYPE rhs_val = _children[1]->get_##type_name(ctx, row);                               \
         if (!rhs_val.is_null && AnyValUtil::equals(_children[0]->type(), lhs_val, rhs_val)) { \
             return TYPE::null();                                                              \

@@ -26,6 +26,7 @@ import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Status;
 import org.apache.doris.proto.Types;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -33,6 +34,7 @@ import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -71,6 +73,7 @@ public class CanalSyncDataTest {
     private long offset = 0;
     private long nextId = 1000L;
     private int batchSize = 8192;
+    private long channelId = 100001L;
 
     ReentrantLock getLock;
 
@@ -148,7 +151,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execPlanFragmentParams;
 
-                systemInfoService.seqChooseBackendIds(anyInt, anyBoolean, anyBoolean, anyString);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, (SystemInfoService.BeAvailablePredicate) any, anyBoolean, anyString,
+                        (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = backendIds;
 
@@ -217,13 +221,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -232,7 +235,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
@@ -292,13 +294,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -307,7 +308,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         LOG.info(consumer.getPositionInfo());
@@ -357,13 +357,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -372,7 +371,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
@@ -441,13 +439,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -456,7 +453,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());

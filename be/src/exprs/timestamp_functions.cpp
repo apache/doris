@@ -152,6 +152,17 @@ IntVal TimestampFunctions::day_of_week(FunctionContext* context, const DateTimeV
     return IntVal::null();
 }
 
+IntVal TimestampFunctions::week_day(FunctionContext* context, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return IntVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.weekday());
+    }
+    return IntVal::null();
+}
+
 IntVal TimestampFunctions::day_of_month(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
@@ -182,30 +193,32 @@ IntVal TimestampFunctions::week_of_year(FunctionContext* context, const DateTime
     return IntVal::null();
 }
 
-IntVal TimestampFunctions::year_week(FunctionContext *context, const DateTimeVal &ts_val) {
-    return year_week(context, ts_val, doris_udf::IntVal{0});
+IntVal TimestampFunctions::year_week(FunctionContext* context, const DateTimeVal& ts_val) {
+    return year_week(context, ts_val, doris_udf::IntVal {0});
 }
 
-IntVal TimestampFunctions::year_week(FunctionContext *context, const DateTimeVal &ts_val, const doris_udf::IntVal &mode) {
+IntVal TimestampFunctions::year_week(FunctionContext* context, const DateTimeVal& ts_val,
+                                     const doris_udf::IntVal& mode) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
-    const DateTimeValue &ts_value = DateTimeValue::from_datetime_val(ts_val);
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     if (ts_value.is_valid_date()) {
         return ts_value.year_week(mysql_week_mode(mode.val));
     }
     return IntVal::null();
 }
 
-IntVal TimestampFunctions::week(FunctionContext *context, const DateTimeVal &ts_val) {
-    return week(context, ts_val, doris_udf::IntVal{0});
+IntVal TimestampFunctions::week(FunctionContext* context, const DateTimeVal& ts_val) {
+    return week(context, ts_val, doris_udf::IntVal {0});
 }
 
-IntVal TimestampFunctions::week(FunctionContext *context, const DateTimeVal &ts_val, const doris_udf::IntVal& mode) {
+IntVal TimestampFunctions::week(FunctionContext* context, const DateTimeVal& ts_val,
+                                const doris_udf::IntVal& mode) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
-    const DateTimeValue &ts_value = DateTimeValue::from_datetime_val(ts_val);
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     if (ts_value.is_valid_date()) {
         return {ts_value.week(mysql_week_mode(mode.val))};
     }
@@ -236,10 +249,11 @@ IntVal TimestampFunctions::second(FunctionContext* context, const DateTimeVal& t
     return IntVal(ts_value.second());
 }
 
-DateTimeVal TimestampFunctions::make_date(FunctionContext *ctx, const IntVal &year, const IntVal &count) {
+DateTimeVal TimestampFunctions::make_date(FunctionContext* ctx, const IntVal& year,
+                                          const IntVal& count) {
     if (count.val > 0) {
         // year-1-1
-        DateTimeValue ts_value{year.val * 10000000000 + 101000000};
+        DateTimeValue ts_value {year.val * 10000000000 + 101000000};
         ts_value.set_type(TIME_DATE);
         DateTimeVal ts_val;
         ts_value.to_datetime_val(&ts_val);
@@ -300,7 +314,7 @@ StringVal TimestampFunctions::month_name(FunctionContext* ctx, const DateTimeVal
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     const char* name = ts_value.month_name();
-    if (name == NULL) {
+    if (name == nullptr) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, name);
@@ -312,7 +326,7 @@ StringVal TimestampFunctions::day_name(FunctionContext* ctx, const DateTimeVal& 
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     const char* name = ts_value.day_name();
-    if (name == NULL) {
+    if (name == nullptr) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, name);

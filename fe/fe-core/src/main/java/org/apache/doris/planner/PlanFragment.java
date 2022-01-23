@@ -17,16 +17,16 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
-import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -95,9 +95,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // created in finalize() or set in setSink()
     private DataSink sink;
 
-    // specification of the partition of the input of this fragment;
+    // data source(or sender) of specific partition in the fragment;
     // an UNPARTITIONED fragment is executed on only a single node
-    // TODO: improve this comment, "input" is a bit misleading
     private DataPartition dataPartition;
 
     // specification of the actually input partition of this fragment when transmitting to be.
@@ -133,6 +132,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private Set<RuntimeFilterId> builderRuntimeFilterIds;
     // The runtime filter id that is expected to be used
     private Set<RuntimeFilterId> targetRuntimeFilterIds;
+
+    // has colocate plan node
+    private boolean hasColocatePlanNode = false;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -186,6 +188,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.outputExprs = Expr.cloneList(outputExprs, null);
     }
 
+    public void resetOutputExprs(TupleDescriptor tupleDescriptor) {
+        this.outputExprs = Lists.newArrayList();
+        for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+            SlotRef slotRef = new SlotRef(slotDescriptor);
+            outputExprs.add(slotRef);
+        }
+    }
+
+    public ArrayList<Expr> getOutputExprs() {
+        return outputExprs;
+    }
+
     public void setBuilderRuntimeFilterIds(RuntimeFilterId rid) {
         this.builderRuntimeFilterIds.add(rid);
     }
@@ -194,11 +208,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.targetRuntimeFilterIds.add(rid);
     }
 
+    public void setHasColocatePlanNode(boolean hasColocatePlanNode) {
+        this.hasColocatePlanNode = hasColocatePlanNode;
+    }
+
+    public boolean hasColocatePlanNode() {
+        return hasColocatePlanNode;
+    }
+
     /**
      * Finalize plan tree and create stream sink, if needed.
      */
-    public void finalize(Analyzer analyzer, boolean validateFileFormats)
-            throws UserException, NotImplementedException {
+    public void finalize(QueryStmt queryStmt) {
         if (sink != null) {
             return;
         }
@@ -215,11 +236,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 // "select 1 + 2"
                 return;
             }
-            // add ResultSink
             Preconditions.checkState(sink == null);
-            // we're streaming to an result sink
-            ResultSink bufferSink = new ResultSink(planRoot.getId(), TResultSinkType.MYSQL_PROTOCAL);
-            sink = bufferSink;
+            if (queryStmt != null && queryStmt.hasOutFileClause()) {
+                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause());
+            } else {
+                // add ResultSink
+                // we're streaming to an result sink
+                sink = new ResultSink(planRoot.getId());
+            }
         }
     }
 
@@ -353,6 +377,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public void setSink(DataSink sink) {
         Preconditions.checkState(this.sink == null);
         Preconditions.checkNotNull(sink);
+        sink.setFragment(this);
+        this.sink = sink;
+    }
+
+    public void resetSink(DataSink sink) {
         sink.setFragment(this);
         this.sink = sink;
     }

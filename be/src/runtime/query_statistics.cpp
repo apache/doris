@@ -19,8 +19,78 @@
 
 namespace doris {
 
+void NodeStatistics::merge(const NodeStatistics& other) {
+    peak_memory_bytes += other.peak_memory_bytes;
+}
+
+void NodeStatistics::to_pb(PNodeStatistics* node_statistics) {
+    DCHECK(node_statistics != nullptr);
+    node_statistics->set_peak_memory_bytes(peak_memory_bytes);
+}
+
+void NodeStatistics::from_pb(const PNodeStatistics& node_statistics) {
+    peak_memory_bytes = node_statistics.peak_memory_bytes();
+}
+
+void QueryStatistics::merge(const QueryStatistics& other) {
+    scan_rows += other.scan_rows;
+    scan_bytes += other.scan_bytes;
+    cpu_ms += other.cpu_ms;
+    for (auto& other_node_statistics : other._nodes_statistics_map) {
+        int64_t node_id = other_node_statistics.first;
+        auto node_statistics = add_nodes_statistics(node_id);
+        node_statistics->merge(*other_node_statistics.second);
+    }
+}
+
+void QueryStatistics::to_pb(PQueryStatistics* statistics) {
+    DCHECK(statistics != nullptr);
+    statistics->set_scan_rows(scan_rows);
+    statistics->set_scan_bytes(scan_bytes);
+    statistics->set_cpu_ms(cpu_ms);
+    statistics->set_returned_rows(returned_rows);
+    statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
+    for (auto iter = _nodes_statistics_map.begin(); iter != _nodes_statistics_map.end(); ++iter) {
+        auto node_statistics = statistics->add_nodes_statistics();
+        node_statistics->set_node_id(iter->first);
+        iter->second->to_pb(node_statistics);
+    }
+}
+
+void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
+    scan_rows = statistics.scan_rows();
+    scan_bytes = statistics.scan_bytes();
+    cpu_ms = statistics.cpu_ms();
+    for (auto& p_node_statistics : statistics.nodes_statistics()) {
+        int64_t node_id = p_node_statistics.node_id();
+        auto node_statistics = add_nodes_statistics(node_id);
+        node_statistics->from_pb(p_node_statistics);
+    }
+}
+
+int64_t QueryStatistics::calculate_max_peak_memory_bytes() {
+    int64_t max_peak_memory_bytes = 0;
+    for (auto iter = _nodes_statistics_map.begin(); iter != _nodes_statistics_map.end(); ++iter) {
+        if (max_peak_memory_bytes < iter->second->peak_memory_bytes) {
+            max_peak_memory_bytes = iter->second->peak_memory_bytes;
+        }
+    }
+    return max_peak_memory_bytes;
+}
+
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {
     recvr->merge(this);
+}
+
+void QueryStatistics::clearNodeStatistics() {
+    for (auto& pair : _nodes_statistics_map) {
+        delete pair.second;
+    }
+    _nodes_statistics_map.clear();
+}
+
+QueryStatistics::~QueryStatistics() {
+    clearNodeStatistics();
 }
 
 void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender_id) {

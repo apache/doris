@@ -47,12 +47,11 @@ public class RecoverTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
     }
-
 
     @AfterClass
     public static void tearDown() {
@@ -61,7 +60,7 @@ public class RecoverTest {
     }
 
     private static void createDb(String db) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt)UtFrameUtils.parseAndAnalyzeStmt("create database " + db, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database " + db, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
     }
 
@@ -71,7 +70,7 @@ public class RecoverTest {
     }
 
     private static void dropDb(String db) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt)UtFrameUtils.parseAndAnalyzeStmt("drop database " + db, connectContext);
+        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + db, connectContext);
         Catalog.getCurrentCatalog().dropDb(dropDbStmt);
     }
 
@@ -103,36 +102,20 @@ public class RecoverTest {
     }
 
     private static boolean checkDbExist(String dbName) {
-        Database db = Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
-        return db != null;
+        return Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)).isPresent();
     }
 
     private static boolean checkTableExist(String dbName, String tblName) {
-        Database db = Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
-        if (db == null) {
-            return false;
-        }
-
-        Table tbl = db.getTable(tblName);
-        return tbl != null;
+        return Catalog.getCurrentCatalog()
+                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+                .flatMap(db -> db.getTable(tblName)).isPresent();
     }
 
     private static boolean checkPartitionExist(String dbName, String tblName, String partName) {
-        Database db = Catalog.getCurrentCatalog().getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
-        if (db == null) {
-            return false;
-        }
-
-        Table tbl = db.getTable(tblName);
-        if (tbl == null) {
-            return false;
-        }
-
-        Partition partition = tbl.getPartition(partName);
-        return partition != null;
+        return Catalog.getCurrentCatalog()
+                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+                .flatMap(db -> db.getTable(tblName)).map(table -> table.getPartition(partName)).isPresent();
     }
-
-
 
     @Test
     public void testRecover() throws Exception {
@@ -175,15 +158,15 @@ public class RecoverTest {
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
 
-        dropTable("test","table1");
+        dropTable("test", "table1");
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertFalse(checkTableExist("test", "table1"));
 
-        recoverTable("test","table1");
+        recoverTable("test", "table1");
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
 
-        dropTable("test","table1");
+        dropTable("test", "table1");
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertFalse(checkTableExist("test", "table1"));
 
@@ -217,17 +200,17 @@ public class RecoverTest {
         Assert.assertTrue(checkTableExist("test", "table1"));
 
         try {
-            recoverTable("test","table1");
+            recoverTable("test", "table1");
             Assert.fail("should not recover succeed");
         } catch (DdlException e) {
             e.printStackTrace();
         }
 
         Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
-        dropPartition("test","table1", "p1");
+        dropPartition("test", "table1", "p1");
         Assert.assertFalse(checkPartitionExist("test", "table1", "p1"));
 
-        recoverPartition("test","table1", "p1");
+        recoverPartition("test", "table1", "p1");
         Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
     }
 

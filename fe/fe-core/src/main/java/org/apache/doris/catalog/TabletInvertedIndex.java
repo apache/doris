@@ -270,9 +270,10 @@ public class TabletInvertedIndex {
         long end = System.currentTimeMillis();
         LOG.info("finished to do tablet diff with backend[{}]. sync: {}. metaDel: {}. foundValid: {}. foundInvalid: {}."
                         + " migration: {}. found invalid transactions {}. found republish transactions {}. tabletInMemorySync: {}."
-                        + " cost: {} ms", backendId, tabletSyncMap.size(),
+                        + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), foundTabletsWithValidSchema.size(), foundTabletsWithInvalidSchema.size(),
-                tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(), (end - start));
+                tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(),
+                tabletRecoveryMap.size(), (end - start));
     }
 
     public Long getTabletIdByReplica(long replicaId) {

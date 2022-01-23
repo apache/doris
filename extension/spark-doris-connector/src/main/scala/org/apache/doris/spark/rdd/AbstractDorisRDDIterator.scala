@@ -20,15 +20,15 @@ package org.apache.doris.spark.rdd
 import org.apache.doris.spark.cfg.ConfigurationOptions.DORIS_VALUE_READER_CLASS
 import org.apache.doris.spark.cfg.Settings
 import org.apache.doris.spark.rest.PartitionDefinition
-
 import org.apache.spark.util.TaskCompletionListener
-import org.apache.spark.internal.Logging
 import org.apache.spark.{TaskContext, TaskKilledException}
+import org.slf4j.{Logger, LoggerFactory}
 
 private[spark] abstract class AbstractDorisRDDIterator[T](
     context: TaskContext,
-    partition: PartitionDefinition) extends Iterator[T] with Logging {
+    partition: PartitionDefinition) extends Iterator[T] {
 
+  private val logger: Logger = LoggerFactory.getLogger(this.getClass.getName.stripSuffix("$"))
   private var initialized = false
   private var closed = false
 
@@ -38,7 +38,7 @@ private[spark] abstract class AbstractDorisRDDIterator[T](
     val settings = partition.settings()
     initReader(settings)
     val valueReaderName = settings.getProperty(DORIS_VALUE_READER_CLASS)
-    logDebug(s"Use value reader '$valueReaderName'.")
+    logger.debug(s"Use value reader '$valueReaderName'.")
     val cons = Class.forName(valueReaderName).getDeclaredConstructor(classOf[PartitionDefinition], classOf[Settings])
     cons.newInstance(partition, settings).asInstanceOf[ScalaValueReader]
   }
@@ -65,7 +65,7 @@ private[spark] abstract class AbstractDorisRDDIterator[T](
   }
 
   def closeIfNeeded(): Unit = {
-    logTrace(s"Close status is '$closed' when close Doris RDD Iterator")
+    logger.trace(s"Close status is '$closed' when close Doris RDD Iterator")
     if (!closed) {
       close()
       closed = true
@@ -73,7 +73,7 @@ private[spark] abstract class AbstractDorisRDDIterator[T](
   }
 
   protected def close(): Unit = {
-    logTrace(s"Initialize status is '$initialized' when close Doris RDD Iterator")
+    logger.trace(s"Initialize status is '$initialized' when close Doris RDD Iterator")
     if (initialized) {
       reader.close()
     }

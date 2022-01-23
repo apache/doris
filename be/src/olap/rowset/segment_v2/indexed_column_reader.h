@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "env/env.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/column_block.h"
 #include "olap/fs/fs_util.h"
@@ -44,8 +45,8 @@ class IndexedColumnIterator;
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(const std::string& file_name, const IndexedColumnMetaPB& meta)
-            : _file_name(file_name), _meta(meta){};
+    explicit IndexedColumnReader(const FilePathDesc& path_desc, const IndexedColumnMetaPB& meta)
+            : _path_desc(path_desc), _meta(meta){};
 
     Status load(bool use_page_cache, bool kept_in_memory);
 
@@ -65,7 +66,7 @@ private:
 
     friend class IndexedColumnIterator;
 
-    std::string _file_name;
+    FilePathDesc _path_desc;
     IndexedColumnMetaPB _meta;
 
     bool _use_page_cache;
@@ -93,10 +94,10 @@ public:
             : _reader(reader),
               _ordinal_iter(&reader->_ordinal_index_reader),
               _value_iter(&reader->_value_index_reader) {
-        fs::BlockManager* block_manager = fs::fs_util::block_manager();
-        auto st = block_manager->open_block(_reader->_file_name, &_rblock);
+        fs::BlockManager* block_manager = fs::fs_util::block_manager(_reader->_path_desc.storage_medium);
+        auto st = block_manager->open_block(_reader->_path_desc, &_rblock);
         DCHECK(st.ok());
-        WARN_IF_ERROR(st, "open file failed:" + _reader->_file_name);
+        WARN_IF_ERROR(st, "open file failed:" + _reader->_path_desc.filepath);
     }
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.

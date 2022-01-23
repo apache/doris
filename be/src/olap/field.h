@@ -85,6 +85,14 @@ public:
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src,
                            MemPool* mem_pool = nullptr) const {
+        if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr) {
+            auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
+            auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+            if (dst_slice->size < src_slice->size) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
+                dst_slice->data = *_long_text_buf;
+            }
+        }
         _agg_info->update(dest, src, mem_pool);
     }
 
@@ -135,7 +143,7 @@ public:
         }
     }
 
-    // Only compare column content, without considering NULL condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,
@@ -144,9 +152,9 @@ public:
 
     // Compare two types of cell.
     // This function differs compare in that this function compare cell which
-    // will consider the condition which cell may be NULL. While compare only
-    // compare column content without considering NULL condition.
-    // Only compare column content, without considering NULL condition.
+    // will consider the condition which cell may be nullptr. While compare only
+    // compare column content without considering nullptr condition.
+    // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,
     //      -1 means left less than right,
@@ -172,6 +180,11 @@ public:
     // memory allocation.
     template <typename DstCellType, typename SrcCellType>
     void direct_copy(DstCellType* dst, const SrcCellType& src) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
         if (type() == OLAP_FIELD_TYPE_STRING) {
             auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
             auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
@@ -180,11 +193,6 @@ public:
                 dst_slice->data = *_long_text_buf;
                 dst_slice->size = src_slice->size;
             }
-        }
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
     }
@@ -240,18 +248,18 @@ public:
     // value_string should end with '\0'
     inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
         if (type() == OLAP_FIELD_TYPE_STRING) {
-            auto dst_slice = reinterpret_cast<Slice*>(buf);
-            if (dst_slice->size < value_string.size()) {
+            auto slice = reinterpret_cast<Slice*>(buf);
+            if (slice->size < value_string.size()) {
                 *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
-                dst_slice->data = *_long_text_buf;
-                dst_slice->size = value_string.size();
+                slice->data = *_long_text_buf;
+                slice->size = value_string.size();
             }
         }
         return _type_info->from_string(buf, value_string);
     }
 
-    // 将内部的value转成string输出
-    // 没有考虑实现的性能，仅供DEBUG使用
+    //  convert inner value to string
+    //  performance is not considered, only for debug use
     inline std::string to_string(const char* src) const { return _type_info->to_string(src); }
 
     template <typename CellType>
@@ -295,8 +303,8 @@ public:
 protected:
     const TypeInfo* _type_info;
     const AggregateInfo* _agg_info;
-    // 长度，单位为字节
-    // 除字符串外，其它类型都是确定的
+    // unit : byte
+    // except for strings, other types have fixed lengths
     uint32_t _length;
     // Since the length of the STRING type cannot be determined,
     // only dynamic memory can be used. Mempool cannot realize realloc.
@@ -327,7 +335,8 @@ protected:
     }
 
 private:
-    // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
+    // maximum length of Field, unit : bytes
+    // usually equal to length, except for variable-length strings
     const KeyCoder* _key_coder;
     std::string _name;
     uint16_t _index_size;
@@ -352,8 +361,9 @@ int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
         uint32_t max_bytes =
                 type() == OLAP_FIELD_TYPE_VARCHAR ? OLAP_VARCHAR_MAX_BYTES : OLAP_STRING_MAX_BYTES;
         if (r_slice->size + max_bytes > _index_size || l_slice->size + max_bytes > _index_size) {
-            // 如果field的实际长度比short key长，则仅比较前缀，确保相同short key的所有block都被扫描，
-            // 否则，可以直接比较short key和field
+            // if the actual length of the field is longer than the short key, only the prefix is compared,
+            // make sure all blocks with the same short key are scanned
+            // Otherwise, the short key and field can be compared directly
             int compare_size = _index_size - max_bytes;
             // l_slice size and r_slice size may be less than compare_size
             // so calculate the min of the three size as new compare_size
@@ -391,7 +401,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
     }
 
     if (type() == OLAP_FIELD_TYPE_VARCHAR) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_VARCHAR_MAX_BYTES
@@ -401,7 +411,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
         memory_copy((char*)dst->mutable_cell_ptr() + OLAP_VARCHAR_MAX_BYTES, slice->data,
                     copy_size);
     } else if (type() == OLAP_FIELD_TYPE_STRING) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES
@@ -410,7 +420,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
         *reinterpret_cast<StringLengthType*>(dst->mutable_cell_ptr()) = copy_size;
         memory_copy((char*)dst->mutable_cell_ptr() + OLAP_STRING_MAX_BYTES, slice->data, copy_size);
     } else if (type() == OLAP_FIELD_TYPE_CHAR) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         memory_copy(dst->mutable_cell_ptr(), slice->data, _index_size);
@@ -566,7 +576,7 @@ public:
         return type_value;
     }
 
-    // only varchar filed need modify zone map index when zone map max_value
+    // only varchar/string filed need modify zone map index when zone map max_value
     // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
     // for the last byte
     // In UTF8 encoding, here do not appear 0xff in last byte
@@ -620,6 +630,16 @@ public:
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         memset(slice->data, 0xFF, slice->size);
+    }
+    // only varchar/string filed need modify zone map index when zone map max_value
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
     }
 
     void set_to_zone_map_max(char* ch) const override {

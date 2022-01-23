@@ -59,7 +59,8 @@ public enum PrimitiveType {
     STRUCT("MAP", 24, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
     // Unsupported scalar types.
-    BINARY("BINARY", -1, TPrimitiveType.BINARY);
+    BINARY("BINARY", -1, TPrimitiveType.BINARY),
+    ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
 
 
     private static final int DATE_INDEX_LEN = 3;
@@ -611,6 +612,8 @@ public enum PrimitiveType {
                 return MAP;
             case STRUCT:
                 return STRUCT;
+            case ALL:
+                return ALL;
             default:
                 return INVALID_TYPE;
         }
@@ -746,6 +749,8 @@ public enum PrimitiveType {
             }
             case DECIMALV2:
                 return MysqlColType.MYSQL_TYPE_NEWDECIMAL;
+            case STRING:
+                return MysqlColType.MYSQL_TYPE_BLOB;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

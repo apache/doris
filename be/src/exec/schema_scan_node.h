@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
-
 #include "exec/scan_node.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/Descriptors_types.h"
@@ -64,7 +62,7 @@ private:
     void debug_string(int indentation_level, std::stringstream* out) const override;
     // Copy one row from schema table to input tuple
     void copy_one_row();
-
+protected:
     bool _is_init;
     const std::string _table_name;
     SchemaScannerParam _scanner_param;
@@ -80,9 +78,9 @@ private:
     // slot num need to fill in and return
     int _slot_num;
     // Pool for allocating tuple data, including all varying-length slots.
-    boost::scoped_ptr<MemPool> _tuple_pool;
+    std::unique_ptr<MemPool> _tuple_pool;
     // Jni helper for scanning an schema table.
-    boost::scoped_ptr<SchemaScanner> _schema_scanner;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
     // Current tuple.
     Tuple* _src_tuple;
     Tuple* _dest_tuple;

@@ -177,7 +177,7 @@ make -j && make install
 
     1.  关闭 `build_mysql` 和 `build_libhdfs3`
 
-        mysql 不在需要。而 libhdfs3 暂不支持 arm 架构，所以在arm中运行Doris，暂不支持通过 libhdfs3 直接访问 hdfs，需要通过broker。
+        mysql 不再需要。而 libhdfs3 暂不支持 arm 架构，所以在arm中运行Doris，暂不支持通过 libhdfs3 直接访问 hdfs，需要通过broker。
         
     2. 在 `build_curl` 中增加 configure 参数：`--without-libpsl`。如果不添加，则在最终编译Doris BE的链接阶段，可能报错：`undefined reference to ‘psl_is_cookie_domain_acceptable'`
     
@@ -217,7 +217,16 @@ make -j && make install
     * 编译到某个阶段卡住不动。
 
         不确定原因。解决方案：重跑 `build-thirdparty.sh`。`build-thirdparty.sh` 是可以重复执行的。
-        
+
 ### 4. 编译Doris源码
 
-执行 sh build.sh 即可。
+执行 `sh build.sh` 即可。
+
+### 5. 常见错误
+
+1. 编译 Doris 时出现 `undefined reference to psl_free`
+
+    libcurl 会调用 libpsl 的函数，但 libpsl 未连接，原因未知。解决方法（二选一）：
+
+    1. 在 `thirdparty/build-thirdparty.sh` 中的 `build_curl` 方法中添加 `--without-libpsl` 后重新编译 libcurl，然后再重新编译 Doris。
+    2. `be/CMakeLists.txt` 中 603 行左右，`-pthread` 后添加 `-lpsl`，然后重新编译 Doris。

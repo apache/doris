@@ -112,7 +112,7 @@ TEST_F(RowRangesTest, TestRangesToRoaring) {
     RowRanges row_ranges3 = RowRanges::create_single(15, 30);
     RowRanges row_ranges4 = RowRanges::create_single(40, 50);
 
-    Roaring row_bitmap = RowRanges::ranges_to_roaring(row_ranges1);
+    roaring::Roaring row_bitmap = RowRanges::ranges_to_roaring(row_ranges1);
     ASSERT_EQ(row_ranges1.count(), row_bitmap.cardinality());
 
     row_bitmap = RowRanges::ranges_to_roaring(row_ranges3);

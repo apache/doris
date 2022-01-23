@@ -19,14 +19,54 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache</groupId>
+        <artifactId>apache</artifactId>
+        <version>23</version>
+    </parent>
 
-    <groupId>org.apache</groupId>
-    <artifactId>doris-fe</artifactId>
-    <version>3.4.0</version>
+    <groupId>org.apache.doris</groupId>
+    <artifactId>fe</artifactId>
+    <version>${revision}</version>
     <packaging>pom</packaging>
+    <name>Doris FE Project Parent POM</name>
+    <url>https://doris.apache.org/</url>
+    <licenses>
+        <license>
+            <name>Apache 2.0 License</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <scm>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
+        <tag>HEAD</tag>
+    </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/apache/incubator-doris/issues</url>
+    </issueManagement>
+
+    <mailingLists>
+        <mailingList>
+            <name>Dev Mailing List</name>
+            <post>dev@doris.apache.org</post>
+            <subscribe>dev-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+
+        <mailingList>
+            <name>Commits Mailing List</name>
+            <post>commits@doris.apache.org</post>
+            <subscribe>commits-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+    </mailingLists>
 
     <modules>
         <module>fe-common</module>
@@ -34,23 +74,20 @@ under the License.
         <module>fe-core</module>
     </modules>
 
-    <name>doris-fe</name>
-    <url>https://github.com/apache/incubator-doris</url>
-
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.2.0.RELEASE</version>
-    </parent>
-
     <properties>
         <doris.home>${basedir}/../</doris.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <grpc.version>1.30.0</grpc.version>
-        <protobuf.version>3.5.1</protobuf.version>
+        <protobuf.version>3.14.0</protobuf.version>
         <skip.plugin>false</skip.plugin>
+        <hive.version>2.3.7</hive.version>
+        <hadoop.version>2.8.0</hadoop.version>
+        <jmockit.version>1.49</jmockit.version>
+        <log4j2.version>2.17.1</log4j2.version>
+        <revision>0.15-SNAPSHOT</revision>
+        <project.scm.id>github</project.scm.id>
     </properties>
 
     <profiles>
@@ -106,10 +143,6 @@ under the License.
             </repositories>
 
             <pluginRepositories>
-                <pluginRepository>
-                    <id>spring-plugins</id>
-                    <url>https://repo.spring.io/plugins-release/</url>
-                </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>cloudera-public</id>
@@ -122,15 +155,15 @@ under the License.
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>org.apache</groupId>
-                <artifactId>doris-fe-common</artifactId>
-                <version>1.0.0</version>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>fe-common</artifactId>
+                <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>org.apache</groupId>
+                <groupId>${project.groupId}</groupId>
                 <artifactId>spark-dpp</artifactId>
-                <version>1.0.0</version>
+                <version>${project.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/cglib/cglib -->
@@ -155,10 +188,11 @@ under the License.
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
+            <!-- upgrade commons-lang from 2.4 to 2.6 to fix incompatibility of with versioning scheme of Java 9 and later -->
             <dependency>
                 <groupId>commons-lang</groupId>
                 <artifactId>commons-lang</artifactId>
-                <version>2.4</version>
+                <version>2.6</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
@@ -263,7 +297,7 @@ under the License.
             <dependency>
                 <groupId>org.jmockit</groupId>
                 <artifactId>jmockit</artifactId>
-                <version>1.48</version>
+                <version>${jmockit.version}</version>
                 <scope>test</scope>
             </dependency>
 
@@ -295,40 +329,43 @@ under the License.
                 <scope>test</scope>
             </dependency>
 
-            <!-- https://mvnrepository.com/artifact/org.apache.thrift/libfb303 -->
-            <dependency>
-                <groupId>org.apache.thrift</groupId>
-                <artifactId>libfb303</artifactId>
-                <version>0.9.3</version>
-                <type>pom</type>
-            </dependency>
-
             <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.9.3</version>
+                <version>0.13.0</version>
+                <exclusions>
+                    <!-- thrift 0.13 depends on httpclient 4.5.10, should exclude it -->
+                    <exclusion>
+                        <artifactId>httpclient</artifactId>
+                        <groupId>org.apache.httpcomponents</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>httpcore</artifactId>
+                        <groupId>org.apache.httpcomponents</groupId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-api</artifactId>
-                <version>2.14.0</version>
+                <version>${log4j2.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
-                <version>2.14.0</version>
+                <version>${log4j2.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-slf4j-impl -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-slf4j-impl</artifactId>
-                <version>2.14.0</version>
+                <version>${log4j2.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
@@ -596,9 +633,94 @@ under the License.
             </dependency>
 
             <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-metastore</artifactId>
+                <version>${hive.version}</version>
+                <scope>provided</scope>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>servlet-api</artifactId>
+                        <groupId>javax.servlet</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>jdk.tools</groupId>
+                        <artifactId>jdk.tools</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.logging.log4j</groupId>
+                        <artifactId>log4j-1.2-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>tomcat</groupId>
+                        <artifactId>jasper-compiler</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-exec</artifactId>
+                <classifier>core</classifier>
+                <version>${hive.version}</version>
+                <scope>provided</scope>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.logging.log4j</groupId>
+                        <artifactId>log4j-1.2-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.codehaus.groovy</groupId>
+                        <artifactId>groovy-all</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.pentaho</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-hdfs</artifactId>
+                <version>${hadoop.version}</version>
+                <scope>provided</scope>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>servlet-api</artifactId>
+                        <groupId>javax.servlet</groupId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-aws</artifactId>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>servlet-api</artifactId>
+                        <groupId>javax.servlet</groupId>
+                    </exclusion>
+                    <!-- https://github.com/aws/aws-sdk-java/issues/1032 -->
+                    <exclusion>
+                        <artifactId>com.amazonaws</artifactId>
+                        <groupId>aws-java-sdk-s3</groupId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
-                <version>2.7.3</version>
+                <version>${hadoop.version}</version>
                 <scope>provided</scope>
                 <exclusions>
                     <exclusion>
@@ -671,13 +793,28 @@ under the License.
                 <artifactId>tree-printer</artifactId>
                 <version>1.2</version>
             </dependency>
-
-            <!-- https://mvnrepository.com/artifact/org.projectlombok/lombok -->
             <dependency>
-                <groupId>org.projectlombok</groupId>
-                <artifactId>lombok</artifactId>
-                <version>1.18.16</version>
-                <scope>provided</scope>
+                <groupId>org.hamcrest</groupId>
+                <artifactId>hamcrest</artifactId>
+                <version>2.1</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>4.5.13</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpcore</artifactId>
+                <version>4.4.15</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-s3</artifactId>
+                <version>1.11.95</version>
             </dependency>
 
         </dependencies>

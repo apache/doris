@@ -62,6 +62,8 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
+    RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
+
 private:
     template <typename RowType>
     OLAPStatus _add_row(const RowType& row);

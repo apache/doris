@@ -220,4 +220,13 @@ Suppose Doris source code is under `/home/doris/doris-src/`.
 
 ### 4. Compile Doris source code
 
-Just execute sh build.sh.
+Execute `sh build.sh`.
+
+### 5. FAQ
+
+1. `undefined reference to psl_free` appears when compiling Doris
+
+     libcurl will call libpsl functions, but libpsl is not linked for an unknown reason. Solutions (choose one of the two):
+
+     1. Add `--without-libpsl` to the `build_curl` method in `thirdparty/build-thirdparty.sh`, recompile libcurl, and then recompile Doris.
+     2. About line 603 in `be/CMakeLists.txt`, add `-lpsl` after `-pthread`, and then recompile Doris.

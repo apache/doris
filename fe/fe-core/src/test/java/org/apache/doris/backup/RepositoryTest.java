@@ -39,6 +39,8 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.net.MalformedURLException;
+import java.net.URISyntaxException;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
@@ -127,7 +129,7 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testassemnblePath() {
+    public void testassemnblePath() throws MalformedURLException, URISyntaxException {
         repo = new Repository(10000, "repo", false, location, storage);
 
         // job info
@@ -136,7 +138,7 @@ public class RepositoryTest {
         String createTime2 = "2018-04-12-20-46-45";
         Timestamp ts = Timestamp.valueOf(createTime);
         long creastTs = ts.getTime();
-        
+
         // "location/__palo_repository_repo_name/__ss_my_sp1/__info_2018-01-01-08-00-00"
         String expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
                 + label + "/" + Repository.PREFIX_JOB_INFO + createTime2;
@@ -146,12 +148,17 @@ public class RepositoryTest {
         expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
                 + label + "/" + Repository.FILE_META_INFO;
         Assert.assertEquals(expected, repo.assembleMetaInfoFilePath(label));
-        
+
         // snapshot path
         // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
         expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
                 + label + "/" + "__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5/__7";
         Assert.assertEquals(expected, repo.assembleRemoteSnapshotPath(label, info));
+
+        String rootTabletPath = "/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003";
+        String path = repo.getRepoPath(label, rootTabletPath);
+        Assert.assertEquals("bos://backup-cmy/__palo_repository_repo/__ss_label/__ss_content/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003",
+                path);
     }
 
     @Test

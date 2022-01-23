@@ -25,11 +25,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 import java.util.Set;
@@ -104,14 +103,8 @@ public class UpdateStmt extends DdlStmt {
         String targetTableName = tableName.getTbl();
         Preconditions.checkNotNull(dbName);
         Preconditions.checkNotNull(targetTableName);
-        Database database = Catalog.getCurrentCatalog().getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        targetTable = database.getTable(tableName.getTbl());
-        if (targetTable == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName.getTbl());
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        targetTable = database.getTableOrAnalysisException(tableName.getTbl());
         if (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("Only unique olap table could be updated.");
@@ -191,7 +184,7 @@ public class UpdateStmt extends DdlStmt {
         if (whereExpr == null) {
             throw new AnalysisException("Where clause is required");
         }
-        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
         whereExpr.analyze(analyzer);
         if (!whereExpr.getType().equals(Type.BOOLEAN)) {
             throw new AnalysisException("Where clause is not a valid statement return bool");

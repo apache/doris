@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -100,7 +99,7 @@ public class UpdateStmtExecutor {
             LOG.warn("failed to plan update stmt, query id:{}", DebugUtil.printId(queryId), e);
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
             QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
-            throw new DdlException("failed to execute update stmt, query id:" + DebugUtil.printId(queryId), e);
+            throw new DdlException("failed to plan update stmt, query id: " + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
         } finally {
             targetTable.readUnlock();
         }
@@ -115,7 +114,7 @@ public class UpdateStmtExecutor {
         } catch (Throwable e) {
             LOG.warn("failed to execute update stmt, query id:{}", DebugUtil.printId(queryId), e);
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
-            throw new DdlException("failed to execute update stmt, query id:" + DebugUtil.printId(queryId), e);
+            throw new DdlException("failed to execute update stmt, query id: " + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
         }
@@ -140,7 +139,7 @@ public class UpdateStmtExecutor {
     private void executePlan() throws Exception {
         LOG.info("begin execute update stmt, query id:{}", DebugUtil.printId(queryId));
         coordinator = new Coordinator(Catalog.getCurrentCatalog().getNextId(), queryId, analyzer.getDescTbl(),
-                updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE);
+                updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
         coordinator.setQueryType(TQueryType.LOAD);
         QeProcessorImpl.INSTANCE.registerQuery(queryId, coordinator);
         analyzer.getContext().getExecutor().setCoord(coordinator);
@@ -177,26 +176,14 @@ public class UpdateStmtExecutor {
 
     private void commitAndPublishTxn() throws UserException {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        // situation1: no data is updated, abort transaction
-        if (effectRows == 0) {
-            LOG.info("abort transaction for update stmt, query id:{}, reason: {}", DebugUtil.printId(queryId),
-                    TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-            globalTransactionMgr.abortTransaction(dbId, txnId, TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-            StringBuilder sb = new StringBuilder();
-            sb.append("{'label':'").append(label);
-            sb.append(", 'txnId':'").append(txnId).append("'");
-            sb.append(", 'queryId':'").append(DebugUtil.printId(queryId)).append("'");
-            sb.append("}");
-            analyzer.getContext().getState().setOk(effectRows, 0, sb.toString());
-            return;
-        }
         TransactionStatus txnStatus;
-        // situation2: data is updated, commit and publish transaction
         boolean isPublished;
         try {
             LOG.info("commit and publish transaction for update stmt, query id: {}", DebugUtil.printId(queryId));
-            isPublished = globalTransactionMgr.commitAndPublishTransaction(Catalog.getCurrentCatalog().getDb(dbId),
-                    Lists.newArrayList(targetTable), txnId,
+            isPublished = globalTransactionMgr.commitAndPublishTransaction(
+                    Catalog.getCurrentCatalog().getDbOrMetaException(dbId),
+                    Lists.newArrayList(targetTable),
+                    txnId,
                     TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
                     analyzer.getContext().getSessionVariable().getInsertVisibleTimeoutMs());
         } catch (Throwable e) {
@@ -236,12 +223,7 @@ public class UpdateStmtExecutor {
         updateStmtExecutor.targetTable = (OlapTable) updateStmt.getTargetTable();
         updateStmtExecutor.whereExpr = updateStmt.getWhereExpr();
         updateStmtExecutor.setExprs = updateStmt.getSetExprs();
-        Database database = Catalog.getCurrentCatalog().getDb(updateStmt.getTableName().getDb());
-        if (database == null) {
-            String errMsg = "Database does not exists in update stmt, db:" + updateStmt.getTableName().getDb();
-            LOG.info(errMsg);
-            throw new AnalysisException(errMsg);
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(updateStmt.getTableName().getDb());
         updateStmtExecutor.dbId = database.getId();
         updateStmtExecutor.analyzer = updateStmt.getAnalyzer();
         updateStmtExecutor.queryId = updateStmtExecutor.analyzer.getContext().queryId();

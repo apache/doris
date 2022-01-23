@@ -18,12 +18,12 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
 #define DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/status.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Exprs_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 
@@ -33,10 +33,12 @@ class ObjectPool;
 class RowBatch;
 class RuntimeProfile;
 class RuntimeState;
-class TPlanExecRequest;
-class TPlanExecParams;
 class TPlanFragmentExecParams;
 class RowDescriptor;
+
+namespace vectorized {
+class Block;
+}
 
 // Superclass of all data sinks.
 class DataSink {
@@ -56,8 +58,11 @@ public:
     // Send a row batch into this sink.
     // eos should be true when the last batch is passed to send()
     virtual Status send(RuntimeState* state, RowBatch* batch) = 0;
-    // virtual Status send(RuntimeState* state, RowBatch* batch, bool eos) = 0;
 
+    // Send a Block into this sink.
+    virtual Status send(RuntimeState* state, vectorized::Block* block) {
+        return Status::NotSupported("Not support send block");
+    };
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should
@@ -73,9 +78,8 @@ public:
     static Status create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                    const std::vector<TExpr>& output_exprs,
                                    const TPlanFragmentExecParams& params,
-                                   const RowDescriptor& row_desc,
-                                   bool is_vec,
-                                   boost::scoped_ptr<DataSink>* sink);
+                                   const RowDescriptor& row_desc, bool is_vec,
+                                   std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;

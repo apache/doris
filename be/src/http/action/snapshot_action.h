@@ -18,7 +18,8 @@
 #ifndef DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
 #define DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
 
-#include <boost/scoped_ptr.hpp>
+#include <cstdint>
+#include <string>
 
 #include "http/http_handler.h"
 

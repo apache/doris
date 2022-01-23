@@ -21,10 +21,16 @@
 #include <memory>
 #include <unordered_map>
 
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "vec/core/block.h"
 
 namespace doris {
+
+namespace vectorized {
+class Block;
+}
 
 class RowBlock;
 class RowsetReader;
@@ -44,6 +50,8 @@ public:
     //      Others when error happens.
     virtual OLAPStatus next_block(RowBlock** block) = 0;
 
+    virtual OLAPStatus next_block(vectorized::Block* block) = 0;
+
     virtual bool delete_flag() = 0;
 
     virtual Version version() = 0;
@@ -53,6 +61,8 @@ public:
     virtual RowsetSharedPtr rowset() = 0;
 
     virtual int64_t filtered_rows() = 0;
+
+    virtual RowsetTypePB type() const = 0;
 };
 
 } // namespace doris

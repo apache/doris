@@ -149,7 +149,7 @@ public class BackupJobTest {
 
         new Expectations(catalog) {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
@@ -219,7 +219,7 @@ public class BackupJobTest {
         List<String> partNames = Lists.newArrayList(backupTbl.getPartitionNames());
         Assert.assertNotNull(backupTbl);
         Assert.assertEquals(backupTbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames),
-                            ((OlapTable) db.getTable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
+                            ((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
         AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, tabletId);
         Assert.assertTrue(task instanceof SnapshotTask);
@@ -308,7 +308,7 @@ public class BackupJobTest {
             Assert.assertNotNull(olapTable);
             Assert.assertNotNull(restoreMetaInfo.getTable(UnitTestUtil.TABLE_NAME));
             List<String> names = Lists.newArrayList(olapTable.getPartitionNames());
-            Assert.assertEquals(((OlapTable) db.getTable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, names),
+            Assert.assertEquals(((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, names),
                                 olapTable.getSignature(BackupHandler.SIGNATURE_VERSION, names));
 
             restoreJobInfo = BackupJobInfo.fromFile(job.getLocalJobInfoFilePath());

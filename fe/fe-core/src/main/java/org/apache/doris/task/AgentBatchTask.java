@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
@@ -29,6 +30,7 @@ import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
 import org.apache.doris.thrift.TCloneReq;
+import org.apache.doris.thrift.TCompactionReq;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TDropTabletReq;
@@ -157,7 +159,8 @@ public class AgentBatchTask implements Runnable {
                 }
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                 // create AgentClient
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
+                address = new TNetworkAddress(host, backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
@@ -358,6 +361,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setAlterTabletReqV2(request);
+                return tAgentTaskRequest;
+            }
+            case COMPACTION: {
+                CompactionTask compactionTask = (CompactionTask) task;
+                TCompactionReq request = compactionTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setCompactionReq(request);
                 return tAgentTaskRequest;
             }
             default:

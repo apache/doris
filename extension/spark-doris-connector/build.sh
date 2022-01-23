@@ -25,22 +25,38 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+usage() {
+  echo "
+  Usage:
+    $0 spark_version scala_version
+  e.g.:
+    $0 2.3.4 2.11
+    $0 3.1.2 2.12
+  "
+  exit 1
+}
 
+if [ $# -ne 2 ]; then
+    usage
+fi
+
+ROOT=$(dirname "$0")
+ROOT=$(cd "$ROOT"; pwd)
 
 export DORIS_HOME=${ROOT}/../../
+export PATH=${DORIS_THIRDPARTY}/installed/bin:$PATH
+
+. "${DORIS_HOME}"/env.sh
 
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
-    . ${DORIS_HOME}/custom_env.sh
+    . "${DORIS_HOME}"/custom_env.sh
 fi
 
 # check maven
 MVN_CMD=mvn
 
-
-if [[ ! -z ${CUSTOM_MVN} ]]; then
+if [[ -n ${CUSTOM_MVN} ]]; then
     MVN_CMD=${CUSTOM_MVN}
 fi
 if ! ${MVN_CMD} --version; then
@@ -48,19 +64,13 @@ if ! ${MVN_CMD} --version; then
     exit 1
 fi
 export MVN_CMD
-if [ $1 == 3 ]
-then
-   ${MVN_CMD} clean package -f pom_3.0.xml
-fi
-if [ $1 == 2 ]
-then
-   ${MVN_CMD} clean package
-fi
+
+rm -rf output/
+
+${MVN_CMD} clean package -Dscala.version=$2 -Dspark.version=$1
 
 mkdir -p output/
-cp target/doris-spark-1.0.0-SNAPSHOT.jar ./output/
-cp target/doris-spark-1.0.0-SNAPSHOT-javadoc.jar ./output/
-cp target/doris-spark-1.0.0-SNAPSHOT-sources.jar ./output/
+cp target/doris-spark-*.jar ./output/
 
 echo "*****************************************"
 echo "Successfully build Spark-Doris-Connector"

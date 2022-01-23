@@ -70,7 +70,10 @@ create table doris_audit_tbl__
     stmt_id int comment "An incremental id of statement",
     is_query tinyint comment "Is this statemt a query. 1 or 0",
     frontend_ip varchar(32) comment "Frontend ip of executing this statement",
-    stmt varchar(5000) comment "The original statement, trimed if longer than 5000 bytes"
+    cpu_time_ms bigint comment "Total scan cpu time in millisecond of this query",
+    sql_hash varchar(50) comment "Hash value for this query",
+    peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
+    stmt string comment "The original statement, trimed if longer than 2G"
 ) engine=OLAP
 duplicate key(query_id, time, client_ip)
 partition by range(time) ()
@@ -85,6 +88,10 @@ properties(
     "replication_num" = "3"
 );
 ```
+
+>**Notice**
+>
+> In the above table structure: stmt string, this can only be used in 0.15 and later versions, in previous versions, the field type used varchar
 
 The `dynamic_partition` attribute selects the number of days to keep the audit log based on your needs.
 

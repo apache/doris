@@ -38,6 +38,7 @@ public class PositionMeta<T> {
         this.batches = Maps.newHashMap();
         this.commitPositions = Maps.newHashMap();
     }
+
     public void addBatch(long batchId, PositionRange<T> range) {
         updateMaxBatchId(batchId);
         batches.put(batchId, range);
@@ -76,7 +77,7 @@ public class PositionMeta<T> {
     }
 
     public T getLatestPosition() {
-        if (batches.isEmpty()) {
+        if (!batches.containsKey(maxBatchId)) {
             return null;
         } else {
             return batches.get(maxBatchId).getEnd();

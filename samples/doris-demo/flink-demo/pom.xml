@@ -103,9 +103,8 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>org.apache</groupId>
-            <artifactId>doris-flink</artifactId>
-            <version>1.0.0</version>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>doris-flink-connector</artifactId>
         </dependency>
 
 
@@ -120,7 +119,6 @@ under the License.
             <artifactId>slf4j-simple</artifactId>
             <version>1.7.25</version>
         </dependency>
-
         <!-- https://mvnrepository.com/artifact/com.ververica/flink-connector-oracle-cdc -->
         <dependency>
             <groupId>com.ververica</groupId>

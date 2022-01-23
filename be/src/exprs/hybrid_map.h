@@ -22,6 +22,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
@@ -40,7 +41,7 @@ public:
         typename std::unordered_map<uint64_t, HybridSetBase*>::const_iterator it = _map.find(dst);
 
         if (it == _map.end()) {
-            _set_ptr = _pool.add(HybridSetBase::create_set(_type));
+            _set_ptr = _pool.add(create_set(_type));
             std::pair<uint64_t, HybridSetBase*> insert_pair(dst, _set_ptr);
             _map.insert(insert_pair);
             *is_add_buckets = true;

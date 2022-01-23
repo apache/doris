@@ -106,7 +106,7 @@ protected:
             EXPECT_LT(val, max);
 
             if (all_unique) {
-                EXPECT_TRUE(results[val] == NULL);
+                EXPECT_TRUE(results[val] == nullptr);
             }
 
             EXPECT_EQ(row->get_tuple(0), expected[val]->get_tuple(0));
@@ -357,14 +357,14 @@ TEST_F(HashTableTest, GrowTableTest2) {
     int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::CreateTracker(1024 * 1024, "hash-table-grow2-tracker", _tracker);
+            MemTracker::CreateTracker(1024 * 1024 * 1024, "hash-table-grow2-tracker", _tracker);
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
     HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
                          mem_tracker, num_buckets);
 
-    LOG(INFO) << time(NULL);
+    LOG(INFO) << time(nullptr);
 
     // constexpr const int test_size = 5 * 1024 * 1024;
     constexpr const int test_size = 5 * 1024 * 100;
@@ -374,7 +374,7 @@ TEST_F(HashTableTest, GrowTableTest2) {
         expected_size += num_to_add;
     }
 
-    LOG(INFO) << time(NULL);
+    LOG(INFO) << time(nullptr);
 
     // Validate that we can find the entries
     for (int i = 0; i < test_size; ++i) {
@@ -382,7 +382,7 @@ TEST_F(HashTableTest, GrowTableTest2) {
         hash_table.find(probe_row);
     }
 
-    LOG(INFO) << time(NULL);
+    LOG(INFO) << time(nullptr);
 
     size_t counter = 0;
     auto func = [&](TupleRow* row) { counter++; };
@@ -396,6 +396,12 @@ TEST_F(HashTableTest, GrowTableTest2) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!doris::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     doris::CpuInfo::init();
+    doris::MemInfo::init();
     return RUN_ALL_TESTS();
 }

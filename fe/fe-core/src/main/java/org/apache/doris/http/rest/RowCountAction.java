@@ -24,8 +24,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
@@ -74,23 +72,10 @@ public class RowCountAction extends RestBaseAction {
 
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
-
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new DdlException("Table[" + tableName + "] does not exist");
-        }
-
-        if (table.getType() != TableType.OLAP) {
-            throw new DdlException("Table[" + tableName + "] is not OLAP table");
-        }
-
-        table.writeLock();
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) table;
             for (Partition partition : olapTable.getAllPartitions()) {
                 long version = partition.getVisibleVersion();
                 long versionHash = partition.getVisibleVersionHash();
@@ -111,7 +96,7 @@ public class RowCountAction extends RestBaseAction {
                 } // end for indices
             } // end for partitions            
         } finally {
-            table.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         // to json response

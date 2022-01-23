@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
@@ -81,7 +82,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         // evaluate `case when expr` when possible
         if (expr instanceof CaseExpr) {
             return CaseExpr.computeCaseExpr((CaseExpr) expr);
@@ -215,7 +216,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 getInfoFnExpr(expr, infoFnMap);
                 return;
             }
-            constExprMap.put(expr.getId().toString(),expr.treeToThrift());
+            constExprMap.put(expr.getId().toString(), expr.treeToThrift());
             oriConstMap.put(expr.getId().toString(), expr);
         } else {
             recursiveGetChildrenConstExpr(expr, constExprMap, oriConstMap, analyzer, sysVarMap, infoFnMap);
@@ -353,7 +354,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
-
+            tParams.setVecExec(VectorizedUtil.isVectorized());
+            
             Future<InternalService.PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             InternalService.PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 

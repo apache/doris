@@ -153,7 +153,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Copy c'tor. Also passes in new id.
+     * Copy ctor. Also passes in new id.
      */
     protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName) {
         this.id = id;
@@ -275,6 +275,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return tupleIds;
     }
 
+    public void resetTupleIds(ArrayList<TupleId> tupleIds) {
+        this.tupleIds = tupleIds;
+    }
+
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
         return tupleIds;
@@ -297,7 +301,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return conjuncts;
     }
 
-    private void initCompoundPredicate(Expr expr) {
+    void initCompoundPredicate(Expr expr) {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             compoundPredicate.setType(Type.BOOLEAN);
@@ -314,7 +318,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-    private Expr convertConjunctsToAndCompoundPredicate() {
+    Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
@@ -353,6 +357,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     public void transferConjuncts(PlanNode recipient) {
+        recipient.vconjunct = vconjunct;
+        vconjunct = null;
+        
         recipient.conjuncts.addAll(conjuncts);
         conjuncts.clear();
     }
@@ -795,7 +802,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-    public String getPlanTreeExplanStr() {
+    public String getPlanTreeExplainStr() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
         sb.append("\n[Fragment: ").append(getFragmentId().asInt()).append("]");
@@ -855,7 +862,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     void convertToVectoriezd() {
         if (!conjuncts.isEmpty()) {
-            vconjunct = convertConjunctsToAndCompoundPredicate();
+            vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
             initCompoundPredicate(vconjunct);
         }
 

@@ -45,7 +45,8 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     return execute_plan_fragment(ctx, nullptr);
 }
 
-Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx, std::shared_ptr<StreamLoadPipe> pipe) {
+Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx,
+                                                 std::shared_ptr<StreamLoadPipe> pipe) {
     DorisMetrics::instance()->txn_exec_plan_total->increment(1);
 // submit this params
 #ifndef BE_TEST
@@ -66,14 +67,11 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx, std::sh
 
                     int64_t num_selected_rows =
                             ctx->number_total_rows - ctx->number_unselected_rows;
-                    if ((double)ctx->number_filtered_rows / num_selected_rows >
+                    if (num_selected_rows > 0 && (double)ctx->number_filtered_rows / num_selected_rows >
                         ctx->max_filter_ratio) {
-                        // NOTE: Do not modify the error message here, for historical
-                        // reasons,
+                        // NOTE: Do not modify the error message here, for historical reasons,
                         // some users may rely on this error message.
                         status = Status::InternalError("too many filtered rows");
-                    } else if (ctx->number_loaded_rows == 0) {
-                        status = Status::InternalError("all partitions have no load data");
                     }
                     if (ctx->number_filtered_rows > 0 &&
                         !executor->runtime_state()->get_error_log_file_path().empty()) {
@@ -94,7 +92,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx, std::sh
                                  << ", err_msg=" << status.get_error_msg() << ", " << ctx->brief();
                     // cancel body_sink, make sender known it
                     if (ctx->body_sink != nullptr) {
-                        ctx->body_sink->cancel();
+                        ctx->body_sink->cancel(status.get_error_msg());
                     }
 
                     switch (ctx->load_src_type) {
@@ -217,7 +215,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     // rollback this transaction
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg()
+        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg() << ", "
                      << ctx->brief();
         if (status.code() == TStatusCode::PUBLISH_TIMEOUT) {
             ctx->need_rollback = false;

@@ -101,7 +101,7 @@ public class DatabaseTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        Table testTable1 = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1);
+        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1, transTablets);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1, null);
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);

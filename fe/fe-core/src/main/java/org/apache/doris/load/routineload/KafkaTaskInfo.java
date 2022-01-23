@@ -20,7 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -32,7 +32,11 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,11 +44,15 @@ import java.util.Map;
 import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
+    private static final Logger LOG = LogManager.getLogger(KafkaTaskInfo.class);
 
     private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
 
-    // <partitionId, beginOffsetOfPartitionId>
+    // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
+
+    // Last fetched and cached latest partition offsets.
+    private List<Pair<Integer, Long>> cachedPartitionWithLatestOffsets = Lists.newArrayList();
 
     public KafkaTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
         super(id, jobId, clusterName, timeoutMs);
@@ -71,23 +79,17 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setId(queryId);
         tRoutineLoadTask.setJobId(jobId);
         tRoutineLoadTask.setTxnId(txnId);
-        Database database = Catalog.getCurrentCatalog().getDb(routineLoadJob.getDbId());
-        if (database == null) {
-            throw new MetaNotFoundException("database " + routineLoadJob.getDbId() + " does not exist");
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
         tRoutineLoadTask.setDb(database.getFullName());
-        Table tbl = database.getTable(routineLoadJob.getTableId());
-        if (tbl == null) {
-            throw new MetaNotFoundException("table " + routineLoadJob.getTableId() + " does not exist");
-        }
         tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
         tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
-        tKafkaLoadInfo.setTopic((routineLoadJob).getTopic());
-        tKafkaLoadInfo.setBrokers((routineLoadJob).getBrokerList());
+        tKafkaLoadInfo.setTopic(routineLoadJob.getTopic());
+        tKafkaLoadInfo.setBrokers(routineLoadJob.getBrokerList());
         tKafkaLoadInfo.setPartitionBeginOffset(partitionIdToOffset);
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
@@ -108,6 +110,12 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     protected String getTaskDataSourceProperties() {
         Gson gson = new Gson();
         return gson.toJson(partitionIdToOffset);
+    }
+
+    @Override
+    boolean hasMoreDataToConsume() {
+        KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
+        return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
     }
 
     private TExecPlanFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {

@@ -38,7 +38,7 @@ public class SetVariableTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
     }
@@ -58,7 +58,7 @@ public class SetVariableTest {
         stmtExecutor.execute();
         Expr expr = stmtExecutor.getParsedStmt().getResultExprs().get(0);
         Assert.assertTrue(expr instanceof SlotRef);
-        Assert.assertTrue(expr.getType() == Type.BIGINT);
+        Assert.assertSame(expr.getType(), Type.VARCHAR);
     }
 
     @Test

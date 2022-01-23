@@ -17,13 +17,10 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
@@ -48,7 +45,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 
-import org.apache.commons.httpclient.HttpException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -57,7 +53,6 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -69,6 +64,9 @@ import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import lombok.Getter;
+import lombok.Setter;
 
 /*
  * Used to return all node information, configuration information and modify node config.
@@ -109,7 +107,7 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        return fetchNodeInfo("/frontends");
+        return fetchNodeInfo(request, response, "/frontends");
     }
 
     // Returns all be information, similar to 'show backends'.
@@ -118,7 +116,7 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        return fetchNodeInfo("/backends");
+        return fetchNodeInfo(request, response, "/backends");
     }
 
     // Returns all broker information, similar to 'show broker'.
@@ -127,7 +125,7 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        return fetchNodeInfo("/brokers");
+        return fetchNodeInfo(request, response, "/brokers");
     }
 
     // {
@@ -140,7 +138,12 @@ public class NodeAction extends RestBaseController {
     //		    ]
     //	    ]
     // }
-    private Object fetchNodeInfo(String procPath) throws AnalysisException {
+    private Object fetchNodeInfo(HttpServletRequest request, HttpServletResponse response, String procPath)
+            throws AnalysisException {
+        if (!Catalog.getCurrentCatalog().isMaster()) {
+            return redirectToMaster(request, response);
+        }
+
         try {
             ProcResult procResult = ProcService.getInstance().open(procPath).fetchResult();
             List<String> columnNames = Lists.newArrayList(procResult.getColumnNames());
@@ -202,7 +205,7 @@ public class NodeAction extends RestBaseController {
         return ResponseEntityBuilder.ok(result);
     }
 
-    // Return all living fe and be nodes.
+    // Return all fe and be nodes.
     // {
     //		"frontend": [
     //			"host:httpPort"
@@ -224,13 +227,13 @@ public class NodeAction extends RestBaseController {
 
     private static List<String> getFeList() {
         return Catalog.getCurrentCatalog().getFrontends(null)
-                .stream().filter(Frontend::isAlive)
+                .stream()
                 .map(fe -> fe.getHost() + ":" + Config.http_port)
                 .collect(Collectors.toList());
     }
 
     private static List<String> getBeList() {
-        return Catalog.getCurrentSystemInfo().getBackendIds(true)
+        return Catalog.getCurrentSystemInfo().getBackendIds(false)
                 .stream().map(beId -> {
                     Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
                     return be.getHost() + ":" + be.getHttpPort();
@@ -246,25 +249,20 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        List<List<String>> results = Lists.newArrayList();
-        try {
-            List<List<String>> configs = ConfigBase.getConfigInfo(null);
-            // Sort all configs by config key.
-            Collections.sort(configs, Comparator.comparing(o -> o.get(0)));
+        List<List<String>> configs = ConfigBase.getConfigInfo(null);
+        // Sort all configs by config key.
+        configs.sort(Comparator.comparing(o -> o.get(0)));
 
-            // reorder the fields
-            for (List<String> config : configs) {
-                List<String> list = Lists.newArrayList();
-                list.add(config.get(0));
-                list.add(config.get(2));
-                list.add(config.get(4));
-                list.add(config.get(1));
-                list.add(config.get(3));
-                results.add(list);
-            }
-        } catch (DdlException e) {
-            LOG.warn(e);
-            return ResponseEntityBuilder.internalError(e.getMessage());
+        // reorder the fields
+        List<List<String>> results = Lists.newArrayList();
+        for (List<String> config : configs) {
+            List<String> list = Lists.newArrayList();
+            list.add(config.get(0));
+            list.add(config.get(2));
+            list.add(config.get(4));
+            list.add(config.get(1));
+            list.add(config.get(3));
+            results.add(list);
         }
         return results;
     }
@@ -535,10 +533,10 @@ public class NodeAction extends RestBaseController {
     }
 
     private void parseFeSetConfigResponse(String response, Pair<String, Integer> hostPort,
-                                          List<Map<String, String>> failedTotal) throws HttpException {
+                                          List<Map<String, String>> failedTotal) throws Exception {
         JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
         if (jsonObject.get("code").getAsInt() != HttpUtils.REQUEST_SUCCESS_CODE) {
-            throw new HttpException(jsonObject.get("msg").getAsString());
+            throw new Exception(jsonObject.get("msg").getAsString());
         }
         SetConfigAction.SetConfigEntity setConfigEntity = GsonUtils.GSON.fromJson(jsonObject.get("data").getAsJsonObject(),
                 SetConfigAction.SetConfigEntity.class);

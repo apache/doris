@@ -42,6 +42,10 @@ public class Data<T> {
         this.datas.add(row);
     }
 
+    public void addRows(List<T> rows) {
+        this.datas.addAll(rows);
+    }
+
     public boolean isNotEmpty() {
         return datas.size() > 0;
     }

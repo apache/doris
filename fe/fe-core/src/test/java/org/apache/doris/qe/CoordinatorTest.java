@@ -17,10 +17,9 @@
 
 package org.apache.doris.qe;
 
-import mockit.Mocked;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -39,7 +38,6 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
-
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -49,12 +47,13 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.commons.collections.map.HashedMap;
+import org.junit.Assert;
+import org.junit.Test;
+
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,14 +61,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import com.google.common.collect.Maps;
-import org.apache.commons.collections.map.HashedMap;
+
+import mockit.Mocked;
 
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
     static ConnectContext context = new ConnectContext(null);
     static {
         context.setQueryId(new TUniqueId(1, 2));
+        context.setQualifiedUser("root");
     }
     @Mocked
     static Catalog catalog;
@@ -77,9 +77,8 @@ public class CoordinatorTest extends Coordinator {
     static EditLog editLog;
     @Mocked
     static FrontendOptions frontendOptions;
-    static Analyzer analyzer = new Analyzer(catalog, null);
-
-
+    static Analyzer analyzer = new Analyzer(catalog, context);
+    
     public CoordinatorTest() {
         super(context, analyzer, planner);
     }
@@ -164,11 +163,15 @@ public class CoordinatorTest extends Coordinator {
         tupleIdArrayList.add(testTupleId);
 
         ArrayList<Expr> testJoinexprs = new ArrayList<>();
-        BinaryPredicate binaryPredicate = new BinaryPredicate();
+
+        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, new BoolLiteral(true),
+                        new BoolLiteral(true));
         testJoinexprs.add(binaryPredicate);
 
         HashJoinNode hashJoinNode = new HashJoinNode(testPlanNodeId, new EmptySetNode(testPlanNodeId, tupleIdArrayList),
-                new EmptySetNode(testPlanNodeId, tupleIdArrayList), new TableRef(), testJoinexprs, new ArrayList<>());
+                        new EmptySetNode(testPlanNodeId, tupleIdArrayList), new TableRef(), testJoinexprs,
+                        new ArrayList<>());
+
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
                 new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
 
@@ -838,4 +841,5 @@ public class CoordinatorTest extends Coordinator {
         }
     }
 }
+
 

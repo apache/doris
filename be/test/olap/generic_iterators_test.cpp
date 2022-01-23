@@ -77,13 +77,14 @@ TEST(GenericIteratorsTest, AutoIncrement) {
 
 TEST(GenericIteratorsTest, Union) {
     auto schema = create_schema();
-    std::list<RowwiseIterator*> inputs;
+    std::vector<RowwiseIterator*> inputs;
 
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_union_iterator(std::move(inputs), MemTracker::CreateTracker(-1, "UnionIterator", nullptr, false));
+    auto iter = new_union_iterator(inputs,
+                                   MemTracker::CreateTracker(-1, "UnionIterator", nullptr, false));
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
@@ -116,13 +117,14 @@ TEST(GenericIteratorsTest, Union) {
 
 TEST(GenericIteratorsTest, Merge) {
     auto schema = create_schema();
-    std::list<RowwiseIterator*> inputs;
+    std::vector<RowwiseIterator*> inputs;
 
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(std::move(inputs), MemTracker::CreateTracker(-1, "MergeIterator", nullptr, false));
+    auto iter = new_merge_iterator(
+            std::move(inputs), MemTracker::CreateTracker(-1, "MergeIterator", nullptr, false), -1);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());

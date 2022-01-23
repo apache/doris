@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
@@ -28,6 +29,7 @@ import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.MetaCleaner;
 import org.apache.doris.persist.Storage;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 
 import org.apache.logging.log4j.LogManager;
@@ -48,7 +50,7 @@ public class Checkpoint extends MasterDaemon {
     private static final int PUT_TIMEOUT_SECOND = 3600;
     private static final int CONNECT_TIMEOUT_SECOND = 1;
     private static final int READ_TIMEOUT_SECOND = 1;
-    
+
     private Catalog catalog;
     private String imageDir;
     private EditLog editLog;
@@ -69,6 +71,12 @@ public class Checkpoint extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        doCheckpoint();
+    }
+
+    // public for unit test, so that we can trigger checkpoint manually.
+    // DO NOT call it manually outside the unit test.
+    public synchronized void doCheckpoint() {
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;
@@ -78,50 +86,59 @@ public class Checkpoint extends MasterDaemon {
             imageVersion = storage.getImageSeq();
             // get max finalized journal id
             checkPointVersion = editLog.getFinalizedJournalId();
-            LOG.info("checkpoint imageVersion {}, checkPointVersion {}", imageVersion, checkPointVersion);
+            LOG.info("last checkpoint journal id: {}, current finalized journal id: {}", imageVersion, checkPointVersion);
             if (imageVersion >= checkPointVersion) {
                 return;
             }
-        } catch (IOException e) {
+        } catch (Throwable e) {
             LOG.error("Does not get storage info", e);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
+            }
             return;
         }
-        
+
         if (!checkMemoryEnoughToDoCheckpoint()) {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
+            }
             return;
         }
-       
-        long replayedJournalId = -1;
+
         // generate new image file
+        long replayedJournalId = -1;
         LOG.info("begin to generate new image: image.{}", checkPointVersion);
         catalog = Catalog.getCurrentCatalog();
         catalog.setEditLog(editLog);
+        createStaticFieldForCkpt();
         try {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
             if (catalog.getReplayedJournalId() != checkPointVersion) {
-                LOG.error("checkpoint version should be {}, actual replayed journal id is {}",
-                          checkPointVersion, catalog.getReplayedJournalId());
-                return;
+                throw new CheckpointException(String.format("checkpoint version should be %d, actual replayed journal id is %d",
+                        checkPointVersion, catalog.getReplayedJournalId()));
             }
             catalog.fixBugAfterMetadataReplayed(false);
-
             catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();
             if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_IMAGE_WRITE.increase(1L);
+                MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             e.printStackTrace();
             LOG.error("Exception when generate new image file", e);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
+            }
             return;
         } finally {
             // destroy checkpoint catalog, reclaim memory
             catalog = null;
-            Catalog.destroyCheckpoint(); 
+            Catalog.destroyCheckpoint();
+            destroyStaticFieldForCkpt();
         }
-        
+
         // push image file to all the other non master nodes
         // DO NOT get other nodes from HaProtocol, because node may not in bdbje replication group yet.
         List<Frontend> allFrontends = Catalog.getServingCatalog().getFrontends(null);
@@ -136,7 +153,7 @@ public class Checkpoint extends MasterDaemon {
                     continue;
                 }
                 int port = Config.http_port;
-                
+
                 String url = "http://" + host + ":" + port + "/put?version=" + replayedJournalId
                         + "&port=" + port;
                 LOG.info("Put image:{}", url);
@@ -148,72 +165,105 @@ public class Checkpoint extends MasterDaemon {
                     LOG.error("Exception when pushing image file. url = {}", url, e);
                 }
             }
-            
+
             LOG.info("push image.{} to other nodes. totally {} nodes, push succeed {} nodes",
-                     replayedJournalId, otherNodesCount, successPushed);
+                    replayedJournalId, otherNodesCount, successPushed);
         }
-        
-        // Delete old journals
         if (successPushed == otherNodesCount) {
-            long minOtherNodesJournalId = Long.MAX_VALUE;
-            long deleteVersion = checkPointVersion;
-            if (successPushed > 0) {
-                for (Frontend fe : allFrontends) {
-                    String host = fe.getHost();
-                    if (host.equals(Catalog.getServingCatalog().getMasterIp())) {
-                        // skip master itself
-                        continue;
-                    }
-                    int port = Config.http_port;
-                    URL idURL;
-                    HttpURLConnection conn = null;
-                    try {
-                        /*
-                         * get current replayed journal id of each non-master nodes.
-                         * when we delete bdb database, we cannot delete db newer than
-                         * any non-master node's current replayed journal id. otherwise,
-                         * this lagging node can never get the deleted journal.
-                         */
-                        idURL = new URL("http://" + host + ":" + port + "/journal_id");
-                        conn = (HttpURLConnection) idURL.openConnection();
-                        conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
-                        conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);
-                        String idString = conn.getHeaderField("id");
-                        long id = Long.parseLong(idString);
-                        if (minOtherNodesJournalId > id) {
-                            minOtherNodesJournalId = id;
-                        }
-                    } catch (IOException e) {
-                        LOG.error("Exception when getting current replayed journal id. host={}, port={}",
-                                host, port, e);
-                        minOtherNodesJournalId = 0;
-                        break;
-                    } finally {
-                        if (conn != null) {
-                            conn.disconnect();
-                        }
-                    }
-                }
-                deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
-            }
-            editLog.deleteJournals(deleteVersion + 1);
             if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_IMAGE_PUSH.increase(1L);
+                MetricRepo.COUNTER_IMAGE_PUSH_SUCCESS.increase(1L);
             }
-            LOG.info("journals <= {} are deleted. image version {}, other nodes min version {}", 
-                     deleteVersion, checkPointVersion, minOtherNodesJournalId);
+        } else {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_IMAGE_PUSH_FAILED.increase(1L);
+            }
         }
-        
+
+        // Delete old journals
+        // only do this when the new image succeed in pushing to other nodes
+        if (successPushed == otherNodesCount) {
+            try {
+                long minOtherNodesJournalId = Long.MAX_VALUE;
+                long deleteVersion = checkPointVersion;
+                if (successPushed > 0) {
+                    for (Frontend fe : allFrontends) {
+                        String host = fe.getHost();
+                        if (host.equals(Catalog.getServingCatalog().getMasterIp())) {
+                            // skip master itself
+                            continue;
+                        }
+                        int port = Config.http_port;
+                        URL idURL;
+                        HttpURLConnection conn = null;
+                        try {
+                            /*
+                             * get current replayed journal id of each non-master nodes.
+                             * when we delete bdb database, we cannot delete db newer than
+                             * any non-master node's current replayed journal id. otherwise,
+                             * this lagging node can never get the deleted journal.
+                             */
+                            idURL = new URL("http://" + host + ":" + port + "/journal_id");
+                            conn = (HttpURLConnection) idURL.openConnection();
+                            conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
+                            conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);
+                            String idString = conn.getHeaderField("id");
+                            long id = Long.parseLong(idString);
+                            if (minOtherNodesJournalId > id) {
+                                minOtherNodesJournalId = id;
+                            }
+                        } catch (Throwable e) {
+                            throw new CheckpointException(String.format("Exception when getting current replayed journal id. host=%s, port=%d",
+                                    host, port), e);
+                        } finally {
+                            if (conn != null) {
+                                conn.disconnect();
+                            }
+                        }
+                    }
+                    deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
+                }
+
+                editLog.deleteJournals(deleteVersion + 1);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_EDIT_LOG_CLEAN_SUCCESS.increase(1L);
+                }
+                LOG.info("journals <= {} are deleted. image version {}, other nodes min version {}",
+                        deleteVersion, checkPointVersion, minOtherNodesJournalId);
+            } catch (Throwable e) {
+                LOG.error("failed to delete old edit log", e);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_EDIT_LOG_CLEAN_FAILED.increase(1L);
+                }
+            }
+        }
+
         // Delete old image files
         MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
         try {
             cleaner.clean();
-        } catch (IOException e) {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
+            }
+        } catch (Throwable e) {
             LOG.error("Master delete old image file fail.", e);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_IMAGE_CLEAN_FAILED.increase(1L);
+            }
         }
-    
     }
-    
+
+    // Some classes use static variables to store information,
+    // and we need to generate new temporary objects for these static variables
+    // during the checkpoint process to cope with changes made to these variables
+    // during the checkpoint process
+    private void createStaticFieldForCkpt() {
+        VariableMgr.createDefaultSessionVariableForCkpt();
+    }
+
+    private void destroyStaticFieldForCkpt() {
+        VariableMgr.destroyDefaultSessionVariableForCkpt();
+    }
+
     /*
      * Check whether can we do the checkpoint due to the memory used percent.
      */
@@ -226,7 +276,7 @@ public class Checkpoint extends MasterDaemon {
                     memUsedPercent, Config.metadata_checkpoint_memory_threshold);
             return false;
         }
-       
+
         return true;
     }
 
@@ -258,5 +308,4 @@ public class Checkpoint extends MasterDaemon {
             return used * 100 / max;
         }
     }
-
 }

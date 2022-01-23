@@ -22,6 +22,7 @@
 #include <sstream>
 
 #include "exec/broker_writer.h"
+#include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_writer.h"
 #include "exec/s3_writer.h"
 #include "exprs/expr.h"
@@ -180,7 +181,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
             case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
 
-                if (string_val->ptr == NULL) {
+                if (string_val->ptr == nullptr) {
                     if (string_val->len == 0) {
                     } else {
                         (*ss) << "\\N";
@@ -196,12 +197,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                         reinterpret_cast<const PackedInt128*>(item)->value);
                 std::string decimal_str;
                 int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val.to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val.to_string();
-                }
+                decimal_str = decimal_val.to_string(output_scale);
                 (*ss) << decimal_str;
                 break;
             }
@@ -263,6 +259,15 @@ Status ExportSink::open_file_writer() {
         _file_writer.reset(s3_writer);
         break;
     }
+    case TFileType::FILE_HDFS: {
+        FileWriter* hdfs_writer;
+        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
+                const_cast<std::map<std::string, std::string>&>(_t_export_sink.properties),
+                _t_export_sink.export_path + "/" + file_name, &hdfs_writer));
+        RETURN_IF_ERROR(hdfs_writer->open());
+        _file_writer.reset(hdfs_writer);
+        break;
+    }
     default: {
         std::stringstream ss;
         ss << "Unknown file type, type=" << _t_export_sink.file_type;
@@ -279,7 +284,7 @@ std::string ExportSink::gen_file_name() {
     const TUniqueId& id = _state->fragment_instance_id();
 
     struct timeval tv;
-    gettimeofday(&tv, NULL);
+    gettimeofday(&tv, nullptr);
 
     std::stringstream file_name;
     file_name << "export-data-" << print_id(id) << "-" << (tv.tv_sec * 1000 + tv.tv_usec / 1000);

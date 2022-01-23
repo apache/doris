@@ -57,8 +57,13 @@ public class PartitionCache extends Cache {
         return rewriteStmt;
     }
 
+    // only used for unit test
     public SelectStmt getNokeyStmt() {
         return nokeyStmt;
+    }
+
+    public String getSqlWithViewStmt() {
+        return nokeyStmt.toSql() + "|" + allViewExpandStmtListStr;
     }
 
     public PartitionCache(TUniqueId queryId, SelectStmt selectStmt) {
@@ -66,13 +71,14 @@ public class PartitionCache extends Cache {
     }
 
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
-                             CompoundPredicate partitionPredicate) {
+                             CompoundPredicate partitionPredicate, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
         this.olapTable = latestTable.olapTable;
         this.partitionInfo = partitionInfo;
         this.partColumn = partColumn;
         this.partitionPredicate = partitionPredicate;
         this.newRangeList = Lists.newArrayList();
+        this.allViewExpandStmtListStr = allViewExpandStmtListStr;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
@@ -84,8 +90,9 @@ public class PartitionCache extends Cache {
             status.setStatus("analytics range error");
             return null;
         }
+
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(nokeyStmt.toSql()))
+                .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
                 .addAllParams(range.getPartitionSingleList().stream().map(
                         p -> InternalService.PCacheParam.newBuilder()
                                 .setPartitionKey(p.getCacheKey().realValue())
@@ -127,7 +134,8 @@ public class PartitionCache extends Cache {
             return;
         }
 
-        InternalService.PUpdateCacheRequest updateRequest = rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
+        InternalService.PUpdateCacheRequest updateRequest
+                = rowBatchBuilder.buildPartitionUpdateRequest(getSqlWithViewStmt());
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();

@@ -17,11 +17,11 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
@@ -73,6 +73,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
     private Expr deleteCondition;
     private String sequenceCol;
+    private int sendBatchParallelism = 1;
+    private double maxFilterRatio = 0.0;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -121,6 +123,11 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     public Separator getLineDelimiter() {
         return lineDelimiter;
+    }
+
+    @Override
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
     }
 
     public PartitionNames getPartitions() {
@@ -288,6 +295,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetSequenceCol()) {
             sequenceCol = request.getSequenceCol();
         }
+        if (request.isSetSendBatchParallelism()) {
+            sendBatchParallelism = request.getSendBatchParallelism();
+        }
+        if (request.isSetMaxFilterRatio()) {
+            maxFilterRatio = request.getMaxFilterRatio();
+        }
     }
 
     // used for stream load
@@ -357,5 +370,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public long getMemLimit() {
         return execMemLimit;
+    }
+
+    @Override
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
     }
 }

@@ -17,11 +17,13 @@
 
 #pragma once
 
+#include <fmt/format.h>
+
 #include <memory>
 #include <queue>
-#include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -44,6 +46,8 @@ class Bitmap;
 class MemTracker;
 class RuntimeProfile;
 class RowDescriptor;
+class ThreadPool;
+class ThreadPoolToken;
 class Tuple;
 class TupleDescriptor;
 class ExprContext;
@@ -58,12 +62,12 @@ struct AddBatchCounter {
     // total execution time of a add_batch rpc
     int64_t add_batch_execution_time_us = 0;
     // lock waiting time in a add_batch rpc
-    int64_t add_batch_wait_lock_time_us = 0;
+    int64_t add_batch_wait_execution_time_us = 0;
     // number of add_batch call
     int64_t add_batch_num = 0;
     AddBatchCounter& operator+=(const AddBatchCounter& rhs) {
         add_batch_execution_time_us += rhs.add_batch_execution_time_us;
-        add_batch_wait_lock_time_us += rhs.add_batch_wait_lock_time_us;
+        add_batch_wait_execution_time_us += rhs.add_batch_wait_execution_time_us;
         add_batch_num += rhs.add_batch_num;
         return *this;
     }
@@ -134,15 +138,16 @@ public:
 
 private:
     brpc::CallId cid;
-    std::atomic<bool> _packet_in_flight{false};
-    std::atomic<bool> _is_last_rpc{false};
+    std::atomic<bool> _packet_in_flight {false};
+    std::atomic<bool> _is_last_rpc {false};
     std::function<void()> failed_handler;
     std::function<void(const T&, bool)> success_handler;
 };
 
+class IndexChannel;
 class NodeChannel {
 public:
-    NodeChannel(OlapTableSink* parent, int64_t index_id, int64_t node_id, int32_t schema_hash);
+    NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id, int32_t schema_hash);
     ~NodeChannel() noexcept;
 
     // called before open, used to add tablet located in this backend
@@ -156,20 +161,24 @@ public:
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
+    Status add_row(BlockRow& block_row, int64_t tablet_id);
+
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
     Status mark_close();
     Status close_wait(RuntimeState* state);
 
-    void cancel();
+    void cancel(const std::string& cancel_msg);
 
     // return:
     // 0: stopped, send finished(eos request has been sent), or any internal error;
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
-    int try_send_and_fetch_status();
+    int try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token);
+
+    void try_send_batch();
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
@@ -187,8 +196,7 @@ public:
     }
 
     int64_t node_id() const { return _node_id; }
-    const NodeInfo* node_info() const { return _node_info; }
-    std::string print_load_info() const { return _load_info; }
+    std::string host() const { return _node_info.host; }
     std::string name() const { return _name; }
 
     Status none_of(std::initializer_list<bool> vars);
@@ -196,38 +204,44 @@ public:
     // TODO(HW): remove after mem tracker shared
     void clear_all_batches();
 
+    std::string channel_info() const {
+        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
+                           _node_info.brpc_port);
+    }
+
 private:
     void _cancel_with_msg(const std::string& msg);
 
 private:
     OlapTableSink* _parent = nullptr;
-    int64_t _index_id = -1;
+    IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
     int32_t _schema_hash = 0;
     std::string _load_info;
     std::string _name;
 
     TupleDescriptor* _tuple_desc = nullptr;
-    const NodeInfo* _node_info = nullptr;
+    NodeInfo _node_info;
 
     // this should be set in init() using config
     int _rpc_timeout_ms = 60000;
-    static const int _min_rpc_timeout_ms = 1000; // The min query timeout is 1 second.
     int64_t _next_packet_seq = 0;
     MonotonicStopWatch _timeout_watch;
 
     // user cancel or get some errors
-    std::atomic<bool> _cancelled{false};
+    std::atomic<bool> _cancelled {false};
     SpinLock _cancel_msg_lock;
     std::string _cancel_msg = "";
 
     // send finished means the consumer thread which send the rpc can exit
-    std::atomic<bool> _send_finished{false};
+    std::atomic<bool> _send_finished {false};
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
-    std::atomic<bool> _add_batches_finished{false};
+    std::atomic<bool> _add_batches_finished {false};
 
-    bool _eos_is_produced{false}; // only for restricting producer behaviors
+    std::atomic<bool> _last_patch_processed_finished {true};
+
+    bool _eos_is_produced {false}; // only for restricting producer behaviors
 
     std::unique_ptr<RowDescriptor> _row_desc;
     int _batch_size = 0;
@@ -237,9 +251,9 @@ private:
     std::mutex _pending_batches_lock;
     using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
     std::queue<AddBatchReq> _pending_batches;
-    std::atomic<int> _pending_batches_num{0};
+    std::atomic<int> _pending_batches_num {0};
 
-    PBackendService_Stub* _stub = nullptr;
+    std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
     ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 
@@ -247,10 +261,10 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
-    std::atomic<int64_t> _serialize_batch_ns{0};
-    std::atomic<int64_t> _mem_exceeded_block_ns{0};
-    std::atomic<int64_t> _queue_push_lock_ns{0};
-    std::atomic<int64_t> _actual_consume_ns{0};
+    std::atomic<int64_t> _serialize_batch_ns {0};
+    std::atomic<int64_t> _mem_exceeded_block_ns {0};
+    std::atomic<int64_t> _queue_push_lock_ns {0};
+    std::atomic<int64_t> _actual_consume_ns {0};
 };
 
 class IndexChannel {
@@ -261,7 +275,9 @@ public:
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
-    Status add_row(Tuple* tuple, int64_t tablet_id);
+    void add_row(Tuple* tuple, int64_t tablet_id);
+
+    void add_row(BlockRow& block_row, int64_t tablet_id);
 
     void for_each_node_channel(const std::function<void(NodeChannel*)>& func) {
         for (auto& it : _node_channels) {
@@ -269,12 +285,17 @@ public:
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch) { _failed_channels.insert(ch->node_id()); }
-    bool has_intolerable_failure();
+    void mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id = -1);
+    Status check_intolerable_failure();
+
+    // set error tablet info in runtime state, so that it can be returned to FE.
+    void set_error_tablet_in_state(RuntimeState* state);
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
 private:
+    friend class NodeChannel;
+
     OlapTableSink* _parent;
     int64_t _index_id;
     int32_t _schema_hash;
@@ -283,8 +304,16 @@ private:
     std::unordered_map<int64_t, NodeChannel*> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
-    // BeId
-    std::set<int64_t> _failed_channels;
+    // from backend channel to tablet_id
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
+
+    // lock to protect _failed_channels and _failed_channels_msgs
+    mutable SpinLock _fail_lock;
+    // key is tablet_id, value is a set of failed node id
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
+    // key is tablet_id, value is error message
+    std::unordered_map<int64_t, std::string> _failed_channels_msgs;
+    Status _intolerable_failure_status = Status::OK();
 };
 
 // Write data to Olap Table.
@@ -315,19 +344,21 @@ public:
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
     // this is only used in insert statement.
-    void _convert_batch(RuntimeState* state, RowBatch* input_batch, RowBatch* output_batch);
+    Status _convert_batch(RuntimeState* state, RowBatch* input_batch, RowBatch* output_batch);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    int _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap);
+    // set stop_processing is we want to stop the whole process now.
+    Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap, int* filtered_rows,
+                          bool* stop_processing);
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
-private:
+protected:
     friend class NodeChannel;
     friend class IndexChannel;
 
@@ -356,6 +387,7 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
+    bool _is_high_priority = false;
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
@@ -374,6 +406,7 @@ private:
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _sender_thread;
+    std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
     std::vector<DecimalV2Value> _max_decimalv2_val;
     std::vector<DecimalV2Value> _min_decimalv2_val;
@@ -410,7 +443,8 @@ private:
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
 
-    // True if this sink has been closed once
+    int32_t _send_batch_parallelism = 1;
+    // True if this sink has been closed once bool
     bool _is_closed = false;
     // Save the status of close() method
     Status _close_status;
