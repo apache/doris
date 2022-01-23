@@ -2064,6 +2064,10 @@ public class Load {
                 jobInfo.add(status.getTrackingUrl());
                 // job detail(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
+                // transaction id
+                jobInfo.add(loadJob.getTransactionId());
+                // error tablets(not used for hadoop load, just return an empty string)
+                jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs
