@@ -51,3 +51,15 @@ diff -uprN a/cmd-line-utils/libedit/terminal.c b/cmd-line-utils/libedit/terminal
  
  
  	if (term == NULL)
+diff -uprN a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt    2022-01-23 23:30:48.915006943 +0800
++++ b/CMakeLists.txt    2022-01-23 23:31:04.785141731 +0800
+@@ -484,8 +484,6 @@ INCLUDE_DIRECTORIES(
+ MYSQL_CHECK_ZLIB_WITH_COMPRESS()
+ # Add bundled yassl/taocrypt or system openssl.
+ MYSQL_CHECK_SSL()
+-# Add system/bundled editline.
+-MYSQL_CHECK_EDITLINE()
+ # Add libevent
+ MYSQL_CHECK_LIBEVENT()
+ # Add lz4 library
