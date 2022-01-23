@@ -150,4 +150,4 @@ This is a bug in bdbje that has not been resolved. In this case, metadata can on
 
 ### E12.Doris compile and install JDK version incompatibility problem
 
-When I use Docker to compile Doris myself, start FE after compiling and installing, java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer; exception information, this is because the default in Docker is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, refer to [Compilation](https://doris.apache.org/installing/compilation.html)
+When I use Docker to compile Doris myself, start FE after compiling and installing, ```java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer; ``` exception information, this is because the default in Docker is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, refer to [Compilation](https://doris.apache.org/installing/compilation.html)
