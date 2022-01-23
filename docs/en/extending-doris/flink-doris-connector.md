@@ -314,6 +314,7 @@ outputFormat.close();
 | sink.max-retries                        | 1          | Number of retries after writing BE failed                                              |
 | sink.batch.interval                         | 10s           | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 10 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
 | sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br />  Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />  Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
+| sink.enable-delete     | true               | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
 
 
 ## Doris & Flink Column Type Mapping
@@ -337,3 +338,38 @@ outputFormat.close();
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## An example of using Flink CDC to access Doris (supports insert/update/delete events)
+```sql
+CREATE TABLE cdc_mysql_source (
+  id int
+  ,name VARCHAR
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+-- Support delete event synchronization (sink.enable-delete='true'), requires Doris table to enable batch delete function
+CREATE TABLE doris_sink (
+id INT,
+name STRING
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.strip_outer_array' = 'true',
+  'sink.enable-delete' = 'true'
+);
+
+insert into doris_sink select id,name from cdc_mysql_source;
+```
