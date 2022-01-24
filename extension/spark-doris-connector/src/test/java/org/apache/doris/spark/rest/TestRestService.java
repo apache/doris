@@ -125,7 +125,7 @@ public class TestRestService {
         Schema expected = new Schema();
         expected.setStatus(200);
         Field k1 = new Field("k1", "TINYINT", "", 0, 0, "");
-        Field k5 = new Field("k5", "DECIMALV2", "", 9, 0,"");
+        Field k5 = new Field("k5", "DECIMALV2", "", 9, 0, "");
         expected.put(k1);
         expected.put(k5);
         Assert.assertEquals(expected, RestService.parseSchema(res, logger));
