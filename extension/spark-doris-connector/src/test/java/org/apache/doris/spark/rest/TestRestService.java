@@ -120,8 +120,8 @@ public class TestRestService {
 
     @Test
     public void testFeResponseToSchema() throws Exception {
-        String res = "{\"properties\":[{\"type\":\"TINYINT\",\"name\":\"k1\",\"comment\":\"\"},{\"name\":\"k5\","
-                + "\"scale\":\"0\",\"comment\":\"\",\"type\":\"DECIMALV2\",\"precision\":\"9\",\"}],\"status\":200}";
+        String res = "{\"properties\":[{\"type\":\"TINYINT\",\"name\":\"k1\",\"comment\":\"\",\"aggregation_type\":\"\"},{\"name\":\"k5\","
+                + "\"scale\":\"0\",\"comment\":\"\",\"type\":\"DECIMALV2\",\"precision\":\"9\",\"aggregation_type\":\"\"}],\"status\":200}";
         Schema expected = new Schema();
         expected.setStatus(200);
         Field k1 = new Field("k1", "TINYINT", "", 0, 0, "");
