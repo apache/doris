@@ -178,7 +178,11 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose()) {
+        if (ConnectContext.get() != null &&
+                ConnectContext.get().getExecutor() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose()) {
             if (isAnalyzed) {
                 if (type.isStringType()) {
                     return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
