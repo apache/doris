@@ -676,6 +676,13 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 if (explainOptions != null) parsedStmt.setIsExplain(explainOptions);
             }
+
+            if (parsedStmt instanceof QueryStmt && parsedStmt.isExplain()) {
+                ConnectContext.get().getExecutor().getParsedStmt().setIsExplain(explainOptions);
+            }
+            if (parsedStmt instanceof InsertStmt) {
+                ConnectContext.get().getExecutor().getParsedStmt().setIsExplain(new ExplainOptions(true, false));
+            }
         }
         plannerProfile.setQueryAnalysisFinishTime();
 

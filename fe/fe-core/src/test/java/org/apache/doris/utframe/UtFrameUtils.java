@@ -252,6 +252,8 @@ public class UtFrameUtils {
     public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr, boolean isVerbose) throws Exception {
         ctx.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        ctx.setExecutor(stmtExecutor);
+        ConnectContext.get().setExecutor(stmtExecutor);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
