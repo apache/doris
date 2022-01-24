@@ -145,3 +145,7 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 有时重启 FE，会出现如上错误（通常只会出现在多 Follower 的情况下）。并且错误中的两个数值相差2。导致 FE 启动失败。
 
 这是 bdbje 的一个 bug，尚未解决。遇到这种情况，只能通过 [元数据运维手册](../administrator-guide/operation/metadata-operation.md) 中的 故障恢复 进行操作来恢复元数据了。
+
+### E12.Doris编译安装JDK版本不兼容问题
+
+在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 ```java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;``` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译](https://doris.apache.org/zh-CN/installing/compilation.html)
