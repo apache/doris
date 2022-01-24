@@ -33,7 +33,7 @@ public class SchemaUtils {
      */
     public static Schema convertToSchema(List<TScanColumnDesc> tscanColumnDescs) {
         Schema schema = new Schema(tscanColumnDescs.size());
-        tscanColumnDescs.stream().forEach(desc -> schema.put(new Field(desc.getName(), desc.getType().name(), "", 0, 0,"")));
+        tscanColumnDescs.stream().forEach(desc -> schema.put(new Field(desc.getName(), desc.getType().name(), "", 0, 0, "")));
         return schema;
     }
 }
