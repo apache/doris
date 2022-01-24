@@ -436,6 +436,16 @@ module.exports = [
             ],
           },
           {
+            title: "bitwise function",
+            directoryPath: "bitwise-functions/",
+            children: [
+              "bitand",
+              "bitor",
+              "bitxor",
+              "bitnot"
+            ],
+          },
+          {
             title: "Encryption and Digest Functions",
             directoryPath: "encrypt-digest-functions/",
             children: [
