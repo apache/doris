@@ -45,7 +45,7 @@ import lombok.Data;
 public class LdapClient {
     private static final Logger LOG = LogManager.getLogger(LdapClient.class);
 
-    private static ClientInfo clientInfo;
+    private volatile static ClientInfo clientInfo;
 
     @Data
     private static class ClientInfo {
