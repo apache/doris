@@ -440,6 +440,16 @@ module.exports = [
             ],
           },
           {
+            title: "bitwise函数",
+            directoryPath: "bitwise-functions/",
+            children: [
+              "bitand",
+              "bitor",
+              "bitxor",
+              "bitnot"
+            ],
+          },
+          {
             title: "Hash函数",
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
