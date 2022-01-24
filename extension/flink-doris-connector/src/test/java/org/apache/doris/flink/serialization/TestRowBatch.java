@@ -232,8 +232,8 @@ public class TestRowBatch {
                 + "\"name\":\"k4\",\"comment\":\"\"},{\"type\":\"FLOAT\",\"name\":\"k9\",\"comment\":\"\"},"
                 + "{\"type\":\"DOUBLE\",\"name\":\"k8\",\"comment\":\"\"},{\"type\":\"DATE\",\"name\":\"k10\","
                 + "\"comment\":\"\"},{\"type\":\"DATETIME\",\"name\":\"k11\",\"comment\":\"\"},"
-                + "{\"name\":\"k5\",\"scale\":\"9\",\"comment\":\"\","
-                + "\"type\":\"DECIMAL\",\"precision\":\"2\"},{\"type\":\"CHAR\",\"name\":\"k6\",\"comment\":\"\"}],"
+                + "{\"name\":\"k5\",\"scale\":\"0\",\"comment\":\"\","
+                + "\"type\":\"DECIMAL\",\"precision\":\"9\",\"aggregation_type\":\"\"},{\"type\":\"CHAR\",\"name\":\"k6\",\"comment\":\"\",\"aggregation_type\":\"REPLACE_IF_NOT_NULL\"}],"
                 + "\"status\":200}";
 
         Schema schema = RestService.parseSchema(schemaStr, logger);
