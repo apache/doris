@@ -61,6 +61,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 
 public class UtFrameUtils {
@@ -125,8 +126,21 @@ public class UtFrameUtils {
         return statementBases;
     }
 
+    public static String generateRandomFeRunningDir(Class testSuiteClass) {
+        return generateRandomFeRunningDir(testSuiteClass.getSimpleName());
+    }
+
+    public static String generateRandomFeRunningDir(String testSuiteName) {
+        return "fe" + "/mocked/" + testSuiteName + "/" + UUID.randomUUID().toString() + "/";
+    }
+
     public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+            FeStartException, NotInitException {
+        return startFEServer(runningDir, Maps.newHashMap());
+    }
+
+    public static int startFEServer(String runningDir, Map<String, String> feConfMap)
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException {
         // get DORIS_HOME
         String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
@@ -146,7 +160,6 @@ public class UtFrameUtils {
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
-        Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(fe_http_port));
         feConfMap.put("rpc_port", String.valueOf(fe_rpc_port));
@@ -160,12 +173,25 @@ public class UtFrameUtils {
 
     public static void createDorisCluster(String runningDir) throws InterruptedException, NotInitException,
             IOException, DdlException, EnvVarNotSetException, FeStartException {
-        createDorisCluster(runningDir, 1);
+        createDorisCluster(runningDir, Maps.newHashMap(), 1);
     }
 
-    public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
-        int fe_rpc_port = startFEServer(runningDir);
+    public static void createDorisCluster(String runningDir, Map<String, String> feConfMap)
+            throws InterruptedException, NotInitException, IOException,
+            DdlException, EnvVarNotSetException, FeStartException {
+        createDorisCluster(runningDir, feConfMap, 1);
+    }
+
+    public static void createDorisCluster(String runningDir, int backendNum)
+            throws EnvVarNotSetException, IOException, FeStartException,
+            NotInitException, InterruptedException {
+        createDorisCluster(runningDir, Maps.newHashMap(), backendNum);
+    }
+
+    public static void createDorisCluster(String runningDir, Map<String, String> feConfMap, int backendNum)
+            throws EnvVarNotSetException, IOException, FeStartException,
+            NotInitException, InterruptedException {
+        int fe_rpc_port = startFEServer(runningDir, feConfMap);
         for (int i = 0; i < backendNum; i++) {
             createBackend("127.0.0.1", fe_rpc_port);
             // sleep to wait first heartbeat
@@ -176,7 +202,7 @@ public class UtFrameUtils {
     // Create multi backends with different host for unit test.
     // the host of BE will be "127.0.0.1", "127.0.0.2"
     public static void createDorisClusterWithMultiTag(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+            FeStartException, NotInitException, InterruptedException {
         // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
         int fe_rpc_port = startFEServer(runningDir);
@@ -188,7 +214,7 @@ public class UtFrameUtils {
         Thread.sleep(6000);
     }
 
-    public static void createBackend(String beHost, int fe_rpc_port) throws IOException, InterruptedException {
+    public static void createBackend(String beHost, int fe_rpc_port) throws IOException {
         int be_heartbeat_port = findValidPort();
         int be_thrift_port = findValidPort();
         int be_brpc_port = findValidPort();
