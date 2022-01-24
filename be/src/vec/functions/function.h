@@ -491,6 +491,10 @@ public:
         return function->prepare(context, scope);
     }
 
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        return function->close(context, scope);
+    }
+
     bool is_suitable_for_constant_folding() const override {
         return function->is_suitable_for_constant_folding();
     }
