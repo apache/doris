@@ -100,7 +100,7 @@ public:
     const Schema& schema() const override { return _schema; }
 
 private:
-    Schema _schema;
+    const Schema& _schema;
     size_t _num_rows;
     size_t _rows_returned;
 };
@@ -152,43 +152,17 @@ public:
     // Initialize this context and will prepare data for current_row()
     Status init(const StorageReadOptions& opts);
 
-    int compare_row(const VMergeIteratorContext& rhs) const {
+    bool compare(const VMergeIteratorContext& rhs) const {
         const Schema& schema = _iter->schema();
         int num = schema.num_key_columns();
-        for (uint32_t cid = 0; cid < num; ++cid) {
-#if 0
-            auto name = schema.column(cid)->name();
-            auto l_col = this->_block.get_by_name(name);
-            auto r_col = rhs._block.get_by_name(name);
-
-#else
-            //because the columns of block will be inserted by cid asc order
-            //so no need to get column by get_by_name()
-            auto l_col = this->_block.get_by_position(cid);
-            auto r_col = rhs._block.get_by_position(cid);
-#endif
-
-            auto l_cp = l_col.column;
-            auto r_cp = r_col.column;
-
-            auto res = l_cp->compare_at(_index_in_block, rhs._index_in_block, *r_cp, -1);
-            if (res) {
-                return res;
-            }
-        }
-
-        return 0;
-    }
-
-    bool compare(const VMergeIteratorContext& rhs) const {
-        int cmp_res = this->compare_row(rhs);
+        int cmp_res = this->_block.compare_at(_index_in_block, rhs._index_in_block, num, rhs._block, -1);
         if (cmp_res != 0) {
             return cmp_res > 0;
         }
         return this->data_id() < rhs.data_id();
     }
 
-    void copy_row_to(vectorized::Block* block) {
+    void copy_row(vectorized::Block* block) {
         vectorized::Block& src = _block;
         vectorized::Block& dst = *block;
 
@@ -246,7 +220,7 @@ Status VMergeIteratorContext::advance() {
     // NOTE: we increase _index_in_block directly to valid one check
     do {
         _index_in_block++;
-        if (_index_in_block < _block.rows()) {
+        if (LIKELY(_index_in_block < _block.rows())) {
             return Status::OK();
         }
         // current batch has no data, load next batch
@@ -299,7 +273,7 @@ private:
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIterator*> _origin_iters;
 
-    std::unique_ptr<Schema> _schema;
+    const Schema* _schema = nullptr;
 
     struct VMergeContextComparator {
         bool operator()(const VMergeIteratorContext* lhs, const VMergeIteratorContext* rhs) const {
@@ -320,10 +294,10 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
+    _schema = &(*_origin_iters.begin())->schema();
 
     for (auto iter : _origin_iters) {
-        std::unique_ptr<VMergeIteratorContext> ctx(new VMergeIteratorContext(iter));
+        auto ctx = std::make_unique<VMergeIteratorContext>(iter);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -347,7 +321,7 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
         _merge_heap.pop();
 
         // copy current row to block
-        ctx->copy_row_to(block);
+        ctx->copy_row(block);
 
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
@@ -383,7 +357,7 @@ public:
     const Schema& schema() const override { return *_schema; }
 
 private:
-    std::unique_ptr<Schema> _schema;
+    const Schema* _schema = nullptr;
     RowwiseIterator* _cur_iter = nullptr;
     std::deque<RowwiseIterator*> _origin_iters;
 };
@@ -396,8 +370,8 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     for (auto iter : _origin_iters) {
         RETURN_IF_ERROR(iter->init(opts));
     }
-    _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
     _cur_iter = *(_origin_iters.begin());
+    _schema = &_cur_iter->schema();
     return Status::OK();
 }
 
