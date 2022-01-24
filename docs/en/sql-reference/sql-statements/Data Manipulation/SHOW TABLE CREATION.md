@@ -37,10 +37,11 @@ under the License.
             1) If db_name is not specified, the current default db is used.
             2) If you use LIKE, it will match the table creation task with table_name_wild in the table name
         2. The meaning of each column
-            1) Table: the name of the table to be created
-            2) Status: the creation status of the table, `success`/`fail`.
-            3）CreateTime: the time to perform the task of creating the table
-            4) Error Msg: Error message of the failed table creation, or empty if it succeeds.
+            1) Database: the name of the database
+            2) Table: the name of the table to be created
+            3) Status: the creation status of the table, `success`/`fail`.
+            4) CreateTime: the time to perform the task of creating the table
+            5) Error Msg: Error message of the failed table creation, or empty if it succeeds.
 
 ## example
 
@@ -48,33 +49,33 @@ under the License.
         SHOW TABLE CREATION;
 
         mysql> show table creation;
-        +--------+---------+---------------------+----------------------------------------------------------+
-        | Table  | Status  | Create Time         | Error Msg                                                |
-        +--------+---------+---------------------+----------------------------------------------------------+
-        | logs   | fail    | 2022-01-10 15:59:21 | Cannot convert Iceberg type[list<string>] to Doris type. |
-        | logs_1 | success | 2022-01-10 15:59:21 |                                                          |
-        +--------+---------+---------------------+----------------------------------------------------------+
+        +----------------------------+--------+---------+---------------------+----------------------------------------------------------+
+        | Database                   | Table  | Status  | Create Time         | Error Msg                                                |
+        +----------------------------+--------+---------+---------------------+----------------------------------------------------------+
+        | default_cluster:iceberg_db | logs_1 | success | 2022-01-24 19:42:45 |                                                          |
+        | default_cluster:iceberg_db | logs   | fail    | 2022-01-24 19:42:45 | Cannot convert Iceberg type[list<string>] to Doris type. |
+        +----------------------------+--------+---------+---------------------+----------------------------------------------------------+
     
     2. Show the table creation tasks in the specified Iceberg db
         SHOW TABLE CREATION FROM example_db;
 
         mysql> show table creation from iceberg_db;
-        +--------+---------+---------------------+----------------------------------------------------------+
-        | Table  | Status  | Create Time         | Error Msg                                                |
-        +--------+---------+---------------------+----------------------------------------------------------+
-        | logs   | fail    | 2022-01-10 15:59:21 | Cannot convert Iceberg type[list<string>] to Doris type. |
-        | logs_1 | success | 2022-01-10 15:59:21 |                                                          |
-        +--------+---------+---------------------+----------------------------------------------------------+
+        +----------------------------+--------+---------+---------------------+----------------------------------------------------------+
+        | Database                   | Table  | Status  | Create Time         | Error Msg                                                |
+        +----------------------------+--------+---------+---------------------+----------------------------------------------------------+
+        | default_cluster:iceberg_db | logs_1 | success | 2022-01-24 19:42:45 |                                                          |
+        | default_cluster:iceberg_db | logs   | fail    | 2022-01-24 19:42:45 | Cannot convert Iceberg type[list<string>] to Doris type. |
+        +----------------------------+--------+---------+---------------------+----------------------------------------------------------+
         
     3. Show table creation tasks for the specified Iceberg db with the string "log" in the table name
         SHOW TABLE CREATION FROM example_db LIKE '%log%';
         
         mysql> show table creation from iceberg_db like "%1";
-        +--------+---------+---------------------+-----------+
-        | Table  | Status  | Create Time         | Error Msg |
-        +--------+---------+---------------------+-----------+
-        | logs_1 | success | 2022-01-10 15:59:21 |           |
-        +--------+---------+---------------------+-----------+
+        +----------------------------+--------+---------+---------------------+-----------+
+        | Database                   | Table  | Status  | Create Time         | Error Msg |
+        +----------------------------+--------+---------+---------------------+-----------+
+        | default_cluster:iceberg_db | logs_1 | success | 2022-01-24 19:42:45 |           |
+        +----------------------------+--------+---------+---------------------+-----------+
 
 ## keyword
 

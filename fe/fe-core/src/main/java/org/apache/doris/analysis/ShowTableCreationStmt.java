@@ -37,6 +37,7 @@ public class ShowTableCreationStmt extends ShowStmt {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
+                    .addColumn(new Column("Database", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Table", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Status", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Create Time", ScalarType.createVarchar(20)))

@@ -151,7 +151,6 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.external.elasticsearch.EsRepository;
-import org.apache.doris.external.iceberg.IcebergCatalog;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.ha.BDBHA;
@@ -260,7 +259,6 @@ import com.google.common.collect.Sets;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -2672,13 +2670,7 @@ public class Catalog {
 
         // create tables in iceberg database
         if (db.getDbProperties().getIcebergProperty().isExist()) {
-            IcebergProperty icebergProperty = db.getDbProperties().getIcebergProperty();
-            IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
-            List<TableIdentifier> icebergTables = icebergCatalog.listTables(icebergProperty.getDatabase());
-            for (TableIdentifier identifier : icebergTables) {
-                icebergProperty.setTable(identifier.name());
-                icebergTableCreationRecordMgr.registerTable(db, identifier, icebergProperty);
-            }
+            icebergTableCreationRecordMgr.registerDb(db);
         }
     }
 

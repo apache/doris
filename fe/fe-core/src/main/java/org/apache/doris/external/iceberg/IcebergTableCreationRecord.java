@@ -45,6 +45,7 @@ public class IcebergTableCreationRecord {
 
     public List<Comparable> getTableCreationRecord() {
         List<Comparable> record = new ArrayList<>();
+        record.add(this.db);
         record.add(this.table);
         record.add(this.status);
         record.add(this.createTime);

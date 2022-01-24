@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.property.PropertySchema;
@@ -55,6 +56,9 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     private static final String SUCCESS = "success";
     private static final String FAIL = "fail";
 
+    // Iceberg databases, used to list remote iceberg tables
+    // dbId -> database
+    private Map<Long, Database> icebergDbs = new ConcurrentHashMap<>();
     // database -> table identifier -> properties
     // used to create table
     private Map<Database, Map<TableIdentifier, IcebergProperty>> dbToTableIdentifiers = Maps.newConcurrentMap();
@@ -70,7 +74,13 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
         super("iceberg_table_creation_record_mgr", Config.iceberg_table_creation_interval_second * 1000);
     }
 
-    public void registerTable(Database db, TableIdentifier identifier, IcebergProperty icebergProperty) {
+    public void registerDb(Database db) throws DdlException {
+        long dbId = db.getId();
+        icebergDbs.put(dbId, db);
+        LOG.info("Register a new Iceberg database[{}-{}]", dbId, db.getFullName());
+    }
+
+    private void registerTable(Database db, TableIdentifier identifier, IcebergProperty icebergProperty) {
         if (dbToTableIdentifiers.containsKey(db)) {
             dbToTableIdentifiers.get(db).put(identifier, icebergProperty);
         } else {
@@ -82,6 +92,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     }
 
     public void deregisterDb(Database db) {
+        icebergDbs.remove(db.getId());
         dbToTableIdentifiers.remove(db);
         dbToTableToCreationRecord.remove(db.getFullName());
         LOG.info("Deregister database[{}]", db.getFullName());
@@ -121,6 +132,38 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     protected void runAfterCatalogReady() {
         PropertySchema.DateProperty prop =
                 new PropertySchema.DateProperty("key", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+        // list iceberg tables in dbs
+        // When listing table is done, remove database from icebergDbs.
+        for (Iterator<Map.Entry<Long, Database>> it = icebergDbs.entrySet().iterator(); it.hasNext(); it.remove()) {
+            Map.Entry<Long, Database> entry = it.next();
+            Database db = entry.getValue();
+            IcebergProperty icebergProperty = db.getDbProperties().getIcebergProperty();
+            IcebergCatalog icebergCatalog = null;
+            try {
+                icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
+            } catch (DdlException e) {
+                addTableCreationRecord(db.getFullName(), "", FAIL,
+                        prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
+                LOG.warn("Failed get Iceberg catalog, hive.metastore.uris[{}], error: {}",
+                        icebergProperty.getHiveMetastoreUris(), e.getMessage());
+            }
+            List<TableIdentifier> icebergTables = null;
+            try {
+                icebergTables = icebergCatalog.listTables(icebergProperty.getDatabase());
+
+            } catch (DorisIcebergException e) {
+                addTableCreationRecord(db.getFullName(), "", FAIL,
+                        prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
+                LOG.warn("Failed list remote Iceberg database, hive.metastore.uris[{}], database[{}], error: {}",
+                        icebergProperty.getHiveMetastoreUris(), icebergProperty.getDatabase(), e.getMessage());
+            }
+            for (TableIdentifier identifier : icebergTables) {
+                icebergProperty.setTable(identifier.name());
+                registerTable(db, identifier, icebergProperty);
+            }
+        }
+
+        // create table in Doris
         for (Map.Entry<Database, Map<TableIdentifier, IcebergProperty>> entry : dbToTableIdentifiers.entrySet()) {
             Database db = entry.getKey();
             for (Map.Entry<TableIdentifier, IcebergProperty> innerEntry : entry.getValue().entrySet()) {
