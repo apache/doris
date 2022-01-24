@@ -241,7 +241,14 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
-      "seatunnel",
+      {
+        title: "Seatunnel",
+        directoryPath: "seatunnel/",
+        children: [
+          "spark-sink",
+          "flink-sink",
+        ],
+      },
       {
         title: "UDF",
         directoryPath: "udf/",
