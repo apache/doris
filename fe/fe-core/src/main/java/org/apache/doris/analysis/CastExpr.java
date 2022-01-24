@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -177,6 +178,17 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
+        if (ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose()) {
+            if (isAnalyzed) {
+                if (type.isStringType()) {
+                    return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+                } else {
+                    return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+                }
+            } else {
+                return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
+            }
+        }
         if (isImplicit) {
             return getChild(0).toSql();
         }
