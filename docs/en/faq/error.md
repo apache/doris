@@ -147,3 +147,7 @@ The second is that the packet size of rpc exceeds `max_body_size`. This problem 
 Sometimes when restarting the Fe, the above error will occur (usually only in the case of multiple followers), and the difference between the two values in the error is 2. As a result, the Fe startup fails.
 
 This is a bug in bdbje that has not been resolved. In this case, metadata can only be recovered through fault recovery in [metadata operation and maintenance manual](../administrator-guide/operation/metadata-operation.md).
+
+### E12.Doris compile and install JDK version incompatibility problem
+
+When I use Docker to compile Doris myself, start FE after compiling and installing, ```java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer; ``` exception information, this is because the default in Docker is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, refer to [Compilation](https://doris.apache.org/installing/compilation.html)
