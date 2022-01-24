@@ -684,7 +684,7 @@ public class StmtExecutor implements ProfileWriter {
                     ConnectContext.get().getExecutor().getParsedStmt().setIsExplain(explainOptions);
                 }
             }
-            if (parsedStmt instanceof InsertStmt) {
+            if (parsedStmt instanceof InsertStmt && parsedStmt.isExplain()) {
                 if (ConnectContext.get() != null &&
                         ConnectContext.get().getExecutor() != null &&
                         ConnectContext.get().getExecutor().getParsedStmt() != null) {
