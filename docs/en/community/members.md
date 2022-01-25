@@ -42,7 +42,7 @@ We'd like to thank the following committers to the Apache Doris (incubating) pro
 
 (the listing below excludes mentors)
 
-| Apache ID                                                    | Github 用户名       | 公开名        |
+| Apache ID                                                    | Github Username       | Public Name        |
 | :----------------------------------------------------------- | :------------------ | :------------ |
 | [lingbin](https://people.apache.org/committer-index.html#lingbin) | lingbin             | Bin Ling      |
 | [wangbo](https://people.apache.org/committer-index.html#wangbo) | wangbo              | Bo Wang       |
