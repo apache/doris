@@ -27,7 +27,7 @@ and uses the query result as a statistical value (same as @SQLStatisticsTask).
 The only difference from the SQLStatisticsTask is that the query is a sampling table query.
  */
 public class SampleSQLStatisticsTask extends SQLStatisticsTask {
-    private float samplePercentage = Config.default_sample_percentage;
+    private float samplePercentage = Config.cbo_default_sample_percentage;
 
     public SampleSQLStatisticsTask(long jobId, StatsGranularityDesc granularityDesc,
                                    StatsCategoryDesc categoryDesc, List<StatsType> statsTypeList) {

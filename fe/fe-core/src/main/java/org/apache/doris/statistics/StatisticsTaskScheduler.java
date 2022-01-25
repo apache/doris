@@ -71,7 +71,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
 
     private List<StatisticsTask> peek() {
         List<StatisticsTask> tasks = Lists.newArrayList();
-        int i = Config.concurrency_statistics_task_num;
+        int i = Config.cbo_concurrency_statistics_task_num;
         while (i > 0) {
             StatisticsTask task = queue.peek();
             if (task == null) {
