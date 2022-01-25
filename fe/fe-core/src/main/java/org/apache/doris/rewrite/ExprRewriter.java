@@ -48,7 +48,7 @@ public class ExprRewriter {
     private final List<ExprRewriteRule> rules_;
 
     // The type of clause that executes the rule.
-    // This type is only used in InferFiltersRule, other rules are not used
+    // This type is only used in InferFiltersRule, RewriteDateLiteralRule, other rules are not used
     public enum ClauseType {
         ON_CLAUSE,
         WHERE_CLAUSE,
