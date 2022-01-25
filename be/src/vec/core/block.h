@@ -349,6 +349,13 @@ public:
         _data_types.clear();
     }
 
+    void append_from_block(const Block* block, const int col_len, const int start_col_idx, const size_t row_number) {
+        for (size_t i = 0; i < col_len; ++i) {
+            auto& column = *block->get_by_position(i).column;
+            _columns[i + start_col_idx]->insert_from(column, row_number);
+        }
+    }
+
     // TODO: use add_rows instead of this
     // add_rows(Block* block,PODArray<Int32>& group,int group_num);
 };
