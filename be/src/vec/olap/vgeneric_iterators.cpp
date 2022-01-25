@@ -323,7 +323,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
 
     for (auto iter : _origin_iters) {
-        std::unique_ptr<VMergeIteratorContext> ctx(new VMergeIteratorContext(iter, _mem_tracker));
+        std::unique_ptr<VMergeIteratorContext> ctx(new VMergeIteratorContext(iter));
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

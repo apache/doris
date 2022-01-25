@@ -51,7 +51,7 @@ namespace doris {
 
 class ORCFileStream : public orc::InputStream {
 public:
-    ORCFileStream(FileReader* file, const std::string& filename)
+    ORCFileStream(FileReader* file, std::string filename)
             : _file(file), _filename(std::move(filename)) {}
 
     ~ORCFileStream() override {
