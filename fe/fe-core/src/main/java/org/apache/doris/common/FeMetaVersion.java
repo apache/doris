@@ -222,6 +222,8 @@ public final class FeMetaVersion {
     public static final int VERSION_104 = 104;
     // change replica to replica allocation
     public static final int VERSION_105 = 105;
+    // add ldap info
+    public static final int VERSION_106 = 106;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_105;
+    public static final int VERSION_CURRENT = VERSION_106;
 }
