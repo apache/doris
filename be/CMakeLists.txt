@@ -347,6 +347,7 @@ if (COMPILER_GCC)
     # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
     # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
+    add_compile_options(-Wno-stringop-overflow)
 endif ()
 
 if (COMPILER_CLANG)
