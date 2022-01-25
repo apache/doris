@@ -88,7 +88,7 @@ public class AliasFunction extends Function {
             /**
              * Please ensure that the condition checks in {@link #analyze} are satisfied
              */
-            functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.INT), Type.VARCHAR,
+            functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
                     false, Lists.newArrayList("id"), getExpr(oriStmt), true));
         } catch (AnalysisException e) {
             LOG.error("Add builtin alias function error {}", e);
