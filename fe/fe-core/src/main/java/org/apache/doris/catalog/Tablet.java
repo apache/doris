@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.resource.Tag;
@@ -341,7 +342,7 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 6) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_6) {
             checkedVersion = in.readLong();
             checkedVersionHash = in.readLong();
             isConsistent = in.readBoolean();

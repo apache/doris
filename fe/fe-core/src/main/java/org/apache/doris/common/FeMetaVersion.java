@@ -18,6 +18,20 @@
 package org.apache.doris.common;
 
 public final class FeMetaVersion {
+
+    public static final int VERSION_1 = 1;
+
+    public static final int VERSION_2 = 2;
+
+    public static final int VERSION_3 = 3;
+
+    public static final int VERSION_4 = 4;
+
+    public static final int VERSION_5 = 5;
+
+    public static final int VERSION_6 = 6;
+
+    public static final int VERSION_7 = 7;
     // jira 1902
     public static final int VERSION_8 = 8;
     // jira 529
