@@ -132,7 +132,7 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 
     ```
     -- 创建自定义功能别名函数
-    CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) 
+    CREATE ALIAS FUNCTION id_masking(BIGINT) WITH PARAMETER(id) 
         AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
     
     -- 创建自定义 CAST 别名函数
