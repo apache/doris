@@ -350,6 +350,11 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
+
+    if(MAKE_TEST STREQUAL "OFF")
+        add_compile_options(-Qunused-arguments)
+    endif()
+
     # TODO: Fix all these warnings
     add_compile_options(
         -Wno-address-of-packed-member
