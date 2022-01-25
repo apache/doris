@@ -136,12 +136,19 @@ public:
     {
         if (!_block) {
             const Schema& schema = _iter->schema();
-            for (auto &column_desc : schema.columns()) {
+            const auto& column_ids = schema.column_ids();
+            for (size_t i = 0; i < schema.num_column_ids(); ++i) {
+                auto column_desc = schema.column(column_ids[i]);
                 auto data_type = Schema::get_data_type_ptr(column_desc->type());
                 if (data_type == nullptr) {
                     return Status::RuntimeError("invalid data type");
                 }
-                _block.insert(ColumnWithTypeAndName(data_type->create_column(), data_type, column_desc->name()));
+                if (column_desc->is_nullable()) {
+                    data_type = std::make_shared<vectorized::DataTypeNullable>(std::move(data_type));
+                }
+                auto column = data_type->create_column();
+                column->reserve(_block_row_max);
+                _block.insert(ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
             }
         } else {
             _block.clear_column_data();
@@ -204,9 +211,11 @@ private:
 
     bool _valid = false;
     size_t _index_in_block = -1;
+    int _block_row_max = 4096;
 };
 
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
+    _block_row_max = opts.block_row_max;
     RETURN_IF_ERROR(_iter->init(opts));
     RETURN_IF_ERROR(block_reset());
     RETURN_IF_ERROR(_load_next_block());
