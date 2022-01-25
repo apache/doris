@@ -54,7 +54,7 @@ public:
         int row_idx = 0;
         while (_rows_returned < _num_rows) {
             for (int j = 0; j < _schema.num_columns(); ++j) {
-                vectorized::ColumnWithTypeAndName vc = block->get_by_position(j);
+                vectorized::ColumnWithTypeAndName& vc = block->get_by_position(j);
                 vectorized::IColumn& vi = (vectorized::IColumn&)(*vc.column);
 
                 char data[16] = {};
@@ -121,7 +121,7 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter, std::shared_ptr<MemTracker> parent) : _iter(iter) {}
+    VMergeIteratorContext(RowwiseIterator* iter) : _iter(iter) {}
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;

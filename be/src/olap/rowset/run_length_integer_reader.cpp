@@ -272,7 +272,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
             _literals[_num_literals++] = base + patched_val;
 
             // increment the patch to point to next entry in patch list
-            patch_idx++;
+            ++patch_idx;
 
             if (patch_idx < pl) {
                 // read the next gap and patch
@@ -284,7 +284,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
                 // <=255 then patch cannot be 0
                 while (curr_gap == 255 && curr_patch == 0) {
                     actual_gap += 255;
-                    patch_idx++;
+                    ++patch_idx;
                     curr_gap = (uint64_t)unpacked_patch[patch_idx] >> pw;
                     curr_patch = unpacked_patch[patch_idx] & ((1L << pw) - 1);
                 }

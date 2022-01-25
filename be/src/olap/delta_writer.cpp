@@ -63,9 +63,11 @@ DeltaWriter::~DeltaWriter() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
 
-        const FlushStatistic& stat = _flush_token->get_stats();
-        _tablet->flush_bytes->increment(stat.flush_size_bytes);
-        _tablet->flush_count->increment(stat.flush_count);
+        if (_tablet != nullptr) {
+            const FlushStatistic& stat = _flush_token->get_stats();
+            _tablet->flush_bytes->increment(stat.flush_size_bytes);
+            _tablet->flush_count->increment(stat.flush_count);
+        }
     }
 
     if (_tablet != nullptr) {
