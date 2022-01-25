@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
-    "language": "zh-CN"
+"title": "bitnot",
+"language": "zh-CN"
 }
 ---
 
@@ -24,33 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitnot
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITNOT(Integer-type value)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
+返回一个整数取反运算的结果.
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+整数范围：TINYINT、SMALLINT、INT、BIGINT、LARGEINT
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitnot(7) ans;
++------+
+| ans  |
++------+
+|   -8 |
++------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitxor(-127) ans;
++------+
+| ans  |
++------+
+|  126 |
++------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITNOT

@@ -241,7 +241,14 @@ module.exports = [
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
-      "seatunnel",
+      {
+        title: "Seatunnel",
+        directoryPath: "seatunnel/",
+        children: [
+          "spark-sink",
+          "flink-sink",
+        ],
+      },
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -437,6 +444,16 @@ module.exports = [
               "orthogonal_bitmap_intersect",
               "orthogonal_bitmap_intersect_count",
               "orthogonal_bitmap_union_count",
+            ],
+          },
+          {
+            title: "bitwise函数",
+            directoryPath: "bitwise-functions/",
+            children: [
+              "bitand",
+              "bitor",
+              "bitxor",
+              "bitnot"
             ],
           },
           {
