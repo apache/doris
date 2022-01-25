@@ -49,6 +49,7 @@ Usage: $0 <options>
   Optional options:
      --be               build Backend
      --fe               build Frontend and Spark Dpp application
+     --broker           build Broker
      --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
      --clean            clean and build target
@@ -61,6 +62,7 @@ Usage: $0 <options>
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend, without web UI
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --fe --ui                            build Frontend web ui with npm
+    $0 --broker                             build Broker
   "
   exit 1
 }
@@ -91,6 +93,7 @@ OPTS=$(getopt \
   -o 'h' \
   -l 'be' \
   -l 'fe' \
+  -l 'broker' \
   -l 'ui' \
   -l 'spark-dpp' \
   -l 'clean' \
@@ -107,6 +110,7 @@ eval set -- "$OPTS"
 PARALLEL=$[$(nproc)/4+1]
 BUILD_BE=
 BUILD_FE=
+BUILD_BROKER=
 BUILD_UI=
 BUILD_SPARK_DPP=
 CLEAN=
@@ -115,6 +119,7 @@ if [ $# == 1 ] ; then
     # default
     BUILD_BE=1
     BUILD_FE=1
+    BUILD_BROKER=1
     BUILD_UI=1
     BUILD_SPARK_DPP=1
     CLEAN=0
@@ -129,6 +134,7 @@ else
             --be) BUILD_BE=1 ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
             --ui) BUILD_UI=1 ; shift ;;
+            --broker) BUILD_BROKER=1 ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
@@ -174,6 +180,7 @@ fi
 echo "Get params:
     BUILD_BE            -- $BUILD_BE
     BUILD_FE            -- $BUILD_FE
+    BUILD_BROKER        -- $BUILD_BROKER
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     PARALLEL            -- $PARALLEL
@@ -334,6 +341,13 @@ if [ ${BUILD_BE} -eq 1 ]; then
 
 
 fi
+
+if [ ${BUILD_BROKER} -eq 1 ]; then
+    cd ${DORIS_HOME}/fs_brokers/apache_hdfs_broker/
+    ./build.sh
+    cd ${DORIS_HOME}
+fi
+
 
 echo "***************************************"
 echo "Successfully build Doris"
