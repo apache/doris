@@ -570,11 +570,11 @@ void StorageEngine::stop() {
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
 #undef THREAD_JOIN
 
-#define THREADS_JOIN(threads)            \
-    for (const auto& thread : threads) { \
-        if (thread) {                    \
-            thread->join();              \
-        }                                \
+#define THREADS_JOIN(threads)           \
+    for (const auto& thread : threads) {\
+        if (thread) {                   \
+            thread->join();             \
+        }                               \
     }
 
     THREADS_JOIN(_path_gc_threads);

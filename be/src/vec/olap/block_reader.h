@@ -95,12 +95,9 @@ private:
     std::vector<int> _agg_columns_idx;
     std::vector<int> _return_columns_loc;
 
-    int _batch_size = 0;
-
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
 
-    std::unique_ptr<Block> _stored_data_block;
     MutableColumns _stored_data_columns;
     std::vector<IteratorRowRef> _stored_row_ref;
 

@@ -54,6 +54,7 @@ void VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers
         for (auto [c_iter, r_iter] = std::pair {_children.begin(), rs_readers.begin()};
              c_iter != _children.end();) {
             if ((*c_iter)->init() != OLAP_SUCCESS) {
+                delete (*c_iter);
                 c_iter = _children.erase(c_iter);
                 r_iter = rs_readers.erase(r_iter);
             } else {
@@ -162,7 +163,7 @@ OLAPStatus VCollectIterator::next(Block* block) {
 VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
-    _block = _schema.create_block(_reader->_return_columns);
+    _block = _schema.create_block(_reader->_return_columns, _reader->_reader_context.batch_size);
     _ref.block = &_block;
     _ref.row_pos = 0;
     _ref.is_same = false;

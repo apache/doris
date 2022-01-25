@@ -292,6 +292,7 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
 
 void ColumnString::reserve(size_t n) {
     offsets.reserve(n);
+    chars.reserve(n * 5);
 }
 
 void ColumnString::resize(size_t n) {

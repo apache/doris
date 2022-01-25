@@ -492,12 +492,14 @@ void TabletSchema::init_field_index_for_test() {
     }
 }
 
-vectorized::Block TabletSchema::create_block(const std::vector<uint32_t>& return_columns) const {
+vectorized::Block TabletSchema::create_block(const std::vector<uint32_t>& return_columns, int batch_size) const {
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {
         const auto& col = _cols[return_columns[i]];
         auto data_type = vectorized::IDataType::from_olap_engine(col.type(), col.is_nullable());
-        block.insert({data_type->create_column(), data_type, col.name()});
+        auto column = data_type->create_column();
+        column->reserve(batch_size);
+        block.insert({std::move(column), data_type, col.name()});
     }
     return block;
 }

@@ -59,6 +59,9 @@ Status OlapScanner::prepare(
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                 bloom_filters) {
     set_tablet_reader();
+    // set limit to reduce end of rowset and segment mem use
+    _tablet_reader->set_batch_size(_parent->limit() == -1 ? _parent->_runtime_state->batch_size() : std::min(
+            static_cast<int64_t>(_parent->_runtime_state->batch_size()), _parent->limit()));
 
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
