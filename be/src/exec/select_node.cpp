@@ -22,6 +22,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -33,12 +34,13 @@ SelectNode::SelectNode(ObjectPool* pool, const TPlanNode& tnode, const Descripto
 
 Status SelectNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    _child_row_batch.reset(
-            new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    _child_row_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     return Status::OK();
 }
 
 Status SelectNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
@@ -48,6 +50,7 @@ Status SelectNode::open(RuntimeState* state) {
 Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (reached_limit() || (_child_row_idx == _child_row_batch->num_rows() && _child_eos)) {

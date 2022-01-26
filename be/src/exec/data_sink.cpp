@@ -182,7 +182,7 @@ Status DataSink::init(const TDataSink& thrift_sink) {
 Status DataSink::prepare(RuntimeState* state) {
     _expr_mem_tracker =
             MemTracker::create_tracker(-1, _name + ":Expr:" + std::to_string(state->load_job_id()),
-                                      state->instance_mem_tracker());
+                                       state->instance_mem_tracker());
     return Status::OK();
 }
 

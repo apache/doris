@@ -32,7 +32,6 @@
 #include "olap/fs/block_id.h"
 #include "olap/fs/block_manager_metrics.h"
 #include "olap/storage_engine.h"
-#include "runtime/mem_tracker.h"
 #include "util/doris_metrics.h"
 #include "util/file_cache.h"
 #include "util/metrics.h"
@@ -367,9 +366,7 @@ Status FileReadableBlock::readv(uint64_t offset, const Slice* results, size_t re
 
 FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts)
         : _env(DCHECK_NOTNULL(env)),
-          _opts(std::move(opts)),
-          _mem_tracker(MemTracker::create_tracker(-1, "FileBlockManager", _opts.parent_mem_tracker,
-                                                  MemTrackerLevel::OVERVIEW)) {
+          _opts(std::move(opts)) {
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }

@@ -34,6 +34,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
+#include "runtime/thread_context.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
@@ -77,6 +78,7 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status AggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
     _hash_table_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
@@ -106,7 +108,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     RowDescriptor build_row_desc(_intermediate_tuple_desc, false);
     RETURN_IF_ERROR(Expr::prepare(_build_expr_ctxs, state, build_row_desc, expr_mem_tracker()));
 
-    _tuple_pool.reset(new MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new MemPool());
 
     _agg_fn_ctxs.resize(_aggregate_evaluators.size());
     int j = _probe_expr_ctxs.size();
@@ -141,6 +143,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
 }
 
 Status AggregationNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -153,7 +156,7 @@ Status AggregationNode::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_children[0]->open(state));
 
-    RowBatch batch(_children[0]->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch batch(_children[0]->row_desc(), state->batch_size());
     int64_t num_input_rows = 0;
     int64_t num_agg_rows = 0;
 
@@ -227,6 +230,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
     // 3. `child(0)->rows_returned() == 0` mean not data from child
     // in level two aggregation node should return nullptr result
     //    level one aggregation node set `eos = true` return directly
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     if (UNLIKELY(!_needs_finalize && _singleton_output_tuple != nullptr &&
                  child(0)->rows_returned() == 0)) {
         *eos = true;
@@ -288,6 +292,7 @@ Status AggregationNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     // Iterate through the remaining rows in the hash table and call Serialize/Finalize on
     // them in order to free any memory allocated by UDAs. Finalize() requires a dst tuple

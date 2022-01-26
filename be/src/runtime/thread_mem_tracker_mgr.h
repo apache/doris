@@ -28,12 +28,12 @@ namespace doris {
 typedef void (*ERRCALLBACK)();
 
 struct ConsumeErrCallBackInfo {
-    std::string action_name;
-    bool cancel_task;
+    std::string action_type;
+    bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit
     ERRCALLBACK call_back_func;
 
-    ConsumeErrCallBackInfo(std::string action_name, bool cancel_task, ERRCALLBACK call_back_func)
-            : action_name(action_name), cancel_task(cancel_task), call_back_func(call_back_func) {}
+    ConsumeErrCallBackInfo(std::string action_type, bool cancel_task, ERRCALLBACK call_back_func)
+            : action_type(action_type), cancel_task(cancel_task), call_back_func(call_back_func) {}
 };
 
 // TCMalloc new/delete Hook is counted in the memory_tracker of the current thread.
@@ -45,15 +45,19 @@ struct ConsumeErrCallBackInfo {
 // need to manually call cosume after stop_mem_tracker, and then start_mem_tracker.
 class ThreadMemTrackerMgr {
 public:
-    ThreadMemTrackerMgr() : _mem_tracker(default_mem_tracker()) {}
-    ~ThreadMemTrackerMgr() { detach(); }
+    ThreadMemTrackerMgr() : _mem_tracker(default_mem_tracker()) {
+        _consume_err_call_back = std::make_shared<ConsumeErrCallBackInfo>("", false, nullptr);
+    }
+    ~ThreadMemTrackerMgr() { detach_task(); }
 
     std::shared_ptr<MemTracker> default_mem_tracker();
 
-    // After attach, the current thread TCMalloc Hook starts to consume/release query mem_tracker
-    void attach_query(const std::string& query_id, const TUniqueId& fragment_instance_id);
+    // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
+    void attach_task(const std::string& action_type, const std::string& task_id,
+                     const TUniqueId& fragment_instance_id,
+                     std::shared_ptr<MemTracker> mem_tracker);
 
-    void detach();
+    void detach_task();
 
     std::weak_ptr<MemTracker> update_tracker(std::weak_ptr<MemTracker> mem_tracker);
     std::shared_ptr<ConsumeErrCallBackInfo> update_consume_err_call_back(
@@ -73,9 +77,10 @@ public:
     void start_mem_tracker() { _stop_mem_tracker = false; }
 
 private:
-    void exceeded_cancel_query();
+    // If tryConsume fails due to task mem tracker exceeding the limit, the task must be canceled
+    void exceeded_cancel_task(const std::string& cancel_details);
 
-    void exceeded(Status st, int64_t mem_usage);
+    void exceeded(int64_t mem_usage, Status st);
 
 private:
     std::weak_ptr<MemTracker> _mem_tracker;
@@ -94,7 +99,7 @@ private:
 
     std::shared_ptr<ConsumeErrCallBackInfo> _consume_err_call_back;
 
-    std::string _query_id;
+    std::string _task_id;
     TUniqueId _fragment_instance_id;
 };
 

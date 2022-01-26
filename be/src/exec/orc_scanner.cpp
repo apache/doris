@@ -24,13 +24,12 @@
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 
 #if defined(__x86_64__)
-    #include "exec/hdfs_file_reader.h"
+#include "exec/hdfs_file_reader.h"
 #endif
 
 // orc include file didn't expose orc::TimezoneError

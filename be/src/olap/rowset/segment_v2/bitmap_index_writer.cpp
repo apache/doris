@@ -26,7 +26,6 @@
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -67,8 +66,7 @@ public:
     explicit BitmapIndexWriterImpl(const TypeInfo* typeinfo)
             : _typeinfo(typeinfo),
               _reverted_index_size(0),
-              _tracker(new MemTracker()),
-              _pool(_tracker.get()) {}
+              _pool("BitmapIndexWriterImpl") {}
 
     ~BitmapIndexWriterImpl() = default;
 
@@ -186,7 +184,6 @@ private:
     roaring::Roaring _null_bitmap;
     // unique value to its row id list
     MemoryIndexType _mem_index;
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 

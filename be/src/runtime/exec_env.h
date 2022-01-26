@@ -119,8 +119,8 @@ public:
     }
 
     std::shared_ptr<MemTracker> process_mem_tracker() { return _process_mem_tracker; }
-    std::shared_ptr<MemTracker> new_process_mem_tracker() { return _new_process_mem_tracker; }
     std::shared_ptr<MemTracker> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
+    std::shared_ptr<MemTracker> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
     MemTrackerTaskPool* task_pool_mem_tracker_registry() {
         return _task_pool_mem_tracker_registry.get();
     }
@@ -160,9 +160,6 @@ public:
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
-    // The root tracker should be set before calling ExecEnv::init();
-    void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
-
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -192,10 +189,10 @@ private:
     // The ancestor of all trackers in the process. It is the only child of the root tracker.
     // All manually created trackers should specify the process tracker as the parent.
     std::shared_ptr<MemTracker> _process_mem_tracker = nullptr;
-    // TODO(zxy): Will replace _process_mem_tracker in future.
-    std::shared_ptr<MemTracker> _new_process_mem_tracker = nullptr;
     // The ancestor for all querys tracker.
     std::shared_ptr<MemTracker> _query_pool_mem_tracker = nullptr;
+    // The ancestor for all load tracker.
+    std::shared_ptr<MemTracker> _load_pool_mem_tracker = nullptr;
     std::unique_ptr<MemTrackerTaskPool> _task_pool_mem_tracker_registry;
 
     // The following two thread pools are used in different scenarios.

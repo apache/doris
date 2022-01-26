@@ -24,6 +24,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/mem_tracker.h"
 #include "exprs/expr_context.h"
+#include "runtime/thread_context.h"
 #include "exprs/expr.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -43,6 +44,7 @@ TUniqueId FoldConstantExecutor::_dummy_id;
 
 Status FoldConstantExecutor::fold_constant_expr(
         const TFoldConstantParams& params, PConstantExprResult* response) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     const auto& expr_map = params.expr_map;
     auto expr_result_map = response->mutable_expr_result_map();
 
@@ -50,7 +52,6 @@ Status FoldConstantExecutor::fold_constant_expr(
     // init
     Status status = _init(query_globals);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
         return status;
     }
 
@@ -64,7 +65,6 @@ Status FoldConstantExecutor::fold_constant_expr(
             // prepare and open context
             status = _prepare_and_open(ctx);
             if (UNLIKELY(!status.ok())) {
-                LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
                 return status;
             }
 
@@ -189,7 +189,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
     _mem_tracker = MemTracker::create_tracker(-1, "FoldConstantExpr", _runtime_state->instance_mem_tracker());
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _mem_pool.reset(new MemPool(_mem_tracker));
 
     return Status::OK();
 }

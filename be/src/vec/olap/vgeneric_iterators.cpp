@@ -259,10 +259,7 @@ Status VMergeIteratorContext::_load_next_block() {
 class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
-    VMergeIterator(std::vector<RowwiseIterator*>& iters, std::shared_ptr<MemTracker> parent) : _origin_iters(iters) {
-        // use for count the mem use of Block use in Merge
-        _mem_tracker = MemTracker::CreateTracker(-1, "VMergeIterator", parent, false);
-    }
+    VMergeIterator(std::vector<RowwiseIterator*>& iters) : _origin_iters(iters) {}
 
     ~VMergeIterator() override {
         while (!_merge_heap.empty()) {
@@ -350,10 +347,7 @@ public:
     // Iterators' ownership it transfered to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
-    VUnionIterator(std::vector<RowwiseIterator*>& v, std::shared_ptr<MemTracker> parent)
-            : _origin_iters(v.begin(), v.end()) {
-        _mem_tracker = MemTracker::CreateTracker(-1, "VUnionIterator", parent, false);
-    }
+    VUnionIterator(std::vector<RowwiseIterator*>& v) : _origin_iters(v.begin(), v.end()) {}
 
     ~VUnionIterator() override {
         std::for_each(_origin_iters.begin(), _origin_iters.end(), std::default_delete<RowwiseIterator>());
@@ -403,18 +397,18 @@ Status VUnionIterator::next_batch(vectorized::Block* block) {
 }
 
 
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new VMergeIterator(inputs, parent);
+    return new VMergeIterator(inputs);
 }
 
-RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new VUnionIterator(inputs, parent);
+    return new VUnionIterator(inputs);
 }
 
 RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows) {

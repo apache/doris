@@ -46,8 +46,9 @@ BlockingJoinNode::~BlockingJoinNode() {
 Status BlockingJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
-    _build_pool.reset(new MemPool(mem_tracker().get()));
+    _build_pool.reset(new MemPool());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
@@ -70,7 +71,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     _probe_tuple_row_size = num_left_tuples * sizeof(Tuple*);
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
-    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     return Status::OK();
 }
 
@@ -83,12 +84,13 @@ Status BlockingJoinNode::close(RuntimeState* state) {
 }
 
 void BlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(state->query_id()),
-                              state->fragment_instance_id());
+    SCOPED_ATTACH_TASK_THREAD_4ARG(state->query_type(), print_id(state->query_id()),
+                                   state->fragment_instance_id(), mem_tracker());
     status->set_value(construct_build_side(state));
 }
 
 Status BlockingJoinNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // RETURN_IF_ERROR(Expr::open(_conjuncts, state));

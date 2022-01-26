@@ -25,18 +25,17 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "runtime/row_batch.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                             DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, parent, StorageEngine::instance());
+OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
+    *writer = new DeltaWriter(req, StorageEngine::instance());
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                         StorageEngine* storage_engine)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -45,8 +44,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& p
           _rowset_writer(nullptr),
           _tablet_schema(nullptr),
           _delta_written_success(false),
-          _storage_engine(storage_engine),
-          _parent_mem_tracker(parent) {}
+          _storage_engine(storage_engine) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -105,8 +103,9 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    _mem_tracker = MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()),
-                                             _parent_mem_tracker);
+    _mem_tracker =
+            MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
@@ -142,7 +141,6 @@ OLAPStatus DeltaWriter::init() {
     writer_context.txn_id = _req.txn_id;
     writer_context.load_id = _req.load_id;
     writer_context.segments_overlap = OVERLAPPING;
-    writer_context.parent_mem_tracker = _mem_tracker;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
     _tablet_schema = &(_tablet->tablet_schema());
@@ -162,6 +160,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     if (!_is_init && !_is_cancelled) {
         RETURN_NOT_OK(init());
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
 
     if (_is_cancelled) {
         // The writer may be cancelled at any time by other thread.
@@ -189,6 +188,7 @@ OLAPStatus DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>&
     if (!_is_init && !_is_cancelled) {
         RETURN_NOT_OK(init());
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
 
     if (_is_cancelled) {
         return OLAP_ERR_ALREADY_CANCELLED;
@@ -214,6 +214,7 @@ OLAPStatus DeltaWriter::_flush_memtable_async() {
 }
 
 OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
         // This writer is not initialized before flushing. Do nothing
@@ -222,7 +223,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return OLAP_SUCCESS;
     }
-    
+
     if (_is_cancelled) {
         return OLAP_ERR_ALREADY_CANCELLED;
     }
@@ -247,6 +248,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 }
 
 OLAPStatus DeltaWriter::wait_flush() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
         // return OLAP_SUCCESS instead of OLAP_ERR_ALREADY_CANCELLED for same reason
@@ -262,8 +264,7 @@ OLAPStatus DeltaWriter::wait_flush() {
 
 void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
-                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker));
+                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get()));
 }
 
 OLAPStatus DeltaWriter::close() {
@@ -276,6 +277,7 @@ OLAPStatus DeltaWriter::close() {
         // for this tablet when being closed.
         RETURN_NOT_OK(init());
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
 
     if (_is_cancelled) {
         return OLAP_ERR_ALREADY_CANCELLED;
@@ -287,6 +289,7 @@ OLAPStatus DeltaWriter::close() {
 }
 
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -297,7 +300,6 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
-    DCHECK_EQ(_mem_tracker->consumption(), 0);
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
@@ -351,12 +353,12 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     const FlushStatistic& stat = _flush_token->get_stats();
     VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id() 
-                  << ", load id: " << print_id(_req.load_id)
-                  << ", stats: " << stat;
+                  << ", load id: " << print_id(_req.load_id) << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::cancel() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init || _is_cancelled) {
         return OLAP_SUCCESS;
@@ -366,7 +368,6 @@ OLAPStatus DeltaWriter::cancel() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
     }
-    DCHECK_EQ(_mem_tracker->consumption(), 0);
     _is_cancelled = true;
     return OLAP_SUCCESS;
 }

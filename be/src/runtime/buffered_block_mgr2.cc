@@ -22,6 +22,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/tmp_file_mgr.h"
 #include "util/bit_util.h"
 #include "util/debug_util.h"
@@ -219,11 +220,9 @@ BufferedBlockMgr2::BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_m
           _writes_issued(0),
           _state(state) {}
 
-Status BufferedBlockMgr2::create(RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
-                                 RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
-                                 int64_t mem_limit, int64_t block_size,
+Status BufferedBlockMgr2::create(RuntimeState* state, RuntimeProfile* profile,
+                                 TmpFileMgr* tmp_file_mgr, int64_t mem_limit, int64_t block_size,
                                  std::shared_ptr<BufferedBlockMgr2>* block_mgr) {
-    DCHECK(parent != nullptr);
     block_mgr->reset();
     {
         // we do not use global BlockMgrsMap for now, to avoid mem-exceeded different fragments
@@ -245,7 +244,7 @@ Status BufferedBlockMgr2::create(RuntimeState* state, const std::shared_ptr<MemT
             // _s_query_to_block_mgrs[state->query_id()] = *block_mgr;
         }
     }
-    (*block_mgr)->init(state->exec_env()->disk_io_mgr(), profile, parent, mem_limit);
+    (*block_mgr)->init(state->exec_env()->disk_io_mgr(), profile, mem_limit);
     return Status::OK();
 }
 
@@ -290,6 +289,7 @@ void BufferedBlockMgr2::clear_reservations(Client* client) {
 
 bool BufferedBlockMgr2::try_acquire_tmp_reservation(Client* client, int num_buffers) {
     lock_guard<mutex> lock(_lock);
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     // TODO: Can the modifications to the client's mem variables can be made w/o the lock?
     DCHECK_EQ(client->_num_tmp_reserved_buffers, 0);
     if (client->_num_pinned_buffers < client->_num_reserved_buffers) {
@@ -309,6 +309,7 @@ bool BufferedBlockMgr2::try_acquire_tmp_reservation(Client* client, int num_buff
 }
 
 bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     // Later, we use this interface to manage the consumption of memory of hashtable instead of ReservationTracker.
     // So it is possible to allocate 0, which has no additional impact on the behavior of BufferedBlockMgr.
     // The process of memory allocation still by BufferPool, Because bufferpool has done a lot of optimization in memory allocation
@@ -451,6 +452,7 @@ Status BufferedBlockMgr2::add_exec_msg(const std::string& msg) const {
 
 Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Block** block,
                                         int64_t len) {
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     DCHECK_LE(len, _max_block_size) << "Cannot request block bigger than max_len";
     DCHECK_NE(len, 0) << "Cannot request block of zero size";
     *block = nullptr;
@@ -515,6 +517,7 @@ Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Bloc
 }
 
 Status BufferedBlockMgr2::transfer_buffer(Block* dst, Block* src, bool unpin) {
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     Status status = Status::OK();
     DCHECK(dst != nullptr);
     DCHECK(src != nullptr);
@@ -559,6 +562,7 @@ Status BufferedBlockMgr2::transfer_buffer(Block* dst, Block* src, bool unpin) {
 }
 
 BufferedBlockMgr2::~BufferedBlockMgr2() {
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     {
         lock_guard<SpinLock> lock(_s_block_mgrs_lock);
         BlockMgrsMap::iterator it = _s_query_to_block_mgrs.find(_query_id);
@@ -636,6 +640,7 @@ Status BufferedBlockMgr2::delete_or_unpin_block(Block* block, bool unpin) {
 }
 
 Status BufferedBlockMgr2::pin_block(Block* block, bool* pinned, Block* release_block, bool unpin) {
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     DCHECK(block != nullptr);
     DCHECK(!block->_is_deleted);
     *pinned = false;
@@ -716,6 +721,7 @@ Status BufferedBlockMgr2::pin_block(Block* block, bool* pinned, Block* release_b
 }
 
 Status BufferedBlockMgr2::unpin_block(Block* block) {
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     DCHECK(!block->_is_deleted) << "Unpin for deleted block.";
 
     lock_guard<mutex> unpinned_lock(_lock);
@@ -918,6 +924,7 @@ void BufferedBlockMgr2::write_complete(Block* block, const Status& write_status)
 }
 
 void BufferedBlockMgr2::delete_block(Block* block) {
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     DCHECK(!block->_is_deleted);
 
     lock_guard<mutex> lock(_lock);
@@ -1261,14 +1268,12 @@ string BufferedBlockMgr2::debug_internal() const {
        << "  Total pinned buffers: " << _total_pinned_buffers << endl
        << "  Unfullfilled reserved buffers: " << _unfullfilled_reserved_buffers << endl
        << "  Remaining memory: " << _mem_tracker->spare_capacity()
-       << " (#blocks=" << (_mem_tracker->spare_capacity() / _max_block_size) << ")"
-       << endl
+       << " (#blocks=" << (_mem_tracker->spare_capacity() / _max_block_size) << ")" << endl
        << "  Block write threshold: " << _block_write_threshold;
     return ss.str();
 }
 
-void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile,
-                             const std::shared_ptr<MemTracker>& parent_tracker, int64_t mem_limit) {
+void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile, int64_t mem_limit) {
     unique_lock<mutex> l(_lock);
     if (_initialized) {
         return;
@@ -1293,7 +1298,7 @@ void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile,
     _integrity_check_timer = ADD_TIMER(_profile.get(), "TotalIntegrityCheckTime");
 
     // Create a new mem_tracker and allocate buffers.
-    _mem_tracker = MemTracker::create_tracker(mem_limit, "BufferedBlockMgr2", parent_tracker);
+    _mem_tracker = MemTracker::create_tracker(mem_limit, "BufferedBlockMgr2");
 
     _initialized = true;
 }

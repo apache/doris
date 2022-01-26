@@ -27,6 +27,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
@@ -59,7 +60,8 @@ Status TopNNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status TopNNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    _tuple_pool.reset(new MemPool(mem_tracker().get()));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    _tuple_pool.reset(new MemPool());
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
                                              expr_mem_tracker()));
     // AddExprCtxsToFree(_sort_exec_exprs);
@@ -74,6 +76,7 @@ Status TopNNode::prepare(RuntimeState* state) {
 }
 
 Status TopNNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
@@ -95,7 +98,7 @@ Status TopNNode::open(RuntimeState* state) {
 
     // Limit of 0, no need to fetch anything from children.
     if (_limit != 0) {
-        RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+        RowBatch batch(child(0)->row_desc(), state->batch_size());
         bool eos = false;
 
         do {
@@ -126,6 +129,7 @@ Status TopNNode::open(RuntimeState* state) {
 }
 
 Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
@@ -167,6 +171,7 @@ Status TopNNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     if (_tuple_pool.get() != nullptr) {
         _tuple_pool->free_all();
     }

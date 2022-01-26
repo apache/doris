@@ -24,6 +24,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
@@ -55,6 +56,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -74,7 +76,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a odbc scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool("OdbcScanNode"));
 
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
@@ -92,6 +94,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
 }
 
 Status OdbcScanNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << _scan_node_type << "::Open";
 
@@ -128,6 +131,7 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescript
 
 Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     VLOG_CRITICAL << _scan_node_type << "::GetNext";
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     if (nullptr == state || nullptr == row_batch || nullptr == eos) {
         return Status::InternalError("input is nullptr pointer");
@@ -232,6 +236,7 @@ Status OdbcScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 

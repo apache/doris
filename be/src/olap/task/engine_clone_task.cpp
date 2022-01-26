@@ -30,6 +30,7 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/snapshot_manager.h"
 #include "runtime/client_cache.h"
+#include "runtime/thread_context.h"
 #include "util/thrift_rpc_helper.h"
 
 using std::set;
@@ -55,9 +56,14 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
           _tablet_infos(tablet_infos),
           _res_status(res_status),
           _signature(signature),
-          _master_info(master_info) {}
+          _master_info(master_info) {
+    _mem_tracker = MemTracker::create_tracker(
+            -1, "clone tablet: " + std::to_string(_clone_req.tablet_id),
+            StorageEngine::instance()->clone_mem_tracker(), MemTrackerLevel::TASK);
+}
 
 OLAPStatus EngineCloneTask::execute() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     // register the tablet to avoid it is deleted by gc thread during clone process
     StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id);
     OLAPStatus st = _do_clone();
@@ -758,9 +764,9 @@ OLAPStatus EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* clone
     // but some rowset is useless, so that remove them here
     for (auto& rs_meta_ptr : rs_metas_found_in_src) {
         RowsetSharedPtr rowset_to_remove;
-        auto s =
-                RowsetFactory::create_rowset(&(cloned_tablet_meta->tablet_schema()),
-                                             tablet->tablet_path_desc().filepath, rs_meta_ptr, &rowset_to_remove);
+        auto s = RowsetFactory::create_rowset(&(cloned_tablet_meta->tablet_schema()),
+                                              tablet->tablet_path_desc().filepath, rs_meta_ptr,
+                                              &rowset_to_remove);
         if (s != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to init rowset to remove: "
                          << rs_meta_ptr->rowset_id().to_string();

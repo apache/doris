@@ -23,6 +23,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -33,6 +34,8 @@ VCrossJoinNode::VCrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const D
 Status VCrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(VBlockingJoinNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VCrossJoinNode:Block", mem_tracker());
 
     _num_existing_columns = child(0)->row_desc().num_materialized_slots();
     _num_columns_to_add = child(1)->row_desc().num_materialized_slots();
@@ -44,7 +47,7 @@ Status VCrossJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _mem_tracker->Release(_total_mem_usage);
+    _block_mem_tracker->release(_total_mem_usage);
     VBlockingJoinNode::close(state);
     return Status::OK();
 }
@@ -52,6 +55,7 @@ Status VCrossJoinNode::close(RuntimeState* state) {
 Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_CB("Cross join, while getting next from the child 1");
 
     bool eos = false;
     while (true) {
@@ -67,10 +71,8 @@ Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
             _build_rows += rows;
             _total_mem_usage += mem_usage;
             _build_blocks.emplace_back(std::move(block));
-            _mem_tracker->Consume(mem_usage);
+            _block_mem_tracker->consume(mem_usage);
         }
-        // to prevent use too many memory
-        RETURN_IF_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         if (eos) {
             break;
@@ -89,6 +91,7 @@ void VCrossJoinNode::init_get_next(int left_batch_row) {
 
 Status VCrossJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_CANCELLED(state);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     *eos = false;
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 

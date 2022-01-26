@@ -515,7 +515,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     string process_name;
     switch (task_type) {
     case TTaskType::ALTER:
-        process_name = "alter";
+        process_name = "AlterTablet";
         break;
     default:
         std::string task_name;

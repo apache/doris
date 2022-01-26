@@ -18,6 +18,7 @@
 #include "olap/task/engine_alter_tablet_task.h"
 
 #include "olap/schema_change.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -31,9 +32,16 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request, i
           _signature(signature),
           _task_type(task_type),
           _error_msgs(error_msgs),
-          _process_name(process_name) {}
+          _process_name(process_name) {
+    _mem_tracker = MemTracker::create_tracker(
+            config::memory_limitation_per_thread_for_schema_change * 1024 * 1024 * 1024,
+            fmt::format("{}: {}-{}", process_name, std::to_string(_alter_tablet_req.base_tablet_id),
+                        std::to_string(_alter_tablet_req.new_tablet_id)),
+            StorageEngine::instance()->schema_change_mem_tracker(), MemTrackerLevel::TASK);
+}
 
 OLAPStatus EngineAlterTabletTask::execute() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
 
     auto schema_change_handler = SchemaChangeHandler::instance();

@@ -20,6 +20,7 @@
 #include "exec/sort_exec_exprs.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/debug_util.h"
 
 #include "vec/core/sort_block.h"
@@ -43,12 +44,15 @@ Status VSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSortNode:Block", mem_tracker());
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
                                               expr_mem_tracker()));
     return Status::OK();
 }
 
 Status VSortNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
@@ -74,6 +78,7 @@ Status VSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
 }
 
 Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     auto status = Status::OK();
@@ -102,7 +107,8 @@ Status VSortNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _mem_tracker->Release(_total_mem_usage);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    _block_mem_tracker->release(_total_mem_usage);
     _vsort_exec_exprs.close(state);
     ExecNode::close(state);
     return Status::OK();
@@ -159,7 +165,7 @@ Status VSortNode::sort_input(RuntimeState* state) {
                 _sorted_blocks.emplace_back(std::move(block));
             }
 
-            _mem_tracker->Consume(mem_usage);
+            _block_mem_tracker->consume(mem_usage);
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
         }

@@ -23,8 +23,7 @@
 namespace doris {
 
 std::shared_ptr<MemTracker> ThreadMemTrackerMgr::default_mem_tracker() {
-    ExecEnv* exec_env = ExecEnv::GetInstance();
-    std::shared_ptr<MemTracker> process_tracker = exec_env->new_process_mem_tracker();
+    std::shared_ptr<MemTracker> process_tracker = ExecEnv::GetInstance()->process_mem_tracker();
     if (process_tracker != nullptr) {
         return process_tracker;
     } else {
@@ -32,26 +31,32 @@ std::shared_ptr<MemTracker> ThreadMemTrackerMgr::default_mem_tracker() {
     }
 }
 
-void ThreadMemTrackerMgr::attach_query(const std::string& query_id,
-                                       const TUniqueId& fragment_instance_id) {
-    DCHECK(query_id != "" && fragment_instance_id != TUniqueId());
-    _query_id = query_id;
+void ThreadMemTrackerMgr::attach_task(const std::string& action_type, const std::string& task_id,
+                                      const TUniqueId& fragment_instance_id,
+                                      std::shared_ptr<MemTracker> mem_tracker) {
+    DCHECK(task_id != "" && fragment_instance_id != TUniqueId());
+    _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
-    _consume_err_call_back = std::make_shared<ConsumeErrCallBackInfo>("Query", true, nullptr);
+    _consume_err_call_back = std::make_shared<ConsumeErrCallBackInfo>(action_type, true, nullptr);
+    if (mem_tracker == nullptr) {
 #ifdef BE_TEST
-    if (ExecEnv::GetInstance()->task_pool_mem_tracker_registry() == nullptr) {
-        return;
-    }
+        if (ExecEnv::GetInstance()->task_pool_mem_tracker_registry() == nullptr) {
+            return;
+        }
 #endif
-    update_tracker(ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_query_mem_tracker(
-            query_id));
+        update_tracker(
+                ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(
+                        task_id));
+    } else {
+        update_tracker(mem_tracker);
+    }
 }
 
-void ThreadMemTrackerMgr::detach() {
+void ThreadMemTrackerMgr::detach_task() {
     update_tracker(default_mem_tracker());
-    _query_id = "";
+    _task_id = "";
     _fragment_instance_id = TUniqueId();
-    _consume_err_call_back = std::make_shared<ConsumeErrCallBackInfo>("", true, nullptr);
+    _consume_err_call_back = std::make_shared<ConsumeErrCallBackInfo>("", false, nullptr);
 }
 
 std::weak_ptr<MemTracker> ThreadMemTrackerMgr::update_tracker(
@@ -68,10 +73,10 @@ std::weak_ptr<MemTracker> ThreadMemTrackerMgr::update_tracker(
 }
 
 std::shared_ptr<ConsumeErrCallBackInfo> ThreadMemTrackerMgr::update_consume_err_call_back(
-        const std::string& action_name, bool cancel_task, ERRCALLBACK call_back_func) {
+        const std::string& action_type, bool cancel_task, ERRCALLBACK call_back_func) {
     std::shared_ptr<ConsumeErrCallBackInfo> old_consume_err_call_back = _consume_err_call_back;
     _consume_err_call_back =
-            std::make_shared<ConsumeErrCallBackInfo>(action_name, cancel_task, call_back_func);
+            std::make_shared<ConsumeErrCallBackInfo>(action_type, cancel_task, call_back_func);
     return old_consume_err_call_back;
 }
 
@@ -82,41 +87,29 @@ std::shared_ptr<ConsumeErrCallBackInfo> ThreadMemTrackerMgr::update_consume_err_
     return old_consume_err_call_back;
 }
 
-void ThreadMemTrackerMgr::exceeded_cancel_query() {
-    if (_fragment_instance_id != TUniqueId() && ExecEnv::GetInstance()->initialized() &&
+void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
+    std::shared_ptr<MemTracker> task_mem_tracker =
+            ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(
+                    _task_id);
+    if (task_mem_tracker != nullptr && task_mem_tracker->limit_exceeded() &&
+        _fragment_instance_id != TUniqueId() && ExecEnv::GetInstance()->initialized() &&
         ExecEnv::GetInstance()->fragment_mgr()->is_canceling(_fragment_instance_id).ok()) {
-        std::string detail =
-                " {} Memory exceed limit in TCMalloc Hook New, Backend: {}, QueryID: {}, "
-                "FragmentID: {}, Used: {}, Limit: {}. You can change the limit by session variable "
-                "exec_mem_limit.";
         ExecEnv::GetInstance()->fragment_mgr()->cancel(
                 _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                fmt::format(detail, _consume_err_call_back->action_name,
-                            BackendOptions::get_localhost(), _query_id,
-                            print_id(_fragment_instance_id),
-                            std::to_string(_mem_tracker.lock()->consumption()),
-                            std::to_string(_mem_tracker.lock()->limit())));
+                cancel_details);
         _fragment_instance_id = TUniqueId(); // Make sure it will only be canceled once
     }
 }
 
-void ThreadMemTrackerMgr::exceeded(Status st, int64_t mem_usage) {
-    DCHECK(st.is_mem_limit_exceeded());
-    std::string detail = st.to_string() + ", in TCMalloc Hook New.";
-    auto rst = _mem_tracker.lock()->mem_limit_exceeded(nullptr, detail, mem_usage);
+void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status st) {
+    auto rst = _mem_tracker.lock()->mem_limit_exceeded(
+            nullptr, "In TCMalloc Hook, " + _consume_err_call_back->action_type, mem_usage, st);
     if (_consume_err_call_back->call_back_func != nullptr) {
         _consume_err_call_back->call_back_func();
     }
-    if (_query_id != "") {
-        std::shared_ptr<MemTracker> query_mem_tracker =
-                ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_query_mem_tracker(
-                        _query_id);
-        if (_consume_err_call_back->cancel_task == true ||
-            (query_mem_tracker != nullptr && query_mem_tracker->limit_exceeded())) {
-            exceeded_cancel_query();
-        }
+    if (_task_id != "" && _consume_err_call_back->cancel_task == true) {
+        exceeded_cancel_task(rst.to_string());
     }
-    LOG(WARNING) << rst.to_string();
 }
 
 void ThreadMemTrackerMgr::noncache_consume() {
@@ -131,7 +124,7 @@ void ThreadMemTrackerMgr::noncache_consume() {
                 // The memory has been allocated, so when TryConsume fails, need to continue to complete
                 // the consume to ensure the accuracy of the statistics.
                 _mem_tracker.lock()->consume(_untracked_mem);
-                exceeded(st, _untracked_mem);
+                exceeded(_untracked_mem, st);
             }
         }
     }

@@ -49,6 +49,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
+#include "runtime/thread_context.h"
 #include "util/histogram.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
@@ -73,7 +74,8 @@ static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSha
 }
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(MemTracker::create_tracker(-1, "TabletMeta", nullptr, MemTrackerLevel::OVERVIEW)),
+        : _mem_tracker(MemTracker::create_virtual_tracker(-1, "TabletManager", nullptr,
+                                                          MemTrackerLevel::OVERVIEW)),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1),
           _last_update_stat_ms(0) {
@@ -88,7 +90,6 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
 }
 
 TabletManager::~TabletManager() {
-    _mem_tracker->release(_mem_tracker->consumption());
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 

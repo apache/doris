@@ -25,6 +25,7 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
@@ -99,9 +100,10 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     // new one mem pool
-    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
     if (nullptr == _tuple_pool.get()) {
         return Status::InternalError("Allocate MemPool failed.");
@@ -187,6 +189,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
 }
 
 Status SchemaScanNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     if (!_is_init) {
         return Status::InternalError("Open before Init.");
     }
@@ -241,6 +244,7 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
     }
 
     RETURN_IF_CANCELLED(state);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (reached_limit()) {
@@ -305,6 +309,7 @@ Status SchemaScanNode::close(RuntimeState* state) {
         return Status::OK();
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();

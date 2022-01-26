@@ -27,6 +27,7 @@
 #include "runtime/collection_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 
@@ -40,8 +41,8 @@ namespace doris {
 const int RowBatch::AT_CAPACITY_MEM_USAGE = 8 * 1024 * 1024;
 const int RowBatch::FIXED_LEN_BUFFER_LIMIT = AT_CAPACITY_MEM_USAGE / 2;
 
-RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_tracker)
-        : _mem_tracker(mem_tracker),
+RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity)
+        : _mem_tracker(thread_local_ctx.thread_mem_tracker()),
           _has_in_flight_row(false),
           _num_rows(0),
           _num_uncommitted_rows(0),
@@ -52,13 +53,13 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
           _row_desc(row_desc),
           _auxiliary_mem_usage(0),
           _need_to_return(false),
-          _tuple_data_pool(_mem_tracker) {
-    DCHECK(_mem_tracker != nullptr);
+          _tuple_data_pool() {
     DCHECK_GT(capacity, 0);
     _tuple_ptrs_size = _capacity * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
+        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != nullptr);
@@ -73,8 +74,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
 //              xfer += iprot->readString(this->tuple_data[_i9]);
 // to allocated string data in special mempool
 // (change via python script that runs over Data_types.cc)
-RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, MemTracker* tracker)
-        : _mem_tracker(tracker),
+RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
+        : _mem_tracker(thread_local_ctx.thread_mem_tracker()),
           _has_in_flight_row(false),
           _num_rows(input_batch.num_rows()),
           _num_uncommitted_rows(0),
@@ -85,12 +86,12 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
           _row_desc(row_desc),
           _auxiliary_mem_usage(0),
           _need_to_return(false),
-          _tuple_data_pool(_mem_tracker) {
-    DCHECK(_mem_tracker != nullptr);
+          _tuple_data_pool() {
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
+        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != nullptr);
@@ -221,8 +222,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
 //              xfer += iprot->readString(this->tuple_data[_i9]);
 // to allocated string data in special mempool
 // (change via python script that runs over Data_types.cc)
-RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, MemTracker* tracker)
-        : _mem_tracker(tracker),
+RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch)
+        : _mem_tracker(thread_local_ctx.thread_mem_tracker()),
           _has_in_flight_row(false),
           _num_rows(input_batch.num_rows),
           _num_uncommitted_rows(0),
@@ -233,12 +234,12 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
           _row_desc(row_desc),
           _auxiliary_mem_usage(0),
           _need_to_return(false),
-          _tuple_data_pool(_mem_tracker) {
-    DCHECK(_mem_tracker != nullptr);
+          _tuple_data_pool() {
     _tuple_ptrs_size = _num_rows * input_batch.row_tuples.size() * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
+        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = (Tuple**)malloc(_tuple_ptrs_size);
         DCHECK(_tuple_ptrs != nullptr);
@@ -367,6 +368,7 @@ void RowBatch::clear() {
         _blocks[i]->del();
     }
     if (config::enable_partitioned_aggregation) {
+        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         DCHECK(_tuple_ptrs != nullptr);
         free(_tuple_ptrs);
         _mem_tracker->release(_tuple_ptrs_size);
@@ -485,7 +487,7 @@ void RowBatch::add_io_buffer(DiskIoMgr::BufferDescriptor* buffer) {
     DCHECK(buffer != nullptr);
     _io_buffers.push_back(buffer);
     _auxiliary_mem_usage += buffer->buffer_len();
-    buffer->set_mem_tracker(std::shared_ptr<MemTracker>(_mem_tracker)); // TODO(yingchun): fixme
+    buffer->set_mem_tracker(_mem_tracker);
 }
 
 Status RowBatch::resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* tuple_buffer_size,
@@ -567,8 +569,7 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
         DiskIoMgr::BufferDescriptor* buffer = _io_buffers[i];
         dest->_io_buffers.push_back(buffer);
         dest->_auxiliary_mem_usage += buffer->buffer_len();
-        buffer->set_mem_tracker(
-                std::shared_ptr<MemTracker>(dest->_mem_tracker)); // TODO(yingchun): fixme
+        buffer->set_mem_tracker(dest->_mem_tracker);
     }
     _io_buffers.clear();
 
@@ -677,7 +678,7 @@ void RowBatch::acquire_state(RowBatch* src) {
         DiskIoMgr::BufferDescriptor* buffer = src->_io_buffers[i];
         _io_buffers.push_back(buffer);
         _auxiliary_mem_usage += buffer->buffer_len();
-        buffer->set_mem_tracker(std::shared_ptr<MemTracker>(_mem_tracker)); // TODO(yingchun): fixme
+        buffer->set_mem_tracker(_mem_tracker);
     }
     src->_io_buffers.clear();
     src->_auxiliary_mem_usage = 0;

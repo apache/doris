@@ -23,6 +23,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "exprs/table_function/table_function_factory.h"
 
@@ -81,7 +82,7 @@ Status TableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
 
 Status TableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(Expr::prepare(_fn_ctxs, state, _row_descriptor, expr_mem_tracker()));
     for (auto fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
@@ -90,6 +91,7 @@ Status TableFunctionNode::prepare(RuntimeState* state) {
 }
 
 Status TableFunctionNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -182,6 +184,7 @@ bool TableFunctionNode::_roll_table_functions(int last_eos_idx) {
 // And the inner loop is to expand the row by table functions, and output row by row.
 Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     const RowDescriptor& parent_rowdesc = row_batch->row_desc();
@@ -203,7 +206,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
         RETURN_IF_ERROR(state->check_query_state("TableFunctionNode, while getting next batch."));
 
         if (_cur_child_batch == nullptr) {
-            _cur_child_batch.reset(new RowBatch(child_rowdesc, state->batch_size(), mem_tracker().get()));
+            _cur_child_batch.reset(new RowBatch(child_rowdesc, state->batch_size()));
         }
         if (_child_batch_exhausted) {
             if (_child_eos) {

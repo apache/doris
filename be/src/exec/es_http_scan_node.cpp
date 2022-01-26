@@ -30,6 +30,7 @@
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
 
@@ -67,6 +68,7 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status EsHttpScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "EsHttpScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -113,6 +115,7 @@ Status EsHttpScanNode::build_conjuncts_list() {
 }
 
 Status EsHttpScanNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
@@ -181,6 +184,7 @@ Status EsHttpScanNode::collect_scanners_status() {
 }
 
 Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
@@ -268,6 +272,7 @@ Status EsHttpScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _scan_finished.store(true);
@@ -307,8 +312,7 @@ Status EsHttpScanNode::scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
 
     while (!scanner_eof) {
         // Fill one row batch
-        std::shared_ptr<RowBatch> row_batch(
-                new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
+        std::shared_ptr<RowBatch> row_batch(new RowBatch(row_desc(), _runtime_state->batch_size()));
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();
@@ -406,6 +410,9 @@ static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
 }
 
 void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
+    SCOPED_ATTACH_TASK_THREAD_4ARG(_runtime_state->query_type(),
+                                   print_id(_runtime_state->query_id()),
+                                   _runtime_state->fragment_instance_id(), mem_tracker());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);

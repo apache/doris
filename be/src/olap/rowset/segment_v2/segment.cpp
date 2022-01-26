@@ -47,14 +47,11 @@ Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id, const T
     return Status::OK();
 }
 
-Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _path_desc(path_desc), _segment_id(segment_id),
-          _tablet_schema(tablet_schema) {
-#ifndef BE_TEST
-    _mem_tracker = MemTracker::create_tracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
-#else
-    _mem_tracker = MemTracker::create_tracker(-1, "Segment", nullptr);
-#endif
+Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id,
+                 const TabletSchema* tablet_schema)
+        : _path_desc(path_desc), _segment_id(segment_id), _tablet_schema(tablet_schema) {
+    _mem_tracker = MemTracker::create_tracker(-1, "Segment",
+                                              StorageEngine::instance()->tablet_mem_tracker());
 }
 
 Segment::~Segment() {
@@ -69,7 +66,6 @@ Status Segment::_open() {
 }
 
 Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
-                             std::shared_ptr<MemTracker> parent,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (!_is_open) {
         RETURN_IF_ERROR(_open());
@@ -94,7 +90,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     }
 
     RETURN_IF_ERROR(_load_index());
-    iter->reset(new SegmentIterator(this->shared_from_this(), schema, parent));
+    iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     iter->get()->init(read_options);
     return Status::OK();
 }
@@ -202,7 +198,7 @@ Status Segment::_create_column_readers() {
     return Status::OK();
 }
 
-Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent, ColumnIterator** iter) {
+Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
         const TabletColumn& tablet_column = _tablet_schema->column(cid);
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
@@ -214,7 +210,6 @@ Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> pa
                         tablet_column.has_default_value(), tablet_column.default_value(),
                         tablet_column.is_nullable(), type_info, tablet_column.length()));
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = MemTracker::create_tracker(-1, "DefaultColumnIterator", parent);
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();

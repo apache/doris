@@ -91,6 +91,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_query_fragments_ctx(fragments_ctx);
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
+    SCOPED_ATTACH_TASK_THREAD_4ARG(_runtime_state->query_type(), print_id(_runtime_state->query_id()),
+                                   _runtime_state->fragment_instance_id(), _runtime_state->instance_mem_tracker());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -127,13 +129,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                      << ". Using process memory limit instead";
         bytes_limit = _exec_env->process_mem_tracker()->limit();
     }
-    // NOTE: this MemTracker only for olap
-    _mem_tracker =
-            MemTracker::create_tracker(bytes_limit,
-                                       "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
-                                               print_id(params.fragment_instance_id),
-                                       _exec_env->process_mem_tracker(), MemTrackerLevel::INSTANCE);
-    _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
 
@@ -222,8 +217,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
-    _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size(),
-                                  _runtime_state->instance_mem_tracker().get()));
+    _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size()));
     _block.reset(new doris::vectorized::Block());
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
@@ -237,7 +231,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 }
 
 Status PlanFragmentExecutor::open() {
-    int64_t mem_limit = _runtime_state->fragment_mem_tracker()->limit();
+    int64_t mem_limit = _runtime_state->instance_mem_tracker()->limit();
     TAG(LOG(INFO))
             .log("PlanFragmentExecutor::open, using query memory limit: " +
                  PrettyPrinter::print(mem_limit, TUnit::BYTES))
@@ -460,12 +454,13 @@ void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
     NodeStatistics* node_statistics =
             _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->add_peak_memory(_mem_tracker->peak_consumption());
+    node_statistics->add_peak_memory(_runtime_state->instance_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(_runtime_state->query_id()),
-                              _runtime_state->fragment_instance_id());
+    SCOPED_ATTACH_TASK_THREAD_4ARG(
+            _runtime_state->query_type(), print_id(_runtime_state->query_id()),
+            _runtime_state->fragment_instance_id(), _runtime_state->instance_mem_tracker());
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(_report_status_cb);
 
@@ -616,7 +611,7 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
                 _runtime_state->set_mem_limit_exceeded(new_status.get_error_msg());
             }
             _status = new_status;
-            if (_runtime_state->query_options().query_type == TQueryType::EXTERNAL) {
+            if (_runtime_state->query_type() == TQueryType::EXTERNAL) {
                 TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
                 _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id,
                                                                    new_status);
@@ -702,10 +697,6 @@ void PlanFragmentExecutor::close() {
                   << print_id(_runtime_state->fragment_instance_id());
     }
 
-    // _mem_tracker init failed
-    if (_mem_tracker.get() != nullptr) {
-        _mem_tracker->release(_mem_tracker->consumption());
-    }
     _closed = true;
 }
 

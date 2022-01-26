@@ -83,14 +83,14 @@ public:
 
     // Create RowBatch for a maximum of 'capacity' rows of tuples specified
     // by 'row_desc'.
-    RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_tracker);
+    RowBatch(const RowDescriptor& row_desc, int capacity);
 
     // Populate a row batch from input_batch by copying input_batch's
     // tuple_data into the row batch's mempool and converting all offsets
     // in the data back into pointers.
     // TODO: figure out how to transfer the data from input_batch to this RowBatch
     // (so that we don't need to make yet another copy)
-    RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, MemTracker* tracker);
+    RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch);
 
     // Releases all resources accumulated at this row batch.  This includes
     //  - tuple_ptrs
@@ -394,7 +394,7 @@ public:
     std::string to_string();
 
 private:
-    MemTracker* _mem_tracker; // not owned
+    std::shared_ptr<MemTracker> _mem_tracker; // not owned
 
     // Close owned tuple streams and delete if needed.
     void close_tuple_streams();

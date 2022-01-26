@@ -32,7 +32,6 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 
 namespace doris {
@@ -91,7 +90,6 @@ private:
     // used to remember the insertion order of dict keys
     std::vector<Slice> _dict_items;
     // TODO(zc): rethink about this mem pool
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
     faststring _buffer;
     faststring _first_value;

@@ -21,6 +21,7 @@
 #include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
@@ -28,8 +29,8 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "load"}}));
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
+                                   Labels({{"type", "load"}}));
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -70,12 +71,11 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
         std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
-    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024, _mem_tracker);
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
-    DEREGISTER_HOOK_METRIC(load_mem_consumption);
+    DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
     _stop_background_threads_latch.count_down();
     if (_load_channels_clean_thread) {
         _load_channels_clean_thread->join();
@@ -85,15 +85,18 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _mem_tracker = MemTracker::create_tracker(load_mem_limit, "LoadChannelMgr", nullptr, MemTrackerLevel::OVERVIEW);
-    REGISTER_HOOK_METRIC(load_mem_consumption, [this]() {
-        return _mem_tracker->consumption();
-    });
+    _mem_tracker = MemTracker::create_tracker(load_mem_limit, "LoadChannelMgr",
+                                              ExecEnv::GetInstance()->process_mem_tracker(),
+                                              MemTrackerLevel::OVERVIEW);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
+    REGISTER_HOOK_METRIC(load_channel_mem_consumption, [this]() { return _mem_tracker->consumption(); });
+    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
 
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
     {
@@ -112,7 +115,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
-            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, _mem_tracker, is_high_priority,
+            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, is_high_priority,
                                           params.sender_ip()));
             _load_channels.insert({load_id, channel});
         }
@@ -126,6 +129,7 @@ static void dummy_deleter(const CacheKey& key, void* value) {}
 
 Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
                                  PTabletWriterAddBatchResult* response) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
@@ -175,6 +179,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
 }
 
 void LoadChannelMgr::_handle_mem_exceed_limit() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
     if (!_mem_tracker->limit_exceeded()) {
@@ -208,6 +213,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
 }
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> cancelled_channel;
     {
@@ -248,6 +254,7 @@ Status LoadChannelMgr::_start_bg_worker() {
 }
 
 Status LoadChannelMgr::_start_load_channels_clean() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::vector<std::shared_ptr<LoadChannel>> need_delete_channels;
     LOG(INFO) << "cleaning timed out load channels";
     time_t now = time(nullptr);

@@ -30,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -39,7 +40,8 @@
 namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                         bool need_agg_finalize, const TPaloScanRange& scan_range)
+                         bool need_agg_finalize, const TPaloScanRange& scan_range,
+                         std::shared_ptr<MemTracker> tracker)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -48,15 +50,15 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
-          _mem_tracker(MemTracker::create_tracker(
-                  runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
-                  runtime_state->fragment_mem_tracker(), MemTrackerLevel::VERBOSE)) {}
+          _mem_tracker(MemTracker::create_tracker(tracker->limit(),
+                                                  tracker->label() + ":OlapScanner", tracker)) {}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                 bloom_filters) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader->set_batch_size(_parent->limit() == -1 ? _parent->_runtime_state->batch_size() : std::min(
@@ -92,7 +94,7 @@ Status OlapScanner::prepare(
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
             OLAPStatus acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers, _mem_tracker);
+                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
             if (acquire_reader_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -113,6 +115,7 @@ Status OlapScanner::prepare(
 }
 
 Status OlapScanner::open() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     SCOPED_TIMER(_parent->_reader_init_timer);
 
     if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
@@ -256,13 +259,14 @@ Status OlapScanner::_init_return_columns() {
 }
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     // 2. Allocate Row's Tuple buf
     uint8_t* tuple_buf =
             batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
         SCOPED_TIMER(_parent->_scan_timer);
@@ -274,7 +278,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             }
             // Read one row from reader
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
-                                                          batch->agg_object_pool(), eof);
+                                                                 batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res
@@ -585,6 +589,7 @@ Status OlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     // olap scan node will call scanner.close() when finished
     // will release resources here
     // if not clear rowset readers in read_params here

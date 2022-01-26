@@ -26,22 +26,28 @@ namespace doris {
 // Global task pool for query MemTrackers. Owned by ExecEnv.
 class MemTrackerTaskPool {
 public:
-    // Construct a MemTracker object for 'query_id' with 'mem_limit' as the memory limit.
-    // The MemTracker is a child of the process MemTracker, Calling this with the same
-    // 'query_id' will return the same MemTracker object. This is used to track the local
-    // memory usage of all querys executing. The first time this is called for a query,
-    // a new MemTracker object is created with the process tracker as its parent.
+    // Construct a MemTracker object for 'task_id' with 'mem_limit' as the memory limit.
+    // The MemTracker is a child of the pool MemTracker, Calling this with the same
+    // 'task_id' will return the same MemTracker object. This is used to track the local
+    // memory usage of all tasks executing. The first time this is called for a task,
+    // a new MemTracker object is created with the pool tracker as its parent.
     // Newly created trackers will always have a limit of -1.
+    std::shared_ptr<MemTracker> register_task_mem_tracker_impl(const std::string& task_id,
+                                                               int64_t mem_limit,
+                                                               const std::string& label,
+                                                               std::shared_ptr<MemTracker> parent);
     std::shared_ptr<MemTracker> register_query_mem_tracker(const std::string& query_id,
-                                                           int64_t mem_limit = -1);
+                                                           int64_t mem_limit);
+    std::shared_ptr<MemTracker> register_load_mem_tracker(const std::string& load_id,
+                                                          int64_t mem_limit);
 
-    std::shared_ptr<MemTracker> get_query_mem_tracker(const std::string& query_id);
+    std::shared_ptr<MemTracker> get_task_mem_tracker(const std::string& task_id);
 
-    void logout_query_mem_tracker();
+    void logout_task_mem_tracker();
 
 private:
-    // All per-query MemTracker objects.
-    // The life cycle of query memtracker in the process is the same as query runtime state,
+    // All per-task MemTracker objects.
+    // The life cycle of task memtracker in the process is the same as task runtime state,
     // MemTrackers will be removed from this map after query finish or cancel.
     using TaskTrackersMap = phmap::parallel_flat_hash_map<
             std::string, std::shared_ptr<MemTracker>, phmap::priv::hash_default_hash<std::string>,
@@ -49,7 +55,7 @@ private:
             std::allocator<std::pair<const std::string, std::shared_ptr<MemTracker>>>, 12,
             std::mutex>;
 
-    TaskTrackersMap _query_mem_trackers;
+    TaskTrackersMap _task_mem_trackers;
 };
 
 } // namespace doris

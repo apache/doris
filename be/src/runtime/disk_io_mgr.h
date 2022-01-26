@@ -262,9 +262,6 @@ public:
         // Reader that this buffer is for
         RequestContext* _reader;
 
-        // The current tracker this buffer is associated with.
-        std::shared_ptr<MemTracker> _mem_tracker;
-
         // Scan range that this buffer is for.
         ScanRange* _scan_range;
 
@@ -284,6 +281,9 @@ public:
         Status _status;
 
         int64_t _scan_range_offset;
+
+        // The current tracker this buffer is associated with.
+        std::shared_ptr<MemTracker> _mem_tracker;
     };
 
     // The request type, read or write associated with a request range.
@@ -657,6 +657,10 @@ public:
     // Returns the number of buffers currently owned by all readers.
     int num_buffers_in_readers() const { return _num_buffers_in_readers; }
 
+    std::shared_ptr<MemTracker> cached_buffers_mem_tracker() const {
+        return _cached_buffers_mem_tracker;
+    }
+
     // Dumps the disk IoMgr queues (for readers and disks)
     std::string debug_string();
 
@@ -691,8 +695,9 @@ private:
     // Pool to allocate BufferDescriptors.
     ObjectPool _pool;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
     // account for io buffers.
-    std::shared_ptr<MemTracker> _disk_io_mem_tracker;
+    std::shared_ptr<MemTracker> _cached_buffers_mem_tracker;
 
     // Number of worker(read) threads per disk. Also the max depth of queued
     // work to the disk.
@@ -787,10 +792,9 @@ private:
     char* get_free_buffer(int64_t* buffer_size);
 
     // Garbage collect all unused io buffers. This is currently only triggered when the
-    // process wide limit is hit. This is not good enough. While it is sufficient for
-    // the IoMgr, other components do not trigger this GC.
+    // process wide limit is hit.
     // TODO: make this run periodically?
-    void gc_io_buffers();
+    void gc_io_buffers(int64_t bytes_to_free = INT_MAX);
 
     // Returns a buffer to the free list. buffer_size / _min_buffer_size should be a power
     // of 2, and buffer_size should be <= _max_buffer_size. These constraints will be met

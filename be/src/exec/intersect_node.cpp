@@ -21,6 +21,7 @@
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 IntersectNode::IntersectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -43,6 +44,7 @@ Status IntersectNode::init(const TPlanNode& tnode, RuntimeState* state) {
 // 2 probe with child(1), then filter the hash table and find the matched item, use them to rebuild a hash table
 // repeat [2] this for all the rest child
 Status IntersectNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_2ARG(mem_tracker(), "Intersect , while probing the hash table.");
     RETURN_IF_ERROR(SetOperationNode::open(state));
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
@@ -57,14 +59,13 @@ Status IntersectNode::open(RuntimeState* state) {
         _valid_element_in_hash_tbl = 0;
         // probe
         _probe_batch.reset(
-                new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));
+                new RowBatch(child(i)->row_desc(), state->batch_size()));
         ScopedTimer<MonotonicStopWatch> probe_timer(_probe_timer);
         RETURN_IF_ERROR(child(i)->open(state));
         eos = false;
         while (!eos) {
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(child(i)->get_next(state, _probe_batch.get(), &eos));
-            RETURN_IF_LIMIT_EXCEEDED(state, " Intersect , while probing the hash table.");
             for (int j = 0; j < _probe_batch->num_rows(); ++j) {
                 VLOG_ROW << "probe row: "
                          << get_row_output_string(_probe_batch->get_row(j), child(i)->row_desc());
@@ -87,6 +88,7 @@ Status IntersectNode::open(RuntimeState* state) {
 }
 
 Status IntersectNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());

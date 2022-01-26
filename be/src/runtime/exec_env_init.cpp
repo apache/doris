@@ -73,6 +73,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
                                    Labels({{"type", "query"}}));
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
+                                   Labels({{"type", "load"}}));
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -174,14 +176,18 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _process_mem_tracker = MemTracker::create_tracker(global_memory_limit_bytes, "Process",
-                                                     MemTracker::get_root_tracker(), MemTrackerLevel::OVERVIEW);
-    _new_process_mem_tracker = MemTracker::create_tracker(global_memory_limit_bytes, "NewProcess",
-                                                       MemTracker::get_root_tracker(), MemTrackerLevel::OVERVIEW);
-    _query_pool_mem_tracker = MemTracker::create_tracker(global_memory_limit_bytes, "QueryPool",
-                                                       _new_process_mem_tracker, MemTrackerLevel::OVERVIEW);
+    _process_mem_tracker =
+            MemTracker::create_tracker(global_memory_limit_bytes, "Process",
+                                       MemTracker::get_root_tracker(), MemTrackerLevel::OVERVIEW);
+    _query_pool_mem_tracker =
+            MemTracker::create_tracker(global_memory_limit_bytes, "QueryPool", _process_mem_tracker,
+                                       MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(query_mem_consumption,
                          [this]() { return _query_pool_mem_tracker->consumption(); });
+    _load_pool_mem_tracker = MemTracker::create_tracker(
+            global_memory_limit_bytes, "LoadPool", _process_mem_tracker, MemTrackerLevel::OVERVIEW);
+    REGISTER_HOOK_METRIC(load_mem_consumption,
+                         [this]() { return _load_pool_mem_tracker->consumption(); });
     LOG(INFO) << "Using global memory limit: "
               << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
               << ", origin config value: " << config::mem_limit;
@@ -318,6 +324,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_heartbeat_flags);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);
+    DEREGISTER_HOOK_METRIC(load_mem_consumption);
 
     _is_init = false;
 }

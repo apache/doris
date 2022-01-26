@@ -44,12 +44,12 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
           _current_capacity(num_buckets),
           _current_used(0),
           _total_capacity(num_buckets),
-          _exceeded_limit(false),
-          _mem_tracker(mem_tracker) {
-    DCHECK(_mem_tracker);
+          _exceeded_limit(false) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
     DCHECK_EQ((num_buckets & (num_buckets - 1)), 0) << "num_buckets must be a power of 2";
+    _mem_tracker = MemTracker::create_virtual_tracker(-1, mem_tracker->label() + ":HashTable",
+                                                      mem_tracker);
     _buckets.resize(num_buckets);
     _num_buckets = num_buckets;
     _num_buckets_till_resize = MAX_BUCKET_OCCUPANCY_FRACTION * _num_buckets;

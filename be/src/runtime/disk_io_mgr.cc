@@ -20,6 +20,8 @@
 #include <boost/algorithm/string.hpp>
 
 #include "runtime/disk_io_mgr_internal.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 
 using std::string;
 using std::stringstream;
@@ -198,7 +200,10 @@ string DiskIoMgr::debug_string() {
 }
 
 DiskIoMgr::BufferDescriptor::BufferDescriptor(DiskIoMgr* io_mgr)
-        : _io_mgr(io_mgr), _reader(nullptr), _buffer(nullptr) {}
+        : _io_mgr(io_mgr),
+          _reader(nullptr),
+          _buffer(nullptr),
+          _mem_tracker(io_mgr->cached_buffers_mem_tracker()) {}
 
 void DiskIoMgr::BufferDescriptor::reset(RequestContext* reader, ScanRange* range, char* buffer,
                                         int64_t buffer_len) {
@@ -229,14 +234,8 @@ void DiskIoMgr::BufferDescriptor::set_mem_tracker(std::shared_ptr<MemTracker> tr
     if (_mem_tracker.get() == tracker.get()) {
         return;
     }
-    // TODO(yingchun): use transfer_to?
-    if (_mem_tracker != nullptr) {
-        _mem_tracker->release(_buffer_len);
-    }
+    Status st = _mem_tracker->transfer_to(tracker, _buffer_len);
     _mem_tracker = std::move(tracker);
-    if (_mem_tracker != nullptr) {
-        _mem_tracker->consume(_buffer_len);
-    }
 }
 
 DiskIoMgr::WriteRange::WriteRange(const string& file, int64_t file_offset, int disk_id,
@@ -360,12 +359,15 @@ DiskIoMgr::~DiskIoMgr() {
 }
 
 Status DiskIoMgr::init(const int64_t mem_limit) {
-    _disk_io_mem_tracker = MemTracker::create_tracker(mem_limit, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
+    _mem_tracker =
+            MemTracker::create_tracker(mem_limit, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
+    _cached_buffers_mem_tracker = MemTracker::create_tracker(
+            mem_limit, "DiskIO:CachedBuffers", _mem_tracker, MemTrackerLevel::OVERVIEW);
     // If we hit the process limit, see if we can reclaim some memory by removing
     // previously allocated (but unused) io buffers.
-    /*
-     * process_mem_tracker->add_gc_function(bind(&DiskIoMgr::gc_io_buffers, this));
-     */
+    ExecEnv::GetInstance()->process_mem_tracker()->add_gc_function(
+            std::bind<void>(&DiskIoMgr::gc_io_buffers, this, std::placeholders::_1));
 
     for (int i = 0; i < _disk_queues.size(); ++i) {
         _disk_queues[i] = new DiskQueue(i);
@@ -445,6 +447,7 @@ void DiskIoMgr::unregister_context(RequestContext* reader) {
 // is on.
 // If wait_for_disks_completion is true, wait for the number of active disks to become 0.
 void DiskIoMgr::cancel_context(RequestContext* context, bool wait_for_disks_completion) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     context->cancel(Status::Cancelled("Cancelled"));
 
     if (wait_for_disks_completion) {
@@ -522,6 +525,7 @@ Status DiskIoMgr::validate_scan_range(ScanRange* range) {
 
 Status DiskIoMgr::add_scan_ranges(RequestContext* reader, const vector<ScanRange*>& ranges,
                                   bool schedule_immediately) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     if (ranges.empty()) {
         return Status::OK();
     }
@@ -571,6 +575,7 @@ Status DiskIoMgr::add_scan_ranges(RequestContext* reader, const vector<ScanRange
 // for eos and error cases. If there isn't already a cached scan range or a scan
 // range prepared by the disk threads, the caller waits on the disk threads.
 Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DCHECK(reader != nullptr);
     DCHECK(range != nullptr);
     *range = nullptr;
@@ -625,6 +630,7 @@ Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
 }
 
 Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescriptor** buffer) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DCHECK(range != nullptr);
     DCHECK(buffer != nullptr);
     *buffer = nullptr;
@@ -714,7 +720,8 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
         ++_num_allocated_buffers;
         // Update the disk io mem usage.  This is checked the next time we start
         // a read for the next reader (DiskIoMgr::GetNextScanRange)
-        _disk_io_mem_tracker->consume(*buffer_size);
+        _cached_buffers_mem_tracker->consume(*buffer_size);
+        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         buffer = new char[*buffer_size];
     } else {
         buffer = _free_buffers[idx].front();
@@ -724,28 +731,34 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
     return buffer;
 }
 
-void DiskIoMgr::gc_io_buffers() {
+void DiskIoMgr::gc_io_buffers(int64_t bytes_to_free) {
     unique_lock<mutex> lock(_free_buffers_lock);
     int buffers_freed = 0;
     int bytes_freed = 0;
     for (int idx = 0; idx < _free_buffers.size(); ++idx) {
-        for (list<char*>::iterator iter = _free_buffers[idx].begin();
-             iter != _free_buffers[idx].end(); ++iter) {
-            int64_t buffer_size = (1 << idx) * _min_buffer_size;
-            _disk_io_mem_tracker->release(buffer_size);
-            --_num_allocated_buffers;
-            delete[] * iter;
+        {
+            SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
+            for (list<char*>::iterator iter = _free_buffers[idx].begin();
+                 iter != _free_buffers[idx].end(); ++iter) {
+                int64_t buffer_size = (1 << idx) * _min_buffer_size;
+                _cached_buffers_mem_tracker->release(buffer_size);
+                --_num_allocated_buffers;
+                delete[] * iter;
 
-            ++buffers_freed;
-            bytes_freed += buffer_size;
+                ++buffers_freed;
+                bytes_freed += buffer_size;
+            }
         }
         _free_buffers[idx].clear();
+        if (bytes_freed >= bytes_to_free) {
+            break;
+        }
     }
 }
 
 void DiskIoMgr::return_free_buffer(BufferDescriptor* desc) {
     return_free_buffer(desc->_buffer, desc->_buffer_len);
-    desc->set_mem_tracker(nullptr);
+    desc->set_mem_tracker(_cached_buffers_mem_tracker);
     desc->_buffer = nullptr;
 }
 
@@ -759,8 +772,9 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size) {
     if (!config::disable_mem_pools && _free_buffers[idx].size() < config::max_free_io_buffers) {
         _free_buffers[idx].push_back(buffer);
     } else {
-        _disk_io_mem_tracker->release(buffer_size);
+        _cached_buffers_mem_tracker->release(buffer_size);
         --_num_allocated_buffers;
+        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         delete[] buffer;
     }
 }
@@ -816,15 +830,9 @@ bool DiskIoMgr::get_next_request_range(DiskQueue* disk_queue, RequestRange** ran
         // We just picked a reader, check the mem limits.
         // TODO: we can do a lot better here.  The reader can likely make progress
         // with fewer io buffers.
-        bool disk_io_limit_exceeded = _disk_io_mem_tracker->limit_exceeded();
-        bool reader_limit_exceeded =
-                (*request_context)->_mem_tracker != nullptr
-                        ? (*request_context)->_mem_tracker->any_limit_exceeded()
-                        : false;
-        // bool reader_limit_exceeded = (*request_context)->_mem_tracker != nullptr
-        //     ? (*request_context)->_mem_tracker->limit_exceeded() : false;
-
-        if (disk_io_limit_exceeded || reader_limit_exceeded) {
+        if ((*request_context)->_mem_tracker != nullptr
+                    ? (*request_context)->_mem_tracker->any_limit_exceeded()
+                    : false) {
             (*request_context)->cancel(Status::MemoryLimitExceeded("Memory limit exceeded"));
         }
 
@@ -1016,17 +1024,8 @@ void DiskIoMgr::read_range(DiskQueue* disk_queue, RequestContext* reader, ScanRa
     int64_t bytes_remaining = range->_len - range->_bytes_read;
     DCHECK_GT(bytes_remaining, 0);
     int64_t buffer_size = std::min(bytes_remaining, static_cast<int64_t>(_max_buffer_size));
-    bool enough_memory = true;
-    if (reader->_mem_tracker != nullptr) {
-        enough_memory = reader->_mem_tracker->spare_capacity() > LOW_MEMORY;
-        if (!enough_memory) {
-            // Low memory, GC and try again.
-            gc_io_buffers();
-            enough_memory = reader->_mem_tracker->spare_capacity() > LOW_MEMORY;
-        }
-    }
 
-    if (!enough_memory) {
+    if (reader->_mem_tracker != nullptr && reader->_mem_tracker->spare_capacity() <= LOW_MEMORY) {
         RequestContext::PerDiskState& state = reader->_disk_states[disk_queue->disk_id];
         unique_lock<mutex> reader_lock(reader->_lock);
 
@@ -1150,6 +1149,7 @@ int DiskIoMgr::free_buffers_idx(int64_t buffer_size) {
 }
 
 Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_range) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DCHECK_LE(write_range->len(), _max_buffer_size);
     unique_lock<mutex> writer_lock(writer->_lock);
 

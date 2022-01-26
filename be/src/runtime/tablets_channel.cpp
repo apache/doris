@@ -21,6 +21,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/delta_writer.h"
 #include "olap/memtable.h"
+#include "runtime/thread_context.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "util/doris_metrics.h"
@@ -32,10 +33,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
-                               const std::shared_ptr<MemTracker>& mem_tracker,
                                bool is_high_priority)
         : _key(key), _state(kInitialized), _closed_senders(64), _is_high_priority(is_high_priority) {
-    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel", mem_tracker);
+    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + key.index_id);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -52,6 +52,7 @@ TabletsChannel::~TabletsChannel() {
 }
 
 Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kOpened) {
         // Normal case, already open by other sender
@@ -78,6 +79,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         PTabletWriterAddBatchResult* response) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DCHECK(request.tablet_ids_size() == request.row_batch().num_rows());
     int64_t cur_seq;
     {
@@ -101,7 +103,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         }
     }
 
-    RowBatch row_batch(*_row_desc, request.row_batch(), _mem_tracker.get());
+    RowBatch row_batch(*_row_desc, request.row_batch());
     std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
     for (int i = 0; i < request.tablet_ids_size(); ++i) {
         int64_t tablet_id = request.tablet_ids(i);
@@ -150,6 +152,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
 Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                              const google::protobuf::RepeatedField<int64_t>& partition_ids,
                              google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;
@@ -199,13 +202,12 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
             // tablet_vec will only contains success tablet, and then let FE judge it.
             writer->close_wait(tablet_vec, (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()));
         }
-        // TODO(gaodayue) clear and destruct all delta writers to make sure all memory are freed
-        // DCHECK_EQ(_mem_tracker->consumption(), 0);
     }
     return Status::OK();
 }
 
 Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         // TabletsChannel is closed without LoadChannel's lock,
@@ -261,6 +263,7 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {
@@ -289,7 +292,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.is_high_priority = _is_high_priority;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, _mem_tracker, &writer);
+        auto st = DeltaWriter::open(&wrequest, &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
@@ -306,6 +309,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 }
 
 Status TabletsChannel::cancel() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;

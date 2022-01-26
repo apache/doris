@@ -30,6 +30,7 @@
 #include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/base_compaction.h"
+#include "runtime/thread_context.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
@@ -225,8 +226,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
 
     OLAPStatus status = OLAP_SUCCESS;
     if (compaction_type == PARAM_COMPACTION_BASE) {
-        std::string tracker_label = "CompactionAction:BaseCompaction:" + std::to_string(syscall(__NR_gettid));
-        BaseCompaction base_compaction(tablet, tracker_label, _compaction_mem_tracker);
+        BaseCompaction base_compaction(tablet);
         OLAPStatus res = base_compaction.compact();
         if (res != OLAP_SUCCESS && res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
             DorisMetrics::instance()->base_compaction_request_failed->increment(1);
@@ -235,8 +235,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
         }
         status = res;
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        std::string tracker_label = "CompactionAction:CumulativeCompaction:" + std::to_string(syscall(__NR_gettid));
-        CumulativeCompaction cumulative_compaction(tablet, tracker_label, _compaction_mem_tracker);
+        CumulativeCompaction cumulative_compaction(tablet);
         OLAPStatus res = cumulative_compaction.compact();
         if (res != OLAP_SUCCESS && res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
             DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
@@ -254,6 +253,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
 }
 
 void CompactionAction::handle(HttpRequest* req) {
+    SCOPED_ATTACH_TASK_THREAD_2ARG(ThreadContext::TaskType::COMPACTION, _compaction_mem_tracker);
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
 
     if (_type == CompactionActionType::SHOW_INFO) {

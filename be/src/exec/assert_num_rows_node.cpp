@@ -21,6 +21,7 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -48,6 +49,7 @@ Status AssertNumRowsNode::prepare(RuntimeState* state) {
 }
 
 Status AssertNumRowsNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     // ISSUE-3435
@@ -56,6 +58,7 @@ Status AssertNumRowsNode::open(RuntimeState* state) {
 }
 
 Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     output_batch->reset();

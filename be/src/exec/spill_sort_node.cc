@@ -21,6 +21,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/sorted_run_merger.h"
+#include "runtime/thread_context.h"
 #include "util/debug_util.h"
 
 namespace doris {
@@ -44,6 +45,7 @@ Status SpillSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SpillSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
                                              expr_mem_tracker()));
     // AddExprCtxsToFree(_sort_exec_exprs);
@@ -51,6 +53,7 @@ Status SpillSortNode::prepare(RuntimeState* state) {
 }
 
 Status SpillSortNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(_sort_exec_exprs.open(state));
@@ -81,6 +84,7 @@ Status SpillSortNode::open(RuntimeState* state) {
 }
 
 Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
@@ -153,7 +157,7 @@ void SpillSortNode::debug_string(int indentation_level, stringstream* out) const
 }
 
 Status SpillSortNode::sort_input(RuntimeState* state) {
-    RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch batch(child(0)->row_desc(), state->batch_size());
     bool eos = false;
     do {
         batch.reset();

@@ -38,28 +38,42 @@ const int MemPool::MAX_CHUNK_SIZE;
 const int MemPool::DEFAULT_ALIGNMENT;
 uint32_t MemPool::k_zero_length_region_ alignas(std::max_align_t) = MEM_POOL_POISON;
 
-MemPool::MemPool(MemTracker* mem_tracker)
+MemPool::MemPool(std::shared_ptr<MemTracker> mem_tracker)
         : current_chunk_idx_(-1),
           next_chunk_size_(INITIAL_CHUNK_SIZE),
           total_allocated_bytes_(0),
           total_reserved_bytes_(0),
           peak_allocated_bytes_(0),
-          new_mem_tracker_(thread_local_ctx.thread_mem_tracker()),
-          mem_tracker_(mem_tracker) {
-    DCHECK(mem_tracker != nullptr);
+          _mem_tracker(mem_tracker) {}
+
+MemPool::MemPool(std::string label)
+        : current_chunk_idx_(-1),
+          next_chunk_size_(INITIAL_CHUNK_SIZE),
+          total_allocated_bytes_(0),
+          total_reserved_bytes_(0),
+          peak_allocated_bytes_(0) {
+    _mem_tracker = MemTracker::create_tracker(-1, label + ":MemPool");
 }
+
+MemPool::MemPool()
+        : current_chunk_idx_(-1),
+          next_chunk_size_(INITIAL_CHUNK_SIZE),
+          total_allocated_bytes_(0),
+          total_reserved_bytes_(0),
+          peak_allocated_bytes_(0),
+          _mem_tracker(thread_local_ctx.thread_mem_tracker()) {}
 
 MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_) : chunk(chunk_), allocated_bytes(0) {
     DorisMetrics::instance()->memory_pool_bytes_total->increment(chunk.size);
 }
 
 MemPool::~MemPool() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int64_t total_bytes_released = 0;
     for (auto& chunk : chunks_) {
         total_bytes_released += chunk.chunk.size;
         ChunkAllocator::instance()->free(chunk.chunk);
     }
-    mem_tracker_->release(total_bytes_released);
     DorisMetrics::instance()->memory_pool_bytes_total->increment(-total_bytes_released);
 }
 
@@ -74,6 +88,7 @@ void MemPool::clear() {
 }
 
 void MemPool::free_all() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int64_t total_bytes_released = 0;
     for (auto& chunk : chunks_) {
         total_bytes_released += chunk.chunk.size;
@@ -85,16 +100,16 @@ void MemPool::free_all() {
     total_allocated_bytes_ = 0;
     total_reserved_bytes_ = 0;
 
-    mem_tracker_->release(total_bytes_released);
     DorisMetrics::instance()->memory_pool_bytes_total->increment(-total_bytes_released);
 }
 
-bool MemPool::find_chunk(size_t min_size, bool check_limits) {
+Status MemPool::find_chunk(size_t min_size, bool check_limits) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     // Try to allocate from a free chunk. We may have free chunks after the current chunk
     // if Clear() was called. The current chunk may be free if ReturnPartialAllocation()
     // was called. The first free chunk (if there is one) can therefore be either the
     // current chunk or the chunk immediately after the current chunk.
-    int first_free_idx;
+    int first_free_idx = 0;
     if (current_chunk_idx_ == -1) {
         first_free_idx = 0;
     } else {
@@ -109,7 +124,7 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
             if (idx != first_free_idx) std::swap(chunks_[idx], chunks_[first_free_idx]);
             current_chunk_idx_ = first_free_idx;
             DCHECK(check_integrity(true));
-            return true;
+            return Status::OK();
         }
     }
 
@@ -127,20 +142,10 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
     }
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
-    if (check_limits) {
-        Status st = mem_tracker_->try_consume(chunk_size);
-        WARN_IF_ERROR(st, "try to allocate a new buffer failed");
-        if (!st) return false;
-    } else {
-        mem_tracker_->consume(chunk_size);
-    }
 
     // Allocate a new chunk. Return early if allocate fails.
     Chunk chunk;
-    if (!ChunkAllocator::instance()->allocate(chunk_size, &chunk)) {
-        mem_tracker_->release(chunk_size);
-        return false;
-    }
+    RETURN_IF_ERROR(ChunkAllocator::instance()->allocate(chunk_size, &chunk, check_limits));
     ASAN_POISON_MEMORY_REGION(chunk.data, chunk_size);
     // Put it before the first free chunk. If no free chunks, it goes at the end.
     if (first_free_idx == static_cast<int>(chunks_.size())) {
@@ -155,12 +160,13 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
     next_chunk_size_ = static_cast<int>(std::min<int64_t>(chunk_size * 2, MAX_CHUNK_SIZE));
 
     DCHECK(check_integrity(true));
-    return true;
+    return Status::OK();
 }
 
 void MemPool::acquire_data(MemPool* src, bool keep_current) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DCHECK(src->check_integrity(false));
-    int num_acquired_chunks;
+    int num_acquired_chunks = 0;
     if (keep_current) {
         num_acquired_chunks = src->current_chunk_idx_;
     } else if (src->get_free_offset() == 0) {
@@ -177,19 +183,15 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
 
     auto end_chunk = src->chunks_.begin() + num_acquired_chunks;
     int64_t total_transferred_bytes = 0;
+    // There is no limit check, assuming that both ends of acquire_data are in the same query.
     for (auto i = src->chunks_.begin(); i != end_chunk; ++i) {
         total_transferred_bytes += i->chunk.size;
-        i->chunk.mem_tracker->transfer_to(new_mem_tracker_, i->chunk.size);
-        i->chunk.mem_tracker = new_mem_tracker_;
+        Status st = i->chunk.mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(),
+                                                      i->chunk.size);
+        i->chunk.mem_tracker = thread_local_ctx.thread_mem_tracker();
     }
     src->total_reserved_bytes_ -= total_transferred_bytes;
     total_reserved_bytes_ += total_transferred_bytes;
-
-    // Skip unnecessary atomic ops if the mem_trackers are the same.
-    if (src->mem_tracker_ != mem_tracker_) {
-        src->mem_tracker_->release(total_transferred_bytes);
-        mem_tracker_->consume(total_transferred_bytes);
-    }
 
     // insert new chunks after current_chunk_idx_
     auto insert_chunk = chunks_.begin() + current_chunk_idx_ + 1;
@@ -216,7 +218,7 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
 }
 
 void MemPool::exchange_data(MemPool* other) {
-    int64_t delta_size = other->total_reserved_bytes_ - total_reserved_bytes_;
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
 
     std::swap(current_chunk_idx_, other->current_chunk_idx_);
     std::swap(next_chunk_size_, other->next_chunk_size_);
@@ -224,20 +226,16 @@ void MemPool::exchange_data(MemPool* other) {
     std::swap(total_reserved_bytes_, other->total_reserved_bytes_);
     std::swap(peak_allocated_bytes_, other->peak_allocated_bytes_);
     std::swap(chunks_, other->chunks_);
-    
+
+    // There is no limit check, assuming that both ends of acquire_data are in the same query.
     for (auto i = chunks_.begin(); i != chunks_.end(); ++i) {
-        i->chunk.mem_tracker->transfer_to(new_mem_tracker_, i->chunk.size);
-        i->chunk.mem_tracker = new_mem_tracker_;
+        Status st = i->chunk.mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(),
+                                                      i->chunk.size);
+        i->chunk.mem_tracker = thread_local_ctx.thread_mem_tracker();
     }
     for (auto i = other->chunks_.begin(); i != other->chunks_.end(); ++i) {
-        i->chunk.mem_tracker->transfer_to(other->new_mem_tracker_, i->chunk.size);
-        i->chunk.mem_tracker = other->new_mem_tracker_;
-    }
-
-    // update MemTracker
-    if (other->mem_tracker_ != mem_tracker_) {
-        mem_tracker_->consume(delta_size);
-        other->mem_tracker_->release(delta_size);
+        Status st = i->chunk.mem_tracker->transfer_to(other->_mem_tracker, i->chunk.size);
+        i->chunk.mem_tracker = other->_mem_tracker;
     }
 }
 

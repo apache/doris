@@ -30,7 +30,6 @@
 #include "exprs/json_functions.h"
 #include "gutil/strings/split.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {

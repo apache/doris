@@ -20,6 +20,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr.h"
@@ -50,7 +51,7 @@ struct ProcessHashTableBuild {
         Defer defer {[&]() {
             int64_t bucket_size = hash_table_ctx.hash_table.get_buffer_size_in_cells();
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _join_node->_mem_tracker->Consume(bucket_bytes - old_bucket_bytes);
+            _join_node->_hash_table_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
             _join_node->_mem_used += bucket_bytes - old_bucket_bytes;
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
         }};
@@ -596,6 +597,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    _hash_table_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSetOperationNode:HashTable");
 
     // Build phase
     auto build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
@@ -642,10 +645,11 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
 
-    _mem_tracker->Release(_mem_used);
+    _hash_table_mem_tracker->release(_mem_used);
 
     return ExecNode::close(state);
 }
@@ -783,6 +787,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -802,6 +807,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_CB("Hash join, while constructing the hash table");
     SCOPED_TIMER(_build_timer);
     Block block;
 
@@ -811,12 +817,9 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
 
         RETURN_IF_ERROR(child(1)->get_next(state, &block, &eos));
-        _mem_tracker->Consume(block.allocated_bytes());
+        _hash_table_mem_tracker->consume(block.allocated_bytes());
         _mem_used += block.allocated_bytes();
-        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while getting next from the child 1.");
-
         RETURN_IF_ERROR(_process_build_block(state, block));
-        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
     }
 
     return std::visit(

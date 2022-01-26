@@ -41,6 +41,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf_internal.h"
@@ -152,8 +153,7 @@ Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* st
     DCHECK_EQ(intermediate_tuple_desc_->slots().size(), output_tuple_desc_->slots().size());
 
     const RowDescriptor& row_desc = child(0)->row_desc();
-    RETURN_IF_ERROR(Expr::create(tnode.agg_node.grouping_exprs, row_desc, state, &grouping_exprs_,
-                                 mem_tracker()));
+    RETURN_IF_ERROR(Expr::create(tnode.agg_node.grouping_exprs, row_desc, state, &grouping_exprs_));
     // Construct build exprs from intermediate_row_desc_
     for (int i = 0; i < grouping_exprs_.size(); ++i) {
         SlotDescriptor* desc = intermediate_tuple_desc_->slots()[i];
@@ -185,10 +185,11 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     state_ = state;
 
-    mem_pool_.reset(new MemPool(mem_tracker().get()));
-    agg_fn_pool_.reset(new MemPool(expr_mem_tracker().get()));
+    mem_pool_.reset(new MemPool());
+    agg_fn_pool_.reset(new MemPool());
 
     ht_resize_timer_ = ADD_TIMER(runtime_profile(), "HTResizeTime");
     get_results_timer_ = ADD_TIMER(runtime_profile(), "GetResultsTime");
@@ -231,20 +232,21 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(NewAggFnEvaluator::Create(agg_fns_, state, _pool, agg_fn_pool_.get(),
                                               &agg_fn_evals_, expr_mem_tracker(), row_desc));
 
-    expr_results_pool_.reset(new MemPool(expr_mem_tracker().get()));
+    expr_results_pool_.reset(new MemPool(expr_mem_tracker()));
     if (!grouping_exprs_.empty()) {
         RowDescriptor build_row_desc(intermediate_tuple_desc_, false);
         RETURN_IF_ERROR(PartitionedHashTableCtx::Create(
                 _pool, state, build_exprs_, grouping_exprs_, true,
                 vector<bool>(build_exprs_.size(), true), state->fragment_hash_seed(),
-                MAX_PARTITION_DEPTH, 1, expr_mem_pool(), expr_results_pool_.get(),
-                expr_mem_tracker(), build_row_desc, row_desc, &ht_ctx_));
+                MAX_PARTITION_DEPTH, 1, nullptr, expr_results_pool_.get(), expr_mem_tracker(),
+                build_row_desc, row_desc, &ht_ctx_));
     }
     // AddCodegenDisabledMessage(state);
     return Status::OK();
 }
 
 Status PartitionedAggregationNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // Open the child before consuming resources in this node.
     RETURN_IF_ERROR(child(0)->open(state));
@@ -293,7 +295,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
     // Streaming preaggregations do all processing in GetNext().
     if (is_streaming_preagg_) return Status::OK();
 
-    RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch batch(child(0)->row_desc(), state->batch_size());
     // Read all the rows from the child and process them.
     bool eos = false;
     do {
@@ -343,6 +345,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
 }
 
 Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     // 1. `!need_finalize` means this aggregation node not the level two aggregation node
     // 2. `grouping_exprs_.size() == 0 ` means is not group by
     // 3. `child(0)->rows_returned() == 0` mean not data from child
@@ -362,7 +365,7 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
     // TODO: if ancestor node don't have a no-spilling blocking node, we could avoid a deep_copy
     // we should a flag indicate this node don't have to deep_copy
     DCHECK_EQ(row_batch->num_rows(), 0);
-    RowBatch batch(row_batch->row_desc(), row_batch->capacity(), _mem_tracker.get());
+    RowBatch batch(row_batch->row_desc(), row_batch->capacity());
     int first_row_idx = batch.num_rows();
     RETURN_IF_ERROR(GetNextInternal(state, &batch, eos));
     RETURN_IF_ERROR(HandleOutputStrings(&batch, first_row_idx));
@@ -403,13 +406,14 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
         Tuple* tuple = batch_iter.get()->get_tuple(0);
         StringValue* sv = reinterpret_cast<StringValue*>(tuple->get_slot(slot_desc.tuple_offset()));
         if (sv == nullptr || sv->len == 0) continue;
-        char* new_ptr = reinterpret_cast<char*>(pool->try_allocate(sv->len));
+        Status rst;
+        char* new_ptr = reinterpret_cast<char*>(pool->try_allocate(sv->len, &rst));
         if (UNLIKELY(new_ptr == nullptr)) {
             string details = Substitute(
                     "Cannot perform aggregation at node with id $0."
                     " Failed to allocate $1 output bytes.",
                     _id, sv->len);
-            return pool->mem_tracker()->mem_limit_exceeded(state_, details, sv->len);
+            RETURN_ALLOC_LIMIT_EXCEEDED(pool->mem_tracker(), state_, details, sv->len, rst);
         }
         memcpy(new_ptr, sv->ptr, sv->len);
         sv->ptr = new_ptr;
@@ -534,8 +538,7 @@ Status PartitionedAggregationNode::GetRowsStreaming(RuntimeState* state, RowBatc
     DCHECK(is_streaming_preagg_);
 
     if (child_batch_ == nullptr) {
-        child_batch_.reset(
-                new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+        child_batch_.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     }
 
     do {
@@ -686,6 +689,7 @@ Status PartitionedAggregationNode::reset(RuntimeState* state) {
 
 Status PartitionedAggregationNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     if (!singleton_output_tuple_returned_) {
         GetOutputTuple(agg_fn_evals_, singleton_output_tuple_, mem_pool_.get());
@@ -725,7 +729,7 @@ PartitionedAggregationNode::Partition::~Partition() {
 }
 
 Status PartitionedAggregationNode::Partition::InitStreams() {
-    agg_fn_pool.reset(new MemPool(parent->expr_mem_tracker().get()));
+    agg_fn_pool.reset(new MemPool(parent->expr_mem_tracker()));
     DCHECK_EQ(agg_fn_evals.size(), 0);
     NewAggFnEvaluator::ShallowClone(parent->partition_pool_.get(), agg_fn_pool.get(),
                                     parent->agg_fn_evals_, &agg_fn_evals);
@@ -849,8 +853,7 @@ Status PartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
     // TODO(ml): enable spill
     std::stringstream msg;
     msg << "New partitioned Aggregation in spill";
-    LIMIT_EXCEEDED(parent->state_->query_mem_tracker(), parent->state_, msg.str());
-    // RETURN_IF_ERROR(parent->state_->StartSpilling(parent->mem_tracker()));
+    RETURN_LIMIT_EXCEEDED(parent->state_->query_mem_tracker(), parent->state_, msg.str());
 
     RETURN_IF_ERROR(SerializeStreamForSpilling());
 
@@ -921,7 +924,8 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
     const int fixed_size = intermediate_tuple_desc_->byte_size();
     const int varlen_size = GroupingExprsVarlenSize();
     const int tuple_data_size = fixed_size + varlen_size;
-    uint8_t* tuple_data = pool->try_allocate(tuple_data_size);
+    Status rst;
+    uint8_t* tuple_data = pool->try_allocate(tuple_data_size, &rst);
     if (UNLIKELY(tuple_data == nullptr)) {
         stringstream str;
         str << "Memory exceed limit. Cannot perform aggregation at node with id $0. Failed "
@@ -932,7 +936,7 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
             << ", Limit: " << pool->mem_tracker()->limit() << ". "
             << "You can change the limit by session variable exec_mem_limit.";
         string details = Substitute(str.str(), _id, tuple_data_size);
-        *status = pool->mem_tracker()->mem_limit_exceeded(state_, details, tuple_data_size);
+        *status = pool->mem_tracker()->mem_limit_exceeded(state_, details, tuple_data_size, rst);
         return nullptr;
     }
     memset(tuple_data, 0, fixed_size);
@@ -1347,7 +1351,7 @@ Status PartitionedAggregationNode::ProcessStream(BufferedTupleStream3* input_str
         bool eos = false;
         const RowDescriptor* desc =
                 AGGREGATED_ROWS ? &intermediate_row_desc_ : &(_children[0]->row_desc());
-        RowBatch batch(*desc, state_->batch_size(), mem_tracker().get());
+        RowBatch batch(*desc, state_->batch_size());
         do {
             RETURN_IF_ERROR(input_stream->GetNext(&batch, &eos));
             RETURN_IF_ERROR(ProcessBatch<AGGREGATED_ROWS>(&batch, ht_ctx_.get()));

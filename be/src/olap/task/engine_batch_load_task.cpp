@@ -35,6 +35,7 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 
@@ -52,11 +53,15 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
           _signature(signature),
           _res_status(res_status) {
     _download_status = DORIS_SUCCESS;
+    _mem_tracker = MemTracker::create_tracker(
+            -1, fmt::format("{}: {}", _push_req.push_type, std::to_string(_push_req.tablet_id)),
+            StorageEngine::instance()->batch_load_mem_tracker(), MemTrackerLevel::TASK);
 }
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
 OLAPStatus EngineBatchLoadTask::execute() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     AgentStatus status = DORIS_SUCCESS;
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
         _push_req.push_type == TPushType::LOAD_V2) {

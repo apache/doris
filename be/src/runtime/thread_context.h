@@ -22,19 +22,40 @@
 
 #include "runtime/thread_mem_tracker_mgr.h"
 
-#define SCOPED_ATTACH_TASK_THREAD(type, task_id, fragment_instance_id) \
-    auto VARNAME_LINENUM(attach_task_thread) = AttachTaskThread(type, task_id, fragment_instance_id)
-#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker, action_name, cancel_work) \
-    auto VARNAME_LINENUM(switch_tracker) =                                            \
-            SwitchThreadMemTracker(mem_tracker, action_name, cancel_work)
-#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_CB(mem_tracker, action_name, cancel_work, \
-                                                  err_call_back_func)                    \
-    auto VARNAME_LINENUM(switch_tracker) =                                               \
-            SwitchThreadMemTracker(mem_tracker, action_name, cancel_work, err_call_back_func)
+// Attach to task when thread starts
+#define SCOPED_ATTACH_TASK_THREAD_2ARG(type, mem_tracker) \
+    auto VARNAME_LINENUM(attach_task_thread) = AttachTaskThread(type, mem_tracker)
+#define SCOPED_ATTACH_TASK_THREAD_4ARG(query_type, task_id, fragment_instance_id, mem_tracker) \
+    auto VARNAME_LINENUM(attach_task_thread) =                                                 \
+            AttachTaskThread(query_type, task_id, fragment_instance_id, mem_tracker)
+// Toggle MemTracker during thread execution
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker) \
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker)
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_2ARG(mem_tracker, action_type)                  \
+    do {                                                                                       \
+        auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker);            \
+        auto VARNAME_LINENUM(switch_tracker_cb) = SwitchThreadMemTrackerCallBack(action_type); \
+    } while (false)
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_3ARG(mem_tracker, action_type, cancel_work) \
+    do {                                                                                   \
+        auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker);        \
+        auto VARNAME_LINENUM(switch_tracker_cb) =                                          \
+                SwitchThreadMemTrackerCallBack(action_type, cancel_work);                  \
+    } while (false)
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_4ARG(mem_tracker, action_type, cancel_work,    \
+                                                    err_call_back_func)                       \
+    do {                                                                                      \
+        auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker);           \
+        auto VARNAME_LINENUM(switch_tracker_cb) =                                             \
+                SwitchThreadMemTrackerCallBack(action_type, cancel_work, err_call_back_func); \
+    } while (false)
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_CB(action_type) \
+    auto VARNAME_LINENUM(switch_tracker_cb) = SwitchThreadMemTrackerCallBack(action_type)
 #define SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER() \
     auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker(true)
 #define GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER() \
     auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker(false)
+#define CHECK_MEM_LIMIT(size) thread_local_ctx.thread_mem_tracker()->check_limit(size)
 
 namespace doris {
 
@@ -65,23 +86,22 @@ public:
     ~ThreadContext() {}
 
     void attach(const TaskType& type, const std::string& task_id,
-                const TUniqueId& fragment_instance_id = TUniqueId()) {
+                const TUniqueId& fragment_instance_id, std::shared_ptr<MemTracker> mem_tracker) {
         _type = type;
         _task_id = task_id;
-        if (type == TaskType::QUERY) {
-            _fragment_instance_id = fragment_instance_id;
-            _thread_mem_tracker_mgr->attach_query(task_id, fragment_instance_id);
-        }
+        _fragment_instance_id = fragment_instance_id;
+        _thread_mem_tracker_mgr->attach_task(get_type(), task_id, fragment_instance_id,
+                                             mem_tracker);
     }
 
     void detach() {
         _type = TaskType::UNKNOWN;
         _task_id = "";
         _fragment_instance_id = TUniqueId();
-        _thread_mem_tracker_mgr->detach();
+        _thread_mem_tracker_mgr->detach_task();
     }
 
-    const std::string type() const;
+    const std::string get_type() const;
     const std::string& task_id() const { return _task_id; }
     const std::thread::id& thread_id() const { return _thread_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -105,8 +125,8 @@ public:
         return _thread_mem_tracker_mgr->update_tracker(mem_tracker);
     }
     std::shared_ptr<ConsumeErrCallBackInfo> update_thread_tracker_call_back(
-            const std::string& action_name, bool cancel_task, ERRCALLBACK err_call_back_func) {
-        return _thread_mem_tracker_mgr->update_consume_err_call_back(action_name, cancel_task,
+            const std::string& action_type, bool cancel_task, ERRCALLBACK err_call_back_func) {
+        return _thread_mem_tracker_mgr->update_consume_err_call_back(action_type, cancel_task,
                                                                      err_call_back_func);
     }
     std::shared_ptr<ConsumeErrCallBackInfo> update_thread_tracker_call_back(
@@ -154,15 +174,33 @@ inline const std::string task_type_string(ThreadContext::TaskType type) {
     }
 }
 
-inline const std::string ThreadContext::type() const {
+inline const std::string ThreadContext::get_type() const {
     return task_type_string(_type);
 }
 
 class AttachTaskThread {
 public:
-    explicit AttachTaskThread(const ThreadContext::TaskType& type, const std::string& task_id,
-                              const TUniqueId& fragment_instance_id = TUniqueId()) {
-        thread_local_ctx.attach(type, task_id, fragment_instance_id);
+    explicit AttachTaskThread(const ThreadContext::TaskType& type,
+                              std::shared_ptr<MemTracker> mem_tracker) {
+        DCHECK(mem_tracker != nullptr);
+        init(type, "", TUniqueId(), mem_tracker);
+    }
+
+    explicit AttachTaskThread(const TQueryType::type& query_type, const std::string& task_id,
+                              const TUniqueId& fragment_instance_id,
+                              std::shared_ptr<MemTracker> mem_tracker) {
+        DCHECK(task_id != "" && fragment_instance_id != TUniqueId() && mem_tracker != nullptr);
+        if (query_type == TQueryType::SELECT) {
+            init(ThreadContext::TaskType::QUERY, task_id, fragment_instance_id, mem_tracker);
+        } else if (query_type == TQueryType::LOAD) {
+            init(ThreadContext::TaskType::LOAD, task_id, fragment_instance_id, mem_tracker);
+        }
+    }
+
+    void init(const ThreadContext::TaskType& type, const std::string& task_id = "",
+              const TUniqueId& fragment_instance_id = TUniqueId(),
+              std::shared_ptr<MemTracker> mem_tracker = nullptr) {
+        thread_local_ctx.attach(type, task_id, fragment_instance_id, mem_tracker);
     }
 
     ~AttachTaskThread() { thread_local_ctx.detach(); }
@@ -170,22 +208,53 @@ public:
 
 class SwitchThreadMemTracker {
 public:
-    explicit SwitchThreadMemTracker(std::shared_ptr<MemTracker> mem_tracker,
-                                    const std::string& action_name = std::string(),
-                                    bool cancel_work = true,
-                                    ERRCALLBACK err_call_back_func = nullptr) {
-        _old_mem_tracker = thread_local_ctx.update_thread_tracker(mem_tracker);
-        _old_tracker_call_back = thread_local_ctx.update_thread_tracker_call_back(
-                action_name, cancel_work, err_call_back_func);
+    explicit SwitchThreadMemTracker(std::shared_ptr<MemTracker> mem_tracker) {
+        DCHECK(mem_tracker != nullptr);
+        if (mem_tracker != thread_local_ctx.thread_mem_tracker()) {
+            _old_mem_tracker = thread_local_ctx.update_thread_tracker(mem_tracker);
+        }
     }
 
     ~SwitchThreadMemTracker() {
-        thread_local_ctx.update_thread_tracker(_old_mem_tracker);
-        thread_local_ctx.update_thread_tracker_call_back(_old_tracker_call_back);
+        std::shared_ptr<MemTracker> p = _old_mem_tracker.lock();
+        if (p) {
+            thread_local_ctx.update_thread_tracker(_old_mem_tracker);
+        }
     }
 
 private:
     std::weak_ptr<MemTracker> _old_mem_tracker;
+};
+
+class SwitchThreadMemTrackerCallBack {
+public:
+    explicit SwitchThreadMemTrackerCallBack(const std::string& action_type) {
+        DCHECK(action_type != std::string());
+        init(action_type);
+    }
+
+    explicit SwitchThreadMemTrackerCallBack(const std::string& action_type, bool cancel_work) {
+        DCHECK(action_type != std::string());
+        init(action_type, cancel_work);
+    }
+
+    explicit SwitchThreadMemTrackerCallBack(const std::string& action_type, bool cancel_work,
+                                            ERRCALLBACK err_call_back_func) {
+        DCHECK(action_type != std::string() && err_call_back_func != nullptr);
+        init(action_type, cancel_work, err_call_back_func);
+    }
+
+    void init(const std::string& action_type = std::string(), bool cancel_work = true,
+              ERRCALLBACK err_call_back_func = nullptr) {
+        _old_tracker_call_back = thread_local_ctx.update_thread_tracker_call_back(
+                action_type, cancel_work, err_call_back_func);
+    }
+
+    ~SwitchThreadMemTrackerCallBack() {
+        thread_local_ctx.update_thread_tracker_call_back(_old_tracker_call_back);
+    }
+
+private:
     std::shared_ptr<ConsumeErrCallBackInfo> _old_tracker_call_back;
 };
 

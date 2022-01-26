@@ -248,7 +248,7 @@ protected:
 
     TResourceInfo* _resource_info;
 
-    int64_t _buffered_bytes;
+    std::shared_ptr<MemTracker> scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;

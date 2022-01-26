@@ -23,50 +23,62 @@
 
 namespace doris {
 
+std::shared_ptr<MemTracker> MemTrackerTaskPool::register_task_mem_tracker_impl(
+        const std::string& task_id, int64_t mem_limit, const std::string& label,
+        std::shared_ptr<MemTracker> parent) {
+    DCHECK(!task_id.empty());
+    // First time this task_id registered, make a new object, otherwise do nothing.
+    // Combine create_tracker and emplace into one operation to avoid the use of locks
+    // Name for task MemTrackers. '$0' is replaced with the task id.
+    _task_mem_trackers.try_emplace_l(
+            task_id, [](std::shared_ptr<MemTracker>) {},
+            MemTracker::create_tracker(mem_limit, label, parent, MemTrackerLevel::TASK));
+    std::shared_ptr<MemTracker> tracker = get_task_mem_tracker(task_id);
+    return tracker;
+}
+
 std::shared_ptr<MemTracker> MemTrackerTaskPool::register_query_mem_tracker(
         const std::string& query_id, int64_t mem_limit) {
-    DCHECK(!query_id.empty());
-    VLOG_FILE << "Register query memory tracker, query id: " << query_id
+    VLOG_FILE << "Register Query memory tracker, query id: " << query_id
               << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
-
-    // First time this query_id registered, make a new object, otherwise do nothing.
-    // Combine create_tracker and emplace into one operation to avoid the use of locks
-    // Name for query MemTrackers. '$0' is replaced with the query id.
-    _query_mem_trackers.try_emplace_l(
-            query_id, [](std::shared_ptr<MemTracker>) {},
-            MemTracker::create_tracker(mem_limit, fmt::format("queryId={}", query_id),
-                                       ExecEnv::GetInstance()->query_pool_mem_tracker(),
-                                       MemTrackerLevel::TASK));
-    std::shared_ptr<MemTracker> tracker = get_query_mem_tracker(query_id);
-    return tracker;
+    return register_task_mem_tracker_impl(query_id, mem_limit, fmt::format("queryId={}", query_id),
+                                          ExecEnv::GetInstance()->query_pool_mem_tracker());
 }
 
-std::shared_ptr<MemTracker> MemTrackerTaskPool::get_query_mem_tracker(const std::string& query_id) {
-    DCHECK(!query_id.empty());
+std::shared_ptr<MemTracker> MemTrackerTaskPool::register_load_mem_tracker(
+        const std::string& load_id, int64_t mem_limit) {
+    VLOG_FILE << "Register Load memory tracker, load id: " << load_id
+              << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
+    return register_task_mem_tracker_impl(load_id, mem_limit, fmt::format("loadId={}", load_id),
+                                          ExecEnv::GetInstance()->load_pool_mem_tracker());
+}
+
+std::shared_ptr<MemTracker> MemTrackerTaskPool::get_task_mem_tracker(const std::string& task_id) {
+    DCHECK(!task_id.empty());
     std::shared_ptr<MemTracker> tracker = nullptr;
     // Avoid using locks to resolve erase conflicts
-    _query_mem_trackers.if_contains(query_id,
-                                    [&tracker](std::shared_ptr<MemTracker> v) { tracker = v; });
+    _task_mem_trackers.if_contains(task_id,
+                                   [&tracker](std::shared_ptr<MemTracker> v) { tracker = v; });
     return tracker;
 }
 
-void MemTrackerTaskPool::logout_query_mem_tracker() {
-    std::vector<std::string> expired_querys;
-    for (auto it = _query_mem_trackers.begin(); it != _query_mem_trackers.end(); it++) {
-        // No RuntimeState uses this query MemTracker, it is only referenced by this map, delete it
+void MemTrackerTaskPool::logout_task_mem_tracker() {
+    std::vector<std::string> expired_tasks;
+    for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end(); it++) {
+        // No RuntimeState uses this task MemTracker, it is only referenced by this map, delete it
         if (it->second.use_count() == 1) {
             if (!config::memory_leak_detection || it->second->consumption() == 0) {
-                expired_querys.emplace_back(it->first);
+                expired_tasks.emplace_back(it->first);
             } else {
                 LOG(WARNING) << "Memory tracker " << it->second->debug_string() << " Memory leak "
                              << it->second->consumption();
             }
         }
     }
-    for (auto qid : expired_querys) {
-        DCHECK(_query_mem_trackers[qid].use_count() == 1);
-        _query_mem_trackers.erase(qid);
-        VLOG_FILE << "Deregister query memory tracker, query id: " << qid;
+    for (auto tid : expired_tasks) {
+        DCHECK(_task_mem_trackers[tid].use_count() == 1);
+        _task_mem_trackers.erase(tid);
+        VLOG_FILE << "Deregister task memory tracker, task id: " << tid;
     }
 }
 

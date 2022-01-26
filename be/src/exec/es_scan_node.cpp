@@ -34,6 +34,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
@@ -67,6 +68,7 @@ Status EsScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "EsScanNode::Prepare";
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
         std::stringstream ss;
@@ -80,6 +82,7 @@ Status EsScanNode::prepare(RuntimeState* state) {
 }
 
 Status EsScanNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     VLOG_CRITICAL << "EsScanNode::Open";
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
@@ -204,6 +207,7 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     // create tuple
@@ -256,6 +260,7 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
 
 Status EsScanNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     VLOG_CRITICAL << "EsScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -771,11 +776,12 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
             }
             const string& val = col.string_vals[val_idx];
             size_t val_size = val.size();
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
+            Status rst;
+            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size, &rst));
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                return tuple_pool->mem_tracker()->mem_limit_exceeded(nullptr, details, val_size);
+                RETURN_ALLOC_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, val_size, rst);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;

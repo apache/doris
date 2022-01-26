@@ -28,6 +28,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/proto_util.h"
+#include "runtime/thread_context.h"
 #include "vec/common/sip_hash.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -343,9 +344,10 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
                                     _dest_node_id, instances);
     _profile = _pool->add(new RuntimeProfile(std::move(title)));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::CreateTracker(
-            _profile, -1, "VDataStreamSender:" + print_id(state->fragment_instance_id()),
-            state->instance_mem_tracker());
+    _mem_tracker = MemTracker::create_tracker(
+            -1, "VDataStreamSender:" + print_id(state->fragment_instance_id()), nullptr,
+            MemTrackerLevel::VERBOSE, _profile);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         std::random_device rd;
@@ -378,6 +380,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 }
 
 Status VDataStreamSender::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DCHECK(state != nullptr);
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
@@ -391,6 +394,7 @@ Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     SCOPED_TIMER(_profile->total_time_counter());
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
@@ -501,6 +505,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_closed) return Status::OK();
     _closed = true;
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
 
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {

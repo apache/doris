@@ -30,7 +30,6 @@ namespace doris {
 
 class BlockId;
 class Env;
-class MemTracker;
 class Slice;
 
 namespace fs {
@@ -184,10 +183,6 @@ struct CreateBlockOptions {
 // Block manager creation options.
 struct BlockManagerOptions {
     BlockManagerOptions() = default;
-
-    // The memory tracker under which all new memory trackers will be parented.
-    // If nullptr, new memory trackers will be parented to the root tracker.
-    std::shared_ptr<MemTracker> parent_mem_tracker;
 
     // If false, metrics will not be produced.
     bool enable_metric = false;

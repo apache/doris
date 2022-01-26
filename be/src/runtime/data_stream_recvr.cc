@@ -28,6 +28,7 @@
 #include "runtime/data_stream_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/sorted_run_merger.h"
+#include "runtime/thread_context.h"
 #include "util/debug_util.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
@@ -184,6 +185,8 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
+        // When the batch queue reaches the upper limit of memory, calling run to let
+        // brpc send data packets may cause additional memory to be released
         closure_pair.first->Run();
         _pending_closures.pop_front();
 
@@ -248,7 +251,7 @@ void DataStreamRecvr::SenderQueue::add_batch(const PRowBatch& pb_batch, int be_n
         // Note: if this function makes a row batch, the batch *must* be added
         // to _batch_queue. It is not valid to create the row batch and destroy
         // it in this thread.
-        batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker().get());
+        batch = new RowBatch(_recvr->row_desc(), pb_batch);
     }
 
     VLOG_ROW << "added #rows=" << batch->num_rows() << " batch_size=" << batch_size << "\n";
@@ -270,8 +273,7 @@ void DataStreamRecvr::SenderQueue::add_batch(RowBatch* batch, bool use_move) {
     if (_is_cancelled) {
         return;
     }
-    RowBatch* nbatch =
-            new RowBatch(_recvr->row_desc(), batch->capacity(), _recvr->mem_tracker().get());
+    RowBatch* nbatch = new RowBatch(_recvr->row_desc(), batch->capacity());
     if (use_move) {
         nbatch->acquire_state(batch);
     } else {
@@ -360,6 +362,7 @@ void DataStreamRecvr::SenderQueue::close() {
 
 Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
     DCHECK(_is_merging);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     vector<SortedRunMerger::RunBatchSupplier> child_input_batch_suppliers;
     // Create the merger that will a single stream of sorted rows.
     _merger.reset(new SortedRunMerger(less_than, &_row_desc, _profile, false));
@@ -373,8 +376,9 @@ Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
 }
 
 Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_than,
-                                               uint32_t batch_size, MemTracker* mem_tracker) {
+                                               uint32_t batch_size) {
     DCHECK(_is_merging);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     vector<SortedRunMerger::RunBatchSupplier> child_input_batch_suppliers;
 
     // Create the merger that will a single stream of sorted rows.
@@ -398,8 +402,8 @@ Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_th
     auto step = _sender_queues.size() / parallel_thread + 1;
     for (int i = 0; i < _sender_queues.size(); i += step) {
         // Create the merger that will a single stream of sorted rows.
-        std::unique_ptr<SortedRunMerger> child_merger(new ChildSortedRunMerger(
-                less_than, &_row_desc, _profile, mem_tracker, batch_size, false));
+        std::unique_ptr<SortedRunMerger> child_merger(
+                new ChildSortedRunMerger(less_than, &_row_desc, _profile, batch_size, false));
         vector<SortedRunMerger::RunBatchSupplier> input_batch_suppliers;
         for (int j = i; j < std::min((size_t)i + step, _sender_queues.size()); ++j) {
             input_batch_suppliers.emplace_back(bind(mem_fn(&SenderQueue::get_batch),
@@ -420,6 +424,7 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
     // _child_mergers is not empty, means use parallel merge need transfer resource from
     // _sender queue.
     // the need transfer resources from child_merger input_row_batch
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     if (!_child_mergers.empty()) {
         _merger->transfer_all_resources(transfer_batch);
     } else {
@@ -432,10 +437,9 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
 }
 
 DataStreamRecvr::DataStreamRecvr(
-        DataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
-        const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
-        RuntimeProfile* profile,
+        DataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
+        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+        bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
           _fragment_instance_id(fragment_instance_id),
@@ -446,7 +450,7 @@ DataStreamRecvr::DataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = MemTracker::create_tracker(-1, "DataStreamRecvr", parent_tracker,
+    _mem_tracker = MemTracker::create_tracker(-1, "DataStreamRecvr", nullptr,
                                               MemTrackerLevel::VERBOSE, _profile);
 
     // Create one queue per sender if is_merging is true.
@@ -469,22 +473,26 @@ DataStreamRecvr::DataStreamRecvr(
 
 Status DataStreamRecvr::get_next(RowBatch* output_batch, bool* eos) {
     DCHECK(_merger.get() != nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     return _merger->get_next(output_batch, eos);
 }
 
 void DataStreamRecvr::add_batch(const PRowBatch& batch, int sender_id, int be_number,
                                 int64_t packet_seq, ::google::protobuf::Closure** done) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     // Add all batches to the same queue if _is_merging is false.
     _sender_queues[use_sender_id]->add_batch(batch, be_number, packet_seq, done);
 }
 
 void DataStreamRecvr::add_batch(RowBatch* batch, int sender_id, bool use_move) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_batch(batch, use_move);
 }
 
 void DataStreamRecvr::remove_sender(int sender_id, int be_number) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->decrement_senders(be_number);
 }
@@ -496,6 +504,7 @@ void DataStreamRecvr::cancel_stream() {
 }
 
 void DataStreamRecvr::close() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();
     }
@@ -504,8 +513,6 @@ void DataStreamRecvr::close() {
     _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());
     _mgr = nullptr;
     _merger.reset();
-    // TODO: Maybe shared tracker doesn't need to be reset manually
-    _mem_tracker.reset();
 }
 
 DataStreamRecvr::~DataStreamRecvr() {
@@ -515,6 +522,7 @@ DataStreamRecvr::~DataStreamRecvr() {
 Status DataStreamRecvr::get_batch(RowBatch** next_batch) {
     DCHECK(!_is_merging);
     DCHECK_EQ(_sender_queues.size(), 1);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     return _sender_queues[0]->get_batch(next_batch);
 }
 

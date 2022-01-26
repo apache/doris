@@ -44,6 +44,7 @@ public class SessionVariable implements Serializable, Writable {
     static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String QUERY_MEM_LIMIT = "query_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
@@ -184,9 +185,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
-    // max memory used on every backend.
+    // max instance memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
+
+    // max query memory used on every backend.
+    @VariableMgr.VarAttr(name = QUERY_MEM_LIMIT)
+    public long maxQueryMemByte = 0L;
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
@@ -427,6 +432,10 @@ public class SessionVariable implements Serializable, Writable {
         return maxExecMemByte;
     }
 
+    public long getMaxQueryMemByte() {
+        return maxQueryMemByte;
+    }
+
     public long getLoadMemLimit() {
         return loadMemLimit;
     }
@@ -546,6 +555,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxExecMemByte(long maxExecMemByte) {
+        if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
+            this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
+        } else {
+            this.maxExecMemByte = maxExecMemByte;
+        }
+    }
+
+    public void setMaxQueryMemByte(long maxExecMemByte) {
         if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
             this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
         } else {

@@ -176,9 +176,10 @@ public:
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
-    int try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token);
+    int try_send_and_fetch_status(RuntimeState* state,
+                                  std::unique_ptr<ThreadPoolToken>& thread_pool_token);
 
-    void try_send_batch();
+    void try_send_batch(RuntimeState* state);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
@@ -201,7 +202,6 @@ public:
 
     Status none_of(std::initializer_list<bool> vars);
 
-    // TODO(HW): remove after mem tracker shared
     void clear_all_batches();
 
     std::string channel_info() const {
@@ -219,6 +219,8 @@ private:
     int32_t _schema_hash = 0;
     std::string _load_info;
     std::string _name;
+
+    std::shared_ptr<MemTracker> _node_channel_tracker;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
@@ -279,7 +281,9 @@ private:
 class IndexChannel {
 public:
     IndexChannel(OlapTableSink* parent, int64_t index_id, int32_t schema_hash)
-            : _parent(parent), _index_id(index_id), _schema_hash(schema_hash) {}
+            : _parent(parent), _index_id(index_id), _schema_hash(schema_hash) {
+        _index_channel_tracker = MemTracker::create_tracker(-1, "IndexChannel");
+    }
     ~IndexChannel();
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
@@ -323,6 +327,8 @@ private:
     // key is tablet_id, value is error message
     std::unordered_map<int64_t, std::string> _failed_channels_msgs;
     Status _intolerable_failure_status = Status::OK();
+
+    std::shared_ptr<MemTracker> _index_channel_tracker;
 };
 
 // Write data to Olap Table.

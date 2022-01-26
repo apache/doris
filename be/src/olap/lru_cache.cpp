@@ -320,8 +320,8 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
         // note that the cache might get larger than its capacity if not enough
         // space was freed
         auto old = _table.insert(e);
-        DCHECK(thread_local_ctx.thread_mem_tracker()->get_task_mem_tracker() == nullptr);
-        source_mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), charge);
+        DCHECK(thread_local_ctx.thread_mem_tracker()->parent_task_mem_tracker() == nullptr);
+        Status st = source_mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), charge);
         _usage += e->total_size;
         if (old != nullptr) {
             old->in_cache = false;
@@ -339,7 +339,6 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     // we free the entries here outside of mutex for
     // performance reasons
     while (to_remove_head != nullptr) {
-        SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
@@ -443,11 +442,11 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
     return hash >> (32 - kNumShardBits);
 }
 
-ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                                 std::shared_ptr<MemTracker> parent)
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type)
         : _name(name),
           _last_id(1),
-          _mem_tracker(MemTracker::create_tracker(-1, name, parent, MemTrackerLevel::OVERVIEW)) {
+          _mem_tracker(MemTracker::create_tracker(-1, name, nullptr, MemTrackerLevel::OVERVIEW)) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
         _shards[s] = new LRUCache(type);
@@ -466,6 +465,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     for (int s = 0; s < kNumShards; s++) {
         delete _shards[s];
     }
@@ -477,26 +477,26 @@ Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t 
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
     std::shared_ptr<MemTracker> source_mem_tracker = thread_local_ctx.thread_mem_tracker();
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker, "LRUCache", false);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority,
                                          source_mem_tracker);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker, "LRUCache", false);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->lookup(key, hash);
 }
 
 void ShardedLRUCache::release(Handle* handle) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker, "LRUCache", false);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
     _shards[_shard(h->hash)]->release(handle);
 }
 
 void ShardedLRUCache::erase(const CacheKey& key) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker, "LRUCache", false);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
     _shards[_shard(hash)]->erase(key, hash);
 }
@@ -515,7 +515,7 @@ uint64_t ShardedLRUCache::new_id() {
 }
 
 int64_t ShardedLRUCache::prune() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker, "LRUCache", false);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int64_t num_prune = 0;
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s]->prune();
@@ -524,7 +524,7 @@ int64_t ShardedLRUCache::prune() {
 }
 
 int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker, "LRUCache", false);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int64_t num_prune = 0;
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s]->prune_if(pred);
@@ -553,14 +553,12 @@ void ShardedLRUCache::update_cache_metrics() const {
                                                  : ((double)total_hit_count / total_lookup_count));
 }
 
-Cache* new_lru_cache(const std::string& name, size_t capacity,
-                     std::shared_ptr<MemTracker> parent_tracker) {
-    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE, parent_tracker);
+Cache* new_lru_cache(const std::string& name, size_t capacity) {
+    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE);
 }
 
-Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-                           std::shared_ptr<MemTracker> parent_tracker) {
-    return new ShardedLRUCache(name, capacity, type, parent_tracker);
+Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type) {
+    return new ShardedLRUCache(name, capacity, type);
 }
 
 } // namespace doris

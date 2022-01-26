@@ -39,6 +39,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
@@ -89,7 +90,7 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
 
     // TODO: figure out how to size _batch
     int capacity = std::max(1, _buffer_size / std::max(_row_desc.get_row_size(), 1));
-    _batch.reset(new RowBatch(_row_desc, capacity, _parent->_mem_tracker.get()));
+    _batch.reset(new RowBatch(_row_desc, capacity));
 
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
@@ -391,6 +392,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _mem_tracker = MemTracker::create_tracker(
             -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
             state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         std::random_device rd;
@@ -430,6 +432,7 @@ DataStreamSender::~DataStreamSender() {
 }
 
 Status DataStreamSender::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     DCHECK(state != nullptr);
     RETURN_IF_ERROR(Expr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
@@ -439,6 +442,7 @@ Status DataStreamSender::open(RuntimeState* state) {
 }
 
 Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     SCOPED_TIMER(_profile->total_time_counter());
 
     // Unpartition or _channel size
@@ -642,6 +646,7 @@ Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     // make all channels close parallel
     if (_closed) return Status::OK();
     _closed = true;
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
         Status st = _channels[i]->close(state);

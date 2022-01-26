@@ -19,17 +19,18 @@
 
 #include "util/doris_metrics.h"
 #include "util/time.h"
+#include "runtime/thread_context.h"
 #include "util/trace.h"
 
 namespace doris {
 
-CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::string& label,
-                                           const std::shared_ptr<MemTracker>& parent_tracker)
-        : Compaction(tablet, label, parent_tracker) {}
+CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
+        : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CumulativeCompaction::~CumulativeCompaction() {}
 
 OLAPStatus CumulativeCompaction::prepare_compact() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     if (!_tablet->init_succeeded()) {
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
     }
@@ -57,6 +58,7 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
 }
 
 OLAPStatus CumulativeCompaction::execute_compact_impl() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     MutexLock lock(_tablet->get_cumulative_lock(), TRY_LOCK);
     if (!lock.own_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
@@ -94,6 +96,7 @@ OLAPStatus CumulativeCompaction::execute_compact_impl() {
 }
 
 OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
     _tablet->pick_candidate_rowsets_to_cumulative_compaction(

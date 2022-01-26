@@ -43,7 +43,7 @@ static GoogleOnceType root_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::create_root_tracker() {
     root_tracker.reset(new MemTracker(-1, "Root", nullptr, MemTrackerLevel::OVERVIEW, nullptr));
-    root_tracker->Init();
+    root_tracker->init();
 }
 
 std::shared_ptr<MemTracker> MemTracker::get_root_tracker() {
@@ -79,26 +79,26 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
                                                        const std::shared_ptr<MemTracker>& parent,
                                                        MemTrackerLevel level,
                                                        RuntimeProfile* profile) {
-    std::shared_ptr<MemTracker> reset_parent;
-    std::string reset_label = label;
-    if (parent) {
-        // If parent contains query memtracker, add query ID to label.
-        if (parent->get_task_mem_tracker() != nullptr) {
-            std::vector<string> parent_label = split(parent->get_task_mem_tracker()->label(), "=");
-            reset_label = label + ":" + parent_label[parent_label.size() - 1];
-        } else {
-            reset_label = label;
-        }
-        reset_parent = std::move(parent);
-    } else {
-        reset_parent = get_root_tracker();
+    std::shared_ptr<MemTracker> reset_parent = parent;
+    if (!reset_parent) {
+        reset_parent = thread_local_ctx.thread_mem_tracker();
     }
 
-    std::shared_ptr<MemTracker> tracker(
-            new MemTracker(byte_limit, reset_label, reset_parent,
-                           level > reset_parent->_level ? level : reset_parent->_level, profile));
+    std::shared_ptr<MemTracker> tracker(new MemTracker(
+            byte_limit, reset_parent->has_virtual_ancestor() == false ? label : "<Virtual>" + label,
+            reset_parent, level > reset_parent->_level ? level : reset_parent->_level, profile));
     reset_parent->add_child_tracker(tracker);
-    tracker->Init();
+    tracker->init();
+    return tracker;
+}
+
+std::shared_ptr<MemTracker> MemTracker::create_virtual_tracker(
+        int64_t byte_limit, const std::string& label, const std::shared_ptr<MemTracker>& parent,
+        MemTrackerLevel level) {
+    std::shared_ptr<MemTracker> tracker(new MemTracker(
+            byte_limit, "<Virtual>" + label,
+            parent == nullptr ? thread_local_ctx.thread_mem_tracker() : parent, level, nullptr));
+    tracker->init_virtual();
     return tracker;
 }
 
@@ -117,7 +117,7 @@ MemTracker::MemTracker(int64_t byte_limit, const std::string& label,
     }
 }
 
-void MemTracker::Init() {
+void MemTracker::init() {
     DCHECK_GE(_limit, -1);
     MemTracker* tracker = this;
     while (tracker != nullptr) {
@@ -129,10 +129,17 @@ void MemTracker::Init() {
     DCHECK_EQ(_all_trackers[0], this);
 }
 
+void MemTracker::init_virtual() {
+    DCHECK_GE(_limit, -1);
+    _all_trackers.push_back(this);
+    if (this->has_limit()) _limit_trackers.push_back(this);
+    _virtual = true;
+}
+
 MemTracker::~MemTracker() {
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
     if (_label == "Root") GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER();
-    if (parent()) {
+    if (!_virtual && parent()) {
         if (consumption() != 0) {
             memory_leak_check(this);
             // At present, it can only guarantee the accurate recording of the Instance tracker,
@@ -152,8 +159,9 @@ MemTracker::~MemTracker() {
     }
 }
 
-void MemTracker::transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes) {
+void MemTracker::transfer_to_relative(std::shared_ptr<MemTracker> dst, int64_t bytes) {
     DCHECK_EQ(_all_trackers.back(), dst->_all_trackers.back()) << "Must have same ancestor";
+    DCHECK(!dst->has_limit());
     // Find the common ancestor and update trackers between 'this'/'dst' and
     // the common ancestor. This logic handles all cases, including the
     // two trackers being the same or being ancestors of each other because
@@ -162,12 +170,29 @@ void MemTracker::transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes) {
     int dst_ancestor_idx = dst->_all_trackers.size() - 1;
     while (ancestor_idx > 0 && dst_ancestor_idx > 0 &&
            _all_trackers[ancestor_idx - 1] == dst->_all_trackers[dst_ancestor_idx - 1]) {
+        DCHECK(!dst->_all_trackers[dst_ancestor_idx - 1]->has_limit());
         --ancestor_idx;
         --dst_ancestor_idx;
     }
     MemTracker* common_ancestor = _all_trackers[ancestor_idx];
     release(bytes, common_ancestor);
     dst->consume(bytes, common_ancestor);
+}
+
+Status MemTracker::transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes) {
+    // Must release first, then consume
+    release(bytes);
+    Status st = dst->try_consume(bytes);
+    if (!st) {
+        consume(bytes);
+        return st;
+    }
+    return Status::OK();
+}
+
+void MemTracker::transfer_to_force(std::shared_ptr<MemTracker> dst, int64_t bytes) {
+    release(bytes);
+    dst->consume(bytes);
 }
 
 // Calling this on the query tracker results in output like:
@@ -240,26 +265,24 @@ std::string MemTracker::log_usage(int max_recursive_depth,
     return join(usage_strings, "\n");
 }
 
-MemTracker* MemTracker::get_task_mem_tracker() {
-    MemTracker* tracker = this;
-    while (tracker != nullptr && tracker->_level != MemTrackerLevel::TASK) {
-        tracker = tracker->_parent.get();
-    }
-    return tracker;
-}
-
 Status MemTracker::mem_limit_exceeded(RuntimeState* state, const std::string& details,
-                                      int64_t failed_allocation_size) {
-    DCHECK_GE(failed_allocation_size, 0);
+                                      int64_t failed_allocation_size, Status failed_alloc) {
     MemTracker* process_tracker = ExecEnv::GetInstance()->process_mem_tracker().get();
     std::string detail =
-            "Memory exceed limit. details: {}, Label: {}, could not allocate size {} without "
-            "exceeding limit on backend: {}, Memory left in process limit: {}, by fragment: {}.";
-    detail = fmt::format(
-            detail, details, _label, PrettyPrinter::print(failed_allocation_size, TUnit::BYTES),
-            BackendOptions::get_localhost(),
-            PrettyPrinter::print(process_tracker->spare_capacity(), TUnit::BYTES),
-            state != nullptr ? print_id(state->fragment_instance_id()) : std::string());
+            "Memory exceed limit. fragment={}, details={}, on backend={}. Memory left in process "
+            "limit={}.";
+    detail = fmt::format(detail, state != nullptr ? print_id(state->fragment_instance_id()) : "",
+                         details, BackendOptions::get_localhost(),
+                         PrettyPrinter::print(process_tracker->spare_capacity(), TUnit::BYTES));
+    if (!failed_alloc) {
+        detail += " failed alloc=<{}>. current tracker={}.";
+        detail = fmt::format(detail, failed_alloc.to_string(), _label);
+    } else {
+        detail += " current tracker <label={}, used={}, limit={}, failed alloc size={}>.";
+        detail = fmt::format(detail, _label, _consumption->current_value(), _limit,
+                             PrettyPrinter::print(failed_allocation_size, TUnit::BYTES));
+    }
+    detail += " If query, can change the limit by session variable exec_mem_limit.";
     Status status = Status::MemoryLimitExceeded(detail);
     if (state != nullptr) state->log_error(detail);
 
@@ -269,16 +292,12 @@ Status MemTracker::mem_limit_exceeded(RuntimeState* state, const std::string& de
         // levels limits the level of detail to a one-line summary for each query MemTracker.
         detail += "\n" + process_tracker->log_usage(2);
     }
-    if (get_task_mem_tracker() != nullptr) {
-        detail += "\n" + get_task_mem_tracker()->log_usage();
+    if (parent_task_mem_tracker() != nullptr) {
+        detail += "\n" + parent_task_mem_tracker()->log_usage();
     }
     LOG(WARNING) << detail;
 
     return status;
-}
-
-void MemTracker::add_gc_function(GcFunction f) {
-    _gc_functions.push_back(f);
 }
 
 bool MemTracker::gc_memory(int64_t max_consumption) {
@@ -289,7 +308,7 @@ bool MemTracker::gc_memory(int64_t max_consumption) {
     if (pre_gc_consumption < max_consumption) return false;
 
     int64_t curr_consumption = pre_gc_consumption;
-    const int64_t EXTRA_BYTES_TO_FREE = 512L * 1024L * 1024L;
+    const int64_t EXTRA_BYTES_TO_FREE = 4L * 1024L * 1024L * 1024L; // TODO(zxy) Consider as config
     // Try to free up some memory
     for (int i = 0; i < _gc_functions.size(); ++i) {
         // Try to free up the amount we are over plus some extra so that we don't have to

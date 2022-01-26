@@ -54,8 +54,7 @@ namespace doris {
 RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env)
-        : _fragment_mem_tracker(nullptr),
-          _profile("Fragment " + print_id(fragment_instance_id)),
+        : _profile("Fragment " + print_id(fragment_instance_id)),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _data_stream_recvrs_pool(new ObjectPool()),
@@ -81,8 +80,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env)
-        : _fragment_mem_tracker(nullptr),
-          _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
+        : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id, this)),
           _data_stream_recvrs_pool(new ObjectPool()),
@@ -211,41 +209,30 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
     mem_tracker_counter->set(bytes_limit);
 
-    _query_mem_tracker =
-            MemTracker::create_tracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
-                                       _exec_env->process_mem_tracker(), MemTrackerLevel::INSTANCE);
-#ifdef BE_TEST
-    if (ExecEnv::GetInstance()->task_pool_mem_tracker_registry() == nullptr) {
-        _new_query_mem_tracker =
-                _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
-                        print_id(query_id), bytes_limit);
-    }
-#else
-    _new_query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
+    if (query_type() == TQueryType::SELECT) {
+        _query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
             print_id(query_id), bytes_limit);
-#endif
+    } else if (query_type() == TQueryType::LOAD) {
+        _query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_load_mem_tracker(
+            print_id(query_id), bytes_limit);
+    } else {
+        DCHECK(false);
+    }
+    
     _instance_mem_tracker = MemTracker::create_tracker(
-            -1, "RuntimeState:instance:", _query_mem_tracker, MemTrackerLevel::INSTANCE, &_profile);
-
-    /*
-    // TODO: this is a stopgap until we implement ExprContext
-    _udf_mem_tracker.reset(
-        new MemTracker(-1, "UDFs", _instance_mem_tracker.get()));
-    _udf_pool.reset(new MemPool(_udf_mem_tracker.get()));
-    */
-    // _udf_pool.reset(new MemPool(_instance_mem_tracker.get()));
+            -1, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,
+            MemTrackerLevel::INSTANCE, &_profile);
 
     RETURN_IF_ERROR(init_buffer_poolstate());
 
     _initial_reservations = _obj_pool->add(
-            new InitialReservations(_obj_pool.get(), _buffer_reservation, _query_mem_tracker,
+            new InitialReservations(_obj_pool.get(), _buffer_reservation, nullptr,
                                     _query_options.initial_reservation_total_claims));
     RETURN_IF_ERROR(_initial_reservations->Init(_query_id, min_reservation()));
     DCHECK_EQ(0, _initial_reservation_refcnt.load());
 
     if (_instance_buffer_reservation != nullptr) {
-        _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation,
-                                                       _instance_mem_tracker.get(),
+        _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation, nullptr,
                                                        std::numeric_limits<int64_t>::max());
     }
 
@@ -277,8 +264,8 @@ Status RuntimeState::init_buffer_poolstate() {
     VLOG_QUERY << "Buffer pool limit for " << print_id(_query_id) << ": " << max_reservation;
 
     _buffer_reservation = _obj_pool->add(new ReservationTracker);
-    _buffer_reservation->InitChildTracker(nullptr, exec_env->buffer_reservation(),
-                                          _query_mem_tracker.get(), max_reservation);
+    _buffer_reservation->InitChildTracker(nullptr, exec_env->buffer_reservation(), nullptr,
+                                          max_reservation);
 
     return Status::OK();
 }
@@ -291,7 +278,7 @@ Status RuntimeState::create_block_mgr() {
         block_mgr_limit = std::numeric_limits<int64_t>::max();
     }
     RETURN_IF_ERROR(BufferedBlockMgr2::create(
-            this, _query_mem_tracker, runtime_profile(), _exec_env->tmp_file_mgr(), block_mgr_limit,
+            this, runtime_profile(), _exec_env->tmp_file_mgr(), block_mgr_limit,
             _exec_env->disk_io_mgr()->max_read_buffer_size(), &_block_mgr2));
     return Status::OK();
 }
@@ -334,46 +321,13 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
-Status RuntimeState::set_mem_limit_exceeded(MemTracker* tracker, int64_t failed_allocation_size,
-                                            const std::string* msg) {
-    DCHECK_GE(failed_allocation_size, 0);
+Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
     {
         std::lock_guard<std::mutex> l(_process_status_lock);
         if (_process_status.ok()) {
-            if (msg != nullptr) {
-                _process_status = Status::MemoryLimitExceeded(*msg);
-            } else {
-                _process_status = Status::MemoryLimitExceeded("Memory limit exceeded");
-            }
-        } else {
-            return _process_status;
+            _process_status = Status::MemoryLimitExceeded(msg);
         }
     }
-
-    DCHECK(_query_mem_tracker.get() != nullptr);
-    std::stringstream ss;
-    ss << "Memory Limit Exceeded\n";
-    if (failed_allocation_size != 0) {
-        DCHECK(tracker != nullptr);
-        ss << "  " << tracker->label() << " could not allocate "
-           << PrettyPrinter::print(failed_allocation_size, TUnit::BYTES)
-           << " without exceeding limit." << std::endl;
-    }
-
-    // if (_exec_env->process_mem_tracker()->limit_exceeded()) {
-    //     ss << _exec_env->process_mem_tracker()->log_usage();
-    // } else {
-    //     ss << _query_mem_tracker->log_usage();
-    // }
-    // log_error(ErrorMsg(TErrorCode::GENERAL, ss.str()));
-    log_error(ss.str());
-    // Add warning about missing stats except for compute stats child queries.
-    // if (!query_ctx().__isset.parent_query_id &&
-    //         query_ctx().__isset.tables_missing_stats &&
-    //         !query_ctx().tables_missing_stats.empty()) {
-    //     LogError(ErrorMsg(TErrorCode::GENERAL,
-    //                 GetTablesMissingStatsWarning(query_ctx().tables_missing_stats)));
-    // }
     DCHECK(_process_status.is_mem_limit_exceeded());
     return _process_status;
 }
@@ -381,7 +335,7 @@ Status RuntimeState::set_mem_limit_exceeded(MemTracker* tracker, int64_t failed_
 Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
-    RETURN_IF_LIMIT_EXCEEDED(this, msg);
+    RETURN_IF_LIMIT_EXCEEDED(_instance_mem_tracker, this, msg);
     return query_status();
 }
 
@@ -425,7 +379,7 @@ Status RuntimeState::create_error_log_file() {
 Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line, std::function<std::string()> error_msg,
                                               bool* stop_processing, bool is_summary) {
     *stop_processing = false;
-    if (_query_options.query_type != TQueryType::LOAD) {
+    if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
     // If file havn't been opened, open it here
@@ -495,12 +449,6 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
         // TODO(lingbin): think if should check return value?
         _error_hub->export_error(err);
     }
-}
-
-// TODO chenhao , check scratch_limit, disable_spilling and file_group
-// before spillng
-Status RuntimeState::StartSpilling(MemTracker* mem_tracker) {
-    return Status::InternalError("Mem limit exceeded.");
 }
 
 int64_t RuntimeState::get_load_mem_limit() {

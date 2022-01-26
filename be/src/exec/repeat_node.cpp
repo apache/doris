@@ -22,6 +22,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -44,6 +45,7 @@ RepeatNode::~RepeatNode() {}
 Status RepeatNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_tuple_desc == nullptr) {
@@ -54,6 +56,7 @@ Status RepeatNode::prepare(RuntimeState* state) {
 }
 
 Status RepeatNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
@@ -162,6 +165,7 @@ Status RepeatNode::get_repeated_batch(RowBatch* child_row_batch, int repeat_id_i
 }
 
 Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
@@ -175,8 +179,7 @@ Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
             return Status::OK();
         }
 
-        _child_row_batch.reset(
-                new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+        _child_row_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
         RETURN_IF_ERROR(child(0)->get_next(state, _child_row_batch.get(), &_child_eos));
 
         if (_child_row_batch->num_rows() <= 0) {
@@ -203,6 +206,7 @@ Status RepeatNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _child_row_batch.reset(nullptr);
     RETURN_IF_ERROR(child(0)->close(state));
     return ExecNode::close(state);

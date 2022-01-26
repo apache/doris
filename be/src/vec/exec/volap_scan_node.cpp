@@ -21,6 +21,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/priority_thread_pool.hpp"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scanner.h"
@@ -36,6 +37,8 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
 
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    SCOPED_ATTACH_TASK_THREAD_4ARG(state->query_type(), print_id(state->query_id()),
+                                   state->fragment_instance_id(), mem_tracker());
     Status status = Status::OK();
 
     if (_vconjunct_ctx_ptr) {
@@ -69,7 +72,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     auto block_per_scanner = (doris_scanner_row_num + (block_size - 1)) / block_size;
     auto pre_block_count =
             std::min(_volap_scanners.size(), static_cast<size_t>(config::doris_scanner_thread_pool_thread_num)) * block_per_scanner;
-
+    uint64_t buffered_bytes = 0;
     for (int i = 0; i < pre_block_count; ++i) {
         auto block = new Block;
         for (const auto slot_desc : _tuple_desc->slots()) {
@@ -80,9 +83,9 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                                                     slot_desc->col_name()));
         }
         _free_blocks.emplace_back(block);
-        _buffered_bytes += block->allocated_bytes();
+        buffered_bytes += block->allocated_bytes();
     }
-    _mem_tracker->Consume(_buffered_bytes);
+    _block_mem_tracker->consume(buffered_bytes);
 
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -139,6 +142,9 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
+    SCOPED_ATTACH_TASK_THREAD_4ARG(_runtime_state->query_type(),
+                                   print_id(_runtime_state->query_id()),
+                                   _runtime_state->fragment_instance_id(), mem_tracker());
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
@@ -293,6 +299,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         _transfer_done = true;
         return Status::OK();
     }
+    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VOlapScanNode:Block");
 
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<OlapScanRange>> cond_ranges;
@@ -337,7 +344,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
             }
             VOlapScanner* scanner =
                     new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                     _need_agg_finalize, *scan_range);
+                                     _need_agg_finalize, *scan_range, scanner_mem_tracker);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -366,6 +373,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
         return Status::OK();
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     // change done status
     {
@@ -386,7 +394,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
     std::for_each(_materialized_blocks.begin(), _materialized_blocks.end(), std::default_delete<Block>());
     std::for_each(_scan_blocks.begin(), _scan_blocks.end(), std::default_delete<Block>());
     std::for_each(_free_blocks.begin(), _free_blocks.end(), std::default_delete<Block>());
-    _mem_tracker->Release(_buffered_bytes);
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner
@@ -406,6 +413,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 

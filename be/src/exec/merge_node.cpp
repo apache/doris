@@ -23,6 +23,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 
 using std::vector;
 
@@ -60,6 +61,7 @@ Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status MergeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
 
@@ -90,6 +92,7 @@ Status MergeNode::prepare(RuntimeState* state) {
 }
 
 Status MergeNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     // Prepare const expr lists.
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {
@@ -105,6 +108,7 @@ Status MergeNode::open(RuntimeState* state) {
 }
 
 Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -136,8 +140,8 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
         // Row batch was either never set or we're moving on to a different child.
         if (_child_row_batch.get() == nullptr) {
             RETURN_IF_CANCELLED(state);
-            _child_row_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size(),
-                                                mem_tracker().get()));
+            _child_row_batch.reset(
+                    new RowBatch(child(_child_idx)->row_desc(), state->batch_size()));
             // Open child and fetch the first row batch.
             RETURN_IF_ERROR(child(_child_idx)->open(state));
             RETURN_IF_ERROR(
@@ -185,6 +189,7 @@ Status MergeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     // don't call ExecNode::close(), it always closes all children
     _child_row_batch.reset(nullptr);
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {

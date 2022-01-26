@@ -318,18 +318,17 @@ BinaryPredicate* create_bin_predicate(ObjectPool* pool, PrimitiveType prim_type,
 // This class is a wrapper of runtime predicate function
 class RuntimePredicateWrapper {
 public:
-    RuntimePredicateWrapper(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,
+    RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool,
                             const RuntimeFilterParams* params)
-            : _tracker(tracker),
-              _pool(pool),
+            : _pool(pool),
               _column_return_type(params->column_return_type),
               _filter_type(params->filter_type),
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(MemTracker* tracker, ObjectPool* pool, RuntimeFilterType type, UniqueId fragment_instance_id, uint32_t filter_id)
-            : _tracker(tracker), _pool(pool), _filter_type(type), _fragment_instance_id(fragment_instance_id), _filter_id(filter_id) {}
+    RuntimePredicateWrapper(ObjectPool* pool, RuntimeFilterType type, UniqueId fragment_instance_id, uint32_t filter_id)
+            : _pool(pool), _filter_type(type), _fragment_instance_id(fragment_instance_id), _filter_id(filter_id) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -345,12 +344,12 @@ public:
         }
         case RuntimeFilterType::BLOOM_FILTER: {
             _is_bloomfilter = true;
-            _bloomfilter_func.reset(create_bloom_filter(_tracker, _column_return_type));
+            _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             _hybrid_set.reset(create_set(_column_return_type));
-            _bloomfilter_func.reset(create_bloom_filter(_tracker, _column_return_type));
+            _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         default:
@@ -622,8 +621,6 @@ public:
     }
 
     Status assign(const PInFilter* in_filter) {
-        DCHECK(_tracker != nullptr);
-
         PrimitiveType type = to_primitive_type(in_filter->column_type());
         if (in_filter->has_ignored_msg()) {
             VLOG_DEBUG << "Ignore in filter(id=" << _filter_id << ") because: " << in_filter->ignored_msg();
@@ -726,18 +723,16 @@ public:
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status assign(const PBloomFilter* bloom_filter, const char* data) {
-        DCHECK(_tracker != nullptr);
         _is_bloomfilter = true;
         // we won't use this class to insert or find any data
         // so any type is ok
-        _bloomfilter_func.reset(create_bloom_filter(_tracker, PrimitiveType::TYPE_INT));
+        _bloomfilter_func.reset(create_bloom_filter(PrimitiveType::TYPE_INT));
         return _bloomfilter_func->assign(data, bloom_filter->filter_length());
     }
 
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status assign(const PMinMaxFilter* minmax_filter) {
-        DCHECK(_tracker != nullptr);
         PrimitiveType type = to_primitive_type(minmax_filter->column_type());
         _minmax_func.reset(create_minmax_filter(type));
         switch (type) {
@@ -890,7 +885,6 @@ public:
     }
 
 private:
-    MemTracker* _tracker;
     ObjectPool* _pool;
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;
@@ -905,10 +899,10 @@ private:
     uint32_t _filter_id;
 };
 
-Status IRuntimeFilter::create(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,
+Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res) {
-    *res = pool->add(new IRuntimeFilter(state, tracker, pool));
+    *res = pool->add(new IRuntimeFilter(state, pool));
     (*res)->set_role(role);
     UniqueId fragment_instance_id(state->fragment_instance_id());
     return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id);
@@ -1048,7 +1042,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         RETURN_IF_ERROR(Expr::create_expr_tree(_pool, iter->second, &_probe_ctx));
     }
 
-    _wrapper = _pool->add(new RuntimePredicateWrapper(_state, _mem_tracker, _pool, &params));
+    _wrapper = _pool->add(new RuntimePredicateWrapper(_state, _pool, &params));
     return _wrapper->init(&params);
 }
 
@@ -1060,16 +1054,14 @@ Status IRuntimeFilter::serialize(PPublishFilterRequest* request, void** data, in
     return serialize_impl(request, data, len);
 }
 
-Status IRuntimeFilter::create_wrapper(const MergeRuntimeFilterParams* param, MemTracker* tracker,
-                                      ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
-    return _create_wrapper(param, tracker, pool, wrapper);
+    return _create_wrapper(param, pool, wrapper);
 }
 
-Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParams* param, MemTracker* tracker,
-                                      ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
-    return _create_wrapper(param, tracker, pool, wrapper);
+    return _create_wrapper(param, pool, wrapper);
 }
 
 void IRuntimeFilter::change_to_bloom_filter() {
@@ -1081,10 +1073,10 @@ void IRuntimeFilter::change_to_bloom_filter() {
 }
 
 template <class T>
-Status IRuntimeFilter::_create_wrapper(const T* param, MemTracker* tracker, ObjectPool* pool,
+Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
-    wrapper->reset(new RuntimePredicateWrapper(tracker, pool, get_type(filter_type),
+    wrapper->reset(new RuntimePredicateWrapper(pool, get_type(filter_type),
                             UniqueId(param->request->fragment_id()), param->request->filter_id()));
 
     switch (filter_type) {
@@ -1383,7 +1375,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
         set_ignored_msg(*msg);
     }
     std::unique_ptr<RuntimePredicateWrapper> wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _mem_tracker, _pool, &wrapper));
+    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
     auto origin_type = _wrapper->get_real_type();
     RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
     if (origin_type != _wrapper->get_real_type()) {

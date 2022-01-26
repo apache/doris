@@ -27,7 +27,6 @@
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -109,7 +108,6 @@ private:
     ZoneMap _segment_zone_map;
     // TODO(zc): we should replace this memory pool later, we only allocate min/max
     // for field. But MemPool allocate 4KB least, it will a waste for most cases.
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 
     // serialized ZoneMapPB for each data page

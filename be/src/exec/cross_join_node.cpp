@@ -23,6 +23,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
@@ -52,19 +53,16 @@ Status CrossJoinNode::close(RuntimeState* state) {
 Status CrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
-
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_CB("Cross join, while getting next from the child 1");
     while (true) {
-        RowBatch* batch = _build_batch_pool->add(
-                new RowBatch(child(1)->row_desc(), state->batch_size(), mem_tracker().get()));
+        RowBatch* batch =
+                _build_batch_pool->add(new RowBatch(child(1)->row_desc(), state->batch_size()));
 
         RETURN_IF_CANCELLED(state);
         // TODO(zhaochun):
         // RETURN_IF_ERROR(state->CheckQueryState());
         bool eos = false;
         RETURN_IF_ERROR(child(1)->get_next(state, batch, &eos));
-
-        // to prevent use too many memory
-        RETURN_IF_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         SCOPED_TIMER(_build_timer);
         _build_batches.add_row_batch(batch);
@@ -86,6 +84,7 @@ void CrossJoinNode::init_get_next(TupleRow* first_left_row) {
 Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_CANCELLED(state);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     *eos = false;
     // TOOD(zhaochun)
     // RETURN_IF_ERROR(state->check_query_state());

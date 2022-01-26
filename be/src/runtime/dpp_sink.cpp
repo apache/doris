@@ -557,8 +557,7 @@ Status Translator::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(create_writer(state));
 
     // 4. new batch for writer
-    _batch_to_write.reset(
-            new RowBatch(_row_desc, state->batch_size(), state->instance_mem_tracker().get()));
+    _batch_to_write.reset(new RowBatch(_row_desc, state->batch_size()));
     if (_batch_to_write.get() == nullptr) {
         return Status::InternalError("No memory to allocate RowBatch.");
     }
@@ -795,7 +794,7 @@ Status Translator::process(RuntimeState* state) {
         SCOPED_TIMER(_agg_timer);
         bool eos = false;
         while (!eos) {
-            RowBatch batch(_row_desc, state->batch_size(), state->instance_mem_tracker().get());
+            RowBatch batch(_row_desc, state->batch_size());
 
             RETURN_IF_ERROR(_sorter->get_next(&batch, &eos));
 

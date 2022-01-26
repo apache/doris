@@ -74,6 +74,14 @@ public:
             const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
             MemTrackerLevel level = MemTrackerLevel::VERBOSE, RuntimeProfile* profile = nullptr);
 
+    // Cosume/release will not sync to parent.Usually used to manually record the specified memory,
+    // It is independent of the recording of TCMalloc Hook in the thread local tracker, so the same
+    // block of memory is recorded independently in these two trackers.
+    static std::shared_ptr<MemTracker> create_virtual_tracker(
+            int64_t byte_limit = -1, const std::string& label = std::string(),
+            const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
+            MemTrackerLevel level = MemTrackerLevel::VERBOSE);
+
     // this is used for creating an orphan mem tracker, or for unit test.
     // If a mem tracker has parent, it should be created by `create_tracker()`
     MemTracker(int64_t byte_limit = -1, const std::string& label = std::string());
@@ -85,6 +93,15 @@ public:
 
     // Gets a shared_ptr to the "root" tracker, creating it if necessary.
     static std::shared_ptr<MemTracker> get_root_tracker();
+
+    inline Status check_sys_mem_info(int64_t bytes) {
+        if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
+            return Status::MemoryLimitExceeded(fmt::format(
+                    "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
+                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
+        }
+        return Status::OK();
+    }
 
     // Increases consumption of this tracker and its ancestors by 'bytes'.
     // up to (but not including) end_tracker.
@@ -112,40 +129,27 @@ public:
             release(-bytes);
             return Status::OK();
         }
-        // TCMalloc new/delete hook will call consume before MemInfo is initialized.
-        if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
-            return Status::MemoryLimitExceeded(fmt::format(
-                    "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
-                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
-        }
+        RETURN_IF_ERROR(check_sys_mem_info(bytes));
         int i;
         // Walk the tracker tree top-down.
         for (i = _all_trackers.size() - 1; i >= 0; --i) {
             MemTracker* tracker = _all_trackers[i];
-            const int64_t limit = tracker->limit();
-            if (limit < 0) {
+            if (tracker->limit() < 0) {
                 tracker->_consumption->add(bytes); // No limit at this tracker.
             } else {
                 // If TryConsume fails, we can try to GC, but we may need to try several times if
                 // there are concurrent consumers because we don't take a lock before trying to
                 // update _consumption.
                 while (true) {
-                    if (LIKELY(tracker->_consumption->try_add(bytes, limit))) break;
-
-                    if (UNLIKELY(tracker->gc_memory(limit - bytes))) {
+                    if (LIKELY(tracker->_consumption->try_add(bytes, tracker->limit()))) break;
+                    Status st = tracker->try_gc_memory(bytes);
+                    if (!st) {
                         // Failed for this mem tracker. Roll back the ones that succeeded.
                         for (int j = _all_trackers.size() - 1; j > i; --j) {
                             _all_trackers[j]->_consumption->add(-bytes);
                         }
-                        return Status::MemoryLimitExceeded(fmt::format(
-                                "{}: TryConsume failed, bytes={} consumption={}  imit={} "
-                                "attempting to GC",
-                                tracker->label(), bytes, tracker->_consumption->current_value(),
-                                limit));
+                        return st;
                     }
-                    VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
-                                << " consumption=" << tracker->_consumption->current_value()
-                                << " limit=" << limit;
                 }
             }
         }
@@ -182,11 +186,15 @@ public:
         return Status::OK();
     }
 
-    /// Transfer 'bytes' of consumption from this tracker to 'dst', updating
-    /// all ancestors up to the first shared ancestor. Must not be used if
-    /// 'dst' has a limit, or an ancestor with a limit, that is not a common
-    /// ancestor with the tracker, because this does not check memory limits.
-    void transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes);
+    // Transfer 'bytes' of consumption from this tracker to 'dst'.
+    // updating all ancestors up to the first shared ancestor. Must not be used if
+    // 'dst' has a limit, or an ancestor with a limit, that is not a common
+    // ancestor with the tracker, because this does not check memory limits.
+    void transfer_to_relative(std::shared_ptr<MemTracker> dst, int64_t bytes);
+    WARN_UNUSED_RESULT
+    Status transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes);
+    // Forced transfer, 'dst' may limit exceed, and more ancestor trackers will be updated.
+    void transfer_to_force(std::shared_ptr<MemTracker> dst, int64_t bytes);
 
     // Returns true if a valid limit of this tracker or one of its ancestors is exceeded.
     MemTracker* limit_exceeded_tracker() const {
@@ -227,6 +235,24 @@ public:
     int64_t limit() const { return _limit; }
     bool has_limit() const { return _limit >= 0; }
 
+    Status check_limit(int64_t bytes) {
+        if (bytes <= 0) return Status::OK();
+        RETURN_IF_ERROR(check_sys_mem_info(bytes));
+        int i;
+        // Walk the tracker tree top-down.
+        for (i = _all_trackers.size() - 1; i >= 0; --i) {
+            MemTracker* tracker = _all_trackers[i];
+            if (tracker->limit() > 0) {
+                while (true) {
+                    if (LIKELY(tracker->_consumption->current_value() + bytes < tracker->limit()))
+                        break;
+                    RETURN_IF_ERROR(tracker->try_gc_memory(bytes));
+                }
+            }
+        }
+        return Status::OK();
+    }
+
     const std::string& label() const { return _label; }
 
     // Returns the memory consumed in bytes.
@@ -240,7 +266,7 @@ public:
     /// previously-added GC functions were successful at freeing up enough memory.
     /// 'f' does not need to be thread-safe as long as it is added to only one MemTracker.
     /// Note that 'f' must be valid for the lifetime of this MemTracker.
-    void add_gc_function(GcFunction f);
+    void add_gc_function(GcFunction f) { _gc_functions.push_back(f); }
 
     /// Logs the usage of this tracker and optionally its children (recursively).
     /// If 'logged_consumption' is non-nullptr, sets the consumption value logged.
@@ -256,10 +282,25 @@ public:
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     /// If 'state' is non-nullptr, logs the error to 'state'.
     Status mem_limit_exceeded(RuntimeState* state, const std::string& details = std::string(),
-                              int64_t failed_allocation = 0) WARN_UNUSED_RESULT;
+                              int64_t failed_allocation = -1,
+                              Status failed_alloc = Status::OK()) WARN_UNUSED_RESULT;
 
     // If an ancestor of this tracker is a Task MemTracker, return that tracker. Otherwise return nullptr.
-    MemTracker* get_task_mem_tracker();
+    MemTracker* parent_task_mem_tracker() {
+        MemTracker* tracker = this;
+        while (tracker != nullptr && tracker->_level != MemTrackerLevel::TASK) {
+            tracker = tracker->_parent.get();
+        }
+        return tracker;
+    }
+
+    bool has_virtual_ancestor() {
+        MemTracker* tracker = this;
+        while (tracker != nullptr && tracker->_virtual == false) {
+            tracker = tracker->_parent.get();
+        }
+        return tracker == nullptr ? false : true;
+    }
 
     std::string debug_string() {
         std::stringstream msg;
@@ -285,9 +326,21 @@ private:
     // any added GC functions.  Returns true if max_consumption is still exceeded. Takes gc_lock.
     bool gc_memory(int64_t max_consumption);
 
-    /// Walks the MemTracker hierarchy and populates _all_trackers and
-    /// limit_trackers_
-    void Init();
+    inline Status try_gc_memory(int64_t bytes) {
+        if (UNLIKELY(gc_memory(_limit - bytes))) {
+            return Status::MemoryLimitExceeded(
+                    fmt::format("label={} TryConsume failed size={}, used={}, limit={}",
+                                label(), bytes, _consumption->current_value(), _limit));
+        }
+        VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
+                    << " consumption=" << _consumption->current_value() << " limit=" << _limit;
+        return Status::OK();
+    }
+
+    // Walks the MemTracker hierarchy and populates _all_trackers and
+    // limit_trackers_
+    void init();
+    void init_virtual();
 
     // Adds tracker to _child_trackers
     void add_child_tracker(const std::shared_ptr<MemTracker>& tracker) {
@@ -332,9 +385,11 @@ private:
 
     std::string _label;
 
+    std::shared_ptr<MemTracker> _parent; // The parent of this tracker.
+
     MemTrackerLevel _level;
 
-    std::shared_ptr<MemTracker> _parent; // The parent of this tracker.
+    bool _virtual = false;
 
     std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _consumption; // in bytes
 
@@ -355,24 +410,10 @@ private:
     std::vector<GcFunction> _gc_functions;
 };
 
-#define LIMIT_EXCEEDED(tracker, state, msg)                                                   \
-    do {                                                                                      \
-        stringstream str;                                                                     \
-        str << "Memory exceed limit. " << msg << " ";                                         \
-        str << "Backend: " << BackendOptions::get_localhost() << ", ";                        \
-        str << "fragment: " << print_id(state->fragment_instance_id()) << " ";                \
-        str << "Used: " << tracker->consumption() << ", Limit: " << tracker->limit() << ". "; \
-        str << "You can change the limit by session variable exec_mem_limit.";                \
-        return Status::MemoryLimitExceeded(str.str());                                        \
-    } while (false)
-
-#define RETURN_IF_LIMIT_EXCEEDED(state, msg)                                           \
-    do {                                                                               \
-        /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */    \
-        MemTracker* tracker = state->instance_mem_tracker()->limit_exceeded_tracker(); \
-        if (tracker != nullptr) {                                                      \
-            LIMIT_EXCEEDED(tracker, state, msg);                                       \
-        }                                                                              \
-    } while (false)
+#define RETURN_LIMIT_EXCEEDED(tracker, state, msg) return tracker->mem_limit_exceeded(state, msg);
+#define RETURN_ALLOC_LIMIT_EXCEEDED(tracker, state, msg, size, st) \
+    return tracker->mem_limit_exceeded(state, msg, size, st);
+#define RETURN_IF_LIMIT_EXCEEDED(tracker, state, msg) \
+    if (tracker->any_limit_exceeded()) RETURN_LIMIT_EXCEEDED(tracker, state, msg);
 
 } // namespace doris

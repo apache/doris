@@ -28,7 +28,6 @@
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -72,8 +71,7 @@ public:
                                         const TypeInfo* typeinfo)
             : _bf_options(bf_options),
               _typeinfo(typeinfo),
-              _tracker(new MemTracker(-1, "BloomFilterIndexWriterImpl")),
-              _pool(_tracker.get()),
+              _pool("BloomFilterIndexWriterImpl"),
               _has_null(false),
               _bf_buffer_size(0) {}
 
@@ -163,7 +161,6 @@ private:
 private:
     BloomFilterOptions _bf_options;
     const TypeInfo* _typeinfo;
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
     bool _has_null;
     uint64_t _bf_buffer_size;

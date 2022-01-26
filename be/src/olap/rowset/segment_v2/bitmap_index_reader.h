@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -71,8 +70,7 @@ public:
               _dict_column_iter(reader->_dict_column_reader.get()),
               _bitmap_column_iter(reader->_bitmap_column_reader.get()),
               _current_rowid(0),
-              _tracker(new MemTracker()),
-              _pool(new MemPool(_tracker.get())) {}
+              _pool(new MemPool("BitmapIndexIterator")) {}
 
     bool has_null_bitmap() const { return _reader->_has_null; }
 
@@ -109,7 +107,6 @@ private:
     IndexedColumnIterator _dict_column_iter;
     IndexedColumnIterator _bitmap_column_iter;
     rowid_t _current_rowid;
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 };
 

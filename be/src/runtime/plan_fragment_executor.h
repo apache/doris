@@ -148,7 +148,6 @@ private:
     ExecEnv* _exec_env; // not owned
     ExecNode* _plan;    // lives in _runtime_state->obj_pool()
     TUniqueId _query_id;
-    std::shared_ptr<MemTracker> _mem_tracker;
 
     // profile reporting-related
     report_status_callback _report_status_cb;

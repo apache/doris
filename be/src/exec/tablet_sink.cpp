@@ -51,6 +51,7 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
     if (_parent->_transfer_data_by_brpc_attachment) {
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
+    _node_channel_tracker = MemTracker::create_tracker(-1, "NodeChannel");
 }
 
 NodeChannel::~NodeChannel() {
@@ -72,6 +73,7 @@ NodeChannel::~NodeChannel() {
 // no need to set _cancel_msg because the error will be
 // returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     _tuple_desc = _parent->_output_tuple_desc;
     auto node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
@@ -85,7 +87,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
-    _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+    _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
 
     _stub = state->exec_env()->brpc_internal_client_cache()->get_client(_node_info.host,
                                                                         _node_info.brpc_port);
@@ -113,6 +115,7 @@ Status NodeChannel::init(RuntimeState* state) {
 }
 
 void NodeChannel::open() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     PTabletWriterOpenRequest request;
     request.set_allocated_id(&_parent->_load_id);
     request.set_index_id(_index_channel->_index_id);
@@ -157,6 +160,7 @@ void NodeChannel::_cancel_with_msg(const std::string& msg) {
 }
 
 Status NodeChannel::open_wait() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     _open_closure->join();
     if (_open_closure->cntl.Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
@@ -233,6 +237,7 @@ Status NodeChannel::open_wait() {
 }
 
 Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -249,8 +254,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() &&
-           _pending_batches_num > 0) {
+    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() && _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
     }
@@ -265,7 +269,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
             _pending_batches_num++;
         }
 
-        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
         _cur_add_batch_request.clear_tablet_ids();
 
         row_no = _cur_batch->add_row();
@@ -298,8 +302,7 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled && _parent->_mem_tracker->AnyLimitExceeded(MemLimit::HARD) &&
-           _pending_batches_num > 0) {
+    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() && _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
     }
@@ -314,7 +317,7 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
             _pending_batches_num++;
         }
 
-        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
         _cur_add_batch_request.clear_tablet_ids();
 
         row_no = _cur_batch->add_row();
@@ -330,6 +333,7 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 }
 
 Status NodeChannel::mark_close() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
@@ -356,6 +360,7 @@ Status NodeChannel::mark_close() {
 }
 
 Status NodeChannel::close_wait(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
@@ -403,6 +408,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
 }
 
 void NodeChannel::cancel(const std::string& cancel_msg) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
@@ -427,7 +433,8 @@ void NodeChannel::cancel(const std::string& cancel_msg) {
     request.release_id();
 }
 
-int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
+int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
+                                           std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
@@ -435,7 +442,8 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thr
     bool is_finished = true;
     if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
         _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
-        auto s = thread_pool_token->submit_func(std::bind(&NodeChannel::try_send_batch, this));
+        auto s = thread_pool_token->submit_func(
+                std::bind(&NodeChannel::try_send_batch, this, state));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
         }
@@ -443,7 +451,9 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thr
     return _send_finished ? 0 : 1;
 }
 
-void NodeChannel::try_send_batch() {
+void NodeChannel::try_send_batch(RuntimeState* state) {
+    SCOPED_ATTACH_TASK_THREAD_4ARG(state->query_type(), print_id(state->query_id()),
+                                   state->fragment_instance_id(), _node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBatchReq send_batch;
     {
@@ -531,6 +541,7 @@ Status NodeChannel::none_of(std::initializer_list<bool> vars) {
 }
 
 void NodeChannel::clear_all_batches() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_node_channel_tracker);
     std::lock_guard<std::mutex> lg(_pending_batches_lock);
     std::queue<AddBatchReq> empty;
     std::swap(_pending_batches, empty);
@@ -540,6 +551,7 @@ void NodeChannel::clear_all_batches() {
 IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_index_channel_tracker);
     for (auto& tablet : tablets) {
         auto location = _parent->_location->find_tablet(tablet.tablet_id);
         if (location == nullptr) {
@@ -572,6 +584,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 }
 
 void IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_index_channel_tracker);
     auto it = _channels_by_tablet.find(tablet_id);
     DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
     for (auto channel : it->second) {
@@ -706,8 +719,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
     _mem_tracker =
             MemTracker::create_tracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
-                                      state->instance_mem_tracker());
-
+                                       state->instance_mem_tracker());
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     SCOPED_TIMER(_profile->total_time_counter());
 
     // Prepare the exprs to run.
@@ -739,7 +752,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     }
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
-    _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker.get()));
+    _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size()));
 
     _max_decimalv2_val.resize(_output_tuple_desc->slots().size());
     _min_decimalv2_val.resize(_output_tuple_desc->slots().size());
@@ -810,6 +823,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 }
 
 Status OlapTableSink::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     // Prepare the exprs to run.
@@ -847,6 +861,7 @@ Status OlapTableSink::open(RuntimeState* state) {
 }
 
 Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     SCOPED_TIMER(_profile->total_time_counter());
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
@@ -929,6 +944,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         /// So here we use a flag to prevent repeated close operations.
         return _close_status;
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     Status status = close_status;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
@@ -1212,14 +1228,14 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
 
 void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::QUERY, print_id(state->query_id()),
-                              state->fragment_instance_id());
+    SCOPED_ATTACH_TASK_THREAD_4ARG(state->query_type(), print_id(state->query_id()),
+                                   state->fragment_instance_id(), _mem_tracker);
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this](const std::shared_ptr<NodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num, this, state](const std::shared_ptr<NodeChannel>& ch) {
                 running_channels_num +=
-                        ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
+                        ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
             });
         }
 

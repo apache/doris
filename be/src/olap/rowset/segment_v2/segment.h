@@ -64,15 +64,13 @@ public:
 
     ~Segment();
 
-    Status new_iterator(const Schema& schema, const StorageReadOptions& read_options,
-                        std::shared_ptr<MemTracker> parent,
-                        std::unique_ptr<RowwiseIterator>* iter);
+    Status new_iterator(const Schema& schema, const StorageReadOptions& read_options, std::unique_ptr<RowwiseIterator>* iter);
 
     uint64_t id() const { return _segment_id; }
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent, ColumnIterator** iter);
+    Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
 
     Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
 

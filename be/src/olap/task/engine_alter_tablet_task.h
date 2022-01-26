@@ -43,6 +43,7 @@ private:
     vector<string>* _error_msgs;
     const string& _process_name;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

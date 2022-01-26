@@ -63,6 +63,8 @@ private:
     std::list<VOlapScanner*> _volap_scanners;
     std::mutex _volap_scanners_lock;
 
+    std::shared_ptr<MemTracker> _block_mem_tracker;
+
     int _max_materialized_blocks;
 };
 } // namespace vectorized

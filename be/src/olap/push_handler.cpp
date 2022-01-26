@@ -903,9 +903,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_tracker = MemTracker::create_tracker(-1, "PushBrokerReader",
-                                             _runtime_state->instance_mem_tracker());
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _mem_pool.reset(new MemPool("PushBrokerReader"));
     _counter.reset(new ScannerCounter());
 
     // init scanner

@@ -88,14 +88,15 @@ public:
     virtual Status assign(const char* data, int len) = 0;
 
     virtual Status get_data(char** data, int* len) = 0;
-    virtual MemTracker* tracker() = 0;
     virtual void light_copy(IBloomFilterFuncBase* other) = 0;
 };
 
 template <class BloomFilterAdaptor>
 class BloomFilterFuncBase : public IBloomFilterFuncBase {
 public:
-    BloomFilterFuncBase(MemTracker* tracker) : _tracker(tracker), _inited(false) {}
+    BloomFilterFuncBase() : _inited(false) {
+        _tracker = MemTracker::create_virtual_tracker(-1, "BloomFilterFunc");
+    }
 
     virtual ~BloomFilterFuncBase() {
         if (_tracker != nullptr) {
@@ -148,18 +149,16 @@ public:
         return Status::OK();
     }
 
-    MemTracker* tracker() override { return _tracker; }
-
     void light_copy(IBloomFilterFuncBase* bloomfilter_func) override {
         auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-        _tracker = nullptr;
+        _tracker = nullptr; // Avoid repeated release when ~BloomFilterFuncBase
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
     }
 
 protected:
-    MemTracker* _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     // bloom filter size
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
@@ -298,7 +297,7 @@ struct BloomFilterTypeTraits<TYPE_STRING, BloomFilterAdaptor> {
 template <PrimitiveType type, class BloomFilterAdaptor>
 class BloomFilterFunc final : public BloomFilterFuncBase<BloomFilterAdaptor> {
 public:
-    BloomFilterFunc(MemTracker* tracker) : BloomFilterFuncBase<BloomFilterAdaptor>(tracker) {}
+    BloomFilterFunc() : BloomFilterFuncBase<BloomFilterAdaptor>() {}
 
     ~BloomFilterFunc() = default;
 

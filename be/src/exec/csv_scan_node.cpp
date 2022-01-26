@@ -29,6 +29,7 @@
 #include "olap/utils.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
@@ -128,6 +129,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     // add timer
     _split_check_timer = ADD_TIMER(_runtime_profile, "split check timer");
@@ -195,7 +197,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a csv scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool(state->instance_mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
     }
@@ -210,6 +212,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
 }
 
 Status CsvScanNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << "CsvScanNode::Open";
 
@@ -232,6 +235,7 @@ Status CsvScanNode::open(RuntimeState* state) {
 }
 
 Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     VLOG_CRITICAL << "CsvScanNode::GetNext";
     if (nullptr == state || nullptr == row_batch || nullptr == eos) {
         return Status::InternalError("input is nullptr pointer");
@@ -320,6 +324,7 @@ Status CsvScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     VLOG_CRITICAL << "CsvScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 

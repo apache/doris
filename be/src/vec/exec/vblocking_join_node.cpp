@@ -22,6 +22,7 @@
 #include "exprs/expr.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -39,8 +40,9 @@ Status VBlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VBlockingJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
-    _build_pool.reset(new MemPool(mem_tracker().get()));
+    _build_pool.reset(new MemPool());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
@@ -62,11 +64,14 @@ Status VBlockingJoinNode::prepare(RuntimeState* state) {
 
 Status VBlockingJoinNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     ExecNode::close(state);
     return Status::OK();
 }
 
 void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD_4ARG(state->query_type(), print_id(state->query_id()),
+                                   state->fragment_instance_id(), mem_tracker());
     status->set_value(construct_build_side(state));
     // Release the thread token as soon as possible (before the main thread joins
     // on it).  This way, if we had a chain of 10 joins using 1 additional thread,
@@ -75,6 +80,7 @@ void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Stat
 
 Status VBlockingJoinNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_CANCELLED(state);

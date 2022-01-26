@@ -22,6 +22,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "udf/udf_internal.h"
 #include "vec/utils/util.hpp"
 
@@ -142,8 +143,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
-    _mem_pool.reset(new MemPool(mem_tracker().get()));
+    _mem_pool.reset(new MemPool());
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     SCOPED_TIMER(_evaluation_timer);
 
@@ -207,6 +209,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
 }
 
 Status VAnalyticEvalNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
@@ -223,6 +226,7 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     ExecNode::close(state);
     _destory_agg_status();
     return Status::OK();
@@ -233,6 +237,7 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
 }
 
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);

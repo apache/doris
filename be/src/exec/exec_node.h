@@ -196,8 +196,6 @@ public:
 
     std::shared_ptr<MemTracker> expr_mem_tracker() const { return _expr_mem_tracker; }
 
-    MemPool* expr_mem_pool() const { return _expr_mem_pool.get(); }
-
     // Extract node id from p->name().
     static int get_node_id_from_profile(RuntimeProfile* p);
 
@@ -306,13 +304,8 @@ protected:
 
     /// Account for peak memory used by this node
     std::shared_ptr<MemTracker> _mem_tracker;
-
-    /// MemTracker used by 'expr_mem_pool_'.
+    // MemTracker used by all Expr.
     std::shared_ptr<MemTracker> _expr_mem_tracker;
-
-    /// MemPool for allocating data structures used by expression evaluators in this node.
-    /// Created in Prepare().
-    std::unique_ptr<MemPool> _expr_mem_pool;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;

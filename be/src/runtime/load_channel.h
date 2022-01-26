@@ -39,8 +39,7 @@ class TabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
-                const std::string& sender_ip);
+                bool is_high_priority, const std::string& sender_ip);
     ~LoadChannel();
 
     // open a new load channel if not exist

@@ -31,17 +31,16 @@ namespace doris {
 
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer,
-                   const std::shared_ptr<MemTracker>& parent_tracker)
+                   KeysType keys_type, RowsetWriter* rowset_writer)
         : _tablet_id(tablet_id),
           _schema(schema),
           _tablet_schema(tablet_schema),
           _tuple_desc(tuple_desc),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _mem_tracker(MemTracker::create_tracker(-1, "MemTable", parent_tracker)),
-          _buffer_mem_pool(new MemPool(_mem_tracker.get())),
-          _table_mem_pool(new MemPool(_mem_tracker.get())),
+          _mem_tracker(MemTracker::create_tracker(-1, "MemTable")),
+          _buffer_mem_pool(new MemPool(_mem_tracker)),
+          _table_mem_pool(new MemPool(_mem_tracker)),
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer) {
     if (tablet_schema->sort_type() == SortType::ZORDER) {

@@ -116,10 +116,9 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
         : _reserve_bytes_limit(reserve_limit),
           _reserved_bytes(0),
           _arenas(CpuInfo::get_max_num_cores()) {
-    _chunk_allocator_mem_tracker =
-            MemTracker::create_tracker(static_cast<int64_t>(reserve_limit), "ChunkAllocator",
-                                       nullptr, MemTrackerLevel::OVERVIEW);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker, "ChunkAllocator", false);
+    _mem_tracker =
+            MemTracker::create_tracker(-1, "ChunkAllocator", nullptr, MemTrackerLevel::OVERVIEW);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
@@ -134,11 +133,16 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_cost_ns);
 }
 
-bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
+Status ChunkAllocator::allocate(size_t size, Chunk* chunk, bool check_limits) {
     // fast path: allocate from current core arena
     chunk->mem_tracker = thread_local_ctx.thread_mem_tracker();
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker, "ChunkAllocator", false);
-    thread_local_ctx.thread_mem_tracker()->transfer_to(chunk->mem_tracker, size);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
+    if (check_limits) {
+        RETURN_IF_ERROR(thread_local_ctx.thread_mem_tracker()->transfer_to(chunk->mem_tracker, size));
+    } else {
+        thread_local_ctx.thread_mem_tracker()->transfer_to_force(chunk->mem_tracker, size);
+    }
+
     int core_id = CpuInfo::get_current_core();
     chunk->size = size;
     chunk->core_id = core_id;
@@ -147,7 +151,7 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
         DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
-        return true;
+        return Status::OK();
     }
     if (_reserved_bytes > size) {
         // try to allocate from other core's arena
@@ -159,7 +163,7 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
-                return true;
+                return Status::OK();
             }
         }
     }
@@ -173,10 +177,11 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);
     if (chunk->data == nullptr) {
-        chunk->mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), size);
-        return false;
+        Status st = chunk->mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), size);
+        return Status::MemoryAllocFailed(
+                fmt::format("ChunkAllocator failed to allocate chunk {} bytes", size));
     }
-    return true;
+    return Status::OK();
 }
 
 void ChunkAllocator::free(Chunk& chunk) {
@@ -184,8 +189,8 @@ void ChunkAllocator::free(Chunk& chunk) {
         return;
     }
     DCHECK(chunk.mem_tracker != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_chunk_allocator_mem_tracker, "ChunkAllocator", false);
-    chunk.mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), chunk.size);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
+    Status st = chunk.mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), chunk.size);
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -207,8 +212,8 @@ void ChunkAllocator::free(Chunk& chunk) {
     chunk.mem_tracker = nullptr;
 }
 
-bool ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
-    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk);
+Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk, bool check_limits) {
+    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk, check_limits);
 }
 
 } // namespace doris

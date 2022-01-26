@@ -40,8 +40,7 @@ InitialReservations::InitialReservations(ObjectPool* obj_pool,
         : initial_reservation_mem_tracker_(
                   MemTracker::create_tracker(-1, "InitialReservations", query_mem_tracker)),
           remaining_initial_reservation_claims_(initial_reservation_total_claims) {
-    initial_reservations_.InitChildTracker(nullptr, query_reservation,
-                                           initial_reservation_mem_tracker_.get(),
+    initial_reservations_.InitChildTracker(nullptr, query_reservation, nullptr,
                                            numeric_limits<int64_t>::max());
 }
 

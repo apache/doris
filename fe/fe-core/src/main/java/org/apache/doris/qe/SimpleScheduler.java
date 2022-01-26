@@ -18,7 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeConstants;
+// import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
@@ -192,7 +192,7 @@ public class SimpleScheduler {
             return;
         }
 
-        blacklistBackends.put(backendID, Pair.create(FeConstants.heartbeat_interval_second + 1, reason));
+        // blacklistBackends.put(backendID, Pair.create(FeConstants.heartbeat_interval_second + 1, reason));
         LOG.warn("add backend {} to black list. reason: {}", backendID, reason);
     }
 

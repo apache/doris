@@ -28,6 +28,7 @@
 #include "olap/short_key_index.h"
 #include "runtime/mem_tracker.h"
 #include "util/crc32c.h"
+#include "runtime/thread_context.h"
 #include "util/faststring.h"
 
 namespace doris {
@@ -37,14 +38,13 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
-                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts,
-                             std::shared_ptr<MemTracker> parent)
+                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts)
         : _segment_id(segment_id),
           _tablet_schema(tablet_schema),
           _opts(opts),
           _wblock(wblock),
           _mem_tracker(
-                  MemTracker::create_tracker(-1, "Segment-" + std::to_string(segment_id), parent)) {
+                  MemTracker::create_virtual_tracker(-1, "SegmentWriter:Segment-" + std::to_string(segment_id))) {
     CHECK_NOTNULL(_wblock);
 }
 
@@ -90,7 +90,6 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
                 return Status::NotSupported("Do not support bitmap index for array type");
             }
         }
-        opts.parent = _mem_tracker;
 
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _wblock, &writer));

@@ -25,6 +25,7 @@
 #include "olap/in_stream.h"
 #include "olap/olap_cond.h"
 #include "olap/out_stream.h"
+#include "runtime/thread_context.h"
 #include "olap/row_block.h"
 #include "olap/rowset/segment_group.h"
 
@@ -37,8 +38,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
                              const std::set<uint32_t>& load_bf_columns,
                              const Conditions* conditions, const DeleteHandler* delete_handler,
                              const DelCondSatisfied delete_status, Cache* lru_cache,
-                             RuntimeState* runtime_state, OlapReaderStatistics* stats,
-                             const std::shared_ptr<MemTracker>& parent_tracker)
+                             RuntimeState* runtime_state, OlapReaderStatistics* stats)
         : _file_name(file),
           _segment_group(segment_group),
           _segment_id(segment_id),
@@ -58,8 +58,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
           _is_using_mmap(false),
           _is_data_loaded(false),
           _buffer_size(0),
-          _tracker(MemTracker::create_tracker(-1, "SegmentReader:" + file, parent_tracker)),
-          _mem_pool(new MemPool(_tracker.get())),
+          _mem_pool(new MemPool("SegmentReader:" + file)),
           _shared_buffer(nullptr),
           _lru_cache(lru_cache),
           _runtime_state(runtime_state),
@@ -85,10 +84,6 @@ SegmentReader::~SegmentReader() {
 
     _lru_cache = nullptr;
     _file_handler.close();
-
-    if (_is_data_loaded && _runtime_state != nullptr) {
-        MemTracker::batch_consume(_buffer_size * -1, _runtime_state->mem_trackers());
-    }
 
     for (auto& it : _streams) {
         delete it.second;
@@ -237,6 +232,7 @@ OLAPStatus SegmentReader::seek_to_block(uint32_t first_block, uint32_t last_bloc
 
     if (!_is_data_loaded) {
         _reset_readers();
+        if (!CHECK_MEM_LIMIT(_buffer_size)) return OLAP_ERR_FETCH_MEMORY_EXCEEDED;
         res = _read_all_data_streams(&_buffer_size);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to read data stream");
@@ -247,12 +243,6 @@ OLAPStatus SegmentReader::seek_to_block(uint32_t first_block, uint32_t last_bloc
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to create reader");
             return res;
-        }
-
-        if (_runtime_state != nullptr) {
-            if (!MemTracker::batch_consume(_buffer_size, _runtime_state->mem_trackers())) {
-                return OLAP_ERR_FETCH_MEMORY_EXCEEDED;
-            }
         }
 
         _is_data_loaded = true;
@@ -835,10 +825,6 @@ OLAPStatus SegmentReader::_reset_readers() {
 
     for (std::map<StreamName, ReadOnlyFileStream*>::iterator it = _streams.begin();
          it != _streams.end(); ++it) {
-        if (_runtime_state != nullptr) {
-            MemTracker::batch_consume(-1 * it->second->get_buffer_size(),
-                                      _runtime_state->mem_trackers());
-        }
         delete it->second;
     }
 
@@ -848,10 +834,6 @@ OLAPStatus SegmentReader::_reset_readers() {
          it != _column_readers.end(); ++it) {
         if ((*it) == nullptr) {
             continue;
-        }
-        if (_runtime_state != nullptr) {
-            MemTracker::batch_consume(-1 * (*it)->get_buffer_size(),
-                                      _runtime_state->mem_trackers());
         }
         delete (*it);
     }

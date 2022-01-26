@@ -30,14 +30,12 @@ namespace doris {
 
 class BetaRowsetReader : public RowsetReader {
 public:
-    BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                     std::shared_ptr<MemTracker> parent_tracker = nullptr);
+    BetaRowsetReader(BetaRowsetSharedPtr rowset);
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
     OLAPStatus init(RowsetReaderContext* read_context) override;
 
-    // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
     // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
     OLAPStatus next_block(vectorized::Block* block) override;
@@ -62,8 +60,6 @@ private:
 
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats;
-
-    std::shared_ptr<MemTracker> _parent_tracker;
 
     std::unique_ptr<RowwiseIterator> _iterator;
 

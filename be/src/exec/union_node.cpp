@@ -25,9 +25,8 @@
 #include "runtime/tuple_row.h"
 // #include "util/runtime_profile_counters.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
-
-//
 
 namespace doris {
 
@@ -69,6 +68,7 @@ Status UnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status UnionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
     _materialize_exprs_evaluate_timer =
@@ -94,6 +94,7 @@ Status UnionNode::prepare(RuntimeState* state) {
 }
 
 Status UnionNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     // open const expr lists.
@@ -154,8 +155,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
         // Child row batch was either never set or we're moving on to a different child.
         if (_child_batch.get() == nullptr) {
             DCHECK_LT(_child_idx, _children.size());
-            _child_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size(),
-                                            mem_tracker().get()));
+            _child_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size()));
             _child_row_idx = 0;
             // open the current child unless it's the first child, which was already opened in
             // UnionNode::open().
@@ -233,6 +233,7 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
 }
 
 Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
@@ -280,6 +281,7 @@ Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
 Status UnionNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
     _child_batch.reset();
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     for (auto& exprs : _const_expr_lists) {
         Expr::close(exprs, state);
     }

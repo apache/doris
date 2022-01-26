@@ -639,17 +639,15 @@ OLAPStatus Tablet::_capture_consistent_rowsets_unlocked(
 }
 
 OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
-                                      std::vector<RowsetReaderSharedPtr>* rs_readers,
-                                      std::shared_ptr<MemTracker> parent_tracker) const {
+                                      std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     std::vector<Version> version_path;
     RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
-    RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers, parent_tracker));
+    RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
     return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
-                                      std::vector<RowsetReaderSharedPtr>* rs_readers,
-                                      std::shared_ptr<MemTracker> parent_tracker) const {
+                                      std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     DCHECK(rs_readers != nullptr && rs_readers->empty());
     for (auto version : version_path) {
         auto it = _rs_version_map.find(version);
@@ -666,7 +664,7 @@ OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
             }
         }
         RowsetReaderSharedPtr rs_reader;
-        auto res = it->second->create_reader(parent_tracker, &rs_reader);
+        auto res = it->second->create_reader(&rs_reader);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to create reader for rowset:" << it->second->rowset_id();
             return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;

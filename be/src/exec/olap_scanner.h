@@ -47,7 +47,8 @@ class OlapScanNode;
 class OlapScanner {
 public:
     OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                bool need_agg_finalize, const TPaloScanRange& scan_range);
+                bool need_agg_finalize, const TPaloScanRange& scan_range,
+                std::shared_ptr<MemTracker> tracker);
 
     virtual ~OlapScanner() = default;
 

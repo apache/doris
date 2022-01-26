@@ -17,8 +17,9 @@
 
 #include "olap/task/engine_checksum_task.h"
 
-#include "olap/tuple_reader.h"
 #include "olap/row.h"
+#include "olap/tuple_reader.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -27,9 +28,14 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
         : _tablet_id(tablet_id),
           _schema_hash(schema_hash),
           _version(version),
-          _checksum(checksum) {}
+          _checksum(checksum) {
+    _mem_tracker = MemTracker::create_tracker(-1, "compute checksum: " + std::to_string(tablet_id),
+                                              StorageEngine::instance()->consistency_mem_tracker(),
+                                              MemTrackerLevel::TASK);
+}
 
 OLAPStatus EngineChecksumTask::execute() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     OLAPStatus res = _compute_checksum();
     return res;
 } // execute
@@ -87,8 +93,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     RowCursor row;
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool("EngineChecksumTask:_compute_checksum"));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     res = row.init(tablet->tablet_schema(), reader_params.return_columns);
     if (res != OLAP_SUCCESS) {

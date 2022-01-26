@@ -33,8 +33,7 @@ namespace doris {
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
-                         const std::vector<TExpr>& pre_filter_texprs,
-                         ScannerCounter* counter)
+                         const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : _state(state),
           _params(params),
           _counter(counter),
@@ -43,11 +42,10 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
 #if BE_TEST
           _mem_tracker(new MemTracker()),
 #else
-          _mem_tracker(
-                  MemTracker::create_tracker(-1, "BaseScanner:" + std::to_string(state->load_job_id()),
-                                            state->instance_mem_tracker())),
+          _mem_tracker(MemTracker::create_tracker(
+                  -1, "Scanner:" + std::to_string(state->load_job_id()))),
 #endif
-          _mem_pool(_mem_tracker.get()),
+          _mem_pool(_mem_tracker),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
@@ -258,6 +256,5 @@ void BaseScanner::close() {
         Expr::close(_pre_filter_ctxs, _state);
     }
 }
-
 
 } // namespace doris

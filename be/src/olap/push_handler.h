@@ -211,7 +211,6 @@ private:
     const Schema* _schema;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;

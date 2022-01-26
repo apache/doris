@@ -178,6 +178,7 @@ private:
     std::condition_variable _batch_prepared_cv;
 
     void process_sorted_run_task() {
+        // TODO(zxy) Whether to attach mem tracker
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {
             _batch_prepared_cv.wait(lock, [this]() { return !_backup_ready.load(); });
@@ -307,11 +308,9 @@ Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
 
 ChildSortedRunMerger::ChildSortedRunMerger(const TupleRowComparator& compare_less_than,
                                            RowDescriptor* row_desc, RuntimeProfile* profile,
-                                           MemTracker* parent, uint32_t row_batch_size,
-                                           bool deep_copy_input)
+                                           uint32_t row_batch_size, bool deep_copy_input)
         : SortedRunMerger(compare_less_than, row_desc, profile, deep_copy_input),
           _eos(false),
-          _parent(parent),
           _row_batch_size(row_batch_size) {
     _get_next_timer = ADD_TIMER(profile, "ChildMergeGetNext");
     _get_next_batch_timer = ADD_TIMER(profile, "ChildMergeGetNextBatch");
@@ -323,7 +322,7 @@ Status ChildSortedRunMerger::get_batch(RowBatch** output_batch) {
         return Status::OK();
     }
 
-    _current_row_batch.reset(new RowBatch(*_input_row_desc, _row_batch_size, _parent));
+    _current_row_batch.reset(new RowBatch(*_input_row_desc, _row_batch_size));
 
     bool eos = false;
     RETURN_IF_ERROR(get_next(_current_row_batch.get(), &eos));

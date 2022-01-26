@@ -114,9 +114,6 @@ public:
     // Return the data id such as segment id, used for keep the insert order when do
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
-
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 } // namespace doris

@@ -197,6 +197,8 @@ private:
 
     RowDescriptor _row_desc_for_other_join_conjunt;
 
+    std::shared_ptr<MemTracker> _hash_table_mem_tracker;
+
 private:
     Status _hash_table_build(RuntimeState* state);
     Status _process_build_block(RuntimeState* state, Block& block);

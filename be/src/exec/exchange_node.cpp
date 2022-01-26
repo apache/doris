@@ -23,6 +23,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -57,6 +58,7 @@ Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _convert_row_batch_timer = ADD_TIMER(runtime_profile(), "ConvertRowBatchTime");
     // TODO: figure out appropriate buffer size
     DCHECK_GT(_num_senders, 0);
@@ -74,6 +76,7 @@ Status ExchangeNode::prepare(RuntimeState* state) {
 }
 
 Status ExchangeNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     if (_is_merging) {
@@ -82,8 +85,7 @@ Status ExchangeNode::open(RuntimeState* state) {
         // create_merger() will populate its merging heap with batches from the _stream_recvr,
         // so it is not necessary to call fill_input_row_batch().
         if (state->enable_exchange_node_parallel_merge()) {
-            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size(),
-                                                                  mem_tracker().get()));
+            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size()));
         } else {
             RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
         }
@@ -103,6 +105,7 @@ Status ExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     if (_is_merging) {
         _sort_exec_exprs.close(state);
     }
@@ -129,6 +132,7 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
 
 Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (reached_limit()) {
