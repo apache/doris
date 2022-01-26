@@ -73,13 +73,8 @@ public:
         // because every slice is unique
         ASSERT_EQ(slices.size(), dict_page_decoder->count());
 
-        BinaryDictPageDecoder::WordInfo* dict_word_info[dict_page_decoder->_num_elems];
-        for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-            const uint32_t start_offset = dict_page_decoder->offset(i);
-            uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-            dict_word_info[i].start_offset = start_offset;
-            dict_word_info[i].len = len;
-        }
+        StringValue dict_word_info[dict_page_decoder->_num_elems];
+        dict_page_decoder->get_dict_word_info(dict_word_info);
 
         // decode
         PageDecoderOptions decoder_options;
@@ -176,13 +171,8 @@ public:
             status = dict_page_decoder->init();
             ASSERT_TRUE(status.ok());
 
-            BinaryDictPageDecoder::WordInfo dict_word_info[dict_page_decoder->_num_elems];
-            for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-                const uint32_t start_offset = dict_page_decoder->offset(i);
-                uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-                dict_word_info[i].start_offset = start_offset;
-                dict_word_info[i].len = len;
-            }
+            StringValue dict_word_info[dict_page_decoder->_num_elems];
+            dict_page_decoder->get_dict_word_info(dict_word_info);
 
             // decode
             PageDecoderOptions decoder_options;

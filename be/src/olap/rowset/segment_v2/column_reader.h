@@ -323,7 +323,7 @@ private:
     // current value ordinal
     ordinal_t _current_ordinal = 0;
 
-    BinaryDictPageDecoder::WordInfo* _dict_word_info = nullptr; 
+    StringValue* _dict_word_info = nullptr; 
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {

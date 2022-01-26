@@ -678,16 +678,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
             }
 
             BinaryPlainPageDecoder* pd_decoder = (BinaryPlainPageDecoder*)_dict_decoder.get();
-            _dict_word_info = new BinaryDictPageDecoder::WordInfo[pd_decoder->_num_elems];
-
-            // todo(wb) padding dict value for SIMD comparison
-            for (int i = 0; i < pd_decoder->_num_elems; i++) {
-                const uint32_t start_offset = pd_decoder->offset(i);
-                uint32_t len = pd_decoder->offset(i + 1) - start_offset;
-                _dict_word_info[i].start_offset = start_offset;
-                _dict_word_info[i].len = len;
-            }
-
+            _dict_word_info = new StringValue[pd_decoder->_num_elems];
+            pd_decoder->get_dict_word_info(_dict_word_info);
             dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info);
         }
     }

@@ -300,6 +300,22 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
+    void get_dict_word_info(StringValue* dict_word_info) {
+        char* data_begin = (char*)&_data[0];
+        char* offset_ptr = (char*)&_data[_offsets_pos];
+
+        for (uint32_t i = 0; i < _num_elems; ++i) {
+            uint32_t offset = decode_fixed32_le((uint8_t*)offset_ptr);
+            dict_word_info[i].ptr = data_begin + offset;
+            offset_ptr += sizeof(uint32_t);
+        }
+
+        for (int i = 0; i < (int)_num_elems - 1; ++i) {
+            dict_word_info[i].len = dict_word_info[i+1].ptr - dict_word_info[i].ptr;
+        }
+        dict_word_info[_num_elems-1].len = dict_word_info[_num_elems].ptr - dict_word_info[_num_elems-1].ptr;
+    }
+
 private:
     // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(size_t idx) const {

@@ -99,14 +99,6 @@ private:
 
 class BinaryDictPageDecoder : public PageDecoder {
 public:
-    struct WordInfo {
-        uint64_t dummy;
-        struct {
-            uint32_t start_offset;
-            uint32_t len;
-        };
-    };
-
     BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options);
 
     Status init() override;
@@ -123,9 +115,7 @@ public:
 
     bool is_dict_encoding() const;
 
-    void set_dict_decoder(PageDecoder* dict_decoder, WordInfo* _dict_word_info = nullptr);
-
-    ~BinaryDictPageDecoder();
+    void set_dict_decoder(PageDecoder* dict_decoder, StringValue* dict_word_info = nullptr);
 
 private:
     Slice _data;
@@ -137,7 +127,7 @@ private:
     EncodingTypePB _encoding_type;
     // use as data buf.
     std::unique_ptr<ColumnVectorBatch> _batch;
-    WordInfo* _dict_word_info = nullptr;
+    StringValue* _dict_word_info = nullptr;
 };
 
 } // namespace segment_v2

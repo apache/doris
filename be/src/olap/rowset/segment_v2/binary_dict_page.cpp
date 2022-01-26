@@ -209,7 +209,7 @@ Status BinaryDictPageDecoder::init() {
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
 
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
-        _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        _data_page_decoder.reset((_bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options)));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
@@ -223,8 +223,6 @@ Status BinaryDictPageDecoder::init() {
     return Status::OK();
 }
 
-BinaryDictPageDecoder::~BinaryDictPageDecoder() {}
-
 Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
     return _data_page_decoder->seek_to_position_in_page(pos);
 }
@@ -233,9 +231,8 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, WordInfo* dict_word_info) {
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringValue* dict_word_info) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
-    _bit_shuffle_ptr = reinterpret_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(_data_page_decoder.get());
     _dict_word_info = dict_word_info;
 }
 
@@ -268,19 +265,17 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     if (dst_col_ptr->is_predicate_column()) {
         // cast columnptr to columnstringvalue just for avoid virtual function call overhead
         auto* string_value_column_ptr = reinterpret_cast<vectorized::ColumnStringValue*>(dst_col_ptr);
-        for (int i = 0; i < max_fetch; i++, start_index++) {
+        auto& column_data = string_value_column_ptr->get_data();
+        for (size_t end_index = start_index + max_fetch; start_index < end_index; ++start_index) {
             int32_t codeword = data_array[start_index];
-            uint32_t start_offset = _dict_word_info[codeword].start_offset;
-            uint32_t str_len = _dict_word_info[codeword].len;
-            string_value_column_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
+            column_data.push_back_without_reserve(_dict_word_info[codeword]); //no copy StringValue
         }
     } else {
          // todo(wb) research whether using batch memcpy to insert columnString can has better performance when data set is big
-        for (int i = 0; i < max_fetch; i++, start_index++) {
+        for (size_t end_index = start_index + max_fetch; start_index < end_index; ++start_index) {
             int32_t codeword = data_array[start_index];
-            uint32_t start_offset = _dict_word_info[codeword].start_offset;
-            uint32_t str_len = _dict_word_info[codeword].len;
-            dst_col_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
+            auto& word = _dict_word_info[codeword];
+            dst_col_ptr->insert_data(word.ptr, word.len);
         }
     }
     _bit_shuffle_ptr->_cur_index += max_fetch;
@@ -313,7 +308,9 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     for (int i = 0; i < len; ++i) {
         int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder
-        *out = Slice(&_dict_decoder->_data[_dict_word_info[codeword].start_offset], _dict_word_info[codeword].len);
+
+        out->data = _dict_word_info[codeword].ptr;
+        out->size = _dict_word_info[codeword].len;
         mem_len[i] = out->size;
         out++;
     }
