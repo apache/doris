@@ -343,8 +343,12 @@ if [ ${BUILD_BE} -eq 1 ]; then
 fi
 
 if [ ${BUILD_BROKER} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/apache_hdfs_broker
+
     cd ${DORIS_HOME}/fs_brokers/apache_hdfs_broker/
     ./build.sh
+    rm -rf ${DORIS_OUTPUT}/apache_hdfs_broker/*
+    cp -r -p ${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker/* ${DORIS_OUTPUT}/apache_hdfs_broker/
     cd ${DORIS_HOME}
 fi
 
