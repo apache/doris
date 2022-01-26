@@ -305,15 +305,16 @@ public:
         char* offset_ptr = (char*)&_data[_offsets_pos];
 
         for (uint32_t i = 0; i < _num_elems; ++i) {
-            uint32_t offset = decode_fixed32_le((uint8_t*)offset_ptr);
-            dict_word_info[i].ptr = data_begin + offset;
+            dict_word_info[i].ptr = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
             offset_ptr += sizeof(uint32_t);
         }
 
         for (int i = 0; i < (int)_num_elems - 1; ++i) {
-            dict_word_info[i].len = dict_word_info[i+1].ptr - dict_word_info[i].ptr;
+            dict_word_info[i].len = (char*)dict_word_info[i+1].ptr - (char*)dict_word_info[i].ptr;
         }
-        dict_word_info[_num_elems-1].len = dict_word_info[_num_elems].ptr - dict_word_info[_num_elems-1].ptr;
+
+        uint32_t offset = decode_fixed32_le((uint8_t*)offset_ptr);
+        dict_word_info[_num_elems-1].len = (data_begin + offset) - (char*)dict_word_info[_num_elems-1].ptr;
     }
 
 private:
