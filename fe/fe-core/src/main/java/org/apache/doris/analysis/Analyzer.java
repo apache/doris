@@ -707,7 +707,8 @@ public class Analyzer {
 
     /**
      * Register a virtual column, and it is not a real column exist in table,
-     * so it does not need to resolve.
+     * so it does not need to resolve. now virtual slot: only use in grouping set to generate grouping id,
+     * so it should always is not nullable
      */
     public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
             throws AnalysisException {
@@ -722,7 +723,7 @@ public class Analyzer {
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
         result.setColumn(col);
-        result.setIsNullable(true);
+        result.setIsNullable(col.isAllowNull());
         slotRefMap.put(key, result);
         return result;
     }
