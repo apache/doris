@@ -92,7 +92,8 @@ private:
     template <typename Y>
     void insert_default_value_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<Y>* res_ptr) {
         auto& res_data = res_ptr->get_data();
-        res_data.reserve(res_ptr->size() + sel_size);
+        DCHECK(res_data.empty());
+        res_data.reserve(sel_size);
         Y* y = (Y*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
             y[i] = T(data[sel[i]]);
