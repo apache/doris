@@ -147,9 +147,12 @@ protected:
             return *this;
         }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
         intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) {
             rhs.t = nullptr;
         }
+#pragma GCC diagnostic pop
 
         intrusive_ptr& operator=(intrusive_ptr&& rhs) {
             intrusive_ptr(static_cast<intrusive_ptr&&>(rhs)).swap(*this);
