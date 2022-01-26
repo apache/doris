@@ -46,13 +46,10 @@ namespace segment_v2 {
 //   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
-    explicit BitmapRangeIterator(const roaring::Roaring& bitmap)
-            : _last_val(0), _buf(new uint32_t[256]), _buf_pos(0), _buf_size(0), _eof(false) {
+    explicit BitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
         _read_next_batch();
     }
-
-    ~BitmapRangeIterator() { delete[] _buf; }
 
     bool has_more_range() const { return !_eof; }
 
@@ -63,34 +60,35 @@ public:
             return false;
         }
         *from = _buf[_buf_pos];
-        uint32_t range_size = 0;
+        uint32_t range_size = 0, last_val;
         do {
-            _last_val = _buf[_buf_pos];
+            last_val = _buf[_buf_pos];
             _buf_pos++;
             range_size++;
-            if (_buf_pos == _buf_size) { // read next batch
+            if (UNLIKELY(_buf_pos == _buf_size)) { // read next batch
                 _read_next_batch();
+                if (_eof)  {
+                    break;
+                }
             }
-        } while (range_size < max_range_size && !_eof && _buf[_buf_pos] == _last_val + 1);
+        } while (range_size < max_range_size && _buf[_buf_pos] == last_val + 1);
         *to = *from + range_size;
         return true;
     }
 
 private:
     void _read_next_batch() {
-        uint32_t n = roaring::api::roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
         _buf_pos = 0;
-        _buf_size = n;
-        _eof = n == 0;
+        _buf_size = roaring::api::roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
+        _eof = (_buf_size == 0);
     }
 
     static const uint32_t kBatchSize = 256;
     roaring::api::roaring_uint32_iterator_t _iter;
-    uint32_t _last_val;
-    uint32_t* _buf = nullptr;
-    uint32_t _buf_pos;
-    uint32_t _buf_size;
-    bool _eof;
+    uint32_t _buf[kBatchSize];
+    uint32_t _buf_pos = 0;
+    uint32_t _buf_size = 0;
+    bool _eof = false;
 };
 
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema,
@@ -226,7 +224,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
 
     if (!_row_bitmap.isEmpty() &&
-        (_opts.conditions != nullptr || _opts.delete_conditions.size() > 0)) {
+        (_opts.conditions != nullptr || !_opts.delete_conditions.empty())) {
         RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
@@ -622,10 +620,11 @@ void SegmentIterator::_vec_init_lazy_materialization() {
                 if (_pre_eval_block_predicate == nullptr) {
                     _pre_eval_block_predicate = new AndBlockColumnPredicate();
                 }
-                reinterpret_cast<MutilColumnBlockPredicate*>(_pre_eval_block_predicate)->add_column_predicate(new SingleColumnBlockPredicate(predicate));
+                _pre_eval_block_predicate->add_column_predicate(new SingleColumnBlockPredicate(predicate));
             }
         }
 
+        // handle delete_condition
         std::set<ColumnId> del_cond_id_set;
         _opts.delete_condition_predicates.get()->get_all_column_ids(del_cond_id_set);
         short_cir_pred_col_id_set.insert(del_cond_id_set.begin(), del_cond_id_set.end());
@@ -662,7 +661,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
 
         // when _is_all_column_basic_type = true, _first_read_column_ids should keep the same order with _schema.column_ids which stands for return column order
         for (int i = 0; i < _schema.num_column_ids(); i++) {
-            auto cid = _schema.column_ids()[i];
+            auto cid = _schema.column_id(i);
             if (pred_set.find(cid) != pred_set.end()) {
                 _first_read_column_ids.push_back(cid);
             } else if (non_pred_set.find(cid) != non_pred_set.end()) {
@@ -685,7 +684,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     // make _schema_block_id_map
     _schema_block_id_map.resize(_schema.columns().size());
     for (int i = 0; i < _schema.num_column_ids(); i++) {
-        auto cid = _schema.column_ids()[i];
+        auto cid = _schema.column_id(i);
         _schema_block_id_map[cid] = i;
     }
 
@@ -704,15 +703,11 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, v
 void SegmentIterator::_init_current_block(vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
     bool is_block_mem_reuse= block->mem_reuse();
     if (is_block_mem_reuse) {
-        size_t column_to_keep = _schema.num_column_ids();
-        for (int i = block->columns() - 1; i >= column_to_keep; i--) {
-            block->erase(i);
-        }
-        block->clear_column_data();
+        block->clear_column_data(_schema.num_column_ids());
     } else { // pre fill output block here
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
-            auto cid = _schema.column_ids()[i];
-            auto* column_desc = _schema.columns()[cid];
+            auto cid = _schema.column_id(i);
+            auto column_desc = _schema.column(cid);
             auto data_type = Schema::get_data_type_ptr(column_desc->type());
             if (column_desc->is_nullable()) {
                 block->insert({nullptr, std::make_shared<vectorized::DataTypeNullable>(std::move(data_type)), column_desc->name()});
@@ -723,11 +718,11 @@ void SegmentIterator::_init_current_block(vectorized::Block* block, std::vector<
     }
 
     for (size_t i = 0; i < _schema.num_column_ids(); i++) {
-        auto cid = _schema.column_ids()[i];
+        auto cid = _schema.column_id(i);
         if (_is_pred_column[cid]) {  //todo(wb) maybe we can relase it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
-            auto &column_desc = _schema.columns()[cid];
+            auto column_desc = _schema.column(cid);
             if (is_block_mem_reuse) {
                 current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
             } else {
@@ -797,10 +792,9 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 }
 
 void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t& selected_size) {
-    uint16_t new_size = 0;
-    if (_vec_pred_column_ids.size() == 0) {
+    if (_vec_pred_column_ids.empty()) {
         for (uint32_t i = 0; i < selected_size; ++i) {
-            sel_rowid_idx[new_size++] = i;
+            sel_rowid_idx[i] = i;
         }
         return;
     }
@@ -814,6 +808,7 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
     const uint32_t sel_end = sel_pos + selected_size;
     static constexpr size_t SIMD_BYTES = 32;
     const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
+    uint16_t new_size = 0;
 
     while (sel_pos < sel_end_simd) {
         auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
@@ -836,7 +831,7 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
 }
 
 void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx, uint16_t* selected_size_ptr) {
-    if (_short_cir_pred_column_ids.size() == 0) {
+    if (_short_cir_pred_column_ids.empty()) {
         return;
     }
 
@@ -872,13 +867,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         RETURN_IF_ERROR(_init(true));
         _inited = true;
         if (!_vec_pred_column_ids.empty() || !_short_cir_pred_column_ids.empty()) {
-            _block_rowids.reserve(_opts.block_row_max);
+            _block_rowids.resize(_opts.block_row_max);
         }
         _current_return_columns.resize(_schema.columns().size());
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
-            auto cid = _schema.column_ids()[i];
+            auto cid = _schema.column_id(i);
             if (_is_pred_column[cid]) {
-                auto& column_desc = _schema.columns()[cid];
+                auto column_desc = _schema.column(cid);
                 _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(column_desc->type(), column_desc->is_nullable());
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
@@ -889,20 +884,20 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
-    _read_columns_by_index(nrows_read_limit, nrows_read, _col_predicates.size() > 0);
+    _read_columns_by_index(nrows_read_limit, nrows_read, !_col_predicates.empty());
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += nrows_read;
 
     if (nrows_read == 0) {
         for (int i = 0; i < _schema.num_column_ids(); i++) {
-            auto cid = _schema.column_ids()[i];
+            auto cid = _schema.column_id(i);
             // todo(wb) abstract make column where
             if (!_is_pred_column[cid]) { // non-predicate
                 block->replace_by_position(i, std::move(_current_return_columns[cid]));
             } else { // predicate
                 if (!is_mem_reuse) {
-                    auto* column_desc = _schema.columns()[cid];
+                    auto column_desc = _schema.column(cid);
                     auto data_type = Schema::get_data_type_ptr(column_desc->type());
                     block->replace_by_position(i, data_type->create_column());
                 }
@@ -916,7 +911,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     }
 
     // when no predicate(include delete condition) is provided, output column directly
-    if (_vec_pred_column_ids.size() == 0 && _short_cir_pred_column_ids.size() == 0) {
+    if (_vec_pred_column_ids.empty() && _short_cir_pred_column_ids.empty()) {
         _output_non_pred_columns(block, is_mem_reuse);
     } else { // need predicate evaluation
         uint16_t selected_size = nrows_read;
@@ -926,7 +921,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
 
         // When predicate column and no-predicate column are both basic type, lazy materialization is eliminate
-        // So output block directly after vecorization evaluation
+        // So output block directly after vectorization evaluation
         if (_is_all_column_basic_type) {
             _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
             return Status::OK();
@@ -939,7 +934,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _evaluate_short_circuit_predicate(sel_rowid_idx, &selected_size);
 
         // step3: read non_predicate column
-        if (_non_predicate_columns.size() != 0) {
+        if (!_non_predicate_columns.empty()) {
             _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx, selected_size, &_current_return_columns);
         }
 
@@ -951,7 +946,6 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _output_column_by_sel_idx(block, _short_cir_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
         // 4.3 output vectorizatioin predicate column
         _output_column_by_sel_idx(block, _vec_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
-
     }
 
     return Status::OK();
