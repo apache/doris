@@ -126,6 +126,7 @@ if [ $# == 1 ] ; then
 else
     BUILD_BE=0
     BUILD_FE=0
+    BUILD_BROKER=0
     BUILD_UI=0
     BUILD_SPARK_DPP=0
     CLEAN=0
