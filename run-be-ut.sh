@@ -127,7 +127,7 @@ else
 fi
 
 cd ${CMAKE_BUILD_DIR}
-${CMAKE_CMD} -G "${GENERATOR}" ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+${CMAKE_CMD} -DCMAKE_MAKE_PROGRAM="${BUILD_SYSTEM}" ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
     -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${CMAKE_USE_CCACHE}
 ${BUILD_SYSTEM} -j ${PARALLEL} $RUN_FILE
 
@@ -152,6 +152,14 @@ done
 mkdir -p $LOG_DIR
 mkdir -p ${UDF_RUNTIME_DIR}
 rm -f ${UDF_RUNTIME_DIR}/*
+
+# clean all gcda file
+
+gcda_files=`find ${DORIS_TEST_BINARY_DIR} -name "*gcda"`
+for gcda_file in ${gcda_files[@]}
+do
+    rm $gcda_file
+done
 
 export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/test/
 
