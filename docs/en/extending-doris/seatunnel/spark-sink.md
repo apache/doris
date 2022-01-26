@@ -26,7 +26,7 @@ under the License.
 
 # Seatunnel
 
-The newest [seatunnel (waterdop) ](https://interestinglab.github.io/seatunnel-docs/#/) has supported Doris connector,
+The newest [Apache SeaTunnel (waterdop) ](https://seatunnel.apache.org) has supported Doris connector,
 seatunnel can load data by Spark engine or Flink engine. 
 
 In fact,seatunnel load data by stream load function.Everyone is welcome to use
