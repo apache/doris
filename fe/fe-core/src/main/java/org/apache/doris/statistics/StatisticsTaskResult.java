@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import com.google.common.collect.Maps;
-
 import java.util.Map;
 
 public class StatisticsTaskResult {
