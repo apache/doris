@@ -49,8 +49,8 @@ public class Schema {
         this.properties = properties;
     }
 
-    public void put(String name, String type, String comment, int scale, int precision,String aggregation_type) {
-        properties.add(new Field(name, type, comment, scale, precision,aggregation_type));
+    public void put(String name, String type, String comment, int scale, int precision, String aggregation_type) {
+        properties.add(new Field(name, type, comment, scale, precision, aggregation_type));
     }
 
     public void put(Field f) {

@@ -30,7 +30,7 @@ public class Field {
 
     public Field() { }
 
-    public Field(String name, String type, String comment, int precision, int scale,String aggregation_type) {
+    public Field(String name, String type, String comment, int precision, int scale, String aggregation_type) {
         this.name = name;
         this.type = type;
         this.comment = comment;
