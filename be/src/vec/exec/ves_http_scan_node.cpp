@@ -107,14 +107,11 @@ Status VEsHttpScanNode::scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
 
     const int batch_size = _runtime_state->batch_size();
     std::unique_ptr<MemPool> tuple_pool(new MemPool(mem_tracker().get()));
-    size_t slot_num = _tuple_desc->slots().size();
 
     while (!scanner_eof) {
         std::shared_ptr<vectorized::Block> block(new vectorized::Block());
-        std::vector<vectorized::MutableColumnPtr> columns(slot_num);
-        for (int i = 0; i < slot_num; i++) {
-            columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
-        }
+        MutableColumns columns = Block::get_colums_by_slots(_tuple_desc->slots());
+
         while (columns[0]->size() < batch_size && !scanner_eof) {
             RETURN_IF_CANCELLED(_runtime_state);
 

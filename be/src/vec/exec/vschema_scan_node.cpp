@@ -66,17 +66,12 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
-    std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
+    MutableColumns columns;
     bool schema_eos = false;
 
     do {
-        for (int i = 0; i < _slot_num; ++i) {
-            if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
-            } else {
-                columns[i] = _dest_tuple_desc->slots()[i]->get_empty_mutable_column();
-            }
-        }
+        columns = mem_reuse ? block->mutate_columns(_slot_num)
+                            : Block::get_colums_by_slots(_dest_tuple_desc->slots());
         while (true) {
             RETURN_IF_CANCELLED(state);
 
@@ -136,7 +131,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     return Status::OK();
 }
 
-Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, 
+Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot,
                                                         SlotDescriptor* slot_desc,
                                                         vectorized::MutableColumnPtr* column_ptr) {
     vectorized::IColumn* col_ptr = column_ptr->get();

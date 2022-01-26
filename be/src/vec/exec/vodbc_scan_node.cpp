@@ -44,27 +44,18 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     auto odbc_scanner = get_odbc_scanner();
     auto tuple_desc = get_tuple_desc();
     auto text_converter = get_text_converter();
-
     auto column_size = tuple_desc->slots().size();
-    std::vector<MutableColumnPtr> columns(column_size);
-
+    MutableColumns columns;
     bool mem_reuse = block->mem_reuse();
     // only empty block should be here
     DCHECK(block->rows() == 0);
-
     // Indicates whether there are more rows to process. Set in _odbc_scanner.next().
     bool odbc_eos = false;
 
     do {
         RETURN_IF_CANCELLED(state);
-
-        for (auto i = 0; i < column_size; i++) {
-            if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
-            } else {
-                columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
-            }
-        }
+        columns = mem_reuse ? block->mutate_columns(column_size)
+                            : Block::get_colums_by_slots(tuple_desc->slots());
 
         for (int row_index = 0; true; row_index++) {
             // block is full, break

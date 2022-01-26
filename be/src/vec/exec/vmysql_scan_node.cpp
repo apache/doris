@@ -42,17 +42,12 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
-    std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
+    MutableColumns columns;
     bool mysql_eos = false;
 
     do {
-        for (int i = 0; i < _slot_num; ++i) {
-            if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
-            } else {
-                columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
-            }
-        }
+        columns = mem_reuse ? block->mutate_columns(_slot_num)
+                            : Block::get_colums_by_slots(_tuple_desc->slots());
         while (true) {
             RETURN_IF_CANCELLED(state);
             int batch_size = state->batch_size();

@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "gen_cpp/data.pb.h"
+#include "runtime/descriptors.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block_info.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -80,6 +81,8 @@ public:
     /// insert the column to the end, if there is no column with that name yet
     void insert_unique(const ColumnWithTypeAndName& elem);
     void insert_unique(ColumnWithTypeAndName&& elem);
+    /// insert from slot
+    void insert_from_slots(const std::vector<SlotDescriptor*>& slots, int reserve = -1);
     /// remove the column at the specified position
     void erase(size_t position);
     /// remove the columns at the specified positions
@@ -204,6 +207,7 @@ public:
 
     /** Get columns from block for mutation. Columns in block will be nullptr. */
     MutableColumns mutate_columns();
+    MutableColumns mutate_columns(int size);
 
     /** Replace columns in a block */
     void set_columns(MutableColumns&& columns);
@@ -249,6 +253,8 @@ public:
     void serialize(RowBatch*, const RowDescriptor&);
 
     std::unique_ptr<Block> create_same_struct_block(size_t size) const;
+
+    static MutableColumns get_colums_by_slots(const std::vector<SlotDescriptor*>& slots);
 
     /** Compares (*this) n-th row and rhs m-th row. 
       * Returns negative number, 0, or positive number  (*this) n-th row is less, equal, greater than rhs m-th row respectively.

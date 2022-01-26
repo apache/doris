@@ -154,6 +154,16 @@ void Block::insert_unique(ColumnWithTypeAndName&& elem) {
     }
 }
 
+void Block::insert_from_slots(const std::vector<SlotDescriptor*>& slots, int reserve) {
+    for (const auto slot : slots) {
+        auto col_ptr = slot->get_empty_mutable_column();
+        if (reserve != -1) {
+            col_ptr->reserve(reserve);
+        }
+        insert({std::move(col_ptr), slot->get_data_type_ptr(), slot->col_name()});
+    }
+}
+
 void Block::erase(const std::set<size_t>& positions) {
     for (auto it = positions.rbegin(); it != positions.rend(); ++it) {
         erase(*it);
@@ -435,6 +445,15 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
+        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+                                    : data[i].type->create_column();
+    }
+    return columns;
+}
+
+MutableColumns Block::mutate_columns(int size) {
+    MutableColumns columns(size);
+    for (size_t i = 0; i < size; ++i) {
         columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
                                     : data[i].type->create_column();
     }
@@ -942,5 +961,14 @@ void Block::shrink_char_type_column_suffix_zero(std::vector<size_t> char_type_id
                             ->get_shinked_column();
         }
     }
+}
+
+MutableColumns Block::get_colums_by_slots(const std::vector<SlotDescriptor*>& slots) {
+    auto slot_num = slots.size();
+    MutableColumns columns(slot_num);
+    for (int i = 0; i < slot_num; ++i) {
+        columns[i] = slots[i]->get_empty_mutable_column();
+    }
+    return columns;
 }
 } // namespace doris::vectorized

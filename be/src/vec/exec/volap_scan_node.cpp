@@ -77,12 +77,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 
     for (int i = 0; i < pre_block_count; ++i) {
         auto block = new Block;
-        for (const auto slot_desc : _tuple_desc->slots()) {
-            auto column_ptr = slot_desc->get_empty_mutable_column();
-            column_ptr->reserve(block_size);
-            block->insert(ColumnWithTypeAndName(
-                    std::move(column_ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
-        }
+        block->insert_from_slots(_tuple_desc->slots(), block_size);
         _free_blocks.emplace_back(block);
         _buffered_bytes += block->allocated_bytes();
     }

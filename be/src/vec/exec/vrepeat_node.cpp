@@ -82,14 +82,8 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
     bool mem_reuse = output_block->mem_reuse();
     DCHECK_EQ(child_column_size, _child_slots.size());
     DCHECK_LT(child_column_size, column_size);
-    std::vector<vectorized::MutableColumnPtr> columns(column_size);
-    for (size_t i = 0; i < column_size; i++) {
-        if (mem_reuse) {
-            columns[i] = std::move(*output_block->get_by_position(i).column).mutate();
-        } else {
-            columns[i] = _output_slots[i]->get_empty_mutable_column();
-        }
-    }
+    MutableColumns columns = mem_reuse ? output_block->mutate_columns(column_size)
+                                       : Block::get_colums_by_slots(_output_slots);
 
     /* Fill all slots according to child, for example:select tc1,tc2,sum(tc3) from t1 group by grouping sets((tc1),(tc2));
      * insert into t1 values(1,2,1),(1,3,1),(2,1,1),(3,1,1);
