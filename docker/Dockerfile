@@ -19,7 +19,8 @@ FROM centos:7 AS builder
 
 # install dependencies
 RUN yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2 \
-    bison java-11-openjdk-devel java-1.8.0-openjdk-devel
+    bison java-11-openjdk-devel java-1.8.0-openjdk-devel centos-release-scl-rh && \
+    yum install -y devtoolset-10-build devtoolset-10-gdb
 
 # install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
@@ -64,6 +65,7 @@ FROM scratch
 COPY --from=builder / /
 ENV JAVA_HOME="/usr/lib/jvm/java-11" \
     MAVEN_HOME="/usr/share/maven" \
+    PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable" \
     REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
     PATH="/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:$PATH" \
