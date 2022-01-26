@@ -438,7 +438,8 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value decimal_value(1.1);
+        DecimalV2Value decimal_value;
+        decimal_value.assign_from_double(1.1);
         *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
 
         *(int8_t*)(tuple->get_slot(slots[10]->tuple_offset())) = -127;
@@ -463,7 +464,9 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value val_decimal(1.1);
+        DecimalV2Value val_decimal;
+        val_decimal.assign_from_double(1.1);
+
         *(DecimalV2Value*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
 
         res = delta_writer->write(tuple);

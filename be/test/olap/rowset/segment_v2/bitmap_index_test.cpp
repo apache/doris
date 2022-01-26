@@ -66,7 +66,8 @@ void write_index_file(std::string& filename, const void* values, size_t value_co
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts(filename);
-        ASSERT_TRUE(fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
+        ASSERT_TRUE(
+                fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
         BitmapIndexWriter::create(type_info, &writer);
@@ -239,7 +240,7 @@ TEST_F(BitmapIndexTest, test_null) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

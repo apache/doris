@@ -33,9 +33,9 @@
 #include "runtime/mem_tracker.h"
 #include "test_util/test_util.h"
 #include "util/file_utils.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_nothing.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/data_type_number.h"
 
 using std::string;
 
@@ -802,7 +802,7 @@ TEST_F(ColumnReaderWriterTest, test_v_default_value) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
