@@ -77,13 +77,10 @@ public class DatabaseProperty implements Writable {
         return icebergProperty;
     }
 
-    public void putAll(Map<String, String> properties) {
+    public void addAndBuildProperties(Map<String, String> properties) throws DdlException {
         this.properties.putAll(properties);
-    }
-
-    public void checkAndBuildProperties() throws DdlException {
         Map<String, String> icebergProperties = new HashMap<>();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : this.properties.entrySet()) {
             if (entry.getKey().startsWith(ICEBERG_PROPERTY_PREFIX)) {
                 icebergProperties.put(entry.getKey(), entry.getValue());
             }
