@@ -233,12 +233,11 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, uint32_t* start_offset_array, uint32_t* len_array) {
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, WordInfo* dict_word_info) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
     _bit_shuffle_ptr = reinterpret_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(_data_page_decoder.get());
-    _start_offset_array = start_offset_array;
-    _len_array = len_array;
-};
+    _dict_word_info = dict_word_info;
+}
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
     if (_encoding_type == PLAIN_ENCODING) {
@@ -271,16 +270,16 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
         auto* string_value_column_ptr = reinterpret_cast<vectorized::ColumnStringValue*>(dst_col_ptr);
         for (int i = 0; i < max_fetch; i++, start_index++) {
             int32_t codeword = data_array[start_index];
-            uint32_t start_offset = _start_offset_array[codeword];
-            uint32_t str_len = _len_array[codeword];
+            uint32_t start_offset = _dict_word_info[codeword].start_offset;
+            uint32_t str_len = _dict_word_info[codeword].len;
             string_value_column_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
         }
     } else {
-             // todo(wb) research whether using batch memcpy to insert columnString can has better performance when data set is big
+         // todo(wb) research whether using batch memcpy to insert columnString can has better performance when data set is big
         for (int i = 0; i < max_fetch; i++, start_index++) {
             int32_t codeword = data_array[start_index];
-            const uint32_t start_offset = _start_offset_array[codeword];
-            const uint32_t str_len = _len_array[codeword];
+            uint32_t start_offset = _dict_word_info[codeword].start_offset;
+            uint32_t str_len = _dict_word_info[codeword].len;
             dst_col_ptr->insert_data(&_dict_decoder->_data[start_offset], str_len);
         }
     }
@@ -314,7 +313,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     for (int i = 0; i < len; ++i) {
         int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder
-        *out = Slice(&_dict_decoder->_data[_start_offset_array[codeword]], _len_array[codeword]);
+        *out = Slice(&_dict_decoder->_data[_dict_word_info[codeword].start_offset], _dict_word_info[codeword].len);
         mem_len[i] = out->size;
         out++;
     }

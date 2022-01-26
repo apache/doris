@@ -26,6 +26,7 @@
 #include "gen_cpp/segment_v2.pb.h"                      // for ColumnMetaPB
 #include "olap/olap_cond.h"                             // for CondColumn
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
+#include "olap/rowset/segment_v2/binary_dict_page.h"    // for BinaryDictPageDecoder::WordInfo
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
@@ -169,10 +170,12 @@ private:
     uint64_t _num_rows;
     FilePathDesc _path_desc;
 
-    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
-    const EncodingInfo* _encoding_info =
-            nullptr; // initialized in init(), used for create PageDecoder
-    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
+    // initialized in init(), may changed by subclasses.
+    const TypeInfo* _type_info = nullptr; 
+    // initialized in init(), used for create PageDecoder
+    const EncodingInfo* _encoding_info = nullptr; 
+    // initialized in init()
+    const BlockCompressionCodec* _compress_codec = nullptr; 
 
     // meta for various column indexes (null if the index is absent)
     const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
@@ -320,8 +323,7 @@ private:
     // current value ordinal
     ordinal_t _current_ordinal = 0;
 
-    uint32_t* _dict_start_offset_array = nullptr;
-    uint32_t* _dict_len_array = nullptr;
+    BinaryDictPageDecoder::WordInfo* _dict_word_info = nullptr; 
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
