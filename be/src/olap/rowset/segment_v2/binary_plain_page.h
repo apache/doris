@@ -313,8 +313,7 @@ public:
             dict_word_info[i].len = (char*)dict_word_info[i+1].ptr - (char*)dict_word_info[i].ptr;
         }
 
-        uint32_t offset = decode_fixed32_le((uint8_t*)offset_ptr);
-        dict_word_info[_num_elems-1].len = (data_begin + offset) - (char*)dict_word_info[_num_elems-1].ptr;
+        dict_word_info[_num_elems-1].len = (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems-1].ptr;
     }
 
 private:
