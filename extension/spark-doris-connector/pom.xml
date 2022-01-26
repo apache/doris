@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <!--
     Licensed to the Apache Software Foundation (ASF) under one
     or more contributor license agreements.  See the NOTICE file
@@ -18,9 +17,7 @@
     specific language governing permissions and limitations
     under the License.
 -->
-
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xmlns="http://maven.apache.org/POM/4.0.0"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
@@ -50,7 +47,6 @@
         <system>GitHub</system>
         <url>https://github.com/apache/incubator-doris/issues</url>
     </issueManagement>
-
     <mailingLists>
         <mailingList>
             <name>Dev Mailing List</name>
@@ -58,7 +54,6 @@
             <subscribe>dev-subscribe@doris.apache.org</subscribe>
             <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
         </mailingList>
-
         <mailingList>
             <name>Commits Mailing List</name>
             <post>commits@doris.apache.org</post>
@@ -66,7 +61,6 @@
             <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
         </mailingList>
     </mailingLists>
-
     <properties>
         <scala.version>${env.scala.version}</scala.version>
         <spark.version>${env.spark.version}</spark.version>
@@ -79,7 +73,6 @@
         <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
         <project.scm.id>github</project.scm.id>
     </properties>
-
     <profiles>
         <!-- for custom internal repository -->
         <profile>
@@ -89,14 +82,12 @@
                     <name>env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>custom-nexus</id>
                     <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </repository>
             </repositories>
-
             <pluginRepositories>
                 <pluginRepository>
                     <id>custom-nexus</id>
@@ -130,7 +121,6 @@
                     <name>!env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>central</id>
@@ -140,7 +130,6 @@
             </repositories>
         </profile>
     </profiles>
-
     <dependencies>
         <dependency>
             <groupId>org.apache.spark</groupId>
@@ -207,13 +196,11 @@
             <version>${spark.version}</version>
             <scope>test</scope>
         </dependency>
-
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.10.0</version>
         </dependency>
-
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
@@ -225,9 +212,7 @@
             <version>4.1.27.Final</version>
             <scope>provided</scope>
         </dependency>
-
     </dependencies>
-
     <build>
         <plugins>
             <!-- add gensrc java build src dir -->
@@ -387,5 +372,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>
