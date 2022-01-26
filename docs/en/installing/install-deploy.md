@@ -50,6 +50,28 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 | Java | 1.8 and above |
 | GCC  | 4.8.2 and above |
 
+#### OS Installation Requirements
+
+##### Set the maximum number of open file handles in the system
+
+````
+vi /etc/security/limits.conf
+*soft nofile 65536
+*hard nofile 65536
+````
+
+##### Clock synchronization
+
+The metadata of Doris requires the time precision to be less than 5000ms, so all machines in the cluster need to synchronize the clocks to avoid service exceptions caused by inconsistencies in metadata caused by clock problems.
+
+##### Close the swap partition (swap)
+
+The Linux swap partition will cause serious performance problems for Doris, you need to disable the swap partition before installation
+
+##### Linux file system
+
+Here we recommend using the ext4 file system. When installing the operating system, please select the ext4 file system.
+
 #### Development Test Environment
 
 | Module | CPU | Memory | Disk | Network | Instance Number|
