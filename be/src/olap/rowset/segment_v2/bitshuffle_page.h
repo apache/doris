@@ -368,9 +368,7 @@ public:
             dst_col_ptr = nullable_column->get_nested_column_ptr().get();
 
             // fill null bitmap here, not null;
-            for (int j = begin; j < end; j++) {
-                nullable_column->get_null_map_data().push_back(0);
-            }
+            nullable_column->get_null_map_column().insert_zeroed_elements(end - begin);
         }
 
         // todo(wb) Try to eliminate type judgment in pagedecoder
@@ -403,10 +401,7 @@ public:
                 dst_col_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
             }
         } else {
-            // todo(wb) batch insert here
-            for (; begin < end; begin++) {
-                dst_col_ptr->insert_data((const char*)&_chunk.data[begin * SIZE_OF_TYPE], 0);
-            }
+            dst_col_ptr->insert_elements(&_chunk.data[begin * SIZE_OF_TYPE], (end - begin));
         }
 
         *n = max_fetch;

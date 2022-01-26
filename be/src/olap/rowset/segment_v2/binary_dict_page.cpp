@@ -263,12 +263,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     if (dst->is_nullable()) {
         auto nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
         dst_col_ptr = nullable_column->get_nested_column_ptr().get();
-        
-        // fill null bitmap here, not null;
-        // todo(wb) using SIMD speed up here
-        for (int i = 0; i < max_fetch; i++) {
-            nullable_column->get_null_map_data().push_back(0);
-        }
+        nullable_column->get_null_map_column().insert_zeroed_elements(max_fetch);
     }
 
     if (dst_col_ptr->is_predicate_column()) {

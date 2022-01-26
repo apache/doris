@@ -208,6 +208,35 @@ public:
 
     void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
 
+    void insert_elements(void* elements, size_t num) {
+        auto old_size = data.size();
+        auto new_size = old_size + num;
+        data.resize(new_size);
+        memcpy(&data[old_size], elements, sizeof(value_type) * num);
+    }
+
+    void insert_elements(const value_type& element, size_t num) {
+        auto old_size = data.size();
+        auto new_size = old_size + num;
+        data.resize(new_size);
+        if constexpr (std::is_same_v<value_type, int8_t>) {
+            memset(&data[old_size], element, sizeof(value_type) * num);
+        } else if constexpr (std::is_same_v<value_type, uint8_t>) {
+            memset(&data[old_size], element, sizeof(value_type) * num);
+        } else {
+            for (size_t i = 0; i < num; ++i) {
+                data[old_size + i] = element;
+            }
+        }
+    }
+
+    void insert_zeroed_elements(size_t num) {
+        auto old_size = data.size();
+        auto new_size = old_size + num;
+        data.resize(new_size);
+        memset(&data[old_size], 0, sizeof(value_type) * num);
+    }
+
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
 
     // note(wb) this method is only used in storage layer now
