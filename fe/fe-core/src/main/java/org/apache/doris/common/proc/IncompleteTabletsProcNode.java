@@ -29,7 +29,7 @@ import java.util.Collections;
 public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("UnhealthyTablets").add("InconsistentTablets").add("CloningTablets").add("BadTablets")
-            .add("CompactionTooSlowTablets").add("LargeDataSizeTablets")
+            .add("CompactionTooSlowTablets").add("OversizeTablets")
             .build();
     private static final Joiner JOINER = Joiner.on(",");
 
@@ -48,7 +48,7 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
                 JOINER.join(statistic.cloningTabletIds),
                 JOINER.join(statistic.unrecoverableTabletIds),
                 JOINER.join(statistic.compactionTooSlowTabletIds),
-                JOINER.join(statistic.largeDataSizeTabletIds)
+                JOINER.join(statistic.oversizeTabletIds)
         )));
     }
 
