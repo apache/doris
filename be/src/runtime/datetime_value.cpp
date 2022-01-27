@@ -102,7 +102,7 @@ bool DateTimeValue::from_date_str(const char* date_str, int len) {
     int digits = pos - ptr;
     bool is_interval_format = false;
 
-    // Compatible with MySQL. Shit!!!
+    // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
     if (pos == end || *pos == '.') {
         if (digits == 4 || digits == 8 || digits >= 14) {
@@ -122,7 +122,7 @@ bool DateTimeValue::from_date_str(const char* date_str, int len) {
         while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) {
             temp_val = temp_val * 10 + (*ptr++ - '0');
         }
-        // Imposible
+        // Impossible
         if (temp_val > 999999L) {
             return false;
         }

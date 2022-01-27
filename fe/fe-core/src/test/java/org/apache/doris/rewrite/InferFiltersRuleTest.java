@@ -18,8 +18,6 @@
 
 package org.apache.doris.rewrite;
 
-import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 
 import org.apache.doris.qe.SessionVariable;
@@ -32,17 +30,12 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.util.Map;
 import java.util.UUID;
 
-
-
 public class InferFiltersRuleTest {
-
-    private static final Logger LOG = LogManager.getLogger(InferFiltersRuleTest.class);
     private static String baseDir = "fe";
     private static String runningDir = baseDir + "/mocked/InferFiltersRuleTest/"
-            + UUID.randomUUID().toString() + "/";
+            + UUID.randomUUID() + "/";
     private static DorisAssert dorisAssert;
     private static final String DB_NAME = "db1";
     private static final String TABLE_NAME_1 = "tb1";
