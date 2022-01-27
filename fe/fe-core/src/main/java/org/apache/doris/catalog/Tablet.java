@@ -540,9 +540,10 @@ public class Tablet extends MetaObject implements Writable {
             Collections.sort(versions);
             // get the max version diff
             long delta = versions.get(versions.size() - 1) - versions.get(0);
-            double ratio = (double) delta / versions.get(0);
-            if (delta > Replica.MIN_VERSION_DELTA && ratio > Replica.MIN_VERSION_DELTA_RATIO) {
-                return Pair.create(TabletStatus.REPLICA_COMPACTION_TOO_SLOW, TabletSchedCtx.Priority.NORMAL);
+            double ratio = (double) delta / versions.get(versions.size() - 1);
+            if (versions.get(versions.size() - 1) > Config.min_version_count_indicate_replica_compaction_too_slow &&
+                    ratio > Config.valid_version_count_delta_ratio_between_replicas) {
+                return Pair.create(TabletStatus.REPLICA_COMPACTION_TOO_SLOW, Priority.HIGH);
             }
         }
 
