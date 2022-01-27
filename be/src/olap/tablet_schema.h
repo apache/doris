@@ -22,7 +22,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
-#include "olap/tablet_schema.h"
 #include "olap/types.h"
 
 namespace doris {
