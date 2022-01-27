@@ -369,6 +369,7 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              "substr",
               "unhex",
               {
                 title: "fuzzy match",
