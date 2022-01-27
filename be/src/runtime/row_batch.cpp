@@ -364,73 +364,7 @@ RowBatch::~RowBatch() {
     clear();
 }
 
-size_t RowBatch::serialize(TRowBatch* output_batch) {
-    // why does Thrift not generate a Clear() function?
-    output_batch->row_tuples.clear();
-    output_batch->tuple_offsets.clear();
-    output_batch->is_compressed = false;
-
-    output_batch->num_rows = _num_rows;
-    _row_desc.to_thrift(&output_batch->row_tuples);
-    output_batch->tuple_offsets.reserve(_num_rows * _num_tuples_per_row);
-
-    size_t size = total_byte_size();
-    output_batch->tuple_data.resize(size);
-
-    // Copy tuple data, including strings, into output_batch (converting string
-    // pointers into offsets in the process)
-    int offset = 0; // current offset into output_batch->tuple_data
-    char* tuple_data = output_batch->tuple_data.data();
-    const auto& tuple_descs = _row_desc.tuple_descriptors();
-
-    for (int i = 0; i < _num_rows; ++i) {
-        TupleRow* row = get_row(i);
-        for (size_t j = 0; j < tuple_descs.size(); ++j) {
-            auto desc = tuple_descs[j];
-            if (row->get_tuple(j) == nullptr) {
-                // NULLs are encoded as -1
-                output_batch->tuple_offsets.push_back(-1);
-                continue;
-            }
-
-            // Record offset before creating copy (which increments offset and tuple_data)
-            output_batch->tuple_offsets.push_back(offset);
-            row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
-            DCHECK_LE(offset, size);
-        }
-    }
-
-    DCHECK_EQ(offset, size);
-
-    if (config::compress_rowbatches && size > 0) {
-        // Try compressing tuple_data to _compression_scratch, swap if compressed data is
-        // smaller
-        size_t max_compressed_size = snappy::MaxCompressedLength(size);
-
-        if (_compression_scratch.size() < max_compressed_size) {
-            _compression_scratch.resize(max_compressed_size);
-        }
-
-        size_t compressed_size = 0;
-        char* compressed_output = _compression_scratch.data();
-        snappy::RawCompress(output_batch->tuple_data.c_str(), size, compressed_output,
-                            &compressed_size);
-
-        if (LIKELY(compressed_size < size)) {
-            _compression_scratch.resize(compressed_size);
-            output_batch->tuple_data.swap(_compression_scratch);
-            output_batch->is_compressed = true;
-        }
-
-        VLOG_ROW << "uncompressed size: " << size << ", compressed size: " << compressed_size;
-    }
-
-    // The size output_batch would be if we didn't compress tuple_data (will be equal to
-    // actual batch size if tuple_data isn't compressed)
-    return get_batch_size(*output_batch) - output_batch->tuple_data.size() + size;
-}
-
-size_t RowBatch::serialize(PRowBatch* output_batch) {
+size_t RowBatch::serialize(PRowBatch* output_batch, std::string* allocated_buf) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
@@ -442,8 +376,16 @@ size_t RowBatch::serialize(PRowBatch* output_batch) {
     output_batch->set_is_compressed(false);
     // tuple data
     size_t size = total_byte_size();
-    auto mutable_tuple_data = output_batch->mutable_tuple_data();
-    mutable_tuple_data->resize(size);
+    std::string* mutable_tuple_data = nullptr;
+    if (allocated_buf != nullptr) {
+        allocated_buf->resize(size);
+        // all tuple data will be written in the allocated_buf
+        // instead of tuple_data in PRowBatch
+        mutable_tuple_data = allocated_buf;
+    } else {
+        mutable_tuple_data = output_batch->mutable_tuple_data();
+        mutable_tuple_data->resize(size);
+    }
 
     // Copy tuple data, including strings, into output_batch (converting string
     // pointers into offsets in the process)

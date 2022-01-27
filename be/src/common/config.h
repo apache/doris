@@ -533,7 +533,7 @@ CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 // Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
 // through brpc, this will be faster and avoid the error of Request length overflow.
-CONF_mBool(transfer_data_by_brpc_attachment, "false");
+CONF_mBool(transfer_data_by_brpc_attachment, "true");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager

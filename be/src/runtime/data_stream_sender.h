@@ -95,8 +95,7 @@ public:
     /// Serializes the src batch into the dest thrift batch. Maintains metrics.
     /// num_receivers is the number of receivers this batch will be sent to. Only
     /// used to maintain metrics.
-    template <class T>
-    Status serialize_batch(RowBatch* src, T* dest, int num_receivers = 1);
+    Status serialize_batch(RowBatch* src, PRowBatch* dest, int num_receivers = 1);
 
     // Return total number of bytes sent in TRowBatch.data. If batches are
     // broadcast to multiple receivers, they are counted once per receiver.
@@ -252,6 +251,16 @@ private:
     PRowBatch _pb_batch1;
     PRowBatch _pb_batch2;
 
+    // These two buffer are used to store the serialized rowbatch data.
+    // Only works when `config::transfer_data_by_brpc_attachment` is true.
+    // The data in the buffer is copied to the attachment of the brpc when it is sent,
+    // to avoid an extra pb serialization in the brpc.
+    // The two buffers are used interchangeably, similar to _pb_batch1 and _pb_batch2 above.
+    // `_tuple_data_buffer_ptr` will point to one of 2 buffers.
+    std::string* _tuple_data_buffer_ptr = nullptr;
+    std::string _tuple_data_buffer1;
+    std::string _tuple_data_buffer2;
+
     std::vector<ExprContext*> _partition_expr_ctxs; // compute per-row partition values
 
     // map from range value to partition_id
@@ -265,6 +274,8 @@ private:
 
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
+
+    bool _transfer_data_by_brpc_attachment = false;
 };
 
 } // namespace doris

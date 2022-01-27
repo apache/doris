@@ -265,6 +265,10 @@ private:
     std::atomic<int64_t> _mem_exceeded_block_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
+
+    // buffer for saving serialized row batch data.
+    std::string _tuple_data_buffer;
+    std::string* _tuple_data_buffer_ptr = nullptr;
 };
 
 class IndexChannel {
@@ -448,6 +452,8 @@ protected:
     bool _is_closed = false;
     // Save the status of close() method
     Status _close_status;
+
+    bool _transfer_data_by_brpc_attachment = false;
 };
 
 } // namespace stream_load

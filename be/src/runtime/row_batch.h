@@ -356,8 +356,9 @@ public:
     // This function does not reset().
     // Returns the uncompressed serialized size (this will be the true size of output_batch
     // if tuple_data is actually uncompressed).
-    size_t serialize(TRowBatch* output_batch);
-    size_t serialize(PRowBatch* output_batch);
+    // if allocated_buf is not null, the serialized tuple data will be saved in this buf
+    // instead of `tuple_data` in PRowBatch.
+    size_t serialize(PRowBatch* output_batch, std::string* allocated_buf = nullptr);
 
     // Utility function: returns total size of batch.
     static size_t get_batch_size(const TRowBatch& batch);
