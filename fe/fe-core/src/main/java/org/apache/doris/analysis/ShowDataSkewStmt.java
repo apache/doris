@@ -30,8 +30,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
 
-// admin show data skew from tbl [partition(p1, p2, ...)]
-public class AdminShowDataSkewStmt extends ShowStmt {
+// show data skew from tbl [partition(p1, p2, ...)]
+public class ShowDataSkewStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BucketIdx").add("AvgDataSize")
             .add("Graph").add("Percent")
@@ -39,21 +39,22 @@ public class AdminShowDataSkewStmt extends ShowStmt {
 
     private TableRef tblRef;
 
-    public AdminShowDataSkewStmt(TableRef tblRef) {
+    public ShowDataSkewStmt(TableRef tblRef) {
         this.tblRef = tblRef;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-
-        // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-
         tblRef.getName().analyze(analyzer);
-
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
+                tblRef.getName().getTbl(),
+                PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA SKEW",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    tblRef.getName().getDb() + "." + tblRef.getName().getTbl());
+        }
         PartitionNames partitionNames = tblRef.getPartitionNames();
         if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
             throw new AnalysisException("Should specify one and only one partition");

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN SHOW DATA SKEW",
+    "title": "SHOW DATA SKEW",
     "language": "en"
 }
 ---
@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ADMIN SHOW DATA SKEW
+# SHOW DATA SKEW
 ## description
 
     This statement is used to view the data skew of a table or a partition.
 
     grammar:
 
-        ADMIN SHOW DATA SKEW FROM [db_name.]tbl_name [PARTITION (p1)];
+        SHOW DATA SKEW FROM [db_name.]tbl_name [PARTITION (p1)];
 
 	Description:
 
@@ -42,9 +42,9 @@ under the License.
 
     1. View the data skew of the table
 
-        ADMIN SHOW DATA SKEW FROM db1.test PARTITION(p1);
+        SHOW DATA SKEW FROM db1.test PARTITION(p1);
 
 ## keyword
 
-    ADMIN, SHOW, DATA, SKEW
+    SHOW, DATA, SKEW
 
