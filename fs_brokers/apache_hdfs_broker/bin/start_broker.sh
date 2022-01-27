@@ -16,49 +16,72 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=`dirname "$0"`
-curdir=`cd "$curdir"; pwd`
+curdir=$(dirname "$0")
+curdir=$(
+    cd "$curdir"
+    pwd
+)
 
 OPTS=$(getopt \
-  -n $0 \
-  -o '' \
-  -l 'daemon' \
-  -- "$@")
+    -n $0 \
+    -o '' \
+    -l 'daemon' \
+    -- "$@")
 
 eval set -- "$OPTS"
 
 RUN_DAEMON=0
 while true; do
     case "$1" in
-        --daemon) RUN_DAEMON=1 ; shift ;;
-        --) shift ;  break ;;
-        *) ehco "Internal error" ; exit 1 ;;
+    --daemon)
+        RUN_DAEMON=1
+        shift
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        ehco "Internal error"
+        exit 1
+        ;;
     esac
 done
 
-export BROKER_HOME=`cd "$curdir/.."; pwd`
-export PID_DIR=`cd "$curdir"; pwd`
+export BROKER_HOME=$(
+    cd "$curdir/.."
+    pwd
+)
+export PID_DIR=$(
+    cd "$curdir"
+    pwd
+)
 
 export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8"
 export BROKER_LOG_DIR="$BROKER_HOME/log"
-# export JAVA_HOME="/usr/java/jdk1.8.0_131"
 # java
-if [ "$JAVA_HOME" = "" ]; then
-  echo "Error: JAVA_HOME is not set."
-  exit 1
+if [ -z "$JAVA_HOME" ]; then
+    JAVA=$(which java)
+else
+    JAVA="$JAVA_HOME/bin/java"
 fi
 
-JAVA=$JAVA_HOME/bin/java
+if [ ! -x "$JAVA" ]; then
+    echo "The JAVA_HOME environment variable is not defined correctly"
+    echo "This environment variable is needed to run this program"
+    echo "NB: JAVA_HOME should point to a JDK not a JRE"
+    exit 1
+fi
 
 # add libs to CLASSPATH
 for f in $BROKER_HOME/lib/*.jar; do
-  CLASSPATH=$f:${CLASSPATH};
+    CLASSPATH=$f:${CLASSPATH}
 done
 export CLASSPATH=${CLASSPATH}:${BROKER_HOME}/lib:$BROKER_HOME/conf
 
 while read line; do
-    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
-    envline=`eval "echo $envline"`
+    envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
+    envline=$(eval "echo $envline")
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
@@ -67,8 +90,8 @@ done < $BROKER_HOME/conf/apache_hdfs_broker.conf
 pidfile=$PID_DIR/apache_hdfs_broker.pid
 
 if [ -f $pidfile ]; then
-    if kill -0 `cat $pidfile` > /dev/null 2>&1; then
-        echo "Broker running as process `cat $pidfile`.  Stop it first."
+    if kill -0 $(cat $pidfile) > /dev/null 2>&1; then
+        echo "Broker running as process $(cat $pidfile).  Stop it first."
         exit 1
     fi
 fi
@@ -77,12 +100,12 @@ if [ ! -d $BROKER_LOG_DIR ]; then
     mkdir -p $BROKER_LOG_DIR
 fi
 
-echo `date` >> $BROKER_LOG_DIR/apache_hdfs_broker.out
+echo $(date) >> $BROKER_LOG_DIR/apache_hdfs_broker.out
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
-    nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null &
+    nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 < /dev/null &
 else
-    $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null
+    $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 < /dev/null
 fi
 
 echo $! > $pidfile

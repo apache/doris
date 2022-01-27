@@ -81,7 +81,9 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -107,7 +109,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -115,12 +116,12 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -301,10 +302,10 @@ public class StmtExecutor implements ProfileWriter {
 
     // Execute one statement with queryId
     // The queryId will be set in ConnectContext
-    // This queryId will also be send to master FE for exec master only query.
+    // This queryId will also be sent to master FE for exec master only query.
     // query id in ConnectContext will be changed when retry exec a query or master FE return a different one.
     // Exception:
-    //  IOException: talk with client failed.
+    // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
         context.setStartTime();
 
@@ -325,6 +326,14 @@ public class StmtExecutor implements ProfileWriter {
                 // analyze this query
                 analyze(context.getSessionVariable().toThrift());
                 if (isForwardToMaster()) {
+                    if (isProxy) {
+                        // This is already a stmt forwarded from other FE.
+                        // If goes here, which means we can't find a valid Master FE(some error happens).
+                        // To avoid endless forward, throw exception here.
+                        throw new UserException("The statement has been forwarded to master FE("
+                                + Catalog.getCurrentCatalog().getSelfNode().first + ") and failed to execute" +
+                                " because Master FE is not ready. You may need to check FE's status");
+                    }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
                         context.setQueryId(masterOpExecutor.getQueryId());
@@ -340,9 +349,29 @@ public class StmtExecutor implements ProfileWriter {
 
             if (parsedStmt instanceof QueryStmt) {
                 context.getState().setIsQuery(true);
+                if (!((QueryStmt) parsedStmt).isExplain()) {
+                    // sql/sqlHash block
+                    try {
+                        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+                    } catch (AnalysisException e) {
+                        LOG.warn(e.getMessage());
+                        context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                        return;
+                    }
+                    // limitations: partition_num, tablet_num, cardinality
+                    List<ScanNode> scanNodeList = planner.getScanNodes();
+                    for (ScanNode scanNode : scanNodeList) {
+                        if (scanNode instanceof OlapScanNode) {
+                            OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitaions(olapScanNode.getSelectedPartitionNum().longValue(),
+                                        olapScanNode.getSelectedTabletsNum(), olapScanNode.getCardinality(), analyzer.getQualifiedUser());
+                        }
+                    }
+                }
+
                 MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
-                for (int i = 0; i < retryTime; i ++) {
+                for (int i = 0; i < retryTime; i++) {
                     try {
                         //reset query id for each retry
                         if (i > 0) {
@@ -442,8 +471,8 @@ public class StmtExecutor implements ProfileWriter {
             }
             if (!context.isTxnModel() && parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
-                // The transaction of a insert operation begin at analyze phase.
-                // So we should abort the transaction at this finally block if it encounter exception.
+                // The transaction of an insert operation begin at analyze phase.
+                // So we should abort the transaction at this finally block if it encounters exception.
                 if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
@@ -506,7 +535,7 @@ public class StmtExecutor implements ProfileWriter {
         if (isForwardToMaster()) {
             return;
         }
-        
+
         analyzer = new Analyzer(context.getCatalog(), context);
         // Convert show statement to select statement here
         if (parsedStmt instanceof ShowStmt) {
@@ -584,7 +613,7 @@ public class StmtExecutor implements ProfileWriter {
                 LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
                         originStmt, context.getStmtId(), syntaxError, e);
                 if (syntaxError == null) {
-                    throw  e;
+                    throw e;
                 } else {
                     throw new AnalysisException(syntaxError, e);
                 }
@@ -626,7 +655,7 @@ public class StmtExecutor implements ProfileWriter {
                 // types and column labels to restore them after the rewritten stmt has been
                 // reset() and re-analyzed.
                 List<Type> origResultTypes = Lists.newArrayList();
-                for (Expr e: parsedStmt.getResultExprs()) {
+                for (Expr e : parsedStmt.getResultExprs()) {
                     origResultTypes.add(e.getType());
                 }
                 List<String> origColLabels =
@@ -647,6 +676,14 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 if (explainOptions != null) parsedStmt.setIsExplain(explainOptions);
             }
+            
+            if (parsedStmt instanceof InsertStmt && parsedStmt.isExplain()) {
+                if (ConnectContext.get() != null &&
+                        ConnectContext.get().getExecutor() != null &&
+                        ConnectContext.get().getExecutor().getParsedStmt() != null) {
+                    ConnectContext.get().getExecutor().getParsedStmt().setIsExplain(new ExplainOptions(true, false));
+                }
+            }
         }
         plannerProfile.setQueryAnalysisFinishTime();
 
@@ -665,6 +702,17 @@ public class StmtExecutor implements ProfileWriter {
         analyzer = new Analyzer(context.getCatalog(), context);
 
         parsedStmt.reset();
+
+        // DORIS-7361
+        // Need to reset selectList before second-round analyze, because exprs in selectList could be rewritten by mvExprRewriter
+        // in first-round analyze, which could cause analyze failure.
+        if (parsedStmt instanceof QueryStmt) {
+            ((QueryStmt) parsedStmt).resetSelectList();
+        }
+
+        if (parsedStmt instanceof InsertStmt) {
+            ((InsertStmt) parsedStmt).getQueryStmt().resetSelectList();
+        }
     }
 
     // Because this is called by other thread
@@ -691,7 +739,7 @@ public class StmtExecutor implements ProfileWriter {
             // Only user itself and user with admin priv can kill connection
             if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
                     && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                              PrivPredicate.ADMIN)) {
+                    PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
 
@@ -808,7 +856,7 @@ public class StmtExecutor implements ProfileWriter {
                 break;
             }
         }
-        
+
         if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
             isSendFields = sendCachedValues(channel, cacheResult.getValuesList(), newSelectStmt, isSendFields, false);
         }
@@ -855,17 +903,17 @@ public class StmtExecutor implements ProfileWriter {
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
-                                                  DebugUtil.printId(context.queryId()),
-                                                  context.getStartTime(), -1, -1,
-                                                  QueryDetail.QueryMemState.RUNNING,
-                                                  context.getDatabase(),
-                                                  originStmt.originStmt);
+                DebugUtil.printId(context.queryId()),
+                context.getStartTime(), -1, -1,
+                QueryDetail.QueryMemState.RUNNING,
+                context.getDatabase(),
+                originStmt.originStmt);
         context.setQueryDetail(queryDetail);
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()
-                    && Catalog.getCurrentSystemInfo().getBackendIds(true).isEmpty() ) {
+                && Catalog.getCurrentSystemInfo().getBackendIds(true).isEmpty()) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
             if (handleSelectRequestInFe(parsedSelectStmt)) {
                 return;
@@ -1201,16 +1249,22 @@ public class StmtExecutor implements ProfileWriter {
 
             try {
                 coord = new Coordinator(context, analyzer, planner);
+                coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
 
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
                 coord.exec();
 
-                coord.join(context.getSessionVariable().getQueryTimeoutS());
+                boolean notTimeout = coord.join(context.getSessionVariable().getQueryTimeoutS());
                 if (!coord.isDone()) {
                     coord.cancel();
-                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+                    if (notTimeout) {
+                        errMsg = coord.getExecStatus().getErrorMsg();
+                        ErrorReport.reportDdlException("There exists unhealthy backend. " + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+                    }
                 }
 
                 if (!coord.getExecStatus().ok()) {
@@ -1245,12 +1299,7 @@ public class StmtExecutor implements ProfileWriter {
                     return;
                 }
 
-                if (loadedRows == 0 && filteredRows == 0) {
-                    // if no data, just abort txn and return ok
-                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
-                            insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-                    context.getState().setOk();
-                } else if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                         context.getSessionVariable().getInsertVisibleTimeoutMs())) {
@@ -1292,19 +1341,9 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             // Go here, which means:
-            // 1. transaction aborted for no data inserted into table, or
-            // 2. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 3. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 3 cases
-
-            String message = "";
-            if (txnStatus == TransactionStatus.ABORTED) {
-                message = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
-                errMsg = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
-            } else if (throwable != null) {
-                message = throwable.getMessage();
-            }
-
+            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
+            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
+            // we will record the load job info for these 2 cases
             txnId = insertStmt.getTransactionId();
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
@@ -1314,7 +1353,7 @@ public class StmtExecutor implements ProfileWriter {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        message,
+                        throwable == null ? "" : throwable.getMessage(),
                         coord.getTrackingUrl());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
@@ -1413,6 +1452,7 @@ public class StmtExecutor implements ProfileWriter {
 
         context.getState().setEof();
     }
+
     // Process show statement
     private void handleShow() throws IOException, AnalysisException, DdlException {
         ShowExecutor executor = new ShowExecutor(context, (ShowStmt) parsedStmt);
@@ -1431,8 +1471,10 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleUnlockTablesStmt() {
     }
+
     private void handleLockTablesStmt() {
     }
+
     private void handleExplainStmt(String result) throws IOException {
         ShowResultSetMetaData metaData =
                 ShowResultSetMetaData.builder()
@@ -1466,7 +1508,7 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
-    // process enter cluster
+    // Process enter cluster
     private void handleEnterStmt() {
         final EnterStmt enterStmt = (EnterStmt) parsedStmt;
         try {

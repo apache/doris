@@ -65,4 +65,10 @@ public interface ConfigurationOptions {
     int DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT = 64;
 
     String DORIS_WRITE_FIELDS = "doris.write.fields";
+
+    String DORIS_SINK_BATCH_SIZE = "doris.sink.batch.size";
+    int SINK_BATCH_SIZE_DEFAULT = 10000;
+
+    String DORIS_SINK_MAX_RETRIES = "doris.sink.max-retries";
+    int SINK_MAX_RETRIES_DEFAULT = 1;
 }

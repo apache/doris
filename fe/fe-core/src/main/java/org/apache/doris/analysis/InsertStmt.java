@@ -595,7 +595,7 @@ public class InsertStmt extends DdlStmt {
         ArrayList<Expr> row = rows.get(rowIdx);
         if (!origColIdxsForExtendCols.isEmpty()) {
             /**
-             * we should extends the row for shadow columns.
+             * we should extend the row for shadow columns.
              * eg:
              *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
              *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
@@ -604,9 +604,7 @@ public class InsertStmt extends DdlStmt {
             extentedRow.addAll(row);
             
             for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
-                if (entry == null) {
-                    extentedRow.add(extentedRow.get(entry.first));
-                } else {
+                if (entry != null) {
                     if (entry.second == null) {
                         extentedRow.add(extentedRow.get(entry.first));
                     } else {

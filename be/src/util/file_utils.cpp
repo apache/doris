@@ -41,42 +41,7 @@ namespace doris {
 using strings::Substitute;
 
 Status FileUtils::create_dir(const std::string& path, Env* env) {
-    if (path.empty()) {
-        return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", path));
-    }
-
-    std::filesystem::path p(path);
-
-    std::string partial_path;
-    for (std::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
-        partial_path = partial_path + it->string() + "/";
-        bool is_dir = false;
-
-        Status s = env->is_directory(partial_path, &is_dir);
-
-        if (s.ok()) {
-            if (is_dir) {
-                // It's a normal directory.
-                continue;
-            }
-
-            // Maybe a file or a symlink. Let's try to follow the symlink.
-            std::string real_partial_path;
-            RETURN_IF_ERROR(env->canonicalize(partial_path, &real_partial_path));
-
-            RETURN_IF_ERROR(env->is_directory(real_partial_path, &is_dir));
-            if (is_dir) {
-                // It's a symlink to a directory.
-                continue;
-            } else {
-                return Status::IOError(partial_path + " exists but is not a directory");
-            }
-        }
-
-        RETURN_IF_ERROR(env->create_dir_if_missing(partial_path));
-    }
-
-    return Status::OK();
+    return env->create_dirs(path);
 }
 
 Status FileUtils::create_dir(const std::string& dir_path) {
@@ -84,30 +49,27 @@ Status FileUtils::create_dir(const std::string& dir_path) {
 }
 
 Status FileUtils::remove_all(const std::string& file_path) {
-    std::filesystem::path boost_path(file_path);
-    std::error_code ec;
-    std::filesystem::remove_all(boost_path, ec);
-    if (ec) {
-        std::stringstream ss;
-        ss << "remove all(" << file_path << ") failed, because: " << ec;
-        return Status::InternalError(ss.str());
-    }
-    return Status::OK();
+    return Env::Default()->delete_dir(file_path);
 }
 
-Status FileUtils::remove(const std::string& path, doris::Env* env) {
-    bool is_dir;
-    RETURN_IF_ERROR(env->is_directory(path, &is_dir));
-
-    if (is_dir) {
-        return env->delete_dir(path);
-    } else {
-        return env->delete_file(path);
-    }
+Status FileUtils::remove_all(const std::string& path, TStorageMedium::type storage_medium) {
+    Env* env = Env::get_env(storage_medium);
+    return env->delete_dir(path);
 }
 
 Status FileUtils::remove(const std::string& path) {
-    return remove(path, Env::Default());
+    if (!Env::Default()->path_exists(path).ok()) {
+        LOG(WARNING) << "path does exist: " << path;
+        return Status::OK();
+    }
+    bool is_dir;
+    RETURN_IF_ERROR(Env::Default()->is_directory(path, &is_dir));
+
+    if (is_dir) {
+        return Env::Default()->delete_dir(path);
+    } else {
+        return Env::Default()->delete_file(path);
+    }
 }
 
 Status FileUtils::remove_paths(const std::vector<std::string>& paths) {
@@ -224,39 +186,7 @@ Status FileUtils::split_paths(const char* path, std::vector<std::string>* path_v
 }
 
 Status FileUtils::copy_file(const std::string& src_path, const std::string& dest_path) {
-    // open src file
-    FileHandler src_file;
-    if (src_file.open(src_path.c_str(), O_RDONLY) != OLAP_SUCCESS) {
-        char errmsg[64];
-        LOG(ERROR) << "open file failed: " << src_path << strerror_r(errno, errmsg, 64);
-        return Status::InternalError("Internal Error");
-    }
-    // create dest file and overwrite existing file
-    FileHandler dest_file;
-    if (dest_file.open_with_mode(dest_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU) !=
-        OLAP_SUCCESS) {
-        char errmsg[64];
-        LOG(ERROR) << "open file failed: " << dest_path << strerror_r(errno, errmsg, 64);
-        return Status::InternalError("Internal Error");
-    }
-
-    const int64_t BUF_SIZE = 8192;
-    std::unique_ptr<char[]> buf = std::make_unique<char[]>(BUF_SIZE);
-    int64_t src_length = src_file.length();
-    int64_t offset = 0;
-    while (src_length > 0) {
-        int64_t to_read = BUF_SIZE < src_length ? BUF_SIZE : src_length;
-        if (OLAP_SUCCESS != (src_file.pread(buf.get(), to_read, offset))) {
-            return Status::InternalError("Internal Error");
-        }
-        if (OLAP_SUCCESS != (dest_file.pwrite(buf.get(), to_read, offset))) {
-            return Status::InternalError("Internal Error");
-        }
-
-        offset += to_read;
-        src_length -= to_read;
-    }
-    return Status::OK();
+    return Env::Default()->copy_path(src_path, dest_path);
 }
 
 Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
@@ -289,10 +219,6 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
 
 bool FileUtils::check_exist(const std::string& path) {
     return Env::Default()->path_exists(path).ok();
-}
-
-bool FileUtils::check_exist(const std::string& path, Env* env) {
-    return env->path_exists(path).ok();
 }
 
 Status FileUtils::canonicalize(const std::string& path, std::string* real_path) {

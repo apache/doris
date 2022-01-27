@@ -127,9 +127,9 @@ under the License.
 | OLAP_ERR_FETCH_SCHEMA_ERROR                      | -603   | FetchHandler Schema错误                                      |
 | OLAP_ERR_FETCH_COMPRESSION_ERROR                 | -604   | FetchHandler压缩错误                                         |
 | OLAP_ERR_FETCH_CONTEXT_NOT_EXIST                 | -605   | FetchHandler上下文不存在                                     |
-| OLAP_ERR_FETCH_GET_READER_PARAMS_ERR             | -607   | FetchHandler GET读参数错误                                   |
-| OLAP_ERR_FETCH_SAVE_SESSION_ERR                  | -608   | FetchHandler保存会话错误                                     |
-| OLAP_ERR_FETCH_MEMORY_EXCEEDED                   | -609   | FetchHandler内存超出异常                                     |
+| OLAP_ERR_FETCH_GET_READER_PARAMS_ERR             | -606   | FetchHandler GET读参数错误                                   |
+| OLAP_ERR_FETCH_SAVE_SESSION_ERR                  | -607   | FetchHandler保存会话错误                                     |
+| OLAP_ERR_FETCH_MEMORY_EXCEEDED                   | -608   | FetchHandler内存超出异常                                     |
 | 读异常错误代码                                   |        |                                                              |
 | OLAP_ERR_READER_IS_UNINITIALIZED                 | -700   | 读不能初始化                                                 |
 | OLAP_ERR_READER_GET_ITERATOR_ERROR               | -701   | 获取读迭代器错误                                             |

@@ -160,7 +160,7 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     }
 
     std::unique_ptr<DataDir> p(
-            new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
+            new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium, path.remote_path));
     if (p == nullptr) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
@@ -266,7 +266,8 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     }
 
     uint8_t fixed_buf[12];
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
+    Slice slice(fixed_buf, 12);
+    RETURN_IF_ERROR(input_file->read_at(file_size - 12, &slice));
 
     // validate magic number
     const char* k_segment_magic = "D0R1";
@@ -284,7 +285,8 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12 - footer_length, footer_buf));
+    Slice slice2(footer_buf);
+    RETURN_IF_ERROR(input_file->read_at(file_size - 12 - footer_length, &slice2));
 
     // validate footer PB's checksum
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);

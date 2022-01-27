@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -177,6 +178,21 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
+        if (ConnectContext.get() != null &&
+                ConnectContext.get().getExecutor() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose()) {
+            if (isAnalyzed) {
+                if (type.isStringType()) {
+                    return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+                } else {
+                    return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+                }
+            } else {
+                return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
+            }
+        }
         if (isImplicit) {
             return getChild(0).toSql();
         }
@@ -450,5 +466,12 @@ public class CastExpr extends Expr {
             }
         }
         return -1;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return children.get(0).isNullable() ||
+                (children.get(0).getType().isStringType() && !getType().isStringType()) ||
+                (!children.get(0).getType().isDateType() && getType().isDateType());
     }
 }

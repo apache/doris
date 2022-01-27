@@ -17,58 +17,69 @@
 
 package org.apache.doris.common.util;
 
-import java.io.UnsupportedEncodingException;
+import com.google.common.base.Strings;
+
+import org.apache.commons.codec.binary.Base64;
+
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-
-import org.apache.commons.codec.binary.Base64;
+import java.security.SecureRandom;
 
 import javax.crypto.Cipher;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-/**
- * This is borrowed from apache kylin:
- * https://github.com/apache/kylin/blob/master/core-common/src/main/java/org/apache/kylin/common/util/EncryptUtil.java
- */
 public class SymmetricEncryption {
-    private static byte[] key = { 0x56, 0x73, 0x36, 0x68, 0x4b, 0x56, 0x27, 0x67, 0x24, 0x46, 0x77, 0x57, 0x75, 0x5a,
-            0x46, 0x74 };
+    private static final String ALGORITHM = "AES/CFB/PKCS5Padding";
+    private static final String AES = "AES";
 
-    private static final Cipher getCipher(int cipherMode) throws InvalidAlgorithmParameterException,
-            InvalidKeyException, NoSuchPaddingException, NoSuchAlgorithmException, UnsupportedEncodingException {
-        Cipher cipher = Cipher.getInstance("AES/CFB/PKCS5Padding");
-        final SecretKeySpec secretKey = new SecretKeySpec(key, "AES");
-        IvParameterSpec ivSpec = new IvParameterSpec("AAAAAAAAAAAAAAAA".getBytes("UTF-8"));
+    private static Cipher getCipher(int cipherMode, byte[] key, byte[] iv) throws InvalidAlgorithmParameterException,
+            InvalidKeyException, NoSuchPaddingException, NoSuchAlgorithmException {
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        SecretKeySpec secretKey = new SecretKeySpec(key, AES);
+        IvParameterSpec ivSpec = new IvParameterSpec(iv);
         cipher.init(cipherMode, secretKey, ivSpec);
         return cipher;
     }
 
-    public static String encrypt(String strToEncrypt) {
-        if (strToEncrypt == null) {
+    private static byte[] generateRandomBytes() {
+        byte[] bytes = new byte[16];
+        new SecureRandom().nextBytes(bytes);
+        return bytes;
+    }
+
+    public static byte[] generateKey() {
+        return generateRandomBytes();
+    }
+
+    public static byte[] generateIv() {
+        return generateRandomBytes();
+    }
+
+    // The key and iv are generated using the generateKey() and generateIv()
+    public static String encrypt(String strToEncrypt, byte[] key, byte[] iv) {
+        if (strToEncrypt == null || key == null || iv == null) {
             return null;
         }
         try {
-            Cipher cipher = getCipher(Cipher.ENCRYPT_MODE);
-            final String encryptedString = Base64.encodeBase64String(cipher.doFinal(strToEncrypt.getBytes(
-                    StandardCharsets.UTF_8)));
-            return encryptedString;
+            Cipher cipher = getCipher(Cipher.ENCRYPT_MODE, key, iv);
+            return Base64.encodeBase64String(cipher.doFinal(strToEncrypt.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
     }
 
-    public static String decrypt(String strToDecrypt) {
-        if (strToDecrypt == null) {
+    // key, iv are used in encryption.
+    public static String decrypt(String strToDecrypt, byte[] key, byte[] iv) {
+        if (Strings.isNullOrEmpty(strToDecrypt) || key == null || iv == null) {
             return null;
         }
         try {
-            Cipher cipher = getCipher(Cipher.DECRYPT_MODE);
-            final String decryptedString = new String(cipher.doFinal(Base64.decodeBase64(strToDecrypt)), StandardCharsets.UTF_8);
-            return decryptedString;
+            Cipher cipher = getCipher(Cipher.DECRYPT_MODE, key, iv);
+            return new String(cipher.doFinal(Base64.decodeBase64(strToDecrypt)), StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }

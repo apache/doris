@@ -28,7 +28,13 @@
 // object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
 class FunctionContextImpl;
-}
+class ColumnPtrWrapper;
+struct StringValue;
+struct BitmapValue;
+struct DecimalV2Value;
+struct DateTimeValue;
+struct CollectionValue;
+} // namespace doris
 
 namespace doris_udf {
 
@@ -219,11 +225,15 @@ public:
     // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
     bool is_arg_constant(int arg_idx) const;
 
+    bool is_col_constant(int arg_idx) const;
+
     // Returns a pointer to the value of the arg_idx-th input argument (0 indexed, not
     // including the FunctionContext* argument). Returns nullptr if the argument is not
     // constant. This function can be used to obtain user-specified constants in a UDF's
     // Init() or Close() functions.
     AnyVal* get_constant_arg(int arg_idx) const;
+
+    doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
     // Create a test FunctionContext object. The caller is responsible for calling delete
     // on it. This context has additional debugging validation enabled.
@@ -638,14 +648,14 @@ struct StringVal : public AnyVal {
     /// Will create a new StringVal with the given dimension and copy the data from the
     /// parameters. In case of an error will return a nullptr string and set an error on the
     /// function context.
-    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len);
+    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len);
 
     /// Append the passed buffer to this StringVal. Reallocate memory to fit the buffer. If
     /// the memory allocation becomes too large, will set an error on FunctionContext and
     /// return a nullptr string.
-    void append(FunctionContext* ctx, const uint8_t* buf, size_t len);
-    void append(FunctionContext* ctx, const uint8_t* buf, size_t len, const uint8_t* buf2,
-                size_t buf2_len);
+    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
+    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
+                int64_t buf2_len);
 };
 
 struct DecimalV2Val : public AnyVal {

@@ -66,7 +66,6 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -226,7 +225,7 @@ public class EditLog {
                 }
                 case OperationType.OP_BATCH_MODIFY_PARTITION: {
                     BatchModifyPartitionsInfo info = (BatchModifyPartitionsInfo) journal.getData();
-                    for(ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
+                    for (ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
                         catalog.getAlterInstance().replayModifyPartition(modifyPartitionInfo);
                     }
                     break;
@@ -531,11 +530,6 @@ public class EditLog {
                     MetaContext.get().setMetaVersion(version);
                     break;
                 }
-                case OperationType.OP_GLOBAL_VARIABLE: {
-                    SessionVariable variable = (SessionVariable) journal.getData();
-                    catalog.replayGlobalVariable(variable);
-                    break;
-                }
                 case OperationType.OP_CREATE_CLUSTER: {
                     final Cluster value = (Cluster) journal.getData();
                     catalog.replayCreateCluster(value);
@@ -769,14 +763,14 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
-                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo)journal.getData();
+                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
                         catalog.getRollupHandler().replayAlterJobV2(alterJobV2);
                     }
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
-                    TableInfo tableInfo = (TableInfo)journal.getData();
+                    TableInfo tableInfo = (TableInfo) journal.getData();
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
@@ -1090,7 +1084,7 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ROLLUP, info);
     }
 
-    public void logBatchDropRollup (BatchDropInfo batchDropInfo) {
+    public void logBatchDropRollup(BatchDropInfo batchDropInfo) {
         logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
     }
 
@@ -1234,10 +1228,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
     }
 
-    public void logGlobalVariable(SessionVariable variable) {
-        logEdit(OperationType.OP_GLOBAL_VARIABLE, variable);
-    }
-
     public void logCreateCluster(Cluster cluster) {
         logEdit(OperationType.OP_CREATE_CLUSTER, cluster);
     }
@@ -1295,7 +1285,7 @@ public class EditLog {
     public void logInsertTransactionState(TransactionState transactionState) {
         logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
     }
-    
+
     public void logBackupJob(BackupJob job) {
         logEdit(OperationType.OP_BACKUP_JOB, job);
     }

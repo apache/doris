@@ -44,8 +44,8 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
-import org.glassfish.jersey.internal.guava.Sets;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;

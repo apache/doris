@@ -18,6 +18,7 @@
 #include "runtime/runtime_state.h"
 
 #include <boost/algorithm/string/join.hpp>
+#include <fmt/format.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -64,6 +65,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
+          _num_bytes_load_total(0),
           _load_job_id(-1),
           _normal_row_number(0),
           _error_row_number(0),
@@ -91,6 +93,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
+          _num_bytes_load_total(0),
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
@@ -177,6 +180,10 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _timestamp_ms = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+
+    if (query_globals.__isset.load_zero_tolerance) {
+        _load_zero_tolerance = query_globals.load_zero_tolerance;
+    }
 
     _exec_env = exec_env;
 
@@ -406,15 +413,16 @@ Status RuntimeState::create_error_log_file() {
         LOG(WARNING) << error_msg.str();
         return Status::InternalError(error_msg.str());
     }
-    VLOG_ROW << "create error log file: " << _error_log_file_path;
+    VLOG_FILE << "create error log file: " << _error_log_file_path;
 
     return Status::OK();
 }
 
-void RuntimeState::append_error_msg_to_file(const std::string& line, const std::string& error_msg,
-                                            bool is_summary) {
+Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line, std::function<std::string()> error_msg,
+                                              bool* stop_processing, bool is_summary) {
+    *stop_processing = false;
     if (_query_options.query_type != TQueryType::LOAD) {
-        return;
+        return Status::OK();
     }
     // If file havn't been opened, open it here
     if (_error_log_file == nullptr) {
@@ -426,50 +434,55 @@ void RuntimeState::append_error_msg_to_file(const std::string& line, const std::
                 delete _error_log_file;
                 _error_log_file = nullptr;
             }
-            return;
+            return status;
         }
     }
 
     // if num of printed error row exceeds the limit, and this is not a summary message,
-    // return
+    // if _load_zero_tolerance, return Error to stop the load process immediately.
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM &&
         !is_summary) {
-        return;
+        if (_load_zero_tolerance) {
+            *stop_processing = true;
+        }
+        return Status::OK();
     }
 
-    std::stringstream out;
+    fmt::memory_buffer out;
     if (is_summary) {
-        out << "Summary: ";
-        out << error_msg;
+        fmt::format_to(out, "Summary: {}", error_msg());
     } else {
         if (_error_row_number < MAX_ERROR_NUM) {
             // Note: export reason first in case src line too long and be truncated.
-            out << "Reason: " << error_msg;
-            out << ". src line: [" << line << "]; ";
+            fmt::format_to(out, "Reason: {}. src line [{}]; ", error_msg(), line());
         } else if (_error_row_number == MAX_ERROR_NUM) {
-            out << "TOO MUCH ERROR! already reach " << MAX_ERROR_NUM << "."
-                << " no more show next error.";
+            fmt::format_to(out, "TOO MUCH ERROR! already reach {}. show no more next error.", MAX_ERROR_NUM);
         }
     }
 
-    if (!out.str().empty()) {
-        (*_error_log_file) << out.str() << std::endl;
-        export_load_error(out.str());
+    if (out.size() > 0) {
+        (*_error_log_file) << out.data() << std::endl;
+        export_load_error(out.data());
     }
+    return Status::OK();
 }
 
 const int64_t HUB_MAX_ERROR_NUM = 10;
 
 void RuntimeState::export_load_error(const std::string& err_msg) {
     if (_error_hub == nullptr) {
-        if (_load_error_hub_info == nullptr) {
-            return;
-        }
-        Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
-                                             _error_log_file_path, &_error_hub);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
-            return;
+        std::lock_guard<std::mutex> lock(_create_error_hub_lock);
+        if (_error_hub == nullptr) {
+            if (_load_error_hub_info == nullptr) {
+                return;
+            }
+
+            Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
+                                                 _error_log_file_path, &_error_hub);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
+                return;
+            }
         }
     }
 

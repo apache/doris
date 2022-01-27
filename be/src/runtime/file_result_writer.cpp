@@ -39,6 +39,7 @@
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -47,7 +48,8 @@ const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 // deprecated
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const std::vector<ExprContext*>& output_expr_ctxs,
-                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker)
+                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                                   bool output_object_data)
         : _file_opts(file_opts),
           _output_expr_ctxs(output_expr_ctxs),
           _parent_profile(parent_profile),
@@ -62,6 +64,7 @@ FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
     // resulting in no such attribute. So we need a mock here.
     _fragment_instance_id.hi = 12345678987654321;
     _fragment_instance_id.lo = 98765432123456789;
+    _output_object_data = output_object_data;
 }
 
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
@@ -69,14 +72,16 @@ FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const TUniqueId fragment_instance_id,
                                    const std::vector<ExprContext*>& output_expr_ctxs,
                                    RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                                   RowBatch* output_batch)
+                                   RowBatch* output_batch, bool output_object_data)
         : _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
           _output_expr_ctxs(output_expr_ctxs),
           _parent_profile(parent_profile),
           _sinker(sinker),
-          _output_batch(output_batch) {}
+          _output_batch(output_batch) {
+    _output_object_data = output_object_data;
+}
 
 FileResultWriter::~FileResultWriter() {
     _close_file_writer(true);
@@ -151,7 +156,8 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs,
-                                                   _file_opts->file_properties, _file_opts->schema);
+                                                   _file_opts->file_properties, _file_opts->schema,
+                                                   _output_object_data);
         break;
     default:
         return Status::InternalError(
@@ -327,6 +333,22 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 int output_scale = _output_expr_ctxs[i]->root()->output_scale();
                 decimal_str = decimal_val.to_string(output_scale);
                 _plain_text_outstream << decimal_str;
+                break;
+            }
+            case TYPE_OBJECT:
+            case TYPE_HLL: {
+                if (_output_object_data) {
+                    const StringValue* string_val = (const StringValue*)(item);
+                    if (string_val->ptr == nullptr) {
+                        _plain_text_outstream << NULL_IN_CSV;
+                    } else {
+                        std::string base64_str;
+                        base64_encode(string_val->to_string(), &base64_str);
+                        _plain_text_outstream << base64_str;
+                    }
+                } else {
+                    _plain_text_outstream << NULL_IN_CSV;
+                }
                 break;
             }
             default: {

@@ -32,6 +32,8 @@ set(EXEC_FILES
     base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
+    csv_scan_node.cpp
+    csv_scanner.cpp
     data_sink.cpp
     decompressor.cpp
     empty_set_node.cpp
@@ -48,7 +50,6 @@ set(EXEC_FILES
     text_converter.cpp
     topn_node.cpp
     sort_exec_exprs.cpp
-    olap_rewrite_node.cpp
     olap_scan_node.cpp
     olap_scanner.cpp
     olap_common.cpp
@@ -58,6 +59,7 @@ set(EXEC_FILES
     plain_text_line_reader.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
+    table_function_node.cpp
     es_scan_node.cpp
     es_http_scan_node.cpp
     es_http_scanner.cpp

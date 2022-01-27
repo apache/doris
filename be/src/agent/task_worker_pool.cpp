@@ -201,6 +201,10 @@ void TaskWorkerPool::start() {
         _worker_count = 1;
         cb = std::bind<void>(&TaskWorkerPool::_update_tablet_meta_worker_thread_callback, this);
         break;
+    case TaskWorkerType::SUBMIT_TABLE_COMPACTION:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback, this);
+        break;
     default:
         // pass
         break;
@@ -235,7 +239,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 
     std::string type_str;
     EnumToString(TTaskType, task_type, type_str);
-    LOG(INFO) << "submitting task. type=" << type_str << ", signature=" << signature;
+    VLOG_CRITICAL << "submitting task. type=" << type_str << ", signature=" << signature;
 
     if (_register_task_info(task_type, signature)) {
         // Set the receiving time of task so that we can determine whether it is timed out later
@@ -256,7 +260,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 
 void TaskWorkerPool::notify_thread() {
     _worker_thread_condition_variable.notify_one();
-    LOG(INFO) << "notify task worker pool: " << _name;
+    VLOG_CRITICAL << "notify task worker pool: " << _name;
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -291,11 +295,11 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
         AgentStatus client_status = _master_client->finish_task(finish_task_request, &result);
 
         if (client_status == DORIS_SUCCESS) {
-            LOG(INFO) << "finish task success.";
             break;
         } else {
             DorisMetrics::instance()->finish_task_requests_failed->increment(1);
-            LOG(WARNING) << "finish task failed. status_code=" << result.status.status_code;
+            LOG(WARNING) << "finish task failed. type=" << to_string(finish_task_request.task_type) << ", signature="
+                         << finish_task_request.signature <<  ", status_code=" << result.status.status_code;
             try_time += 1;
         }
         sleep(config::sleep_one_second);
@@ -1167,14 +1171,14 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
-            disk.__set_root_path(root_path_info.path);
+            disk.__set_root_path(root_path_info.path_desc.filepath);
             disk.__set_path_hash(root_path_info.path_hash);
             disk.__set_storage_medium(root_path_info.storage_medium);
             disk.__set_disk_total_capacity(root_path_info.disk_capacity);
             disk.__set_data_used_capacity(root_path_info.data_used_capacity);
             disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_used(root_path_info.is_used);
-            disks[root_path_info.path] = disk;
+            disks[root_path_info.path_desc.filepath] = disk;
         }
         request.__set_disks(disks);
         _handle_report(request, ReportType::DISK);
@@ -1583,7 +1587,7 @@ AgentStatus TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHa
         return DORIS_TASK_REQUEST_ERROR;
     }
 
-    std::string dest_tablet_dir = tablet->tablet_path();
+    std::string dest_tablet_dir = tablet->tablet_path_desc().filepath;
     SnapshotLoader loader(_env, job_id, tablet_id);
     Status status = loader.move(src, tablet, overwrite);
 
@@ -1648,6 +1652,56 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
 void TaskWorkerPool::_random_sleep(int second) {
     Random rnd(UnixMillis());
     sleep(rnd.Uniform(second) + 1);
+}
+
+void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        TCompactionReq compaction_req;
+
+        {
+            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait();
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            compaction_req = agent_task_req.compaction_req;
+            _tasks.pop_front();
+        }
+
+        LOG(INFO) << "get compaction task. signature:" << agent_task_req.signature
+                  << ", compaction type:" << compaction_req.type;
+
+        CompactionType compaction_type;
+        if (compaction_req.type == "base") {
+            compaction_type = CompactionType::BASE_COMPACTION;
+        } else {
+            compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+        }
+
+        TabletSharedPtr tablet_ptr = StorageEngine::instance()->tablet_manager()->get_tablet(
+                compaction_req.tablet_id, compaction_req.schema_hash);
+        if (tablet_ptr != nullptr) {
+            auto data_dir = tablet_ptr->data_dir();
+            if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
+                LOG(WARNING) << "can not do compaction: " << tablet_ptr->tablet_id()
+                             << ", compaction type: " << compaction_type;
+                _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+                continue;
+            }
+
+            Status status = StorageEngine::instance()->submit_compaction_task(
+                    tablet_ptr, compaction_type);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to submit table compaction task. " << status.to_string();
+            }
+            _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        }
+    }
 }
 
 } // namespace doris

@@ -196,6 +196,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         return op;
     }
 
+    public void setOp(Operator op) { this.op = op; }
+
     @Override
     public Expr negate() {
         Operator newOp = null;
@@ -434,7 +436,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = false; 
+            slotIsleft = false;
             return getChild(0);
         }
 

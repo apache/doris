@@ -41,6 +41,7 @@
 #include "runtime/string_value.hpp"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
+#include "vec/olap/vcollect_iterator.h"
 
 using std::nothrow;
 using std::set;
@@ -48,17 +49,17 @@ using std::vector;
 
 namespace doris {
 
-void ReaderParams::check_validation() const {
+void TabletReader::ReaderParams::check_validation() const {
     if (UNLIKELY(version.first == -1)) {
         LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
     }
 }
 
-std::string ReaderParams::to_string() const {
+std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
     ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
-       << " aggregation=" << aggregation << " version=" << version << " start_key_include=" << start_key_include
-       << " end_key_include=" << end_key_include;
+       << " aggregation=" << aggregation << " version=" << version
+       << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
     for (const auto& key : start_key) {
         ss << " keys=" << key;
@@ -75,33 +76,21 @@ std::string ReaderParams::to_string() const {
     return ss.str();
 }
 
-KeysParam::~KeysParam() {
-    for (auto start_key : start_keys) {
-        SAFE_DELETE(start_key);
-    }
-
-    for (auto end_key : end_keys) {
-        SAFE_DELETE(end_key);
-    }
-}
-
-std::string KeysParam::to_string() const {
+std::string TabletReader::KeysParam::to_string() const {
     std::stringstream ss;
     ss << "start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
-    for (auto start_key : start_keys) {
-        ss << " keys=" << start_key->to_string();
+    for (auto& start_key : start_keys) {
+        ss << " keys=" << start_key.to_string();
     }
-    for (auto end_key : end_keys) {
-        ss << " end_keys=" << end_key->to_string();
+    for (auto& end_key : end_keys) {
+        ss << " end_keys=" << end_key.to_string();
     }
 
     return ss.str();
 }
 
-Reader::Reader() : _collect_iter(new CollectIterator()) {}
-
-Reader::~Reader() {
+TabletReader::~TabletReader() {
     VLOG_NOTICE << "merged rows:" << _merged_rows;
     _conditions.finalize();
     if (!_all_conditions.empty()) {
@@ -117,7 +106,7 @@ Reader::~Reader() {
     }
 }
 
-OLAPStatus Reader::init(const ReaderParams& read_params) {
+OLAPStatus TabletReader::init(const ReaderParams& read_params) {
     // TODO(yingchun): monitor
     _tracker.reset(new MemTracker(-1, read_params.tablet->full_name()));
     _predicate_mem_pool.reset(new MemPool(_tracker.get()));
@@ -129,14 +118,12 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", schema_hash:" << read_params.tablet->schema_hash()
                      << ", reader type:" << read_params.reader_type
                      << ", version:" << read_params.version;
-        return res;
     }
-    
-    return OLAP_SUCCESS;
+    return res;
 }
 
 // When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
-bool Reader::_optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
+bool TabletReader::_optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
     bool has_delete_rowset = false;
     bool has_overlapping = false;
     int nonoverlapping_count = 0;
@@ -159,7 +146,7 @@ bool Reader::_optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr
     return !has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset;
 }
 
-OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
+OLAPStatus TabletReader::_capture_rs_readers(const ReaderParams& read_params,
                                        std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
     if (rs_readers->empty()) {
@@ -173,22 +160,22 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
 
     for (int i = 0; i < _keys_param.start_keys.size(); ++i) {
         // lower bound
-        RowCursor* start_key = _keys_param.start_keys[i];
-        RowCursor* end_key = _keys_param.end_keys[i];
+        RowCursor& start_key = _keys_param.start_keys[i];
+        RowCursor& end_key = _keys_param.end_keys[i];
 
         if (!is_lower_key_included) {
-            if (end_key != nullptr && compare_row_key(*start_key, *end_key) >= 0) {
+            if (compare_row_key(start_key, end_key) >= 0) {
                 VLOG_NOTICE << "return EOF when lower key not include"
-                            << ", start_key=" << start_key->to_string()
-                            << ", end_key=" << end_key->to_string();
+                            << ", start_key=" << start_key.to_string()
+                            << ", end_key=" << end_key.to_string();
                 eof = true;
                 break;
             }
         } else {
-            if (end_key != nullptr && compare_row_key(*start_key, *end_key) > 0) {
+            if (compare_row_key(start_key, end_key) > 0) {
                 VLOG_NOTICE << "return EOF when lower key include="
-                            << ", start_key=" << start_key->to_string()
-                            << ", end_key=" << end_key->to_string();
+                            << ", start_key=" << start_key.to_string()
+                            << ", end_key=" << end_key.to_string();
                 eof = true;
                 break;
             }
@@ -241,9 +228,10 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
+OLAPStatus TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
+    _direct_mode = read_params.direct_mode;
     _aggregation = read_params.aggregation;
     _need_agg_finalize = read_params.need_agg_finalize;
     _reader_type = read_params.reader_type;
@@ -272,7 +260,7 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 
     _init_seek_columns();
 
-    _collect_iter->init(this);
+    _collect_iter.init(this);
 
     if (_tablet->tablet_schema().has_sequence_col()) {
         auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
@@ -289,7 +277,7 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
     return res;
 }
 
-OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
+OLAPStatus TabletReader::_init_return_columns(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_QUERY) {
         _return_columns = read_params.return_columns;
         if (!_delete_handler.empty()) {
@@ -341,17 +329,17 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-void Reader::_init_seek_columns() {
+void TabletReader::_init_seek_columns() {
     std::unordered_set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
     for (auto& it : _conditions.columns()) {
         column_set.insert(it.first);
     }
     size_t max_key_column_count = 0;
     for (const auto& key : _keys_param.start_keys) {
-        max_key_column_count = std::max(max_key_column_count, key->field_count());
+        max_key_column_count = std::max(max_key_column_count, key.field_count());
     }
     for (const auto& key : _keys_param.end_keys) {
-        max_key_column_count = std::max(max_key_column_count, key->field_count());
+        max_key_column_count = std::max(max_key_column_count, key.field_count());
     }
 
     for (size_t i = 0; i < _tablet->tablet_schema().num_columns(); i++) {
@@ -361,7 +349,7 @@ void Reader::_init_seek_columns() {
     }
 }
 
-OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
+OLAPStatus TabletReader::_init_keys_param(const ReaderParams& read_params) {
     if (read_params.start_key.empty()) {
         return OLAP_SUCCESS;
     }
@@ -370,7 +358,8 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     _keys_param.end_key_include = read_params.end_key_include;
 
     size_t start_key_size = read_params.start_key.size();
-    _keys_param.start_keys.resize(start_key_size, nullptr);
+    //_keys_param.start_keys.resize(start_key_size);
+    std::vector<RowCursor>(start_key_size).swap(_keys_param.start_keys);
 
     size_t scan_key_size = read_params.start_key.front().size();
     if (scan_key_size > _tablet->tablet_schema().num_columns()) {
@@ -394,19 +383,14 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
-        if ((_keys_param.start_keys[i] = new (nothrow) RowCursor()) == nullptr) {
-            OLAP_LOG_WARNING("fail to new RowCursor!");
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-
-        OLAPStatus res = _keys_param.start_keys[i]->init_scan_key(
+        OLAPStatus res = _keys_param.start_keys[i].init_scan_key(
                 _tablet->tablet_schema(), read_params.start_key[i].values(), schema);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
         }
 
-        res = _keys_param.start_keys[i]->from_tuple(read_params.start_key[i]);
+        res = _keys_param.start_keys[i].from_tuple(read_params.start_key[i]);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
             return res;
@@ -414,7 +398,8 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     }
 
     size_t end_key_size = read_params.end_key.size();
-    _keys_param.end_keys.resize(end_key_size, nullptr);
+    //_keys_param.end_keys.resize(end_key_size);
+    std::vector<RowCursor>(end_key_size).swap(_keys_param.end_keys);
     for (size_t i = 0; i < end_key_size; ++i) {
         if (read_params.end_key[i].size() != scan_key_size) {
             OLAP_LOG_WARNING("The end_key.at(%ld).size == %ld, not equals the %ld", i,
@@ -422,19 +407,14 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
-        if ((_keys_param.end_keys[i] = new (nothrow) RowCursor()) == nullptr) {
-            OLAP_LOG_WARNING("fail to new RowCursor!");
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-
-        OLAPStatus res = _keys_param.end_keys[i]->init_scan_key(
+        OLAPStatus res = _keys_param.end_keys[i].init_scan_key(
                 _tablet->tablet_schema(), read_params.end_key[i].values(), schema);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
         }
 
-        res = _keys_param.end_keys[i]->from_tuple(read_params.end_key[i]);
+        res = _keys_param.end_keys[i].from_tuple(read_params.end_key[i]);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
             return res;
@@ -446,7 +426,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-void Reader::_init_conditions_param(const ReaderParams& read_params) {
+void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     _conditions.set_tablet_schema(&_tablet->tablet_schema());
     _all_conditions.set_tablet_schema(&_tablet->tablet_schema());
     for (const auto& condition : read_params.conditions) {
@@ -473,7 +453,7 @@ void Reader::_init_conditions_param(const ReaderParams& read_params) {
 }
 
 #define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                                   \
-    ColumnPredicate* Reader::_new_##NAME##_pred(const TabletColumn& column, int index,          \
+    ColumnPredicate* TabletReader::_new_##NAME##_pred(const TabletColumn& column, int index,          \
                                                 const std::string& cond, bool opposite) const { \
         ColumnPredicate* predicate = nullptr;                                                   \
         switch (column.type()) {                                                                \
@@ -577,7 +557,7 @@ COMPARISON_PREDICATE_CONDITION_VALUE(le, LessEqualPredicate)
 COMPARISON_PREDICATE_CONDITION_VALUE(gt, GreaterPredicate)
 COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
-ColumnPredicate* Reader::_parse_to_predicate(
+ColumnPredicate* TabletReader::_parse_to_predicate(
         const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter) {
     int32_t index = _tablet->field_index(bloom_filter.first);
     if (index < 0) {
@@ -588,7 +568,7 @@ ColumnPredicate* Reader::_parse_to_predicate(
                                                                       column.type());
 }
 
-ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool opposite) const {
+ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition, bool opposite) const {
     // TODO: not equal and not in predicate is not pushed down
     int32_t index = _tablet->field_index(condition.column_name);
     if (index < 0) {
@@ -721,7 +701,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_VARCHAR:
-        case OLAP_FIELD_TYPE_STRING:{
+        case OLAP_FIELD_TYPE_STRING: {
             phmap::flat_hash_set<StringValue> values;
             for (auto& cond_val : condition.condition_values) {
                 StringValue value;
@@ -775,12 +755,12 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
     }
     return predicate;
 }
-void Reader::_init_load_bf_columns(const ReaderParams& read_params) {
+void TabletReader::_init_load_bf_columns(const ReaderParams& read_params) {
     _init_load_bf_columns(read_params, &_conditions, &_load_bf_columns);
     _init_load_bf_columns(read_params, &_all_conditions, &_load_bf_all_columns);
 }
 
-void Reader::_init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
+void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
                                    std::set<uint32_t>* load_bf_columns) {
     // add all columns with condition to load_bf_columns
     for (const auto& cond_column : conditions->columns()) {
@@ -828,12 +808,13 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params, Conditions* 
         return;
     }
     FieldType type = _tablet->tablet_schema().column(max_equal_index).type();
-    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING)|| max_equal_index + 1 > _tablet->num_short_key_columns()) {
+    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING) ||
+        max_equal_index + 1 > _tablet->num_short_key_columns()) {
         load_bf_columns->erase(max_equal_index);
     }
 }
 
-OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
+OLAPStatus TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         return OLAP_SUCCESS;
     }
@@ -843,6 +824,10 @@ OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
                                           read_params.version.second, this);
     _tablet->release_header_lock();
 
+    // Only BASE_COMPACTION need set filter_delete = true
+    // other reader type:
+    // QUERY will filter the row in query layer to keep right result use where clause.
+    // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
     if (read_params.reader_type == READER_BASE_COMPACTION) {
         _filter_delete = true;
     }

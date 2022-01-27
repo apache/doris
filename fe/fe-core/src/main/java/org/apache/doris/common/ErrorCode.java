@@ -77,7 +77,7 @@ public enum ErrorCode {
     ERR_HANDSHAKE_ERROR(1043, new byte[]{'0', '8', 'S', '0', '1'}, "Bad handshake"),
     ERR_DBACCESS_DENIED_ERROR(1044, new byte[]{'4', '2', '0', '0', '0'}, "Access denied for user '%s'@'%s' to " +
             "database '%s'"),
-    ERR_ACCESS_DENIED_ERROR(1045, new byte[]{'2', '8', '0', '0', '0'}, "Access denied for user '%s'@'%s' (using " +
+    ERR_ACCESS_DENIED_ERROR(1045, new byte[]{'2', '8', '0', '0', '0'}, "Access denied for user '%s' (using " +
             "password: %s)"),
     ERR_NO_DB_ERROR(1046, new byte[]{'3', 'D', '0', '0', '0'}, "No database selected"),
     ERR_UNKNOWN_COM_ERROR(1047, new byte[]{'0', '8', 'S', '0', '1'}, "Unknown command"),
@@ -85,7 +85,7 @@ public enum ErrorCode {
     ERR_BAD_DB_ERROR(1049, new byte[]{'4', '2', '0', '0', '0'}, "Unknown database '%s'"),
     ERR_TABLE_EXISTS_ERROR(1050, new byte[]{'4', '2', 'S', '0', '1'}, "Table '%s' already exists"),
     ERR_BAD_TABLE_ERROR(1051, new byte[]{'4', '2', 'S', '0', '2'}, "Unknown table '%s'"),
-    ERR_NON_UNIQ_ERROR(1052, new byte[]{'2', '3', '0', '0', '0'}, "Column '%s' in %s is ambiguous"),
+    ERR_NON_UNIQ_ERROR(1052, new byte[]{'2', '3', '0', '0', '0'}, "Column '%s' in field list is ambiguous"),
     ERR_SERVER_SHUTDOWN(1053, new byte[]{'0', '8', 'S', '0', '1'}, "Server shutdown in progress"),
     ERR_BAD_FIELD_ERROR(1054, new byte[]{'4', '2', 'S', '2', '2'}, "Unknown column '%s' in '%s'"),
     ERR_WRONG_FIELD_WITH_GROUP(1055, new byte[]{'4', '2', '0', '0', '0'}, "'%s' isn't in GROUP BY"),
@@ -1055,7 +1055,7 @@ public enum ErrorCode {
             "."),
     ERR_BINLOG_ROW_MODE_AND_STMT_ENGINE(1662, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot execute statement: " +
             "impossible to write to binary log since BINLOG_FORMAT = ROW and at least one table uses a storage engine" +
-             " " +
+            " " +
             "limited to statement-based logging."),
     ERR_BINLOG_UNSAFE_AND_STMT_ENGINE(1663, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot execute statement: " +
             "impossible to write to binary log since statement is unsafe, storage engine is limited to " +
@@ -1063,7 +1063,7 @@ public enum ErrorCode {
             "logging, and BINLOG_FORMAT = MIXED. %s"),
     ERR_BINLOG_ROW_INJECTION_AND_STMT_ENGINE(1664, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot execute statement: " +
             "impossible to write to binary log since statement is in row format and at least one table uses a storage" +
-             " engine" +
+            " engine" +
             " limited to statement-based logging."),
     ERR_BINLOG_STMT_MODE_AND_ROW_ENGINE(1665, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot execute statement: " +
             "impossible to write to binary log since BINLOG_FORMAT = STATEMENT and at least one table uses a storage " +
@@ -1073,7 +1073,7 @@ public enum ErrorCode {
             "impossible to write to binary log since statement is in row format and BINLOG_FORMAT = STATEMENT."),
     ERR_BINLOG_MULTIPLE_ENGINES_AND_SELF_LOGGING_ENGINE(1667, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot execute " +
             "statement: impossible to write to binary log since more than one engine is involved and at least one " +
-             "engine is " +
+            "engine is " +
             "self-logging."),
     ERR_BINLOG_UNSAFE_LIMIT(1668, new byte[]{'H', 'Y', '0', '0', '0'}, "The statement is unsafe because it uses a " +
             "LIMIT clause. This is unsafe because the set of rows included cannot be predicted."),
@@ -1081,7 +1081,7 @@ public enum ErrorCode {
             "uses INSERT DELAYED. This is unsafe because the times when rows are inserted cannot be predicted."),
     ERR_BINLOG_UNSAFE_SYSTEM_TABLE(1670, new byte[]{'H', 'Y', '0', '0', '0'}, "The statement is unsafe because it " +
             "uses the general log, slow query log, or performance_schema table(s). This is unsafe because system " +
-             "tables may " +
+            "tables may " +
             "differ on slaves."),
     ERR_BINLOG_UNSAFE_AUTOINC_COLUMNS(1671, new byte[]{'H', 'Y', '0', '0', '0'}, "Statement is unsafe because it " +
             "invokes a trigger or a stored function that inserts into an AUTO_INCREMENT column. Inserted values " +
@@ -1149,7 +1149,7 @@ public enum ErrorCode {
             "effectively be disabled."),
     ERR_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MAX(1704, new byte[]{'H', 'Y', '0', '0', '0'}, "The requested value for " +
             "the heartbeat period exceeds the value of slave_net_timeout seconds. A sensible value for the period " +
-             "should be " +
+            "should be " +
             "less than the timeout."),
     ERR_STMT_CACHE_FULL(1705, new byte[]{'H', 'Y', '0', '0', '0'}, "Multi-row statements required more than " +
             "'max_binlog_stmt_cache_size' bytes of storage; increase this mysqld variable and try again"),
@@ -1176,7 +1176,7 @@ public enum ErrorCode {
             " any) rows are updated. This order cannot be predicted and may differ on master and the slave."),
     ERR_BINLOG_UNSAFE_REPLACE_SELECT(1716, new byte[]{'H', 'Y', '0', '0', '0'}, "REPLACE... SELECT is unsafe because " +
             "the order in which rows are retrieved by the SELECT determines which (if any) rows are replaced. This " +
-             "order " +
+            "order " +
             "cannot be predicted and may differ on master and the slave."),
     ERR_BINLOG_UNSAFE_CREATE_IGNORE_SELECT(1717, new byte[]{'H', 'Y', '0', '0', '0'}, "CREATE... IGNORE SELECT is " +
             "unsafe because the order in which rows are retrieved by the SELECT determines which (if any) rows are " +
@@ -1188,21 +1188,21 @@ public enum ErrorCode {
             " This order cannot be predicted and may differ on master and the slave."),
     ERR_BINLOG_UNSAFE_UPDATE_IGNORE(1719, new byte[]{'H', 'Y', '0', '0', '0'}, "UPDATE IGNORE is unsafe because the " +
             "order in which rows are updated determines which (if any) rows are ignored. This order cannot be " +
-             "predicted and " +
+            "predicted and " +
             "may differ on master and the slave."),
     ERR_UNUSED_15(1720, new byte[]{}, "You should never see it"),
     ERR_UNUSED_16(1721, new byte[]{}, "You should never see it"),
     ERR_BINLOG_UNSAFE_WRITE_AUTOINC_SELECT(1722, new byte[]{'H', 'Y', '0', '0', '0'}, "Statements writing to a table " +
             "with an auto-increment column after selecting from another table are unsafe because the order in which " +
-             "rows are" +
+            "rows are" +
             " retrieved determines what (if any) rows will be written. This order cannot be predicted and may differ " +
- "on " +
+            "on " +
             "master and the slave."),
     ERR_BINLOG_UNSAFE_CREATE_SELECT_AUTOINC(1723, new byte[]{'H', 'Y', '0', '0', '0'}, "CREATE TABLE... SELECT... on " +
             "a table with an auto-increment column is unsafe because the order in which rows are retrieved by the " +
             "SELECT " +
             "determines which (if any) rows are inserted. This order cannot be predicted and may differ on master and" +
-             " the " +
+            " the " +
             "slave."),
     ERR_BINLOG_UNSAFE_INSERT_TWO_KEYS(1724, new byte[]{'H', 'Y', '0', '0', '0'}, "INSERT... ON DUPLICATE KEY UPDATE " +
             "on a table with more than one UNIQUE KEY is unsafe"),
@@ -1243,7 +1243,7 @@ public enum ErrorCode {
             "verification failed while reading from a log file."),
     ERR_BINLOG_STMT_CACHE_SIZE_GREATER_THAN_MAX(1745, new byte[]{'H', 'Y', '0', '0', '0'}, "Option " +
             "binlog_stmt_cache_size (%lu) is greater than max_binlog_stmt_cache_size (%lu); setting " +
-             "binlog_stmt_cache_size " +
+            "binlog_stmt_cache_size " +
             "equal to max_binlog_stmt_cache_size."),
     ERR_CANT_UPDATE_TABLE_IN_CREATE_TABLE_SELECT(1746, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't update table '%s' " +
             "while '%s' is being created."),
@@ -1274,7 +1274,7 @@ public enum ErrorCode {
             "SSL/TLS is extremely insecure."),
     ERR_INSECURE_CHANGE_MASTER(1760, new byte[]{'H', 'Y', '0', '0', '0'}, "Storing MySQL user name or password " +
             "information in the master info repository is not secure and is therefore not recommended. Please " +
-             "consider using" +
+            "consider using" +
             " the USER and PASSWORD connection options for START SLAVE; see the 'START SLAVE Syntax' in the MySQL " +
             "Manual " +
             "for more information."),
@@ -1330,7 +1330,7 @@ public enum ErrorCode {
             ".ENFORCE_GTID_CONSISTENCY = 1, updates to non-transactional tables can only be done in either " +
             "autocommitted " +
             "statements or single-statement transactions, and never in the same statement as updates to transactional" +
-             " " +
+            " " +
             "tables."),
     ERR_GTID_UNSAFE_CREATE_SELECT(1786, new byte[]{'H', 'Y', '0', '0', '0'}, "CREATE TABLE ... SELECT is forbidden " +
             "when @@GLOBAL.ENFORCE_GTID_CONSISTENCY = 1."),
@@ -1357,7 +1357,7 @@ public enum ErrorCode {
             " is too long (max = %lu"),
     ERR_SLAVE_CONFIGURATION(1794, new byte[]{'H', 'Y', '0', '0', '0'}, "Slave is not configured or failed to " +
             "initialize properly. You must at least set --server-id to enable either a master or a slave. Additional " +
-             "error " +
+            "error " +
             "messages can be found in the MySQL error log."),
     ERR_INNODB_FT_LIMIT(1795, new byte[]{'H', 'Y', '0', '0', '0'}, "InnoDB presently supports one FULLTEXT index " +
             "creation at a time"),
@@ -1433,7 +1433,7 @@ public enum ErrorCode {
     ERR_READ_ONLY_MODE(1836, new byte[]{'H', 'Y', '0', '0', '0'}, "Running in read-only mode"),
     ERR_GTID_NEXT_TYPE_UNDEFINED_GROUP(1837, new byte[]{'H', 'Y', '0', '0', '0'}, "When @@SESSION.GTID_NEXT is set to" +
             " a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK. Please check " +
-             "GTID_NEXT " +
+            "GTID_NEXT " +
             "variable manual page for detailed explanation. Current @@SESSION.GTID_NEXT is '%s'."),
     ERR_VARIABLE_NOT_SETTABLE_IN_SP(1838, new byte[]{'H', 'Y', '0', '0', '0'}, "The system variable %s cannot be set " +
             "in stored procedures."),
@@ -1479,7 +1479,7 @@ public enum ErrorCode {
             "requires a lock"),
     ERR_SQL_SLAVE_SKIP_COUNTER_NOT_SETTABLE_IN_GTID_MODE(1858, new byte[]{'H', 'Y', '0', '0', '0'},
             "sql_slave_skip_counter can not be set when the server is running with @@GLOBAL.GTID_MODE = ON. Instead, " +
-             "for each" +
+                    "for each" +
                     " transaction that you want to skip, generate an empty transaction with the same GTID as the " +
                     "transaction"),
     ERR_DUP_UNKNOWN_IN_INDEX(1859, new byte[]{'2', '3', '0', '0', '0'}, "Duplicate entry for key '%s'"),
@@ -1492,7 +1492,7 @@ public enum ErrorCode {
     ERR_ROW_IN_WRONG_PARTITION(1863, new byte[]{'H', 'Y', '0', '0', '0'}, "Found a row in wrong partition %s"),
     ERR_MTS_EVENT_BIGGER_PENDING_JOBS_SIZE_MAX(1864, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot schedule event %s, " +
             "relay-log name %s, position %s to Worker thread because its size %lu exceeds %lu of " +
-             "slave_pending_jobs_size_max" +
+            "slave_pending_jobs_size_max" +
             "."),
     ERR_INNODB_NO_FT_USES_PARSER(1865, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot CREATE FULLTEXT INDEX WITH PARSER" +
             " on InnoDB table"),
@@ -1519,7 +1519,7 @@ public enum ErrorCode {
             " complete."),
     ERR_STOP_SLAVE_IO_THREAD_TIMEOUT(1876, new byte[]{'H', 'Y', '0', '0', '0'}, "STOP SLAVE command execution is " +
             "incomplete: Slave IO thread got the stop signal, thread is busy, IO thread will stop once the current " +
-             "task is " +
+            "task is " +
             "complete."),
     ERR_TABLE_CORRUPT(1877, new byte[]{'H', 'Y', '0', '0', '0'}, "Operation cannot be performed. The table '%s.%s' is" +
             " missing, corrupt or contains bad data."),
@@ -1681,9 +1681,12 @@ public enum ErrorCode {
             "%s is not unique in LDAP server."),
     ERR_ILLEGAL_COLUMN_REFERENCE_ERROR(5082, new byte[]{'4', '2', '0', '0', '1'},
             "Illegal column/field reference '%s' of semi-/anti-join"),
-    ERR_EMPTY_PARTITION_IN_TABLE(5083, new byte[] {'4', '2', '0', '0', '0'},
+    ERR_EMPTY_PARTITION_IN_TABLE(5083, new byte[]{'4', '2', '0', '0', '0'},
             "data cannot be inserted into table with empty partition. " +
-            "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),;
+                    "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),
+    ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE(5084, new byte[]{'4', '2', '0', '0', '0'},
+            "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.")
+    ;
 
     // This is error code
     private final int code;

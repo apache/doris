@@ -50,7 +50,7 @@ public:
         return reinterpret_cast<uint8_t*>(realloc(ptr, byte_size));
     }
 
-    void free(uint8_t* ptr) { free(ptr); }
+    void free(uint8_t* ptr) { ::free(ptr); }
 };
 
 class RuntimeState {
@@ -131,6 +131,10 @@ void FunctionContextImpl::set_constant_args(const std::vector<doris_udf::AnyVal*
     _constant_args = constant_args;
 }
 
+void FunctionContextImpl::set_constant_cols(const std::vector<doris::ColumnPtrWrapper*>& constant_cols) {
+    _constant_cols = constant_cols;
+}
+
 bool FunctionContextImpl::check_allocations_empty() {
     if (_allocations.empty() && _external_bytes_tracked == 0) {
         return true;
@@ -187,6 +191,7 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
             create_context(_state, pool, _intermediate_type, _return_type, _arg_types,
                            _varargs_buffer_size, _debug);
     new_context->_impl->_constant_args = _constant_args;
+    new_context->_impl->_constant_cols = _constant_cols;
     new_context->_impl->_fragment_local_fn_state = _fragment_local_fn_state;
     return new_context;
 }
@@ -369,7 +374,7 @@ bool StringVal::resize(FunctionContext* ctx, int64_t new_len) {
     return false;
 }
 
-StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len) {
+StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len) {
     StringVal result(ctx, len);
     if (!result.is_null) {
         memcpy(result.ptr, buf, len);
@@ -382,7 +387,7 @@ StringVal StringVal::create_temp_string_val(FunctionContext* ctx, int64_t len) {
     return StringVal((uint8_t*)ctx->impl()->string_result().c_str(), len);
 }
 
-void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len) {
+void StringVal::append(FunctionContext* ctx, const uint8_t* buf, int64_t buf_len) {
     if (UNLIKELY(len + buf_len > StringVal::MAX_LENGTH)) {
         ctx->set_error(
                 "Concatenated string length larger than allowed limit of "
@@ -398,8 +403,8 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len)
     }
 }
 
-void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
-                       const uint8_t* buf2, size_t buf2_len) {
+void StringVal::append(FunctionContext* ctx, const uint8_t* buf, int64_t buf_len,
+                       const uint8_t* buf2, int64_t buf2_len) {
     if (UNLIKELY(len + buf_len + buf2_len > StringVal::MAX_LENGTH)) {
         ctx->set_error(
                 "Concatenated string length larger than allowed limit of "

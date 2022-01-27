@@ -22,7 +22,6 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.Properties;
 
-import org.apache.doris.spark.exception.DorisException;
 import org.apache.doris.spark.exception.IllegalArgumentException;
 
 public class IOUtils {

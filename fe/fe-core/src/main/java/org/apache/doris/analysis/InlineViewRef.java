@@ -223,6 +223,9 @@ public class InlineViewRef extends TableRef {
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
 
+        // anlayzeLateralViewRefs
+        analyzeLateralViewRef(analyzer);
+
         // Now do the remaining join analysis
         analyzeJoin(analyzer);
     }
@@ -424,6 +427,10 @@ public class InlineViewRef extends TableRef {
 
     public View getView() {
         return view;
+    }
+
+    public QueryStmt getQueryStmt() {
+        return queryStmt;
     }
 
     @Override

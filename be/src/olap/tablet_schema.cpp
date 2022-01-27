@@ -18,6 +18,8 @@
 #include "olap/tablet_schema.h"
 
 #include "tablet_meta.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
@@ -422,6 +424,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _is_in_memory = schema.is_in_memory();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
+    _sort_type = schema.sort_type();
+    _sort_col_num = schema.sort_col_num();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
@@ -440,6 +444,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_is_in_memory(_is_in_memory);
     tablet_meta_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_meta_pb->set_sequence_col_idx(_sequence_col_idx);
+    tablet_meta_pb->set_sort_type(_sort_type);
+    tablet_meta_pb->set_sort_col_num(_sort_col_num);
 }
 
 uint32_t TabletSchema::mem_size() const {
@@ -484,6 +490,16 @@ void TabletSchema::init_field_index_for_test() {
     for (int i = 0; i < _cols.size(); ++i) {
         _field_name_to_index[_cols[i].name()] = i;
     }
+}
+
+vectorized::Block TabletSchema::create_block(const std::vector<uint32_t>& return_columns) const {
+    vectorized::Block block;
+    for (int i = 0; i < return_columns.size(); ++i) {
+        const auto& col = _cols[return_columns[i]];
+        auto data_type = vectorized::IDataType::from_olap_engine(col.type(), col.is_nullable());
+        block.insert({data_type->create_column(), data_type, col.name()});
+    }
+    return block;
 }
 
 bool operator==(const TabletColumn& a, const TabletColumn& b) {
@@ -543,5 +559,6 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
+
 
 } // namespace doris

@@ -56,14 +56,14 @@ public:
     BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                   const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
                   const std::vector<TNetworkAddress>& broker_addresses,
-                  const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
+                  const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     ~BrokerScanner();
 
     // Open this scanner, will initialize information need to
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) override;
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) override;
 
     // Close this scanner
     void close() override;
@@ -87,10 +87,9 @@ private:
     // Convert one row to one tuple
     //  'ptr' and 'len' is csv text line
     //  output is tuple
-    bool convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
+    Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
 
-    Status line_to_src_tuple();
-    bool line_to_src_tuple(const Slice& line);
+    Status _line_to_src_tuple(const Slice& line);
 
 private:
     const std::vector<TBrokerRangeDesc>& _ranges;
@@ -110,8 +109,6 @@ private:
     Decompressor* _cur_decompressor;
     int _next_range;
     bool _cur_line_reader_eof;
-
-    bool _scanner_eof;
 
     // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line

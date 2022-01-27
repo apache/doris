@@ -516,7 +516,7 @@ public class Load {
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
                     Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
                             beAddress.getPort());
-                    if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backend.getId())) {
+                    if (!Catalog.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
 
@@ -2063,6 +2063,10 @@ public class Load {
                 // tracking url
                 jobInfo.add(status.getTrackingUrl());
                 // job detail(not used for hadoop load, just return an empty string)
+                jobInfo.add("");
+                // transaction id
+                jobInfo.add(loadJob.getTransactionId());
+                // error tablets(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);

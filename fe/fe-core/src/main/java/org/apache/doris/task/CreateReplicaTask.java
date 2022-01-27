@@ -18,6 +18,7 @@
 package org.apache.doris.task;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -82,6 +83,8 @@ public class CreateReplicaTask extends AgentTask {
     // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
     private boolean isRecoverTask = false;
 
+    private DataSortInfo dataSortInfo;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
@@ -112,6 +115,40 @@ public class CreateReplicaTask extends AgentTask {
 
         this.isInMemory = isInMemory;
         this.tabletType = tabletType;
+    }
+
+    public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
+                             short shortKeyColumnCount, int schemaHash, long version, long versionHash,
+                             KeysType keysType, TStorageType storageType,
+                             TStorageMedium storageMedium, List<Column> columns,
+                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
+                             List<Index> indexes,
+                             boolean isInMemory,
+                             TTabletType tabletType,
+                             DataSortInfo dataSortInfo) {
+        super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
+
+        this.shortKeyColumnCount = shortKeyColumnCount;
+        this.schemaHash = schemaHash;
+
+        this.version = version;
+        this.versionHash = versionHash;
+
+        this.keysType = keysType;
+        this.storageType = storageType;
+        this.storageMedium = storageMedium;
+
+        this.columns = columns;
+
+        this.bfColumns = bfColumns;
+        this.indexes = indexes;
+        this.bfFpp = bfFpp;
+
+        this.latch = latch;
+
+        this.isInMemory = isInMemory;
+        this.tabletType = tabletType;
+        this.dataSortInfo = dataSortInfo;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -165,6 +202,10 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setSchemaHash(schemaHash);
         tSchema.setKeysType(keysType.toThrift());
         tSchema.setStorageType(storageType);
+        if (dataSortInfo != null) {
+            tSchema.setSortType(dataSortInfo.getSortType());
+            tSchema.setSortColNum(dataSortInfo.getColNum());
+        }
         int deleteSign = -1;
         int sequenceCol = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();

@@ -88,11 +88,13 @@ void ParquetOutputStream::set_written_len(int64_t written_len) {
 ParquetWriterWrapper::ParquetWriterWrapper(FileWriter* file_writer,
                                            const std::vector<ExprContext*>& output_expr_ctxs,
                                            const std::map<std::string, std::string>& properties,
-                                           const std::vector<std::vector<std::string>>& schema)
+                                           const std::vector<std::vector<std::string>>& schema,
+                                           bool output_object_data)
         : _output_expr_ctxs(output_expr_ctxs),
           _str_schema(schema),
           _cur_writed_rows(0),
-          _rg_writer(nullptr) {
+          _rg_writer(nullptr),
+          _output_object_data(output_object_data) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
     parse_properties(properties);
     parse_schema(schema);
@@ -351,6 +353,38 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 } else {
                     int64_t default_int64 = 0;
                     col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
+                }
+                break;
+            }
+
+            case TYPE_HLL:
+            case TYPE_OBJECT: {
+                if (_output_object_data) {
+                    if (_str_schema[index][1] != "byte_array") {
+                        std::stringstream ss;
+                        ss << "project field type is hll/bitmap, should use byte_array, but the "
+                              "definition type of column "
+                           << _str_schema[index][2] << " is " << _str_schema[index][1];
+                        return Status::InvalidArgument(ss.str());
+                    }
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                    parquet::ByteArrayWriter* col_writer =
+                            static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
+                    if (item != nullptr) {
+                        const StringValue* string_val = (const StringValue*)(item);
+                        parquet::ByteArray value;
+                        value.ptr = reinterpret_cast<const uint8_t*>(string_val->ptr);
+                        value.len = string_val->len;
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                    } else {
+                        parquet::ByteArray value;
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                    }
+                } else {
+                    std::stringstream ss;
+                    ss << "unsupported file format: "
+                       << _output_expr_ctxs[index]->root()->type().type;
+                    return Status::InvalidArgument(ss.str());
                 }
                 break;
             }

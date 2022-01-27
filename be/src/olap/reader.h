@@ -32,6 +32,7 @@
 
 #include "exprs/bloomfilter_predicate.h"
 #include "olap/column_predicate.h"
+#include "olap/collect_iterator.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
@@ -48,57 +49,64 @@ class RowBlock;
 class CollectIterator;
 class RuntimeState;
 
-// Params for Reader,
-// mainly include tablet, data version and fetch range.
-struct ReaderParams {
-    TabletSharedPtr tablet;
-    ReaderType reader_type = READER_QUERY;
-    bool aggregation = false;
-    bool need_agg_finalize = true;
-    // 1. when read column data page:
-    //     for compaction, schema_change, check_sum: we don't use page cache
-    //     for query and config::disable_storage_page_cache is false, we use page cache
-    // 2. when read column index page
-    //     if config::disable_storage_page_cache is false, we use page cache
-    bool use_page_cache = false;
-    Version version = Version(-1, 0);
+namespace vectorized {
+class VCollectIterator;
+class Block;
+} // namespace vectorized
 
-    std::vector<OlapTuple> start_key;
-    std::vector<OlapTuple> end_key;
-    bool start_key_include = false;
-    bool end_key_include = false;
+class TabletReader {
+    struct KeysParam {
+        std::string to_string() const;
 
-    std::vector<TCondition> conditions;
-    std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
-
-    // The ColumnData will be set when using Merger, eg Cumulative, BE.
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    std::vector<uint32_t> return_columns;
-    RuntimeProfile* profile = nullptr;
-    RuntimeState* runtime_state = nullptr;
-
-    void check_validation() const;
-
-    std::string to_string() const;
-};
-
-struct KeysParam {
-    ~KeysParam();
-
-    std::string to_string() const;
-
-    std::vector<RowCursor*> start_keys;
-    std::vector<RowCursor*> end_keys;
-    bool start_key_include = false;
-    bool end_key_include = false;
-};
-
-class Reader {
+        std::vector<RowCursor> start_keys;
+        std::vector<RowCursor> end_keys;
+        bool start_key_include = false;
+        bool end_key_include = false;
+    };
 public:
-    Reader();
-    virtual ~Reader();
+    // Params for Reader,
+    // mainly include tablet, data version and fetch range.
+    struct ReaderParams {
+        TabletSharedPtr tablet;
+        ReaderType reader_type = READER_QUERY;
+        bool direct_mode = false;
+        bool aggregation = false;
+        bool need_agg_finalize = true;
+        // 1. when read column data page:
+        //     for compaction, schema_change, check_sum: we don't use page cache
+        //     for query and config::disable_storage_page_cache is false, we use page cache
+        // 2. when read column index page
+        //     if config::disable_storage_page_cache is false, we use page cache
+        bool use_page_cache = false;
+        Version version = Version(-1, 0);
 
-    // Initialize Reader with tablet, data version and fetch range.
+        std::vector<OlapTuple> start_key;
+        std::vector<OlapTuple> end_key;
+        bool start_key_include = false;
+        bool end_key_include = false;
+
+        std::vector<TCondition> conditions;
+        std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
+
+        // The ColumnData will be set when using Merger, eg Cumulative, BE.
+        std::vector<RowsetReaderSharedPtr> rs_readers;
+        std::vector<uint32_t> return_columns;
+        RuntimeProfile* profile = nullptr;
+        RuntimeState* runtime_state = nullptr;
+
+        // use only in vec exec engine
+        std::vector<uint32_t>* origin_return_columns = nullptr;
+
+        void check_validation() const;
+
+        std::string to_string() const;
+    };
+
+    TabletReader() = default;
+
+    virtual ~TabletReader();
+
+    // Initialize TabletReader with tablet, data version and fetch range.
     virtual OLAPStatus init(const ReaderParams& read_params);
 
     // Read next row with aggregation.
@@ -106,7 +114,17 @@ public:
     // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     virtual OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
-                                         ObjectPool* agg_pool, bool* eof) = 0;
+                                                 ObjectPool* agg_pool, bool* eof) = 0;
+
+    // Read next block with aggregation.
+    // Return OLAP_SUCCESS and set `*eof` to false when next block is read
+    // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
+    // Return others when unexpected error happens.
+    // TODO: Rethink here we still need mem_pool and agg_pool?
+    virtual OLAPStatus next_block_with_aggregation(vectorized::Block* block, MemPool* mem_pool,
+                                                   ObjectPool* agg_pool, bool* eof) {
+        return OLAP_ERR_READER_INITIALIZE_ERROR;
+    }
 
     uint64_t merged_rows() const { return _merged_rows; }
 
@@ -120,6 +138,7 @@ public:
 
 protected:
     friend class CollectIterator;
+    friend class vectorized::VCollectIterator;
     friend class DeleteHandler;
 
     OLAPStatus _init_params(const ReaderParams& read_params);
@@ -189,17 +208,17 @@ protected:
     ReaderType _reader_type = READER_QUERY;
     bool _next_delete_flag = false;
     bool _filter_delete = false;
-    bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
+    bool _direct_mode = false;
 
-    std::unique_ptr<CollectIterator> _collect_iter;
+    CollectIterator _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 
     uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;
 
-    DISALLOW_COPY_AND_ASSIGN(Reader);
+    DISALLOW_COPY_AND_ASSIGN(TabletReader);
 };
 
 } // namespace doris

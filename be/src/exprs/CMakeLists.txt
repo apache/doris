@@ -70,4 +70,10 @@ add_library(Exprs
   bitmap_function.cpp
   hll_function.cpp
   grouping_sets_functions.cpp
-  topn_function.cpp)
+  topn_function.cpp
+  table_function/explode_split.cpp
+  table_function/explode_bitmap.cpp
+  table_function/explode_json_array.cpp
+  table_function/table_function_factory.cpp
+  table_function/dummy_table_functions.cpp
+)

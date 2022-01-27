@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
@@ -41,12 +42,14 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.InferFiltersRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
+import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteLikePredicateRule;
-import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
+import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -216,6 +219,8 @@ public class Analyzer {
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
 
+        private final Set<TupleId> outerJoinedMaterializedTupleIds = Sets.newHashSet();
+
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
         public final Map<ExprId, TableRef> fullOuterJoinedConjuncts = Maps.newHashMap();
@@ -249,6 +254,34 @@ public class Analyzer {
         // TODO chenhao16, to save conjuncts, which children are constant
         public final Map<TupleId, Set<Expr>> constantConjunct = Maps.newHashMap();
 
+        // map from two table tuple ids to JoinOperator between two tables.
+        // NOTE: first tupleId's position in front of the second tupleId.
+        public final Map<Pair<TupleId, TupleId>, JoinOperator> anyTwoTalesJoinOperator = Maps.newHashMap();
+
+        // slotEqSlotExpr: Record existing and infer equivalent connections
+        public final List<Expr> onSlotEqSlotExpr = new ArrayList<>();
+
+        // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
+        public final Set<Pair<Expr, Expr>> onSlotEqSlotDeDuplication = Sets.newHashSet();
+
+        // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
+        public final List<Expr> onSlotToLiteralExpr = new ArrayList<>();
+
+        // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
+        public final Set<Pair<Expr, Expr>> onSlotToLiteralDeDuplication = Sets.newHashSet();
+
+        // inExpr: Recoud existing and infer expr which in predicate
+        public final List<Expr> onInExpr = new ArrayList<>();
+
+        // inExprDeDuplication: De-Duplication for inExpr
+        public final Set<Expr> onInDeDuplication = Sets.newHashSet();
+
+        // isNullExpr: Record existing and infer not null predicate
+        public final List<Expr> onIsNullExpr = new ArrayList<>();
+
+        //isNullDeDuplication: De-Duplication for isNullExpr
+        public final Set<Expr> onIsNullDeDuplication = Sets.newHashSet();
+
         // map from slot id to the analyzer/block in which it was registered
         public final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
 
@@ -268,15 +301,18 @@ public class Analyzer {
             // Binary predicates must be rewritten to a canonical form for both predicate
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
+            // Put it after NormalizeBinaryPredicatesRule, make sure slotRef is on the left and Literal is on the right.
+            rules.add(RewriteBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
-            rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
+            rules.add(RewriteDateLiteralRule.INSTANCE);
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             rules.add(RewriteLikePredicateRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
+            onceRules.add(InferFiltersRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules, onceRules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
@@ -660,7 +696,7 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        if (true == col.isAllowNull()) {
+        if (col.isAllowNull() || globalState.outerJoinedTupleIds.containsKey(d.getId())) {
             result.setIsNullable(true);
         } else {
             result.setIsNullable(false);
@@ -671,7 +707,8 @@ public class Analyzer {
 
     /**
      * Register a virtual column, and it is not a real column exist in table,
-     * so it does not need to resolve.
+     * so it does not need to resolve. now virtual slot: only use in grouping set to generate grouping id,
+     * so it should always is not nullable
      */
     public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
             throws AnalysisException {
@@ -686,7 +723,7 @@ public class Analyzer {
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
         result.setColumn(col);
-        result.setIsNullable(true);
+        result.setIsNullable(col.isAllowNull());
         slotRefMap.put(key, result);
         return result;
     }
@@ -757,6 +794,7 @@ public class Analyzer {
         // result.setLabel(srcSlotDesc.getLabel());
         result.setStats(srcSlotDesc.getStats());
         result.setType(srcSlotDesc.getType());
+        result.setIsNullable(srcSlotDesc.getIsNullable());
         // result.setItemTupleDesc(srcSlotDesc.getItemTupleDesc());
         return result;
     }
@@ -801,6 +839,7 @@ public class Analyzer {
 
     /**
      * Register tids as being outer-joined by Join clause represented by rhsRef.
+     * All tuple of outer join should be null in slot desc
      */
     public void registerOuterJoinedTids(List<TupleId> tids, TableRef rhsRef) {
         for (TupleId tid: tids) {
@@ -812,11 +851,74 @@ public class Analyzer {
         }
     }
 
+    public void registerOuterJoinedMaterilizeTids(List<TupleId> tids) {
+        globalState.outerJoinedMaterializedTupleIds.addAll(tids);
+    }
+
+    /**
+     * All tuple of outer join tuple should be null in slot desc
+     */
+    public void changeAllOuterJoinTupleToNull() {
+        for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                slotDescriptor.setIsNullable(true);
+            }
+        }
+
+        for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                slotDescriptor.setIsNullable(true);
+            }
+        }
+    }
+
     /**
      * Register the given tuple id as being the invisible side of a semi-join.
      */
     public void registerSemiJoinedTid(TupleId tid, TableRef rhsRef) {
         globalState.semiJoinedTupleIds.put(tid, rhsRef);
+    }
+
+    /**
+     * Register the relationship between any two tables
+     */
+    public void registerAnyTwoTalesJoinOperator(Pair<TupleId, TupleId> tids, JoinOperator joinOperator) {
+        if (joinOperator == null) {
+            joinOperator = JoinOperator.INNER_JOIN;
+        }
+        globalState.anyTwoTalesJoinOperator.put(tids, joinOperator);
+    }
+
+    public void registerOnSlotEqSlotExpr(Expr expr) {
+        globalState.onSlotEqSlotExpr.add(expr);
+    }
+
+    public void registerOnSlotEqSlotDeDuplication(Pair<Expr, Expr> pair) {
+        globalState.onSlotEqSlotDeDuplication.add(pair);
+    }
+
+    public void registerOnSlotToLiteralExpr(Expr expr) {
+        globalState.onSlotToLiteralExpr.add(expr);
+    }
+
+    public void registerOnSlotToLiteralDeDuplication(Pair<Expr,Expr> pair) {
+        globalState.onSlotToLiteralDeDuplication.add(pair);
+    }
+
+    public void registerInExpr(Expr expr) {
+        globalState.onInExpr.add(expr);
+    }
+
+    public void registerInDeDuplication(Expr expr) {
+        globalState.onInDeDuplication.add(expr);
+    }
+
+    public void registerOnIsNullExpr(Expr expr) {
+        globalState.onIsNullExpr.add(expr);
+    }
+
+    public void registerOnIsNullDeDuplication(Expr expr) {
+        globalState.onIsNullDeDuplication.add(expr);
     }
 
     public void registerConjunct(Expr e, TupleId tupleId) throws AnalysisException {
@@ -1140,6 +1242,17 @@ public class Analyzer {
         return globalState.outerJoinedTupleIds.get(id);
     }
 
+    /**
+     * Return JoinOperator between two tables
+     */
+    public JoinOperator getAnyTwoTablesJoinOp(Pair<TupleId, TupleId> tids) {
+        return globalState.anyTwoTalesJoinOperator.get(tids);
+    }
+
+    public boolean isContainTupleIds(Pair<TupleId, TupleId> tids) {
+        return globalState.anyTwoTalesJoinOperator.containsKey(tids);
+    }
+
     public boolean isWhereClauseConjunct(Expr e) {
         return whereClauseConjuncts.contains(e.getId());
     }
@@ -1221,9 +1334,44 @@ public class Analyzer {
         for (ExprId conjunctId : remainConjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
+            if (e.isAuxExpr()) {
+                continue;
+            }
             result.add(e);
         }
         return result;
+    }
+
+    public List<Expr> getOnSlotEqSlotExpr() {
+        return new ArrayList<>(globalState.onSlotEqSlotExpr);
+    }
+
+    public Set<Pair<Expr,Expr>> getOnSlotEqSlotDeDuplication() {
+        return Sets.newHashSet(globalState.onSlotEqSlotDeDuplication);
+    }
+
+    public List<Expr> getOnSlotToLiteralExpr() {
+        return new ArrayList<>(globalState.onSlotToLiteralExpr);
+    }
+
+    public Set<Pair<Expr, Expr>> getOnSlotToLiteralDeDuplication() {
+        return Sets.newHashSet(globalState.onSlotToLiteralDeDuplication);
+    }
+
+    public List<Expr> getInExpr() {
+        return new ArrayList<>(globalState.onInExpr);
+    }
+
+    public Set<Expr> getInDeDuplication() {
+        return Sets.newHashSet(globalState.onInDeDuplication);
+    }
+
+    public List<Expr> getOnIsNullExpr() {
+        return new ArrayList<>(globalState.onIsNullExpr);
+    }
+
+    public Set<Expr> getOnIsNullDeDuplication() {
+        return Sets.newHashSet(globalState.onIsNullDeDuplication);
     }
 
     /**
@@ -1635,6 +1783,8 @@ public class Analyzer {
         return schemaTable;
     }
 
+    // TODO: `globalState.context` could be null, refactor return value type to
+    // `Optional<ConnectContext>`.
     public ConnectContext getContext() {
         return globalState.context;
     }
@@ -1673,6 +1823,22 @@ public class Analyzer {
             return false;
         }
         return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+    }
+
+    public boolean enableInferPredicate() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return globalState.context.getSessionVariable().isEnableInferPredicate();
+    }
+
+    // Use V2 version as default implementation.
+    public boolean partitionPruneV2Enabled() {
+        if (globalState.context == null) {
+            return true;
+        } else {
+            return globalState.context.getSessionVariable().getPartitionPruneAlgorithmVersion() == 2;
+        }
     }
 
     // The cost based join reorder is turned on

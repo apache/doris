@@ -33,7 +33,7 @@ public:
     void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK));
+                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -323,7 +323,7 @@ public:
 
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK));
+                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,

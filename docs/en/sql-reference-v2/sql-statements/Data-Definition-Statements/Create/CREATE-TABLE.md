@@ -297,6 +297,13 @@ distribution_info
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
 
+    * Data Sort Info
+        
+        The relevant parameters of data sort info are as follows:
+        
+        * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
+        * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
+      
 ### Example
 
 1. Create a detailed model table

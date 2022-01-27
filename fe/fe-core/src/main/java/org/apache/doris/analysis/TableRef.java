@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -142,13 +143,15 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public TableRef(TableName name, String alias, PartitionNames partitionNames) {
-        this(name, alias, partitionNames, null, null);
+        this(name, alias, partitionNames, null);
     }
 
-    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints,
-                    ArrayList<LateralViewRef> lateralViewRefs) {
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
+            if (Catalog.isStoredTableNamesLowerCase()) {
+                alias = alias.toLowerCase();
+            }
             aliases_ = new String[]{alias};
             hasExplicitAlias_ = true;
         } else {
@@ -156,7 +159,6 @@ public class TableRef implements ParseNode, Writable {
         }
         this.partitionNames = partitionNames;
         this.commonHints = commonHints;
-        this.lateralViewRefs = lateralViewRefs;
         isAnalyzed = false;
     }
     // Only used to clone
@@ -333,8 +335,22 @@ public class TableRef implements ParseNode, Writable {
         return sortColumn;
     }
 
+    public void setLateralViewRefs(ArrayList<LateralViewRef> lateralViewRefs) {
+        this.lateralViewRefs = lateralViewRefs;
+    }
+
     public ArrayList<LateralViewRef> getLateralViewRefs() {
         return lateralViewRefs;
+    }
+
+    protected void analyzeLateralViewRef(Analyzer analyzer) throws UserException {
+        if (lateralViewRefs == null) {
+            return;
+        }
+        for (LateralViewRef lateralViewRef : lateralViewRefs) {
+            lateralViewRef.setRelatedTable(this);
+            lateralViewRef.analyze(analyzer);
+        }
     }
 
     protected void analyzeSortHints() throws AnalysisException {
@@ -448,21 +464,35 @@ public class TableRef implements ParseNode, Writable {
         boolean lhsIsNullable = false;
         boolean rhsIsNullable = false;
 
+        //
+        if (leftTblRef != null) {
+            for (TupleId tupleId : leftTblRef.getAllTableRefIds()) {
+                Pair<TupleId, TupleId> tids = new Pair<>(tupleId, getId());
+                analyzer.registerAnyTwoTalesJoinOperator(tids, joinOp);
+            }
+        }
+
         // at this point, both 'this' and leftTblRef have been analyzed and registered;
         // register the tuple ids of the TableRefs on the nullable side of an outer join
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(getId().asList(), this);
+            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
         if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
+            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
         }
         // register the tuple ids of a full outer join
         if (joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerFullOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
             analyzer.registerFullOuterJoinedTids(getId().asList(), this);
+
+            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
+            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
+
         // register the tuple id of the rhs of a left semi join
         TupleId semiJoinedTupleId = null;
         if (joinOp == JoinOperator.LEFT_SEMI_JOIN
@@ -528,7 +558,7 @@ public class TableRef implements ParseNode, Writable {
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
             throws AnalysisException {
         Preconditions.checkState(isAnalyzed);
-        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer);
+        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
     }
 
     private String joinOpToSql() {

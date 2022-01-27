@@ -26,19 +26,15 @@ import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 /**
  * Rewrite `int` to `string` in like predicate
  * in order to support `int` in like predicate, same as MySQL
  */
 public class RewriteLikePredicateRule implements ExprRewriteRule {
-    private final static Logger LOG = LogManager.getLogger(RewriteAliasFunctionRule.class);
     public static RewriteLikePredicateRule INSTANCE = new RewriteLikePredicateRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (expr instanceof LikePredicate) {
             Expr leftChild = expr.getChild(0);
             if (leftChild instanceof SlotRef) {

@@ -41,8 +41,8 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 	# 关闭副本均衡逻辑。关闭后，不会再触发普通表副本的均衡操作。
 	$ mysql-client > admin set frontend config("disable_balance" = "true");
 
-	# 关闭 colocation 表的副本均衡逻辑。关闭后，不会再出发 colocation 表的副本重分布操作。
-	$ mysql-client > admin set frontend config("disable_colocate_balance");
+	# 关闭 colocation 表的副本均衡逻辑。关闭后，不会再触发 colocation 表的副本重分布操作。
+	$ mysql-client > admin set frontend config("disable_colocate_balance" = "true");
 
 	# 关闭副本调度逻辑。关闭后，所有已产生的副本修复和均衡任务不会再被调度。
 	$ mysql-client > admin set frontend config("disable_tablet_scheduler" = "true");
@@ -64,7 +64,7 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 3. 在 fe.conf 添加配置：cluster_id=123456
 4. 在 fe.conf 添加配置：metadata\_failure_recovery=true
 5. 拷贝线上环境 Master FE 的元数据目录 palo-meta 到测试环境
-6. 将拷贝到测试环境中的 palo-meta/image/VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
+6. 将拷贝到测试环境中的 doris-meta/image/VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
 7. 在测试环境中，运行 sh bin/start_fe.sh 启动 FE
 8. 通过 FE 日志 fe.log 观察是否启动成功。
 9. 如果启动成功，运行 sh bin/stop_fe.sh 停止测试环境的 FE 进程。
@@ -79,4 +79,4 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 
 1. 确认新版本的文件部署完成后。逐台重启 FE 和 BE 实例即可。
 2. 建议逐台重启 BE 后，再逐台重启 FE。因为通常 Doris 保证 FE 到 BE 的向后兼容性，即老版本的 FE 可以访问新版本的 BE。但可能不支持老版本的 BE 访问新版本的 FE。
-3. 建议确认前一个实例启动成功后，在重启下一个实例。实例启动成功的标识，请参阅安装部署文档。
+3. 建议确认前一个实例启动成功后，再重启下一个实例。实例启动成功的标识，请参阅安装部署文档。

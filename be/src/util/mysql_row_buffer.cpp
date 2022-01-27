@@ -90,19 +90,19 @@ void MysqlRowBuffer::close_dynamic_mode() {
     }
 }
 
-int MysqlRowBuffer::reserve(int size) {
+int MysqlRowBuffer::reserve(int64_t size) {
     if (size < 0) {
         LOG(ERROR) << "alloc memory failed. size = " << size;
         return -1;
     }
 
-    int need_size = size + (_pos - _buf);
+    int64_t need_size = size + (_pos - _buf);
 
     if (need_size <= _buf_size) {
         return 0;
     }
 
-    int alloc_size = std::max(need_size, _buf_size * 2);
+    int64_t alloc_size = std::max(need_size, _buf_size * 2);
     char* new_buf = new (std::nothrow) char[alloc_size];
 
     if (nullptr == new_buf) {
@@ -324,7 +324,7 @@ int MysqlRowBuffer::push_decimal(const DecimalV2Value& data, int round_scale) {
     return 0;
 }
 
-int MysqlRowBuffer::push_string(const char* str, int length) {
+int MysqlRowBuffer::push_string(const char* str, int64_t length) {
     // 9 for length pack max, 1 for sign, other for digits
     if (nullptr == str) {
         LOG(ERROR) << "input string is nullptr.";
@@ -364,7 +364,7 @@ int MysqlRowBuffer::push_null() {
     return 0;
 }
 
-char* MysqlRowBuffer::reserved(int size) {
+char* MysqlRowBuffer::reserved(int64_t size) {
     int ret = reserve(size);
 
     if (0 != ret) {

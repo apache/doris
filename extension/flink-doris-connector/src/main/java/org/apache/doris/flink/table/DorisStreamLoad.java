@@ -64,6 +64,15 @@ public class DorisStreamLoad implements Serializable {
     private String tbl;
     private String authEncoding;
     private Properties streamLoadProp;
+    private final HttpClientBuilder httpClientBuilder = HttpClients
+            .custom()
+            .setRedirectStrategy(new DefaultRedirectStrategy() {
+                @Override
+                protected boolean isRedirectable(String method) {
+                    return true;
+                }
+            });
+    private CloseableHttpClient httpClient;
 
     public DorisStreamLoad(String hostPort, String db, String tbl, String user, String passwd, Properties streamLoadProp) {
         this.hostPort = hostPort;
@@ -74,6 +83,7 @@ public class DorisStreamLoad implements Serializable {
         this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
         this.authEncoding = basicAuthHeader(user, passwd);
         this.streamLoadProp = streamLoadProp;
+        this.httpClient = httpClientBuilder.build();
     }
 
     public String getLoadUrlStr() {
@@ -94,7 +104,7 @@ public class DorisStreamLoad implements Serializable {
             try {
                 RespContent respContent = OBJECT_MAPPER.readValue(loadResponse.respContent, RespContent.class);
                 if (!DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
-                    String errMsg=String.format("stream load error: %s, see more in %s",respContent.getMessage(),respContent.getErrorURL());
+                    String errMsg = String.format("stream load error: %s, see more in %s", respContent.getMessage(), respContent.getErrorURL());
                     throw new StreamLoadException(errMsg);
                 }
             } catch (IOException e) {
@@ -112,16 +122,7 @@ public class DorisStreamLoad implements Serializable {
                     UUID.randomUUID().toString().replaceAll("-", ""));
         }
 
-        final HttpClientBuilder httpClientBuilder = HttpClients
-                .custom()
-                .setRedirectStrategy(new DefaultRedirectStrategy() {
-                    @Override
-                    protected boolean isRedirectable(String method) {
-                        return true;
-                    }
-                });
-
-        try (CloseableHttpClient client = httpClientBuilder.build()) {
+        try {
             HttpPut put = new HttpPut(loadUrlStr);
             put.setHeader(HttpHeaders.EXPECT, "100-continue");
             put.setHeader(HttpHeaders.AUTHORIZATION, this.authEncoding);
@@ -132,7 +133,7 @@ public class DorisStreamLoad implements Serializable {
             StringEntity entity = new StringEntity(value, "UTF-8");
             put.setEntity(entity);
 
-            try (CloseableHttpResponse response = client.execute(put)) {
+            try (CloseableHttpResponse response = httpClient.execute(put)) {
                 final int statusCode = response.getStatusLine().getStatusCode();
                 final String reasonPhrase = response.getStatusLine().getReasonPhrase();
                 String loadResult = "";
@@ -152,6 +153,17 @@ public class DorisStreamLoad implements Serializable {
         final String tobeEncode = username + ":" + password;
         byte[] encoded = Base64.encodeBase64(tobeEncode.getBytes(StandardCharsets.UTF_8));
         return "Basic " + new String(encoded);
+    }
+
+    public void close() throws IOException {
+        if (null != httpClient) {
+            try {
+                httpClient.close();
+            } catch (IOException e) {
+                LOG.error("Closing httpClient failed.", e);
+                throw new RuntimeException("Closing httpClient failed.", e);
+            }
+        }
     }
 
     public static class LoadResponse {

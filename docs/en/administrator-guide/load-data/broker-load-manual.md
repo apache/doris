@@ -460,6 +460,20 @@ We will only discuss the case of a single BE. If the user cluster has more than 
 		Note: The average user's environment may not reach the speed of 10M/s, so it is recommended that more than 500G files be split and imported.
 		
 		```
+		
+### Job Scheduling
+
+The system limits the number of Broker Load jobs running in a cluster to prevent too many Load jobs from running at the same time.
+
+First, the configuration parameter of FE: `desired_max_waiting_jobs` will limit the number of Broker Load jobs that are pending or running (the job status is PENDING or LOADING) in a cluster. The default is 100. If this threshold is exceeded, the newly submitted job will be rejected directly.
+
+A Broker Load job will be divided into pending task and loading task phases. Among them, the pending task is responsible for obtaining the information of the imported file, and the loading task will be sent to BE to perform specific import tasks.
+
+The configuration parameter `async_pending_load_task_pool_size` of FE is used to limit the number of pending tasks running at the same time. It is also equivalent to controlling the number of import tasks that are actually running. This parameter defaults to 10. In other words, assuming that the user submits 100 Load jobs, only 10 jobs will enter the LOADING state and start execution, while other jobs are in the PENDING waiting state.
+
+The FE configuration parameter `async_loading_load_task_pool_size` is used to limit the number of loading tasks that run at the same time. A Broker Load job will have 1 pending task and multiple loading tasks (equal to the number of DATA INFILE clauses in the LOAD statement). So `async_loading_load_task_pool_size` should be greater than or equal to `async_pending_load_task_pool_size`.
+
+Because the work of pending tasks is relatively lightweight (for example, just accessing hdfs to obtain file information), `async_pending_load_task_pool_size` does not need to be large, and the default 10 is usually sufficient. And `async_loading_load_task_pool_size` is really used to limit the import tasks that can be run at the same time. It can be adjusted appropriately according to the cluster size.
 
 ### Performance analysis
 

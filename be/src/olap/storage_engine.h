@@ -188,6 +188,11 @@ public:
     std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
     std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
 
+    // check cumulative compaction config
+    void check_cumulative_compaction_config();
+
+    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -218,9 +223,6 @@ private:
     // unused rowset monitor thread
     void _unused_rowset_monitor_thread_callback();
 
-    // check cumulative compaction config
-    void _check_cumulative_compaction_config();
-
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();
 
@@ -244,7 +246,7 @@ private:
 
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
-    // When the disk status is unusable, but the unused logo is not detected, you need to download it from root_path
+    // When the disk status is unusable, but the unused logo is not _push_tablet_into_submitted_compactiondetected, you need to download it from root_path
     // Reload the data.
     void _start_disk_stat_monitor();
 
@@ -254,12 +256,16 @@ private:
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
 
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
+    void _update_cumulative_compaction_policy();
+
+    bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
                                                 CompactionType compaction_type);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
+
+    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
 
 private:
     struct CompactionCandidate {

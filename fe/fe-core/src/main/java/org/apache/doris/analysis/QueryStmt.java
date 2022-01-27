@@ -71,6 +71,19 @@ public abstract class QueryStmt extends StatementBase {
 
     // For a select statement: select list exprs resolved to base tbl refs
     // For a union statement: same as resultExprs
+    /**
+     * For inline view, Doris will generate an extra layer of tuple (virtual) during semantic analysis.
+     * But if the expr in the outer select stmt involves columns in the inline view,
+     * it can only be mapped to this layer of tuple (virtual) at the beginning (@resultExprs).
+     * If you want to really associate with the column in the inlineview,
+     * you need to substitute it with baseTblSmap to get the correct expr (@baseTblResultExprs).
+     * resultExprs + baseTblSmap = baseTblResultExprs
+     * For example:
+     * select c1 from (select k1 c1 from table group by k1) tmp;
+     * tuple 0: table, tuple1: group by tuple2: tmp
+     * resultExprs: c1 belongs to tuple2(tmp)
+     * baseTblResultExprs: c1 belongs to tuple1(group by)
+     */
     protected ArrayList<Expr> baseTblResultExprs = Lists.newArrayList();
 
     /**
@@ -699,6 +712,9 @@ public abstract class QueryStmt extends StatementBase {
         evaluateOrderBy = false;
         fromInsert = false;
     }
+
+    // DORIS-7361, Reset selectList to keep clean
+    public abstract void resetSelectList();
 
     public void setFromInsert(boolean value) {
         this.fromInsert = value;

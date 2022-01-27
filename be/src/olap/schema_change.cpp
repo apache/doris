@@ -764,7 +764,10 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
     if (_memory_limitation > 0 &&
         _mem_tracker->consumption() + row_block_size > _memory_limitation) {
         LOG(WARNING) << "RowBlockAllocator::alocate() memory exceeded. "
-                     << "m_memory_allocated=" << _mem_tracker->consumption();
+                     << "m_memory_allocated=" << _mem_tracker->consumption() << " "
+                     << "mem limit for schema change=" << _memory_limitation << " "
+                     << "You can increase the memory "
+                     << "by changing the Config.memory_limitation_per_thread_for_schema_change";
         *row_block = nullptr;
         return OLAP_SUCCESS;
     }
@@ -930,16 +933,27 @@ bool RowBlockMerger::_pop_heap() {
 OLAPStatus LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
                                        RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet,
                                        TabletSharedPtr base_tablet) {
-    OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
-            rowset_reader->rowset(), _row_block_changer.get_schema_mapping());
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to convert rowset."
-                     << ", new_tablet=" << new_tablet->full_name()
-                     << ", base_tablet=" << base_tablet->full_name()
-                     << ", version=" << new_rowset_writer->version().first << "-"
-                     << new_rowset_writer->version().second;
+
+    // In some cases, there may be more than one type of rowset in a tablet,
+    // in which case the conversion cannot be done directly by linked schema change,
+    // but requires direct schema change to rewrite the data.
+    if (rowset_reader->type() != new_rowset_writer->type()) {
+        LOG(INFO) << "the type of rowset " << rowset_reader->rowset()->rowset_id() << " in base tablet " << base_tablet->tablet_id()
+                << " is not same as type " << new_rowset_writer->type() << ", use direct schema change.";
+        SchemaChangeDirectly scd(_row_block_changer, _mem_tracker);
+        return scd.process(rowset_reader, new_rowset_writer, new_tablet, base_tablet);
+    } else {
+        OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
+                rowset_reader->rowset(), _row_block_changer.get_schema_mapping());
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to convert rowset."
+                << ", new_tablet=" << new_tablet->full_name()
+                << ", base_tablet=" << base_tablet->full_name()
+                << ", version=" << new_rowset_writer->version().first << "-"
+                << new_rowset_writer->version().second;
+        }
+        return status;
     }
-    return status;
 }
 
 SchemaChangeDirectly::SchemaChangeDirectly(const RowBlockChanger& row_block_changer,
@@ -1351,7 +1365,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& ro
     context.partition_id = new_tablet->partition_id();
     context.tablet_schema_hash = new_tablet->schema_hash();
     context.rowset_type = new_rowset_type;
-    context.rowset_path_prefix = new_tablet->tablet_path();
+    context.path_desc = new_tablet->tablet_path_desc();
     context.tablet_schema = &(new_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
     context.version = version;
@@ -1757,7 +1771,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         writer_context.rowset_type = BETA_ROWSET;
     }
-    writer_context.rowset_path_prefix = new_tablet->tablet_path();
+    writer_context.path_desc = new_tablet->tablet_path_desc();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
     writer_context.txn_id = (*base_rowset)->txn_id();
@@ -1904,7 +1918,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
             // And in this case, linked schema change will not be used.
             writer_context.rowset_type = BETA_ROWSET;
         }
-        writer_context.rowset_path_prefix = new_tablet->tablet_path();
+        writer_context.path_desc = new_tablet->tablet_path_desc();
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();

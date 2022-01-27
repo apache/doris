@@ -39,14 +39,19 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _tuple_desc(tuple_desc),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _row_comparator(_schema),
           _mem_tracker(MemTracker::CreateTracker(-1, "MemTable", parent_tracker)),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
-          _skip_list(new Table(_row_comparator, _table_mem_pool.get(),
-                               _keys_type == KeysType::DUP_KEYS)),
-          _rowset_writer(rowset_writer) {}
+          _rowset_writer(rowset_writer) {
+    if (tablet_schema->sort_type() == SortType::ZORDER) {
+        _row_comparator = std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
+    } else {
+        _row_comparator = std::make_shared<RowCursorComparator>(_schema);
+    }
+    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
+
+}
 
 MemTable::~MemTable() {
     delete _skip_list;

@@ -63,7 +63,7 @@ namespace internal {
 // FileWritableBlock instances is expected to be low.
 class FileWritableBlock : public WritableBlock {
 public:
-    FileWritableBlock(FileBlockManager* block_manager, string path,
+    FileWritableBlock(FileBlockManager* block_manager, const FilePathDesc& path_desc,
                       shared_ptr<WritableFile> writer);
 
     virtual ~FileWritableBlock();
@@ -75,7 +75,7 @@ public:
     virtual BlockManager* block_manager() const override;
 
     virtual const BlockId& id() const override;
-    virtual const std::string& path() const override;
+    virtual const FilePathDesc& path_desc() const override;
 
     virtual Status append(const Slice& data) override;
 
@@ -106,7 +106,7 @@ private:
     FileBlockManager* _block_manager;
 
     const BlockId _block_id;
-    const string _path;
+    FilePathDesc _path_desc;
 
     // The underlying opened file backing this block.
     shared_ptr<WritableFile> _writer;
@@ -117,11 +117,11 @@ private:
     size_t _bytes_appended;
 };
 
-FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager, string path,
+FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager, const FilePathDesc& path_desc,
                                      shared_ptr<WritableFile> writer)
         : _block_manager(block_manager),
-          _path(std::move(path)),
-          _writer(std::move(writer)),
+          _path_desc(path_desc),
+          _writer(writer),
           _state(CLEAN),
           _bytes_appended(0) {
     if (_block_manager->_metrics) {
@@ -132,7 +132,7 @@ FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager, string pat
 
 FileWritableBlock::~FileWritableBlock() {
     if (_state != CLOSED) {
-        WARN_IF_ERROR(abort(), strings::Substitute("Failed to close block $0", _path));
+        WARN_IF_ERROR(abort(), strings::Substitute("Failed to close block $0", _path_desc.filepath));
     }
 }
 
@@ -142,7 +142,7 @@ Status FileWritableBlock::close() {
 
 Status FileWritableBlock::abort() {
     RETURN_IF_ERROR(_close(NO_SYNC));
-    return _block_manager->_delete_block(_path);
+    return _block_manager->delete_block(_path_desc);
 }
 
 BlockManager* FileWritableBlock::block_manager() const {
@@ -154,8 +154,8 @@ const BlockId& FileWritableBlock::id() const {
     return _block_id;
 }
 
-const string& FileWritableBlock::path() const {
-    return _path;
+const FilePathDesc& FileWritableBlock::path_desc() const {
+    return _path_desc;
 }
 
 Status FileWritableBlock::append(const Slice& data) {
@@ -163,7 +163,7 @@ Status FileWritableBlock::append(const Slice& data) {
 }
 
 Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
-    DCHECK(_state == CLEAN || _state == DIRTY) << "path=" << _path << " invalid state=" << _state;
+    DCHECK(_state == CLEAN || _state == DIRTY) << "path=" << _path_desc.filepath << " invalid state=" << _state;
     RETURN_IF_ERROR(_writer->appendv(data, data_cnt));
     _state = DIRTY;
 
@@ -175,19 +175,19 @@ Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status FileWritableBlock::flush_data_async() {
-    VLOG_NOTICE << "Flushing block " << _path;
+    VLOG_NOTICE << "Flushing block " << _path_desc.filepath;
     RETURN_IF_ERROR(_writer->flush(WritableFile::FLUSH_ASYNC));
     return Status::OK();
 }
 
 Status FileWritableBlock::finalize() {
     DCHECK(_state == CLEAN || _state == DIRTY || _state == FINALIZED)
-            << "path=" << _path << "Invalid state: " << _state;
+            << "path=" << _path_desc.filepath << "Invalid state: " << _state;
 
     if (_state == FINALIZED) {
         return Status::OK();
     }
-    VLOG_NOTICE << "Finalizing block " << _path;
+    VLOG_NOTICE << "Finalizing block " << _path_desc.filepath;
     if (_state == DIRTY && BlockManager::block_manager_preflush_control == "finalize") {
         flush_data_async();
     }
@@ -211,15 +211,15 @@ Status FileWritableBlock::_close(SyncMode mode) {
     Status sync;
     if (mode == SYNC && (_state == CLEAN || _state == DIRTY || _state == FINALIZED)) {
         // Safer to synchronize data first, then metadata.
-        VLOG_NOTICE << "Syncing block " << _path;
+        VLOG_NOTICE << "Syncing block " << _path_desc.filepath;
         if (_block_manager->_metrics) {
             _block_manager->_metrics->total_disk_sync->increment(1);
         }
         sync = _writer->sync();
         if (sync.ok()) {
-            sync = _block_manager->_sync_metadata(_path);
+            sync = _block_manager->_sync_metadata(_path_desc.filepath);
         }
-        WARN_IF_ERROR(sync, strings::Substitute("Failed to sync when closing block $0", _path));
+        WARN_IF_ERROR(sync, strings::Substitute("Failed to sync when closing block $0", _path_desc.filepath));
     }
     Status close = _writer->close();
 
@@ -250,7 +250,7 @@ Status FileWritableBlock::_close(SyncMode mode) {
 // embed a FileBlockLocation, using the simpler BlockId instead.
 class FileReadableBlock : public ReadableBlock {
 public:
-    FileReadableBlock(FileBlockManager* block_manager, string path,
+    FileReadableBlock(FileBlockManager* block_manager, const FilePathDesc& path_desc,
                       std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle);
 
     virtual ~FileReadableBlock();
@@ -260,7 +260,7 @@ public:
     virtual BlockManager* block_manager() const override;
 
     virtual const BlockId& id() const override;
-    virtual const std::string& path() const override;
+    virtual const FilePathDesc& path_desc() const override;
 
     virtual Status size(uint64_t* sz) const override;
 
@@ -276,7 +276,7 @@ private:
 
     // The block's identifier.
     const BlockId _block_id;
-    const string _path;
+    const FilePathDesc _path_desc;
 
     // The underlying opened file backing this block.
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> _file_handle;
@@ -291,11 +291,11 @@ private:
 };
 
 FileReadableBlock::FileReadableBlock(
-        FileBlockManager* block_manager, string path,
+        FileBlockManager* block_manager, const FilePathDesc& path_desc,
         std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle)
         : _block_manager(block_manager),
-          _path(std::move(path)),
-          _file_handle(std::move(file_handle)),
+          _path_desc(path_desc),
+          _file_handle(file_handle),
           _closed(false) {
     if (_block_manager->_metrics) {
         _block_manager->_metrics->blocks_open_reading->increment(1);
@@ -305,7 +305,7 @@ FileReadableBlock::FileReadableBlock(
 }
 
 FileReadableBlock::~FileReadableBlock() {
-    WARN_IF_ERROR(close(), strings::Substitute("Failed to close block $0", _path));
+    WARN_IF_ERROR(close(), strings::Substitute("Failed to close block $0", _path_desc.filepath));
 }
 
 Status FileReadableBlock::close() {
@@ -329,8 +329,8 @@ const BlockId& FileReadableBlock::id() const {
     return _block_id;
 }
 
-const string& FileReadableBlock::path() const {
-    return _path;
+const FilePathDesc& FileReadableBlock::path_desc() const {
+    return _path_desc;
 }
 
 Status FileReadableBlock::size(uint64_t* sz) const {
@@ -397,35 +397,35 @@ Status FileBlockManager::create_block(const CreateBlockOptions& opts,
     shared_ptr<WritableFile> writer;
     WritableFileOptions wr_opts;
     wr_opts.mode = Env::MUST_CREATE;
-    RETURN_IF_ERROR(env_util::open_file_for_write(wr_opts, _env, opts.path, &writer));
+    RETURN_IF_ERROR(env_util::open_file_for_write(wr_opts, _env, opts.path_desc.filepath, &writer));
 
-    VLOG_CRITICAL << "Creating new block at " << opts.path;
-    block->reset(new internal::FileWritableBlock(this, opts.path, writer));
+    VLOG_CRITICAL << "Creating new block at " << opts.path_desc.filepath;
+    block->reset(new internal::FileWritableBlock(this, opts.path_desc, writer));
     return Status::OK();
 }
 
-Status FileBlockManager::open_block(const std::string& path,
+Status FileBlockManager::open_block(const FilePathDesc& path_desc,
                                     std::unique_ptr<ReadableBlock>* block) {
-    VLOG_CRITICAL << "Opening block with path at " << path;
+    VLOG_CRITICAL << "Opening block with path at " << path_desc.filepath;
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle(
             new OpenedFileHandle<RandomAccessFile>());
-    bool found = _file_cache->lookup(path, file_handle.get());
+    bool found = _file_cache->lookup(path_desc.filepath, file_handle.get());
     if (!found) {
         std::unique_ptr<RandomAccessFile> file;
-        RETURN_IF_ERROR(_env->new_random_access_file(path, &file));
-        _file_cache->insert(path, file.release(), file_handle.get());
+        RETURN_IF_ERROR(_env->new_random_access_file(path_desc.filepath, &file));
+        _file_cache->insert(path_desc.filepath, file.release(), file_handle.get());
     }
 
-    block->reset(new internal::FileReadableBlock(this, path, file_handle));
+    block->reset(new internal::FileReadableBlock(this, path_desc, file_handle));
     return Status::OK();
 }
 
 // TODO(lingbin): We should do something to ensure that deletion can only be done
 // after the last reader or writer has finished
-Status FileBlockManager::_delete_block(const string& path) {
+Status FileBlockManager::delete_block(const FilePathDesc& path_desc, bool is_dir) {
     CHECK(!_opts.read_only);
 
-    RETURN_IF_ERROR(_env->delete_file(path));
+    RETURN_IF_ERROR(_env->delete_file(path_desc.filepath));
 
     // We don't bother fsyncing the parent directory as there's nothing to be
     // gained by ensuring that the deletion is made durable. Even if we did
@@ -439,9 +439,18 @@ Status FileBlockManager::_delete_block(const string& path) {
     return Status::OK();
 }
 
+Status FileBlockManager::link_file(const FilePathDesc& src_path_desc, const FilePathDesc& dest_path_desc) {
+    if (link(src_path_desc.filepath.c_str(), dest_path_desc.filepath.c_str()) != 0) {
+        LOG(WARNING) << "fail to create hard link. from=" << src_path_desc.filepath << ", "
+                     << "to=" << dest_path_desc.filepath << ", " << "errno=" << Errno::no();
+        return Status::InternalError("link file failed");
+    }
+    return Status::OK();
+}
+
 // TODO(lingbin): only one level is enough?
-Status FileBlockManager::_sync_metadata(const string& path) {
-    string dir = path_util::dir_name(path);
+Status FileBlockManager::_sync_metadata(const FilePathDesc& path_desc) {
+    string dir = path_util::dir_name(path_desc.filepath);
     if (_metrics) {
         _metrics->total_disk_sync->increment(1);
     }

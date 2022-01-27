@@ -26,61 +26,72 @@ under the License.
 
 # Setting Up Development Environment for FE using IntelliJ IDEA
 
-## Prerequisites
+## 1. Environmental Preparation
 
 * Git
 * JDK1.8+
 * IntelliJ IDEA
 * Maven (Optional, IDEA shipped embedded Maven3)
 
-## Clone Code
+1. Git clone codebase from https://github.com/apache/incubator-doris.git
 
-Git clone codebase from https://github.com/apache/incubator-doris.git
 
-## Code Generation
+2. Use IntelliJ IDEA to open the code root directory
 
-If your are only interested in FE module, and for some reason you can't or don't want to compile full thirdparty libraries, 
-the minimum tool required for FE module is `thrift`, so you can manually install `thrift` and copy or create a link of 
-the executable `thrift` command to `./thirdparty/installed/bin`.
 
-Doris build against `thrift` 0.13.0 ( note : `Doris` 0.15 and later version build against `thrift` 0.13.0 , the previous version is still `thrift` 0.9.3)
+3. If your are only interested in FE module, and for some reason you can't or don't want to compile full thirdparty libraries,
+   the minimum tool required for FE module is `thrift`, so you can manually install `thrift` and copy or create a link of
+   the executable `thrift` command to `./thirdparty/installed/bin`.
+   ```
+   Doris build against `thrift` 0.13.0 ( note : `Doris` 0.15 and later version build against `thrift` 0.13.0 , the previous version is still `thrift` 0.9.3)   
+   
+   Windows: 
+      1. Download：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+      2. Copy：copy the file to `./thirdparty/installed/bin`
+      
+   MacOS: 
+      1. Download：`brew install thrift@0.13.0`
+      2. Establish soft connection： 
+        `mkdir -p ./thirdparty/installed/bin`
+        `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+      
+   Note：The error that the version cannot be found may be reported when MacOS execute `brew install thrift@0.13.0`. The solution is execute at the terminal as follows:
+      1. `brew tap-new $USER/local-tap`
+      2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+      3. `brew install thrift@0.13.0`
+   Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+   ```
 
-If your are using macOS, try `brew install thrift@0.13.0` and will get `thrift` 0.13.0 installed at `/usr/local/opt/thrift@0.13.0/bin/thrift`, 
-then create a soft link to `./thirdparty/installed/bin/thrift`.
-        
-For Windows users, download `thrift` 0.13.0 from `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`, 
-and put it into `thirdparty/installed/bin/` folder.
+4. Go to `./fe` folder and run the following maven command to generate sources.
 
-Go to `./fe` folder and run the following maven command to generate sources.
-
-```
-mvn generate-sources
-```
-
-If fails, run following command first to try to install modules into maven local repository, then re-run above command.
-
-```
-mvn install -DskipTests
-```
-
-You can also use IDE embedded GUI tools to run maven command to generate sources
+   ```
+   mvn generate-sources
+   ```
+   
+   If fails, run following command.
+   
+   ```
+   mvn clean install -DskipTests
+   ```
+   
+   You can also use IDE embedded GUI tools to run maven command to generate sources
 
 ![](/images/gen_code.png)
 
 If you are developing on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here 
 is generate codes in Linux and copy them back. Using Docker should also be an option.
 
-## Import into IDEA
+## 2. Debug
 
 1. Import `./fe` into IDEA
 
-2. Follow the picture to create the folders
+2. Follow the picture to create the folders (The directory may exist in the new version. If it exists, skip it, otherwise create it.)
 
 ![](/images/DEBUG4.png)
 
 3. Build `ui` project , and copy files from directory `ui/dist` into directory `webroot` ( you can skip this step , if you don't need `Doris` UI )
 
-## Custom FE configuration
+## 3. Custom FE configuration
 
 Copy below content into `conf/fe.conf` and tune it to fit your environment.
 
@@ -157,12 +168,12 @@ mysql_service_nio_enabled = true
 
 ```
 
-## Setting Environment Variables
+## 4. Setting Environment Variables
 
 Follow the picture to set runtime Environment Variables in IDEA
 
 ![](/images/DEBUG5.png)
 
-## Start FE
+## 5. Start FE
 
 Having fun with Doris FE!

@@ -70,10 +70,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -176,8 +176,21 @@ public class OlapScanNode extends ScanNode {
         this.forceOpenPreAgg = forceOpenPreAgg;
     }
 
+    public Integer getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public Long getSelectedTabletsNum() {
+        return selectedTabletsNum;
+    }
+
     public Collection<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
+    }
+
+    // only used for UT
+    public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
+        this.selectedPartitionIds = selectedPartitionIds;
     }
 
     /**
@@ -419,12 +432,23 @@ public class OlapScanNode extends ScanNode {
         } else {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
+
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            partitionPruner = new RangePartitionPruner(keyItemMap,
-                    partitionInfo.getPartitionColumns(), columnFilters);
+            if (analyzer.partitionPruneV2Enabled()) {
+                partitionPruner = new RangePartitionPrunerV2(keyItemMap,
+                        partitionInfo.getPartitionColumns(), columnNameToRange);
+            } else {
+                partitionPruner = new RangePartitionPruner(keyItemMap,
+                        partitionInfo.getPartitionColumns(), columnFilters);
+            }
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            partitionPruner = new ListPartitionPruner(keyItemMap,
+            if (analyzer.partitionPruneV2Enabled()) {
+                partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                    columnNameToRange);
+            } else {
+                partitionPruner = new ListPartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
+            }
         }
         return partitionPruner.prune();
     }
@@ -571,8 +595,8 @@ public class OlapScanNode extends ScanNode {
             }
         } else {
             selectedPartitionIds = selectedPartitionIds.stream()
-                    .filter(id -> olapTable.getPartition(id).hasData())
-                    .collect(Collectors.toList());
+                  .filter(id -> olapTable.getPartition(id).hasData())
+                  .collect(Collectors.toList());
         }
         selectedPartitionNum = selectedPartitionIds.size();
         LOG.debug("partition prune cost: {} ms, partitions: {}",
@@ -743,7 +767,6 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
-        msg.olap_scan_node.setTableName(olapTable.getName());
     }
 
     // export some tablets

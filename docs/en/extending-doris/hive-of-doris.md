@@ -88,7 +88,7 @@ PROPERTIES (
 
 The supported Hive column types correspond to Doris in the following table.
 
-|  Hive  | Doris  |             描述              |
+|  Hive  | Doris  |             Description              |
 | :------: | :----: | :-------------------------------: |
 |   BOOLEAN  | BOOLEAN  |                         |
 |   CHAR   |  CHAR  |    Only UTF8 encoding is supported      |
@@ -101,7 +101,7 @@ The supported Hive column types correspond to Doris in the following table.
 |   DOUBLE  | DOUBLE |  |
 |   DECIMAL  | DECIMAL |  |
 |   DATE   |  DATE  |                                   |
-|   DATETIME  | TIMESTAMP | Timestamp to Datetime will lose precision | 
+|   TIMESTAMP  | DATETIME | Timestamp to Datetime will lose precision |
 
 **Note:** 
 - Hive table Schema changes **are not automatically synchronized** and require rebuilding the Hive external table in Doris.

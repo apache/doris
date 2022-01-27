@@ -26,9 +26,9 @@
 
 namespace doris {
 
-AlphaRowset::AlphaRowset(const TabletSchema* schema, std::string rowset_path,
+AlphaRowset::AlphaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                          RowsetMetaSharedPtr rowset_meta)
-        : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {}
+        : Rowset(schema, rowset_path_desc, std::move(rowset_meta)) {}
 
 OLAPStatus AlphaRowset::do_load(bool use_cache) {
     for (auto& segment_group : _segment_groups) {
@@ -98,9 +98,9 @@ void AlphaRowset::make_visible_extra(Version version, VersionHash version_hash) 
     }
 }
 
-OLAPStatus AlphaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {
+OLAPStatus AlphaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) {
     for (auto& segment_group : _segment_groups) {
-        auto status = segment_group->link_segments_to_path(dir, new_rowset_id);
+        auto status = segment_group->link_segments_to_path(dir_desc.filepath, new_rowset_id);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "create hard links failed for segment group:"
                          << segment_group->segment_group_id();
@@ -316,12 +316,12 @@ OLAPStatus AlphaRowset::init() {
         std::shared_ptr<SegmentGroup> segment_group;
         if (_is_pending) {
             segment_group.reset(new SegmentGroup(
-                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path,
+                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path_desc.filepath,
                     false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments(),
                     true, _rowset_meta->partition_id(), _rowset_meta->txn_id()));
         } else {
             segment_group.reset(new SegmentGroup(
-                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path,
+                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path_desc.filepath,
                     _rowset_meta->version(), _rowset_meta->version_hash(), false,
                     segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
         }

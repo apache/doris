@@ -60,7 +60,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.ImmutableList;
 
 public class TestRowBatch {
-    private static Logger logger = LoggerFactory.getLogger(TestRowBatch.class);
+    private final static Logger logger = LoggerFactory.getLogger(TestRowBatch.class);
 
     @Rule
     public ExpectedException thrown = ExpectedException.none();

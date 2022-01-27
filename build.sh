@@ -18,7 +18,7 @@
 
 ##############################################################
 # This script is used to compile Apache Doris(incubating).
-# Usage: 
+# Usage:
 #    sh build.sh --help
 # Eg:
 #    sh build.sh                            build all
@@ -41,12 +41,6 @@ ROOT=`cd "$ROOT"; pwd`
 export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
-
-# build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    ${DORIS_THIRDPARTY}/build-thirdparty.sh
-fi
 
 # Check args
 usage() {
@@ -152,7 +146,7 @@ if [[ ${HELP} -eq 1 ]]; then
 fi
 
 # build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libbreakpad_client.a ]]; then
     echo "Thirdparty libraries need to be build ..."
     ${DORIS_THIRDPARTY}/build-thirdparty.sh -j $PARALLEL
 fi
@@ -197,6 +191,7 @@ fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 # DO NOT using parallel make(-j) for gensrc
+python --version
 make
 
 # Clean and build Backend
@@ -244,7 +239,7 @@ function build_ui() {
     # check NPM env here, not in env.sh.
     # Because UI should be considered a non-essential component at runtime.
     # Only when the compilation is required, check the relevant compilation environment.
-    NPM=npm    
+    NPM=npm
     if ! ${NPM} --version; then
         echo "Error: npm is not found"
         exit 1
@@ -259,7 +254,7 @@ function build_ui() {
     ui_dist=${DORIS_HOME}/ui/dist/
     if [[ ! -z ${CUSTOM_UI_DIST} ]]; then
         ui_dist=${CUSTOM_UI_DIST}
-    else 
+    else
         cd ${DORIS_HOME}/ui
         ${NPM} install
         ${NPM} run build
@@ -271,7 +266,7 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-if [ ${BUILD_UI} -eq 1 ] ; then 
+if [ ${BUILD_UI} -eq 1 ] ; then
     build_ui
 fi
 

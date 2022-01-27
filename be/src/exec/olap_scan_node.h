@@ -32,6 +32,8 @@
 #include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
 #include "util/spinlock.h"
+#include "vec/exec/volap_scanner.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -49,21 +51,20 @@ enum TransferStatus {
 class OlapScanNode : public ScanNode {
 public:
     OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~OlapScanNode();
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
-    virtual Status close(RuntimeState* state);
-    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
+    Status close(RuntimeState* state) override;
+    Status set_scan_ranges(const std::vector <TScanRangeParams>& scan_ranges) override;
     inline void set_no_agg_finalize() { _need_agg_finalize = false; }
 
 protected:
-    typedef struct {
+    struct HeapType {
         Tuple* tuple;
         int id;
-    } HeapType;
+    };
 
     class MergeComparison {
     public:
@@ -82,7 +83,7 @@ protected:
 
     typedef std::priority_queue<HeapType, std::vector<HeapType>, MergeComparison> Heap;
 
-    void display_heap(Heap& heap) {
+    void display_heap(const Heap& heap) const {
         Heap h = heap;
         std::stringstream s;
         s << "Heap: [";
@@ -134,9 +135,9 @@ protected:
     Status add_one_batch(RowBatch* row_batch);
 
     // Write debug string of this into out.
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
+    void debug_string(int indentation_level, std::stringstream* out) const override {}
 
-    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const { return _runtime_filter_descs; }
 
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
@@ -159,6 +160,7 @@ protected:
                             RuntimeProfile* profile);
 
     friend class OlapScanner;
+    friend class doris::vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
@@ -216,7 +218,7 @@ protected:
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
-    int64_t _running_thread = 0;
+    std::atomic_int _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
 
     std::list<RowBatch*> _scan_row_batches;
@@ -322,6 +324,9 @@ protected:
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
 
     RuntimeProfile::Counter* _olap_wait_batch_queue_timer = nullptr;
+
+    vectorized::VExpr* _dfs_peel_conjunct(vectorized::VExpr* expr, int& leaf_index);
+    void _peel_pushed_conjuncts(); // remove pushed expr from conjunct tree
 };
 
 } // namespace doris

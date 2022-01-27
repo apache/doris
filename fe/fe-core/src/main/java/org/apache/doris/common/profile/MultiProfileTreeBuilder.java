@@ -25,9 +25,9 @@ import org.apache.doris.common.util.RuntimeProfile;
 
 import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.commons.lang3.tuple.Triple;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Map;

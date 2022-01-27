@@ -29,6 +29,8 @@
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
+#include "vec/exprs/vexpr.h"
+
 namespace doris {
 
 ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
@@ -75,14 +77,15 @@ Status ResultSink::prepare(RuntimeState* state) {
     // create writer based on sink type
     switch (_sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow)
-                              MysqlResultWriter(_sender.get(), _output_expr_ctxs, _profile));
+        _writer.reset(new (std::nothrow) MysqlResultWriter(
+                _sender.get(), _output_expr_ctxs, _profile, state->return_object_data_as_binary()));
         break;
     // deprecated
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
         _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,
-                                                          _profile, _sender.get()));
+                                                          _profile, _sender.get(),
+                                                          state->return_object_data_as_binary()));
         break;
     default:
         return Status::InternalError("Unknown result sink type");

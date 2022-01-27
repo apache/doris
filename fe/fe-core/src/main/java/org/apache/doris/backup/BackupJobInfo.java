@@ -40,6 +40,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,7 +62,6 @@ import java.util.Set;
 
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
-import org.glassfish.jersey.internal.guava.Sets;
 
 /*
  * This is a memory structure mapping the job info file in repository.

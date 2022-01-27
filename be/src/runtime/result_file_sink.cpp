@@ -96,7 +96,7 @@ Status ResultFileSink::prepare(RuntimeState* state) {
         // create writer
         _writer.reset(new (std::nothrow) FileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
-                _profile, _sender.get(), nullptr));
+                _profile, _sender.get(), nullptr, state->return_object_data_as_binary()));
     } else {
         // init channel
         _profile = _pool->add(new RuntimeProfile(title.str()));
@@ -113,7 +113,7 @@ Status ResultFileSink::prepare(RuntimeState* state) {
         _output_batch = new RowBatch(_output_row_descriptor, 1024, _mem_tracker.get());
         _writer.reset(new (std::nothrow) FileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
-                _profile, nullptr, _output_batch));
+                _profile, nullptr, _output_batch, state->return_object_data_as_binary()));
     }
     RETURN_IF_ERROR(_writer->init(state));
     for (int i = 0; i < _channels.size(); ++i) {

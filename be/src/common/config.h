@@ -475,7 +475,7 @@ CONF_Bool(enable_metric_calculator, "true");
 CONF_mInt32(max_consumer_num_per_group, "3");
 
 // the size of thread pool for routine load task.
-// this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
+// this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 CONF_Int32(routine_load_thread_pool_size, "10");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
@@ -515,6 +515,8 @@ CONF_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
 CONF_Int32(flush_thread_num_per_store, "2");
+// number of thread for flushing memtable per store, for high priority load task
+CONF_Int32(high_priority_flush_thread_num_per_store, "1");
 
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -526,9 +528,12 @@ CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 CONF_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
-CONF_Int64(brpc_max_body_size, "209715200");
+CONF_Int64(brpc_max_body_size, "3147483648");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
+CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+// Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
+// through brpc, this will be faster and avoid the error of Request length overflow.
+CONF_mBool(transfer_data_by_brpc_attachment, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -639,6 +644,14 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 // So the value of this config should corresponding to the number of rowsets on this BE.
 CONF_mInt32(segment_cache_capacity, "1000000");
 
+// s3 config
+CONF_String(default_remote_storage_s3_ak, "");
+CONF_String(default_remote_storage_s3_sk, "");
+CONF_String(default_remote_storage_s3_endpoint, "");
+CONF_String(default_remote_storage_s3_region, "");
+CONF_mInt32(default_remote_storage_s3_max_conn, "50");
+CONF_mInt32(default_remote_storage_s3_request_timeout_ms, "3000");
+CONF_mInt32(default_remote_storage_s3_conn_timeout_ms, "1000");
 // Set to true to disable the minidump feature.
 CONF_Bool(disable_minidump , "false");
 
@@ -653,6 +666,29 @@ CONF_Int32(max_minidump_file_size_mb, "200");
 // The max number of minidump file.
 // Doris will only keep latest 10 minidump files by default.
 CONF_Int32(max_minidump_file_number, "10");
+
+// If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
+// the value set by the fallback version kafka_broker_version_fallback will be used,
+// and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+CONF_String(kafka_broker_version_fallback, "0.10.0");
+
+// The the number of pool siz of routine load consumer.
+// If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
+// Change this size to 0 to fix it temporarily.
+CONF_Int32(routine_load_consumer_pool_size, "10");
+
+// When the timeout of a load task is less than this threshold,
+// Doris treats it as a high priority task.
+// high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
+// this threshold is mainly used to identify routine load tasks and should not be modified if not necessary.
+CONF_mInt32(load_task_high_priority_threshold_second, "120");
+
+// The min timeout of load rpc (add batch, close, etc.)
+// Because a load rpc may be blocked for a while.
+// Increase this config may avoid rpc timeout.
+CONF_mInt32(min_load_rpc_timeout_ms, "20000");
+
+
 
 } // namespace config
 

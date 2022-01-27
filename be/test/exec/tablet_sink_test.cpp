@@ -31,11 +31,13 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
+#include "runtime/types.h"
 #include "runtime/tuple_row.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/proto_util.h"
 
 namespace doris {
 namespace stream_load {
@@ -339,6 +341,8 @@ public:
 
             if (request->has_row_batch() && _row_desc != nullptr) {
                 auto tracker = std::make_shared<MemTracker>();
+                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+                attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
                 RowBatch batch(*_row_desc, request->row_batch(), tracker.get());
                 for (int i = 0; i < batch.num_rows(); ++i) {
                     LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);

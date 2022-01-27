@@ -573,6 +573,26 @@ T StringParser::numeric_limits(bool negative) {
 }
 
 template<>
+inline int StringParser::StringParseTraits<uint8_t>::max_ascii_len() {
+    return 3;
+}
+
+template<>
+inline int StringParser::StringParseTraits<uint16_t>::max_ascii_len() {
+    return 5;
+}
+
+template<>
+inline int StringParser::StringParseTraits<uint32_t>::max_ascii_len() {
+    return 10;
+}
+
+template<>
+inline int StringParser::StringParseTraits<uint64_t>::max_ascii_len() {
+    return 20;
+}
+
+template<>
 inline int StringParser::StringParseTraits<int8_t>::max_ascii_len() {
     return 3;
 }

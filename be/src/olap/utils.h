@@ -196,10 +196,6 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
 // 不用sse4指令的crc32c的计算函数
 unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc);
 
-OLAPStatus copy_file(const std::string& src, const std::string& dest);
-
-OLAPStatus copy_dir(const std::string& src_dir, const std::string& dst_dir);
-
 bool check_datapath_rw(const std::string& path);
 
 OLAPStatus read_write_test_file(const std::string& test_file_path);

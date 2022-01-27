@@ -228,7 +228,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;
         }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
+        context.path_desc = cur_tablet->tablet_path_desc();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
         context.txn_id = _request.transaction_id;
@@ -292,6 +292,10 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
                     break;
                 } else {
                     if (reader->eof()) {
+                        break;
+                    }
+                    //if read row but fill tuple fails, 
+                    if (!reader->is_fill_tuple()) {
                         break;
                     }
                     if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
@@ -410,7 +414,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;
         }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
+        context.path_desc = cur_tablet->tablet_path_desc();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
         context.txn_id = _request.transaction_id;
@@ -910,7 +914,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     case TFileFormatType::FORMAT_PARQUET:
         scanner = new ParquetScanner(_runtime_state.get(), _runtime_profile, t_scan_range.params,
                                      t_scan_range.ranges, t_scan_range.broker_addresses,
-                                     _pre_filter_ctxs, _counter.get());
+                                     _pre_filter_texprs, _counter.get());
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;
@@ -1016,12 +1020,12 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
 
     memset(_tuple, 0, _tuple_desc->num_null_bytes());
     // Get from scanner
-    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof);
+    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof, &_fill_tuple);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Scanner get next tuple failed";
         return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
     }
-    if (_eof) {
+    if (_eof || !_fill_tuple) {
         return OLAP_SUCCESS;
     }
 

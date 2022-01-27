@@ -82,7 +82,6 @@ public:
     FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
                       ExecEnv* exec_env, const TNetworkAddress& coord_addr);
 
-    ~FragmentExecState();
 
     Status prepare(const TExecPlanFragmentParams& params);
 
@@ -166,7 +165,6 @@ private:
 
     int _timeout_second;
 
-    std::unique_ptr<std::thread> _exec_thread;
 
     // This context is shared by all fragments of this host in a query
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
@@ -209,7 +207,6 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
     _start_time = DateTimeValue::local_time();
 }
 
-FragmentExecState::~FragmentExecState() {}
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
@@ -354,6 +351,13 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
             params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
             for (auto& info : runtime_state->tablet_commit_infos()) {
                 params.commitInfos.push_back(info);
+            }
+        }
+        if (!runtime_state->error_tablet_infos().empty()) {
+            params.__isset.errorTabletInfos = true;
+            params.errorTabletInfos.reserve(runtime_state->error_tablet_infos().size());
+            for (auto& info : runtime_state->error_tablet_infos()) {
+                params.errorTabletInfos.push_back(info);
             }
         }
 
@@ -632,7 +636,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         }
         exec_state->cancel_before_execute();
         return Status::InternalError(strings::Substitute(
-                "Put planfragment to thread pool failed. err = $0", st.get_error_msg()));
+                "Put planfragment to thread pool failed. err = $0, BE: $1",
+                st.get_error_msg(), BackendOptions::get_localhost()));
     }
 
     return Status::OK();

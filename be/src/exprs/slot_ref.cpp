@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "gen_cpp/Exprs_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/runtime_state.h"
 #include "util/types.h"
 
@@ -62,7 +63,7 @@ Status SlotRef::prepare(const SlotDescriptor* slot_desc, const RowDescriptor& ro
     }
     _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
     if (_tuple_idx == RowDescriptor::INVALID_IDX) {
-        return Status::InternalError("can't support");
+        return Status::InternalError(strings::Substitute("failed to get tuple idx with tuple id: $0, slot id: $1", slot_desc->parent(), _slot_id));
     }
     _tuple_is_nullable = row_desc.tuple_is_nullable(_tuple_idx);
     _slot_offset = slot_desc->tuple_offset();
@@ -94,7 +95,7 @@ Status SlotRef::prepare(RuntimeState* state, const RowDescriptor& row_desc, Expr
     // TODO(marcel): get from runtime state
     _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
     if (_tuple_idx == RowDescriptor::INVALID_IDX) {
-        return Status::InternalError("can't support");
+        return Status::InternalError(strings::Substitute("failed to get tuple idx when prepare with tuple id: $0, slot id: $1", slot_desc->parent(), _slot_id));
     }
     DCHECK(_tuple_idx != RowDescriptor::INVALID_IDX);
     _tuple_is_nullable = row_desc.tuple_is_nullable(_tuple_idx);

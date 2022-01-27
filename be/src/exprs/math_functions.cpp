@@ -26,10 +26,9 @@
 
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/tuple_row.h"
 #include "util/string_parser.hpp"
+#include "util/simd/vstring_function.h"
 
 namespace doris {
 
@@ -91,7 +90,7 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
             tmp2 = dec < 0 ? std::ceil(value_div_tmp) * tmp : std::ceil(value_mul_tmp) / tmp;
         }
     } else {
-        tmp2 = dec < 0 ? std::rint(value_div_tmp) * tmp : std::rint(value_mul_tmp) / tmp;
+        tmp2 = dec < 0 ? std::round(value_div_tmp) * tmp : std::round(value_mul_tmp) / tmp;
     }
 
     return tmp2;
@@ -179,11 +178,11 @@ ONE_ARG_MATH_FN(ln, DoubleVal, DoubleVal, std::log);
 ONE_ARG_MATH_FN(log10, DoubleVal, DoubleVal, std::log10);
 ONE_ARG_MATH_FN(exp, DoubleVal, DoubleVal, std::exp);
 
-FloatVal MathFunctions::sign(FunctionContext* ctx, const DoubleVal& v) {
+TinyIntVal MathFunctions::sign(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
-        return FloatVal::null();
+        return TinyIntVal::null();
     }
-    return FloatVal((v.val > 0) ? 1.0f : ((v.val < 0) ? -1.0f : 0.0f));
+    return TinyIntVal((v.val > 0) ? 1 : ((v.val < 0) ? -1 : 0));
 }
 
 DoubleVal MathFunctions::radians(FunctionContext* ctx, const DoubleVal& v) {
@@ -351,14 +350,10 @@ StringVal MathFunctions::hex_string(FunctionContext* ctx, const StringVal& s) {
     if (s.is_null) {
         return StringVal::null();
     }
-    std::stringstream ss;
-    ss << std::hex << std::uppercase << std::setfill('0');
-    for (int i = 0; i < s.len; ++i) {
-        // setw is not sticky. std::stringstream only converts integral values,
-        // so a cast to int is required, but only convert the least significant byte to hex.
-        ss << std::setw(2) << (static_cast<int32_t>(s.ptr[i]) & 0xFF);
-    }
-    return AnyValUtil::from_string_temp(ctx, ss.str());
+
+    StringVal result = StringVal::create_temp_string_val(ctx, s.len * 2);
+    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char *>(result.ptr));
+    return result;
 }
 
 StringVal MathFunctions::unhex(FunctionContext* ctx, const StringVal& s) {

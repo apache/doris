@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -18,29 +17,62 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
-    <groupId>org.apache</groupId>
-    <artifactId>doris-flink</artifactId>
-    <version>1.0.0-flink-${flink.version}_${scala.version}</version>
-
+    <parent>
+        <groupId>org.apache</groupId>
+        <artifactId>apache</artifactId>
+        <version>23</version>
+    </parent>
+    <groupId>org.apache.doris</groupId>
+    <artifactId>doris-flink-connector</artifactId>
+    <version>${flink.version}-${scala.version}-1.0.0-SNAPSHOT</version>
+    <name>Doris Flink Connector</name>
+    <url>https://doris.apache.org/</url>
+    <licenses>
+        <license>
+            <name>Apache 2.0 License</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <scm>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
+        <tag>HEAD</tag>
+    </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/apache/incubator-doris/issues</url>
+    </issueManagement>
+    <mailingLists>
+        <mailingList>
+            <name>Dev Mailing List</name>
+            <post>dev@doris.apache.org</post>
+            <subscribe>dev-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+        <mailingList>
+            <name>Commits Mailing List</name>
+            <post>commits@doris.apache.org</post>
+            <subscribe>commits-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+    </mailingLists>
     <properties>
-        <scala.version>2.12</scala.version>
-        <flink.version>1.11.2</flink.version>
+        <scala.version>${env.scala.version}</scala.version>
+        <flink.version>${env.flink.version}</flink.version>
         <libthrift.version>0.13.0</libthrift.version>
         <arrow.version>5.0.0</arrow.version>
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
         <maven-javadoc-plugin.version>3.3.0</maven-javadoc-plugin.version>
         <maven-source-plugin.version>3.2.1</maven-source-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.home>${basedir}/../../</doris.home>
-        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+        <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
+        <project.scm.id>github</project.scm.id>
     </properties>
-
     <profiles>
         <profile>
             <id>thirdparty</id>
@@ -61,14 +93,12 @@ under the License.
                     <name>env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>custom-nexus</id>
                     <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </repository>
             </repositories>
-
             <pluginRepositories>
                 <pluginRepository>
                     <id>custom-nexus</id>
@@ -76,7 +106,24 @@ under the License.
                 </pluginRepository>
             </pluginRepositories>
         </profile>
-
+        <profile>
+            <id>flink.version</id>
+            <properties>
+                <env.flink.version>1.11.6</env.flink.version>
+            </properties>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+        </profile>
+        <profile>
+            <id>scala.version</id>
+            <properties>
+                <env.scala.version>2.12</env.scala.version>
+            </properties>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+        </profile>
         <!-- for general repository -->
         <profile>
             <id>general-env</id>
@@ -85,7 +132,6 @@ under the License.
                     <name>!env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>central</id>
@@ -95,7 +141,6 @@ under the License.
             </repositories>
         </profile>
     </profiles>
-
     <dependencies>
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -213,7 +258,6 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
-
     <build>
         <plugins>
             <plugin>
@@ -307,13 +351,15 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+            <!--
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.7.8</version>
                 <configuration>
                     <excludes>
-                        <exclude>**/thrift/**</exclude></excludes>
+                        <exclude>**/thrift/**</exclude>
+                    </excludes>
                 </configuration>
                 <executions>
                     <execution>
@@ -337,6 +383,7 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -351,9 +398,9 @@ under the License.
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>${maven-javadoc-plugin.version}</version>
                 <configuration>
+                    <skip>true</skip>
                     <source>8</source>
                     <failOnError>false</failOnError>
-                    <aggregate>true</aggregate>
                 </configuration>
                 <executions>
                     <execution>
@@ -382,5 +429,4 @@ under the License.
             </plugin>
         </plugins>
     </build>
-
 </project>

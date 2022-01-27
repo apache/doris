@@ -104,7 +104,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 
         // 2.1 get existing files from remote path
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(_storage_backend->list(dest_path, &remote_files));
+        RETURN_IF_ERROR(_storage_backend->list(dest_path, true, false, &remote_files));
 
         for (auto& tmp : remote_files) {
             VLOG_CRITICAL << "get remote file: " << tmp.first << ", checksum: " << tmp.second.md5;
@@ -217,7 +217,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
         // 2.2. get remote files
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(_storage_backend->list(remote_path, &remote_files));
+        RETURN_IF_ERROR(_storage_backend->list(remote_path, true, false, &remote_files));
         if (remote_files.empty()) {
             std::stringstream ss;
             ss << "get nothing from remote path: " << remote_path;
@@ -360,8 +360,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 // MUST hold tablet's header lock, push lock, cumulative lock and base compaction lock
 Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr tablet,
                             bool overwrite) {
-    std::string tablet_path = tablet->tablet_path();
-    std::string store_path = tablet->data_dir()->path();
+    std::string tablet_path = tablet->tablet_path_desc().filepath;
+    std::string store_path = tablet->data_dir()->path_desc().filepath;
     LOG(INFO) << "begin to move snapshot files. from: " << snapshot_path << ", to: " << tablet_path
               << ", store: " << store_path << ", job: " << _job_id << ", task id: " << _task_id;
 

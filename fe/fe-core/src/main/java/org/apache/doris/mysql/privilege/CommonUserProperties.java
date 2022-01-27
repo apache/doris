@@ -22,9 +22,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;

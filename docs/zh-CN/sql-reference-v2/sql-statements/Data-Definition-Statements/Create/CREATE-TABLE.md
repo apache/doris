@@ -298,6 +298,12 @@ distribution_info
         * `dynamic_partition.history_partition_num`: 指定创建历史分区的数量。
         * `dynamic_partition.reserved_history_periods`: 用于指定保留的历史分区的时间段。
 
+    * 数据排序相关
+
+        数据排序相关参数如下:
+
+        * `data_sort.sort_type`: 数据排序使用的方法，目前支持两种：lexical/z-order，默认是lexical
+        * `data_sort.col_num`: 数据排序使用的列数，取最前面几列，不能超过总的key 列数
 ### Example
 
 1. 创建一个明细模型的表

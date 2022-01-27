@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "env/env.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
@@ -118,8 +119,8 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(const std::string& filename, const ZoneMapIndexPB* index_meta)
-            : _filename(filename), _index_meta(index_meta) {}
+    explicit ZoneMapIndexReader(const FilePathDesc& path_desc, const ZoneMapIndexPB* index_meta)
+            : _path_desc(path_desc), _index_meta(index_meta) {}
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -129,7 +130,7 @@ public:
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
-    std::string _filename;
+    FilePathDesc _path_desc;
     const ZoneMapIndexPB* _index_meta;
 
     std::vector<ZoneMapPB> _page_zone_maps;

@@ -120,15 +120,14 @@ ORCScanner::ORCScanner(RuntimeState* state, RuntimeProfile* profile,
                        const TBrokerScanRangeParams& params,
                        const std::vector<TBrokerRangeDesc>& ranges,
                        const std::vector<TNetworkAddress>& broker_addresses,
-                       const std::vector<ExprContext*>& pre_filter_ctxs,
+                       const std::vector<TExpr>& pre_filter_texprs,
                        ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           // _splittable(params.splittable),
           _next_range(0),
           _cur_file_eof(true),
-          _scanner_eof(false),
           _total_groups(0),
           _current_group(0),
           _rows_of_group(0),
@@ -156,7 +155,7 @@ Status ORCScanner::open() {
     return Status::OK();
 }
 
-Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple ) {
     try {
         SCOPED_TIMER(_read_timer);
         // Get one line
@@ -358,9 +357,9 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            if (fill_dest_tuple(tuple, tuple_pool)) {
-                break; // get one line, break from while
-            }          // else skip this line and continue get_next to return
+            RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool));
+            *fill_tuple = _success;
+            break;
         }
         return Status::OK();
     } catch (orc::ParseError& e) {
@@ -457,6 +456,7 @@ Status ORCScanner::open_next_reader() {
 }
 
 void ORCScanner::close() {
+    BaseScanner::close();
     _batch = nullptr;
     _reader.reset(nullptr);
     _row_reader.reset(nullptr);

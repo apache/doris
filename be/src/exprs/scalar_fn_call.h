@@ -54,6 +54,11 @@ public:
         return pool->add(new ScalarFnCall(*this));
     }
 
+    // TODO: just for table function.
+    // It is not good to expose this field to public.
+    // We should refactor it after implementing real table functions.
+    int get_fn_context_index() const { return _fn_context_index; }
+
 protected:
     friend class Expr;
 

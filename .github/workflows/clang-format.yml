@@ -17,17 +17,20 @@
 #
 
 ---
-name: BE Code Fomatter
-on: pull_request
+name: BE Code Formatter
+on: workflow_dispatch
 jobs:
   clang-format:
-    name: "Clang Fomatter"
+    name: "Clang Formatter"
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+          submodules: recursive
       - name: "Format it!"
-        uses: DoozyX/clang-format-lint-action@v0.13
+        uses: ./.github/actions/clang-format-lint-action
         id: be_clang_format
         with:
           source: 'be/src be/test'

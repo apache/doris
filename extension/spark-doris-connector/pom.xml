@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <!--
     Licensed to the Apache Software Foundation (ASF) under one
     or more contributor license agreements.  See the NOTICE file
@@ -18,19 +17,53 @@
     specific language governing permissions and limitations
     under the License.
 -->
-
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
-    <groupId>org.apache</groupId>
-    <artifactId>doris-spark</artifactId>
-    <version>1.0.0-spark-${spark.version}_${scala.version}</version>
-
+    <parent>
+        <groupId>org.apache</groupId>
+        <artifactId>apache</artifactId>
+        <version>23</version>
+    </parent>
+    <groupId>org.apache.doris</groupId>
+    <artifactId>doris-spark-connector</artifactId>
+    <version>${spark.version}-${scala.version}-1.0.0-SNAPSHOT</version>
+    <name>Doris Spark Connector</name>
+    <url>https://doris.apache.org/</url>
+    <licenses>
+        <license>
+            <name>Apache 2.0 License</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <scm>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
+        <tag>HEAD</tag>
+    </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/apache/incubator-doris/issues</url>
+    </issueManagement>
+    <mailingLists>
+        <mailingList>
+            <name>Dev Mailing List</name>
+            <post>dev@doris.apache.org</post>
+            <subscribe>dev-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+        <mailingList>
+            <name>Commits Mailing List</name>
+            <post>commits@doris.apache.org</post>
+            <subscribe>commits-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+    </mailingLists>
     <properties>
-        <scala.version>2.11</scala.version>
-        <spark.version>2.3.4</spark.version>
+        <scala.version>${env.scala.version}</scala.version>
+        <spark.version>${env.spark.version}</spark.version>
         <libthrift.version>0.13.0</libthrift.version>
         <arrow.version>5.0.0</arrow.version>
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -38,8 +71,8 @@
         <maven-source-plugin.version>3.2.1</maven-source-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
+        <project.scm.id>github</project.scm.id>
     </properties>
-
     <profiles>
         <!-- for custom internal repository -->
         <profile>
@@ -49,14 +82,12 @@
                     <name>env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>custom-nexus</id>
                     <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </repository>
             </repositories>
-
             <pluginRepositories>
                 <pluginRepository>
                     <id>custom-nexus</id>
@@ -64,7 +95,24 @@
                 </pluginRepository>
             </pluginRepositories>
         </profile>
-
+        <profile>
+            <id>spark.version</id>
+            <properties>
+                <env.spark.version>2.3.4</env.spark.version>
+            </properties>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+        </profile>
+        <profile>
+            <id>scala.version</id>
+            <properties>
+                <env.scala.version>2.11</env.scala.version>
+            </properties>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+        </profile>
         <!-- for general repository -->
         <profile>
             <id>general-env</id>
@@ -73,7 +121,6 @@
                     <name>!env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>central</id>
@@ -83,7 +130,6 @@
             </repositories>
         </profile>
     </profiles>
-
     <dependencies>
         <dependency>
             <groupId>org.apache.spark</groupId>
@@ -150,13 +196,11 @@
             <version>${spark.version}</version>
             <scope>test</scope>
         </dependency>
-
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.10.0</version>
         </dependency>
-
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
@@ -168,9 +212,7 @@
             <version>4.1.27.Final</version>
             <scope>provided</scope>
         </dependency>
-
     </dependencies>
-
     <build>
         <plugins>
             <!-- add gensrc java build src dir -->
@@ -286,37 +328,6 @@
                 </executions>
             </plugin>
             <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.7.8</version>
-                <configuration>
-                    <excludes>
-                        <exclude>**/thrift/**</exclude>
-                    </excludes>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>check</id>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>report</id>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>report</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${maven-compiler-plugin.version}</version>
@@ -330,9 +341,9 @@
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>${maven-javadoc-plugin.version}</version>
                 <configuration>
+                    <skip>true</skip>
                     <source>8</source>
                     <failOnError>false</failOnError>
-                    <aggregate>true</aggregate>
                 </configuration>
                 <executions>
                     <execution>
@@ -361,5 +372,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

@@ -27,4 +27,5 @@ add_library(OlapFs STATIC
     block_manager.cpp
     fs_util.cpp
     file_block_manager.cpp
+    remote_block_manager.cpp
 )

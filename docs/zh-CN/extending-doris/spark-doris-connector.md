@@ -35,10 +35,10 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 
 ## 版本兼容
 
-| Connector | Spark | Doris  | Java | Scala |
-| --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 2.x   | 0.12+  | 8    | 2.11  |
-| 1.0.0     | 3.x   | 0.12.+ | 8    | 2.12  |
+| Connector     | Spark | Doris  | Java | Scala |
+|---------------| ----- | ------ | ---- | ----- |
+| 2.3.4-2.11.xx | 2.x   | 0.12+  | 8    | 2.11  |
+| 3.1.2-2.12.xx | 3.x   | 0.12.+ | 8    | 2.12  |
 
 
 ## 编译与安装
@@ -51,11 +51,27 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 2. 建议在 doris 的 docker 编译环境 `apache/incubator-doris:build-env-1.2` 下进行编译，因为 1.3 下面的JDK 版本是 11，会存在编译问题。
 
 ```bash
-sh build.sh 3  ## spark 3.x版本，默认是3.1.2
-sh build.sh 2  ## spark 2.x版本，默认是2.3.4
+sh build.sh 2.3.4 2.11 ## spark 2.3.4, scala 2.11
+sh build.sh 3.1.2 2.12 ## spark 3.1.2, scala 2.12
+
 ```
 
 编译成功后，会在 `output/` 目录下生成文件 `doris-spark-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
+
+## 使用Maven管理
+
+添加依赖
+```
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>doris-spark-connector</artifactId>
+  <version>2.3.4-2.11-SNAPSHOT</version>
+</dependency>
+```
+
+**注意**
+
+`2.3.4-2.11` 可以根据spark和scala 版本替换成 `3.1.2-2.12`
 
 ## 使用示例
 ### 读取
@@ -186,6 +202,8 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.deserialize.arrow.async    | false             | 是否支持异步转换Arrow格式到spark-doris-connector迭代所需的RowBatch                 |
 | doris.deserialize.queue.size     | 64                | 异步转换Arrow格式的内部处理队列，当doris.deserialize.arrow.async为true时生效        |
 | doris.write.fields               | --                 | 指定写入Doris表的字段或者字段顺序，多列之间使用逗号分隔。<br />默认写入时要按照Doris表字段顺序写入全部字段。 |
+| sink.batch.size | 10000 | 单次写BE的最大行数 |
+| sink.max-retries | 1 | 写BE失败之后的重试次数 |
 
 ### SQL 和 Dataframe 专有配置
 

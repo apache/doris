@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
 import jdk.nashorn.internal.ir.annotations.Ignore;
 
 public class TestRestService {
-    private static Logger logger = LoggerFactory.getLogger(TestRestService.class);
+    private final static Logger logger = LoggerFactory.getLogger(TestRestService.class);
 
     @Rule
     public ExpectedException thrown = ExpectedException.none();

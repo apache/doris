@@ -325,7 +325,6 @@ public class DatabaseTransactionMgr {
         }
     }
 
-
     private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
         Database db = catalog.getDbOrMetaException(dbId);
 
@@ -379,11 +378,6 @@ public class DatabaseTransactionMgr {
             LOG.debug("transaction is already committed: {}", transactionId);
             return;
         }
-
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
-            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-        }
-
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
             transactionState.setTxnCommitAttachment(txnCommitAttachment);
@@ -439,12 +433,6 @@ public class DatabaseTransactionMgr {
             }
             tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
         }
-
-        if (tableToPartition.isEmpty()) {
-            // table or all partitions are being dropped
-            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-        }
-
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
@@ -704,17 +692,17 @@ public class DatabaseTransactionMgr {
         List<Long> tableIdList = transactionState.getTableIdList();
         // to be compatiable with old meta version, table List may be empty
         if (tableIdList.isEmpty()) {
-           readLock();
-           try {
-               for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                   long tableId = tableCommitInfo.getTableId();
-                   if (!tableIdList.contains(tableId)) {
-                       tableIdList.add(tableId);
-                   }
-               }
-           } finally {
-               readUnlock();
-           }
+            readLock();
+            try {
+                for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
+                    long tableId = tableCommitInfo.getTableId();
+                    if (!tableIdList.contains(tableId)) {
+                        tableIdList.add(tableId);
+                    }
+                }
+            } finally {
+                readUnlock();
+            }
         }
 
         List<Table> tableList = db.getTablesOnIdOrderWithIgnoringWrongTableId(tableIdList);
@@ -827,7 +815,7 @@ public class DatabaseTransactionMgr {
                                 LOG.info("publish version failed for transaction {} on tablet {}, with only {} replicas less than quorum {}",
                                         transactionState, tablet, healthReplicaNum, quorumReplicaNum);
                                 String errMsg = String.format("publish on tablet %d failed. succeed replica num %d less than quorum %d."
-                                        + " table: %d, partition: %d, publish version: %d",
+                                                + " table: %d, partition: %d, publish version: %d",
                                         tablet.getId(), healthReplicaNum, quorumReplicaNum, tableId, partitionId, partition.getVisibleVersion() + 1);
                                 transactionState.setErrorMsg(errMsg);
                                 hasError = true;
@@ -865,8 +853,8 @@ public class DatabaseTransactionMgr {
     }
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
-                                               Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                               Database db) {
+                                                Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
+                                                Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;

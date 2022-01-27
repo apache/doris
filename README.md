@@ -44,12 +44,13 @@ The main advantages of Doris are the simplicity (of developing, deploying and us
 
 [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
-> **Note**   
+> **Note**
 > Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
 some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
 
 ## Technology
-Doris mainly integrates the technology of Google Mesa and Apache Impala, and it is based on a column-oriented storage engine and can communicate by MySQL client.
+
+Doris mainly integrates the technology of [Google Mesa](https://research.google/pubs/pub42851/) and [Apache Impala](https://impala.apache.org/), and it is based on a column-oriented storage engine and can communicate by MySQL client.
 
 ## Compile and install
 

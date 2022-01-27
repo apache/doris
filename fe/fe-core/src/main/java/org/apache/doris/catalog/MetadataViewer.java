@@ -84,7 +84,7 @@ public class MetadataViewer {
                             
                             ReplicaStatus status = ReplicaStatus.OK;
                             Backend be = infoService.getBackend(replica.getBackendId());
-                            if (be == null || !be.isAvailable() || replica.isBad()) {
+                            if (be == null || !be.isAlive() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {
@@ -224,9 +224,9 @@ public class MetadataViewer {
                 row.add(String.valueOf(beId));
                 row.add(String.valueOf(countMap.get(beId)));
                 row.add(String.valueOf(sizeMap.get(beId)));
-                row.add(graph(countMap.get(beId), totalReplicaNum, beIds.size()));
+                row.add(graph(countMap.get(beId), totalReplicaNum));
                 row.add(totalReplicaNum == countMap.get(beId) ? "100.00%" : df.format((double) countMap.get(beId) / totalReplicaNum));
-                row.add(graph(sizeMap.get(beId), totalReplicaSize, beIds.size()));
+                row.add(graph(sizeMap.get(beId), totalReplicaSize));
                 row.add(totalReplicaSize == sizeMap.get(beId) ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 result.add(row);
             }
@@ -238,9 +238,9 @@ public class MetadataViewer {
         return result;
     }
 
-    private static String graph(long num, long totalNum, int mod) {
+    private static String graph(long num, long totalNum) {
         StringBuilder sb = new StringBuilder();
-        long normalized = num == totalNum ? totalNum : (int) Math.ceil(num * mod / totalNum);
+        long normalized = num == totalNum ? 100 : (int) Math.ceil(num * 100 / totalNum);
         for (int i = 0; i < normalized; ++i) {
             sb.append(">");
         }
@@ -268,28 +268,15 @@ public class MetadataViewer {
 
         olapTable.readLock();
         try {
-            long partitionId = -1;
+            Partition partition = null;
             // check partition
             for (String partName : partitionNames.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+                partition = olapTable.getPartition(partName, partitionNames.isTemp());
                 if (partition == null) {
                     throw new DdlException("Partition does not exist: " + partName);
                 }
-                partitionId = partition.getId();
                 break;
             }
-
-            // backend id -> replica count
-            Map<Long, Integer> countMap = Maps.newHashMap();
-            // backend id -> replica size
-            Map<Long, Long> sizeMap = Maps.newHashMap();
-            // init map
-            List<Long> beIds = infoService.getBackendIds(false);
-            for (long beId : beIds) {
-                countMap.put(beId, 0);
-            }
-
-            Partition partition = olapTable.getPartition(partitionId);
             DistributionInfo distributionInfo = partition.getDistributionInfo();
             List<Long> tabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
             for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
@@ -312,7 +299,7 @@ public class MetadataViewer {
                 List<String> row = Lists.newArrayList();
                 row.add(String.valueOf(i));
                 row.add(tabletInfos.get(i).toString());
-                row.add(graph(tabletInfos.get(i), totalSize, tabletInfos.size()));
+                row.add(graph(tabletInfos.get(i), totalSize));
                 row.add(totalSize == tabletInfos.get(i) ? "100.00%" : df.format((double) tabletInfos.get(i) / totalSize));
                 result.add(row);
             }

@@ -46,6 +46,15 @@ import java.util.Map;
 public class ExprRewriter {
     private int numChanges_ = 0;
     private final List<ExprRewriteRule> rules_;
+
+    // The type of clause that executes the rule.
+    // This type is only used in InferFiltersRule, RewriteDateLiteralRule, other rules are not used
+    public enum ClauseType {
+        ON_CLAUSE,
+        WHERE_CLAUSE,
+        OTHER_CLAUSE,    // All other clauses that are not on and not where
+    }
+
     // Once-only Rules
     private List<ExprRewriteRule> onceRules_ = Lists.newArrayList();
 
@@ -63,6 +72,11 @@ public class ExprRewriter {
     }
 
     public Expr rewrite(Expr expr, Analyzer analyzer) throws AnalysisException {
+        ClauseType clauseType = ClauseType.OTHER_CLAUSE;
+        return rewrite(expr, analyzer, clauseType);
+    }
+
+    public Expr rewrite(Expr expr, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
         // Keep applying the rule list until no rule has made any changes.
         int oldNumChanges;
         Expr rewrittenExpr = expr;
@@ -73,18 +87,18 @@ public class ExprRewriter {
                 if (rule instanceof FoldConstantsRule && analyzer.safeIsEnableFoldConstantByBe()) {
                     continue;
                 }
-                rewrittenExpr = applyRuleRepeatedly(rewrittenExpr, rule, analyzer);
+                rewrittenExpr = applyRuleRepeatedly(rewrittenExpr, rule, analyzer, clauseType);
             }
         } while (oldNumChanges != numChanges_);
 
         for (ExprRewriteRule rule: onceRules_) {
-            rewrittenExpr = applyRuleOnce(rewrittenExpr, rule, analyzer);
+            rewrittenExpr = applyRuleOnce(rewrittenExpr, rule, analyzer, clauseType);
         }
         return rewrittenExpr;
     }
 
-    private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer) throws AnalysisException {
-        Expr rewrittenExpr = rule.apply(expr, analyzer);
+    private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
+        Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
         if (rewrittenExpr != expr) {
             numChanges_++;
         }
@@ -114,13 +128,13 @@ public class ExprRewriter {
      * Applies 'rule' on the Expr tree rooted at 'expr' until there are no more changes.
      * Returns the transformed Expr or 'expr' if there were no changes.
      */
-    private Expr applyRuleRepeatedly(Expr expr, ExprRewriteRule rule, Analyzer analyzer)
+    private Expr applyRuleRepeatedly(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType)
             throws AnalysisException {
         int oldNumChanges;
         Expr rewrittenExpr = expr;
         do {
             oldNumChanges = numChanges_;
-            rewrittenExpr = applyRuleBottomUp(rewrittenExpr, rule, analyzer);
+            rewrittenExpr = applyRuleBottomUp(rewrittenExpr, rule, analyzer, clauseType);
         } while (oldNumChanges != numChanges_);
         return rewrittenExpr;
     }
@@ -129,12 +143,12 @@ public class ExprRewriter {
      * Applies 'rule' on 'expr' and all its children in a bottom-up fashion.
      * Returns the transformed Expr or 'expr' if there were no changes.
      */
-    private Expr applyRuleBottomUp(Expr expr, ExprRewriteRule rule, Analyzer analyzer)
+    private Expr applyRuleBottomUp(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType)
             throws AnalysisException {
         for (int i = 0; i < expr.getChildren().size(); ++i) {
-            expr.setChild(i, applyRuleBottomUp(expr.getChild(i), rule, analyzer));
+            expr.setChild(i, applyRuleBottomUp(expr.getChild(i), rule, analyzer, clauseType));
         }
-        Expr rewrittenExpr = rule.apply(expr, analyzer);
+        Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
         if (rewrittenExpr != expr) ++numChanges_;
         return rewrittenExpr;
     }

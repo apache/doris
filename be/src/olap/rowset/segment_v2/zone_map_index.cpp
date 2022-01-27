@@ -125,7 +125,7 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_filename, _index_meta->page_zone_maps());
+    IndexedColumnReader reader(_path_desc, _index_meta->page_zone_maps());
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 

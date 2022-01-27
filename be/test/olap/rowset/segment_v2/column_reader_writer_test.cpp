@@ -33,6 +33,9 @@
 #include "runtime/mem_tracker.h"
 #include "test_util/test_util.h"
 #include "util/file_utils.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/data_type_number.h"
 
 using std::string;
 
@@ -77,8 +80,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({fname});
-        Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
+        fs::CreateBlockOptions opts(fname);
+        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
@@ -125,16 +128,18 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     {
         // read and check
         ColumnReaderOptions reader_opts;
+        FilePathDesc path_desc;
+        path_desc.filepath = fname;
         std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, fname, &reader);
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
         ASSERT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
         std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_manager();
-        block_manager->open_block(fname, &rblock);
+        fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+        block_manager->open_block(path_desc, &rblock);
 
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
@@ -238,8 +243,8 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({fname});
-        Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
+        fs::CreateBlockOptions opts(fname);
+        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
@@ -289,16 +294,18 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     // read and check
     {
         ColumnReaderOptions reader_opts;
+        FilePathDesc path_desc;
+        path_desc.filepath = fname;
         std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, fname, &reader);
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
         ASSERT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
         std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_manager();
-        st = block_manager->open_block(fname, &rblock);
+        fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+        st = block_manager->open_block(path_desc, &rblock);
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
@@ -516,6 +523,92 @@ void test_read_default_value(string value, void* result) {
     }
 }
 
+static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type) {
+    if (type == OLAP_FIELD_TYPE_INT) {
+        return vectorized::DataTypeInt32().create_column();
+    } else if (type == OLAP_FIELD_TYPE_SMALLINT) {
+        return vectorized::DataTypeInt16().create_column();
+    } else if (type == OLAP_FIELD_TYPE_BIGINT) {
+        return vectorized::DataTypeInt64().create_column();
+    } else if (type == OLAP_FIELD_TYPE_LARGEINT) {
+        return vectorized::DataTypeInt128().create_column();
+    } else if (type == OLAP_FIELD_TYPE_FLOAT) {
+        return vectorized::DataTypeFloat32().create_column();
+    } else if (type == OLAP_FIELD_TYPE_DOUBLE) {
+        return vectorized::DataTypeFloat64().create_column();
+    } else if (type == OLAP_FIELD_TYPE_CHAR) {
+        return vectorized::DataTypeString().create_column();
+    } else if (type == OLAP_FIELD_TYPE_DATE) {
+        return vectorized::DataTypeDate().create_column();
+    } else if (type == OLAP_FIELD_TYPE_DATETIME) {
+        return vectorized::DataTypeDateTime().create_column();
+    } else if (type == OLAP_FIELD_TYPE_DECIMAL) {
+        return vectorized::DataTypeDecimal<vectorized::Decimal128>(27, 9).create_column();
+    }
+    return vectorized::DataTypeNothing().create_column();
+}
+
+template <FieldType type>
+void test_v_read_default_value(string value, void* result) {
+    using Type = typename TypeTraits<type>::CppType;
+    TypeInfo* type_info = get_type_info(type);
+    // read and check
+    {
+        TabletColumn tablet_column = create_with_default_value<type>(value);
+        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
+                                        tablet_column.default_value(), tablet_column.is_nullable(),
+                                        type_info, tablet_column.length());
+        ColumnIteratorOptions iter_opts;
+        iter_opts.mem_tracker = std::make_shared<MemTracker>();
+        auto st = iter.init(iter_opts);
+        ASSERT_TRUE(st.ok());
+
+        // sequence read
+        {
+            st = iter.seek_to_first();
+            ASSERT_TRUE(st.ok()) << st.to_string();
+
+            vectorized::MutableColumnPtr mcp = create_vectorized_column_ptr(type);
+
+            size_t rows_read = 16;
+            bool has_null;
+            st = iter.next_batch(&rows_read, mcp, &has_null);
+
+            ASSERT_TRUE(st.ok());
+            for (int j = 0; j < rows_read; ++j) {
+                if (type == OLAP_FIELD_TYPE_CHAR) {
+                } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
+                           type == OLAP_FIELD_TYPE_OBJECT) {
+                } else if (type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DATETIME) {
+                    StringRef sr = mcp->get_data_at(j);
+                    ASSERT_EQ(sr.size, sizeof(vectorized::Int64));
+
+                    auto x = unaligned_load<vectorized::Int64>(sr.data);
+                    auto value = binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(x);
+                    char buf[64] = {};
+                    value.to_string(buf);
+                    int ret = strcmp(buf, (char*)result);
+                    ASSERT_EQ(ret, 0);
+                } else if (type == OLAP_FIELD_TYPE_DECIMAL) {
+                    StringRef sr = mcp->get_data_at(j);
+                    ASSERT_EQ(sr.size, sizeof(vectorized::Int128));
+
+                    DecimalV2Value v1(unaligned_load<vectorized::Int128>(sr.data));
+                    decimal12_t* v2 = (decimal12_t*)result;
+
+                    ASSERT_EQ(v2->integer, v1.int_value());
+                    ASSERT_EQ(v2->fraction, v1.frac_value());
+                } else {
+                    StringRef sr = mcp->get_data_at(j);
+                    ASSERT_EQ(sr.size, sizeof(Type));
+                    int ret = memcmp(sr.data, result, sr.size);
+                    ASSERT_EQ(ret, 0);
+                }
+            }
+        }
+    }
+}
+
 TEST_F(ColumnReaderWriterTest, test_nullable) {
     size_t num_uint8_rows = LOOP_LESS_OR_MORE(1024, 1024 * 1024);
     uint8_t* is_null = new uint8_t[num_uint8_rows];
@@ -672,11 +765,44 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
     test_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }
 
+TEST_F(ColumnReaderWriterTest, test_v_default_value) {
+    std::string v_int("1");
+    int32_t result = 1;
+    test_v_read_default_value<OLAP_FIELD_TYPE_INT>(v_int, &result);
+
+    std::string v_bigint("9223372036854775807");
+    int64_t result_bigint = std::numeric_limits<int64_t>::max();
+    test_v_read_default_value<OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
+
+    int128_t result_largeint = std::numeric_limits<int64_t>::max();
+    test_v_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
+
+    std::string v_float("1.00");
+    float result_float = 1.00;
+    test_v_read_default_value<OLAP_FIELD_TYPE_FLOAT>(v_float, &result_float);
+
+    std::string v_double("1.99");
+    double result_double = 1.99;
+    test_v_read_default_value<OLAP_FIELD_TYPE_DOUBLE>(v_double, &result_double);
+
+    std::string v_date("2019-11-12");
+    char result_date[] = "2019-11-12";
+    test_v_read_default_value<OLAP_FIELD_TYPE_DATE>(v_date, result_date);
+
+    std::string v_datetime("2019-11-12 12:01:08");
+    char result_datetime[] = "2019-11-12 12:01:08";
+    test_v_read_default_value<OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
+
+    std::string v_decimal("102418.000000002");
+    decimal12_t decimal = {102418, 2};
+    test_v_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
+}
+
 } // namespace segment_v2
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

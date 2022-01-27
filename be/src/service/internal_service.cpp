@@ -23,7 +23,7 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
-#include "runtime/fold_constant_mgr.h"
+#include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -32,9 +32,11 @@
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/md5.h"
+#include "util/proto_util.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+#include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
 
@@ -59,8 +61,20 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
                                             google::protobuf::Closure* done) {
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " node=" << request->node_id();
-    _exec_env->stream_mgr()->transmit_data(request, &done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    attachment_transfer_request_row_batch<PTransmitDataParams>(request, cntl);
+    // The response is accessed when done->Run is called in transmit_data(),
+    // give response a default value to avoid null pointers in high concurrency.
+    Status st;
+    st.to_protobuf(response->mutable_status());
+    st = _exec_env->stream_mgr()->transmit_data(request, &done);
+    if (!st.ok()) {
+        LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
+                     << ", fragment_instance_id=" << print_id(request->finst_id())
+                     << ", node=" << request->node_id();
+    }
     if (done != nullptr) {
+        st.to_protobuf(response->mutable_status());
         done->Run();
     }
 }
@@ -104,7 +118,7 @@ void PInternalServiceImpl<T>::exec_plan_fragment(google::protobuf::RpcController
 }
 
 template <typename T>
-void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* controller,
+void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* cntl_base,
                                                       const PTabletWriterAddBatchRequest* request,
                                                       PTabletWriterAddBatchResult* response,
                                                       google::protobuf::Closure* done) {
@@ -115,14 +129,15 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
     // this will influence query execution, because the pthreads under bthread may be
     // exhausted, so we put this to a local thread pool to process
     int64_t submit_task_time_ns = MonotonicNanos();
-    _tablet_worker_pool.offer([request, response, done, submit_task_time_ns, this]() {
+    _tablet_worker_pool.offer([cntl_base, request, response, done, submit_task_time_ns, this]() {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request,
-                                                               response->mutable_tablet_vec());
+            brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+            attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -195,9 +210,7 @@ void PInternalServiceImpl<T>::fetch_data(google::protobuf::RpcController* cntl_b
                                          const PFetchDataRequest* request, PFetchDataResult* result,
                                          google::protobuf::Closure* done) {
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    bool resp_in_attachment =
-            request->has_resp_in_attachment() ? request->resp_in_attachment() : true;
-    GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, resp_in_attachment, result, done);
+    GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
     _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 
@@ -409,8 +422,10 @@ Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_reque
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    FoldConstantMgr mgr(_exec_env);
-    return mgr.fold_constant_expr(t_request, response);
+    if (!t_request.__isset.vec_exec || !t_request.vec_exec)
+        return FoldConstantExecutor().fold_constant_expr(t_request, response);
+
+    return FoldConstantExecutor().fold_constant_vexpr(t_request, response);
 }
 
 template <typename T>
@@ -420,6 +435,7 @@ void PInternalServiceImpl<T>::transmit_block(google::protobuf::RpcController* cn
                                              google::protobuf::Closure* done) {
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " node=" << request->node_id();
+    _exec_env->vstream_mgr()->transmit_block(request, &done);
     if (done != nullptr) {
         done->Run();
     }

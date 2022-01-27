@@ -82,7 +82,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         }
 
         // get download path
-        string local_data_path = tablet->tablet_path() + CLONE_PREFIX;
+        string local_data_path = tablet->tablet_path_desc().filepath + CLONE_PREFIX;
         bool allow_incremental_clone = false;
 
         // try to incremental clone
@@ -562,7 +562,7 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
         }
 
         set<string> local_files;
-        string tablet_dir = tablet->tablet_path();
+        string tablet_dir = tablet->tablet_path_desc().filepath;
         ret = FileUtils::list_dirs_files(tablet_dir, nullptr, &local_files, Env::Default());
         if (!ret.ok()) {
             LOG(WARNING) << "failed to list local tablet dir when clone. [tablet_dir=" << tablet_dir
@@ -761,7 +761,7 @@ OLAPStatus EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* clone
         RowsetSharedPtr rowset_to_remove;
         auto s =
                 RowsetFactory::create_rowset(&(cloned_tablet_meta->tablet_schema()),
-                                             tablet->tablet_path(), rs_meta_ptr, &rowset_to_remove);
+                                             tablet->tablet_path_desc().filepath, rs_meta_ptr, &rowset_to_remove);
         if (s != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to init rowset to remove: "
                          << rs_meta_ptr->rowset_id().to_string();

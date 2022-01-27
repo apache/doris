@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-#set -e
+set -e
 ################################################################
 # This script will download all thirdparties and java libraries
 # which are defined in *vars.sh*, unpack patch them if necessary.
@@ -142,7 +142,7 @@ do
         URL="${REPOSITORY_URL}/${!NAME}"
         download_func ${!NAME} ${URL} $TP_SOURCE_DIR ${!MD5SUM}
         if [ "$?x" == "0x" ]; then
-            #try to download from home 
+            #try to download from home
             URL=$TP_ARCH"_DOWNLOAD"
             download_func ${!NAME} ${!URL} $TP_SOURCE_DIR ${!MD5SUM}
             if [ "$?x" == "0x" ]; then
@@ -199,7 +199,7 @@ do
                 exit 1
             fi
         elif [[ "${!NAME}" =~ $SUFFIX_ZIP ]]; then
-            if ! $UNZIP_CMD -qq "$TP_SOURCE_DIR/${!NAME}" -d "$TP_SOURCE_DIR/"; then
+            if ! $UNZIP_CMD -o -qq "$TP_SOURCE_DIR/${!NAME}" -d "$TP_SOURCE_DIR/"; then
                 echo "Failed to unzip ${!NAME}"
                 exit 1
             fi
@@ -224,14 +224,23 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
- # glog patch
- cd $TP_SOURCE_DIR/$GLOG_SOURCE
- if [ ! -f $PATCHED_MARK ]; then
-     patch -p1 < $TP_PATCH_DIR/glog-0.4.0.patch
-     touch $PATCHED_MARK
- fi
- cd -
- echo "Finished patching $GLOG_SOURCE"
+# glog patch
+cd $TP_SOURCE_DIR/$GLOG_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/glog-0.4.0.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $GLOG_SOURCE"
+
+# gtest patch
+cd $TP_SOURCE_DIR/$GTEST_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/googletest-release-1.11.0.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $GTEST_SOURCE"
 
 # mysql patch
 cd $TP_SOURCE_DIR/$MYSQL_SOURCE
@@ -281,3 +290,13 @@ if [ $AWS_C_CAL_SOURCE == "aws-c-cal-0.4.5" ]; then
 fi
 echo "Finished patching $AWS_C_CAL_SOURCE"
 
+# rocksdb patch to fix compile error
+if [ $ROCKSDB_SOURCE == "rocksdb-5.14.2" ]; then
+    cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p1 < $TP_PATCH_DIR/rocksdb-5.14.2.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+fi
+echo "Finished patching $ROCKSDB_SOURCE"

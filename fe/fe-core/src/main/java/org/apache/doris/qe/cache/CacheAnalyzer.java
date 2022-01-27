@@ -150,7 +150,7 @@ public class CacheAnalyzer {
 
         @Override
         public int compareTo(CacheTable table) {
-            return (int) (table.latestTime - this.latestTime);
+            return Long.compare(table.latestTime, this.latestTime);
         }
 
         public void Debug() {
@@ -208,9 +208,7 @@ public class CacheAnalyzer {
                 LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
-            OlapScanNode oNode = (OlapScanNode) node;
-            OlapTable oTable = oNode.getOlapTable();
-            CacheTable cTable = getLastUpdateTime(oTable);
+            CacheTable cTable = getSelectedPartitionLastUpdateTime((OlapScanNode) node);
             tblTimeList.add(cTable);
         }
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
@@ -219,7 +217,7 @@ public class CacheAnalyzer {
         latestTable.Debug();
 
         addAllViewStmt(selectStmt);
-        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, ",");
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
 
         if (now == 0) {
             now = nowtime();
@@ -433,17 +431,19 @@ public class CacheAnalyzer {
         }
     }
 
-    private CacheTable getLastUpdateTime(OlapTable olapTable) {
-        CacheTable table = new CacheTable();
-        table.olapTable = olapTable;
-        for (Partition partition : olapTable.getPartitions()) {
-            if (partition.getVisibleVersionTime() >= table.latestTime) {
-                table.latestPartitionId = partition.getId();
-                table.latestTime = partition.getVisibleVersionTime();
-                table.latestVersion = partition.getVisibleVersion();
+    private CacheTable getSelectedPartitionLastUpdateTime(OlapScanNode node) {
+        CacheTable cacheTable = new CacheTable();
+        OlapTable olapTable = node.getOlapTable();
+        cacheTable.olapTable = olapTable;
+        for (Long partitionId : node.getSelectedPartitionIds()) {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition.getVisibleVersionTime() >= cacheTable.latestTime) {
+                cacheTable.latestPartitionId = partition.getId();
+                cacheTable.latestTime = partition.getVisibleVersionTime();
+                cacheTable.latestVersion = partition.getVisibleVersion();
             }
         }
-        return table;
+        return cacheTable;
     }
 
     private void addAllViewStmt(List<TableRef> tblRefs) {
@@ -459,6 +459,7 @@ public class CacheAnalyzer {
                     addAllViewStmt(inlineViewRef.getViewStmt());
                     allViewStmtSet.add(inlineViewRef.getView().getInlineViewDef());
                 }
+                addAllViewStmt(inlineViewRef.getQueryStmt());
             }
         }
     }

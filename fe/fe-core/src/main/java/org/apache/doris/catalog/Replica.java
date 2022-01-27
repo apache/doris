@@ -100,7 +100,7 @@ public class Replica implements Writable {
 
     private long pathHash = -1;
 
-    // bad means this Replica is unrecoverable and we will delete it
+    // bad means this Replica is unrecoverable, and we will delete it
     private boolean bad = false;
 
     /*

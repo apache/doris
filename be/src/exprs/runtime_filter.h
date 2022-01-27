@@ -41,6 +41,7 @@ class PPublishFilterRequest;
 class PMergeFilterRequest;
 class TRuntimeFilterDesc;
 class RowDescriptor;
+class PInFilter;
 class PMinMaxFilter;
 class HashJoinNode;
 class RuntimeProfile;
@@ -71,17 +72,22 @@ inline std::string to_string(RuntimeFilterType type) {
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
-    RuntimeFilterParams() : filter_type(RuntimeFilterType::UNKNOWN_FILTER), bloom_filter_size(-1) {}
+    RuntimeFilterParams() : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
+              bloom_filter_size(-1), filter_id(0), fragment_instance_id(0, 0) {}
 
     RuntimeFilterType filter_type;
     PrimitiveType column_return_type;
     // used in bloom filter
     int64_t bloom_filter_size;
+    int32_t max_in_num;
+    int32_t filter_id;
+    UniqueId fragment_instance_id;
 };
 
 struct UpdateRuntimeFilterParams {
     const PPublishFilterRequest* request;
     const char* data;
+    ObjectPool *pool;
 };
 
 struct MergeRuntimeFilterParams {
@@ -115,12 +121,14 @@ public:
     ~IRuntimeFilter() = default;
 
     static Status create(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,
-                         const TRuntimeFilterDesc* desc, const RuntimeFilterRole role, int node_id,
+                         const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
+                         const RuntimeFilterRole role, int node_id,
                          IRuntimeFilter** res);
 
     // insert data to build filter
     // only used for producer
     void insert(const void* data);
+    void insert(const StringRef& data);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
@@ -166,7 +174,10 @@ public:
     void signal();
 
     // init filter with desc
-    Status init_with_desc(const TRuntimeFilterDesc* desc, int node_id = -1);
+    Status init_with_desc(const TRuntimeFilterDesc* desc,
+                          const TQueryOptions* options,
+                          UniqueId fragment_id = UniqueId(0, 0),
+                          int node_id = -1);
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
@@ -174,16 +185,22 @@ public:
 
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
+    // for ut
+    const RuntimePredicateWrapper* get_wrapper();
     static Status create_wrapper(const MergeRuntimeFilterParams* param, MemTracker* tracker,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     static Status create_wrapper(const UpdateRuntimeFilterParams* param, MemTracker* tracker,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-
     Status update_filter(const UpdateRuntimeFilterParams* param);
 
     void set_ignored() { _is_ignored = true; }
+
+    // for ut
+    bool is_ignored() { return _is_ignored; }
+
+    void set_ignored_msg(std::string &msg) { _ignored_msg = msg; }
 
     // consumer should call before released
     Status consumer_close();
@@ -200,10 +217,11 @@ public:
 
 protected:
     // serialize _wrapper to protobuf
+    void to_protobuf(PInFilter* filter);
     void to_protobuf(PMinMaxFilter* filter);
 
     template <class T>
-    Status _serialize(T* request, void** data, int* len);
+    Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
     static Status _create_wrapper(const T* param, MemTracker* tracker, ObjectPool* pool,
@@ -212,6 +230,7 @@ protected:
     RuntimeState* _state;
     MemTracker* _mem_tracker;
     ObjectPool* _pool;
+    int32_t _fragment_id;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
     RuntimePredicateWrapper* _wrapper;
@@ -248,6 +267,7 @@ protected:
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
+    std::string _ignored_msg = "";
 
     // some runtime filter will generate
     // multiple contexts such as minmax filter

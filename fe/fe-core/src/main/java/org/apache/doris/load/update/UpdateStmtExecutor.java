@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -140,7 +139,7 @@ public class UpdateStmtExecutor {
     private void executePlan() throws Exception {
         LOG.info("begin execute update stmt, query id:{}", DebugUtil.printId(queryId));
         coordinator = new Coordinator(Catalog.getCurrentCatalog().getNextId(), queryId, analyzer.getDescTbl(),
-                updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE);
+                updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
         coordinator.setQueryType(TQueryType.LOAD);
         QeProcessorImpl.INSTANCE.registerQuery(queryId, coordinator);
         analyzer.getContext().getExecutor().setCoord(coordinator);
@@ -177,21 +176,7 @@ public class UpdateStmtExecutor {
 
     private void commitAndPublishTxn() throws UserException {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        // situation1: no data is updated, abort transaction
-        if (effectRows == 0) {
-            LOG.info("abort transaction for update stmt, query id:{}, reason: {}", DebugUtil.printId(queryId),
-                    TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-            globalTransactionMgr.abortTransaction(dbId, txnId, TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-            StringBuilder sb = new StringBuilder();
-            sb.append("{'label':'").append(label);
-            sb.append(", 'txnId':'").append(txnId).append("'");
-            sb.append(", 'queryId':'").append(DebugUtil.printId(queryId)).append("'");
-            sb.append("}");
-            analyzer.getContext().getState().setOk(effectRows, 0, sb.toString());
-            return;
-        }
         TransactionStatus txnStatus;
-        // situation2: data is updated, commit and publish transaction
         boolean isPublished;
         try {
             LOG.info("commit and publish transaction for update stmt, query id: {}", DebugUtil.printId(queryId));

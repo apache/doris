@@ -312,7 +312,7 @@ public:
         }
     }
 
-    static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int len) {
+    static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int64_t len) {
         StringVal result(ctx, len);
         memcpy(result.ptr, ptr, len);
         return result;
@@ -323,7 +323,7 @@ public:
         return val;
     }
 
-    static StringVal from_buffer_temp(FunctionContext* ctx, const char* ptr, int len) {
+    static StringVal from_buffer_temp(FunctionContext* ctx, const char* ptr, int64_t len) {
         StringVal result = StringVal::create_temp_string_val(ctx, len);
         memcpy(result.ptr, ptr, len);
         return result;

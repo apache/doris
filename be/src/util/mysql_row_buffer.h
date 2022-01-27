@@ -25,7 +25,7 @@ namespace doris {
 /**
 // Now only support text protocol
  * helper for construct MySQL send row
- * The MYSQL protocal:
+ * The MYSQL protocol:
  *
  * | flag | (length) | value | flag | (length) | value | ......
  * <--------A column--------><--------A column--------><-.....->
@@ -33,9 +33,9 @@ namespace doris {
  * The flag means value's length or null value:
  * If value is nullptr, flag is 251
  * If value's length < 251, flag is the value's length
- * If 251 <= value's length < 65536, flag is 252 and the next two byte is length
- * If 65536 <= value's length < 16777216 , flag is 253 and the next three byte is length
- * If 16777216 <= value's length, flag is 254 and the next eighth byte is length
+ * If 251 <= value's length < 65536, flag is 252 and the next two bytes is length
+ * If 65536 <= value's length < 16777216 , flag is 253 and the next three bytes is length
+ * If 16777216 <= value's length, flag is 254 and the next eighth bytes is length
  *
  * the code example:
  *     mrb.push_null();
@@ -71,16 +71,16 @@ public:
     int push_time(double data);
     int push_datetime(const DateTimeValue& data);
     int push_decimal(const DecimalV2Value& data, int round_scale);
-    int push_string(const char* str, int length);
+    int push_string(const char* str, int64_t length);
     int push_null();
 
     // this function reserved size, change the pos step size, return old pos
     // Becareful when use the returned pointer.
-    char* reserved(int size);
+    char* reserved(int64_t size);
 
     const char* buf() const { return _buf; }
     const char* pos() const { return _pos; }
-    int length() const { return _pos - _buf; }
+    int64_t length() const { return _pos - _buf; }
 
     /**
      * Why?
@@ -117,11 +117,11 @@ public:
     void close_dynamic_mode();
 
 private:
-    int reserve(int size);
+    int reserve(int64_t size);
 
     char* _pos;
     char* _buf;
-    int _buf_size;
+    int64_t _buf_size;
     char _default_buf[4096];
 
     int _dynamic_mode;

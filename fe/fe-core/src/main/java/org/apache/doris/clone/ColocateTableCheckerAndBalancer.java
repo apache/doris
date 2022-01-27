@@ -68,6 +68,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
     }
 
     private static volatile ColocateTableCheckerAndBalancer INSTANCE = null;
+
     public static ColocateTableCheckerAndBalancer getInstance() {
         if (INSTANCE == null) {
             synchronized (ColocateTableCheckerAndBalancer.class) {
@@ -87,7 +88,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *      and after all unavailable has been replaced, balance the group
      *
      * 2. Match group:
-     *      If replica mismatch backends in a group, that group will be marked as unstable, and pass that 
+     *      If replica mismatch backends in a group, that group will be marked as unstable, and pass that
      *      tablet to TabletScheduler.
      *      Otherwise, mark the group as stable
      */
@@ -223,7 +224,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
 
             String unstableReason = null;
-            OUT: for (Long tableId : tableIds) {
+            OUT:
+            for (Long tableId : tableIds) {
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
                     continue;
@@ -249,7 +251,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     unstableReason = String.format("get unhealthy tablet %d in colocate table. status: %s", tablet.getId(), st);
                                     LOG.debug(unstableReason);
 
-                                    if (!tablet.readyToBeRepaired(Priority.HIGH)) {
+                                    if (!tablet.readyToBeRepaired(Priority.NORMAL)) {
                                         continue;
                                     }
 
@@ -260,8 +262,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletStatus(st);
-                                    // using HIGH priority, cause we want to stabilize the colocate group as soon as possible
-                                    tabletCtx.setOrigPriority(Priority.HIGH);
+                                    tabletCtx.setOrigPriority(Priority.NORMAL);
                                     tabletCtx.setTabletOrderIdx(idx);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
@@ -299,7 +300,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * TagA  B  C  A  B
      * TagB  D  D  D  D
      *
-     * First, we will hanlde resource group of TagA, then TagB.
+     * First, we will handle resource group of TagA, then TagB.
      *
      * For a single resource group, the balance logic is as follow
      * (Suppose there is only one resource group with 3 replicas):
@@ -505,7 +506,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 .stream()
                 .sorted((entry1, entry2) -> {
                     if (!entry1.getValue().equals(entry2.getValue())) {
-                        return (int)(entry2.getValue() - entry1.getValue());
+                        return (int) (entry2.getValue() - entry1.getValue());
                     }
                     BackendLoadStatistic beStat1 = statistic.getBackendLoadStatistic(entry1.getKey());
                     BackendLoadStatistic beStat2 = statistic.getBackendLoadStatistic(entry2.getKey());
@@ -544,7 +545,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Set<Long> backends = colocateIndex.getBackendsByGroup(groupId, tag);
         Set<Long> unavailableBeIds = Sets.newHashSet();
         for (Long backendId : backends) {
-            if (!checkBackendAvailable(backendId, tag, Sets.newHashSet(), infoService)) {
+            if (!checkBackendAvailable(backendId, tag, Sets.newHashSet(), infoService, Config.colocate_group_relocate_delay_second)) {
                 unavailableBeIds.add(backendId);
             }
         }
@@ -557,7 +558,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         List<Long> allBackendIds = infoService.getClusterBackendIds(cluster, false);
         List<Long> availableBeIds = Lists.newArrayList();
         for (Long backendId : allBackendIds) {
-            if (checkBackendAvailable(backendId, tag, excludedBeIds, infoService)) {
+            if (checkBackendAvailable(backendId, tag, excludedBeIds, infoService, Config.colocate_group_relocate_delay_second)) {
                 availableBeIds.add(backendId);
             }
         }
@@ -566,19 +567,20 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
     /**
      * check backend available
-     * backend stopped for a short period of time is still considered available
+     * backend stopped within "delaySecond" is still considered available
      */
-    private boolean checkBackendAvailable(Long backendId, Tag tag, Set<Long> excludedBeIds, SystemInfoService infoService) {
+    private boolean checkBackendAvailable(Long backendId, Tag tag, Set<Long> excludedBeIds,
+                                          SystemInfoService infoService, long delaySecond) {
         long currTime = System.currentTimeMillis();
         Backend be = infoService.getBackend(backendId);
         if (be == null) {
             return false;
         } else if (!be.getTag().equals(tag) || excludedBeIds.contains(be.getId())) {
             return false;
-        } else if (!be.isAvailable()) {
-            // 1. BE is dead for a long time
+        } else if (!be.isScheduleAvailable()) {
+            // 1. BE is dead longer than "delaySecond"
             // 2. BE is under decommission
-            if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > Config.tablet_repair_delay_factor_second * 1000 * 2)
+            if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > delaySecond * 1000L)
                     || be.isDecommissioned()) {
                 return false;
             }

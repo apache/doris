@@ -22,6 +22,7 @@
 #include <sstream>
 
 #include "exec/broker_writer.h"
+#include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_writer.h"
 #include "exec/s3_writer.h"
 #include "exprs/expr.h"
@@ -256,6 +257,15 @@ Status ExportSink::open_file_writer() {
                              _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
         RETURN_IF_ERROR(s3_writer->open());
         _file_writer.reset(s3_writer);
+        break;
+    }
+    case TFileType::FILE_HDFS: {
+        FileWriter* hdfs_writer;
+        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
+                const_cast<std::map<std::string, std::string>&>(_t_export_sink.properties),
+                _t_export_sink.export_path + "/" + file_name, &hdfs_writer));
+        RETURN_IF_ERROR(hdfs_writer->open());
+        _file_writer.reset(hdfs_writer);
         break;
     }
     default: {

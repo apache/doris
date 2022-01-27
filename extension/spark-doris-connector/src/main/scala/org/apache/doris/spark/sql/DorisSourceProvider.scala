@@ -27,16 +27,19 @@ import org.apache.spark.sql.streaming.OutputMode
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.slf4j.{Logger, LoggerFactory}
-
 import java.io.IOException
 import java.util
+
+import org.apache.doris.spark.rest.RestService
+
 import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.util.control.Breaks
 
 private[sql] class DorisSourceProvider extends DataSourceRegister
   with RelationProvider
   with CreatableRelationProvider
-  with StreamSinkProvider {
+  with StreamSinkProvider
+  with Serializable {
 
   private val logger: Logger = LoggerFactory.getLogger(classOf[DorisSourceProvider].getName)
 
@@ -59,8 +62,8 @@ private[sql] class DorisSourceProvider extends DataSourceRegister
     // init stream loader
     val dorisStreamLoader = new DorisStreamLoad(sparkSettings)
 
-    val maxRowCount = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_BATCH_SIZE, ConfigurationOptions.DORIS_BATCH_SIZE_DEFAULT)
-    val maxRetryTimes = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES, ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT)
+    val maxRowCount = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_SINK_BATCH_SIZE, ConfigurationOptions.SINK_BATCH_SIZE_DEFAULT)
+    val maxRetryTimes = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_SINK_MAX_RETRIES, ConfigurationOptions.SINK_MAX_RETRIES_DEFAULT)
 
     data.rdd.foreachPartition(partition => {
       val rowsBuffer: util.List[util.List[Object]] = new util.ArrayList[util.List[Object]](maxRowCount)
@@ -97,15 +100,22 @@ private[sql] class DorisSourceProvider extends DataSourceRegister
             catch {
               case e: Exception =>
                 try {
+                  logger.warn("Failed to load data on BE: {} node ", dorisStreamLoader.getLoadUrlStr)
+                  //If the current BE node fails to execute Stream Load, randomly switch to other BE nodes and try again
+                  dorisStreamLoader.setHostPort(RestService.randomBackendV2(sparkSettings,logger))
                   Thread.sleep(1000 * i)
-                  dorisStreamLoader.load(rowsBuffer)
-                  rowsBuffer.clear()
                 } catch {
                   case ex: InterruptedException =>
+                    logger.warn("Data that failed to load : " + dorisStreamLoader.listToString(rowsBuffer))
                     Thread.currentThread.interrupt()
                     throw new IOException("unable to flush; interrupted while doing another attempt", e)
                 }
             }
+          }
+
+          if(!rowsBuffer.isEmpty){
+            logger.warn("Data that failed to load : " + dorisStreamLoader.listToString(rowsBuffer))
+            throw new IOException(s"Failed to load data on BE: ${dorisStreamLoader.getLoadUrlStr} node and exceeded the max retry times.")
           }
         }
 

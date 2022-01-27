@@ -43,6 +43,7 @@ class TupleRow;
 class TupleDescriptor;
 class PRowBatch;
 
+
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller
 // can add rows up to that capacity.
@@ -143,7 +144,7 @@ public:
 
     // Returns true if the row batch has filled all the rows or has accumulated
     // enough memory.
-    bool at_capacity() {
+    bool at_capacity() const {
         return _num_rows == _capacity || _auxiliary_mem_usage >= AT_CAPACITY_MEM_USAGE ||
                num_tuple_streams() > 0 || _need_to_return;
     }
@@ -152,13 +153,16 @@ public:
     // enough memory. tuple_pool is an intermediate memory pool containing tuple data
     // that will eventually be attached to this row batch. We need to make sure
     // the tuple pool does not accumulate excessive memory.
-    bool at_capacity(MemPool* tuple_pool) {
+    bool at_capacity(const MemPool* tuple_pool) const {
         DCHECK(tuple_pool != nullptr);
         return at_capacity() || tuple_pool->total_allocated_bytes() > AT_CAPACITY_MEM_USAGE;
     }
 
     // Returns true if row_batch has reached capacity.
-    bool is_full() { return _num_rows == _capacity; }
+    bool is_full() const { return _num_rows == _capacity; }
+
+    // Returns true if uncommited rows has reached capacity.
+    bool is_full_uncommited() { return _num_uncommitted_rows == _capacity; }
 
     // Returns true if the row batch has accumulated enough external memory (in MemPools
     // and io buffers).  This would be a trigger to compact the row batch or reclaim
@@ -169,7 +173,7 @@ public:
 
     // The total size of all data represented in this row batch (tuples and referenced
     // string data).
-    size_t total_byte_size();
+    size_t total_byte_size() const;
 
     TupleRow* get_row(int row_idx) const {
         DCHECK(_tuple_ptrs != nullptr);
@@ -214,10 +218,10 @@ public:
         /// Returns true if the iterator is beyond the last row for read iterators.
         /// Useful for read iterators to determine the limit. Write iterators should use
         /// RowBatch::AtCapacity() instead.
-        bool IR_ALWAYS_INLINE at_end() { return _row >= _row_batch_end; }
+        bool IR_ALWAYS_INLINE at_end() const { return _row >= _row_batch_end; }
 
         /// Returns the row batch which this iterator is iterating through.
-        RowBatch* parent() { return _parent; }
+        RowBatch* parent() const { return _parent; }
 
     private:
         /// Number of tuples per row.
@@ -234,11 +238,14 @@ public:
     };
 
     int num_tuples_per_row() const { return _num_tuples_per_row; }
-    int row_byte_size() { return _num_tuples_per_row * sizeof(Tuple*); }
-    MemPool* tuple_data_pool() { return _tuple_data_pool.get(); }
-    ObjectPool* agg_object_pool() { return _agg_object_pool.get(); }
+    int row_byte_size() const { return _num_tuples_per_row * sizeof(Tuple*); }
+    MemPool* tuple_data_pool() { return &_tuple_data_pool; }
+    ObjectPool* agg_object_pool() { return &_agg_object_pool; }
     int num_io_buffers() const { return _io_buffers.size(); }
     int num_tuple_streams() const { return _tuple_streams.size(); }
+
+    // increase # of uncommitted rows
+    void increase_uncommitted_rows();
 
     // Resets the row batch, returning all resources it has accumulated.
     void reset();
@@ -271,7 +278,7 @@ public:
     // tree.
     void mark_need_to_return() { _need_to_return = true; }
 
-    bool need_to_return() { return _need_to_return; }
+    bool need_to_return() const { return _need_to_return; }
 
     /// Used by an operator to indicate that it cannot produce more rows until the
     /// resources that it has attached to the row batch are freed or acquired by an
@@ -302,7 +309,7 @@ public:
         _needs_deep_copy = true;
     }
 
-    bool needs_deep_copy() { return _needs_deep_copy; }
+    bool needs_deep_copy() const { return _needs_deep_copy; }
 
     // Transfer ownership of resources to dest.  This includes tuple data in mem
     // pool and io buffers.
@@ -356,6 +363,8 @@ public:
     static size_t get_batch_size(const TRowBatch& batch);
     static size_t get_batch_size(const PRowBatch& batch);
 
+    vectorized::Block convert_to_vec_block() const;
+
     int num_rows() const { return _num_rows; }
     int capacity() const { return _capacity; }
 
@@ -383,10 +392,7 @@ public:
                                             uint8_t** buffer);
 
     void set_scanner_id(int id) { _scanner_id = id; }
-    int scanner_id() { return _scanner_id; }
-
-    // Computes the maximum size needed to store tuple data for this row batch.
-    int max_tuple_buffer_size();
+    int scanner_id() const { return _scanner_id; }
 
     static const int MAX_MEM_POOL_SIZE = 32 * 1024 * 1024;
     std::string to_string();
@@ -399,9 +405,10 @@ private:
 
     // All members need to be handled in RowBatch::swap()
 
-    bool _has_in_flight_row; // if true, last row hasn't been committed yet
-    int _num_rows;           // # of committed rows
-    int _capacity;           // maximum # of rows
+    bool _has_in_flight_row;       // if true, last row hasn't been committed yet
+    int _num_rows;                 // # of committed rows
+    int _num_uncommitted_rows;     // # of uncommited rows in row batch mem pool
+    int _capacity;                 // maximum # of rows
 
     /// If FLUSH_RESOURCES, the resources attached to this batch should be freed or
     /// acquired by a new owner as soon as possible. See MarkFlushResources(). If
@@ -444,10 +451,10 @@ private:
     bool _need_to_return;
 
     // holding (some of the) data referenced by rows
-    std::unique_ptr<MemPool> _tuple_data_pool;
+    MemPool _tuple_data_pool;
 
     // holding some complex agg object data (bitmap, hll)
-    std::unique_ptr<ObjectPool> _agg_object_pool;
+    ObjectPool _agg_object_pool;
 
     // IO buffers current owned by this row batch. Ownership of IO buffers transfer
     // between row batches. Any IO buffer will be owned by at most one row batch

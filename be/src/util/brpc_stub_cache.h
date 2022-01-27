@@ -47,7 +47,7 @@ namespace doris {
 class BrpcStubCache {
 public:
     BrpcStubCache();
-    ~BrpcStubCache();
+    virtual ~BrpcStubCache();
 
     inline std::shared_ptr<PBackendService_Stub> get_stub(const butil::EndPoint& endpoint) {
         auto stub_ptr = _stub_map.find(endpoint);
@@ -66,7 +66,7 @@ public:
         return stub;
     }
 
-    inline std::shared_ptr<PBackendService_Stub> get_stub(const TNetworkAddress& taddr) {
+    virtual std::shared_ptr<PBackendService_Stub> get_stub(const TNetworkAddress& taddr) {
         butil::EndPoint endpoint;
         if (str2endpoint(taddr.hostname.c_str(), taddr.port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << taddr.hostname

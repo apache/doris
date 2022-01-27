@@ -50,16 +50,15 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
-                               const std::vector<ExprContext*>& pre_filter_ctxs,
+                               const std::vector<TExpr>& pre_filter_texprs,
                                ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
+        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           // _splittable(params.splittable),
           _cur_file_reader(nullptr),
           _next_range(0),
-          _cur_file_eof(false),
-          _scanner_eof(false) {}
+          _cur_file_eof(false) {}
 
 ParquetScanner::~ParquetScanner() {
     close();
@@ -69,7 +68,7 @@ Status ParquetScanner::open() {
     return BaseScanner::open();
 }
 
-Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) {
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
@@ -92,9 +91,9 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(tuple, tuple_pool)) {
-            break; // break if true
-        }
+        RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool));
+        *fill_tuple = _success;
+        break; // break always
     }
     if (_scanner_eof) {
         *eof = true;
@@ -196,6 +195,7 @@ Status ParquetScanner::open_next_reader() {
 }
 
 void ParquetScanner::close() {
+    BaseScanner::close();
     if (_cur_file_reader != nullptr) {
         if (_stream_load_pipe != nullptr) {
             _stream_load_pipe.reset();

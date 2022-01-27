@@ -179,13 +179,17 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，在 BE 日志中会出现 `body_size is too large` 的错误信息。这可能发生在 SQL 模式为 multi distinct + 无 group by + 超过1T 数据量的情况下。这个错误表示 brpc 的包大小超过了配置值。此时可以通过调大该配置避免这个错误。
 
-
 ### `brpc_socket_max_unwritten_bytes`
 
 这个配置主要用来修改 brpc  的参数 `socket_max_unwritten_bytes`。
 
 有时查询失败，BE 日志中会出现 `The server is overcrowded` 的错误信息，表示连接上有过多的未发送数据。当查询需要发送较大的bitmap字段时，可能会遇到该问题，此时可能通过调大该配置避免该错误。
 
+### `transfer_data_by_brpc_attachment`
+
+* 类型: bool
+* 描述：该配置用来控制是否将ProtoBuf Request中的RowBatch转移到Controller Attachment后通过brpc发送。ProtoBuf Request的长度超过2G时会报错： Bad request, error_text=[E1003]Fail to compress request，将RowBatch放到Controller Attachment中将更快且避免这个错误。
+* 默认值：false
 
 ### `brpc_num_threads`
 
@@ -675,6 +679,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 BloomFilter/Min/Max等统计信息缓存的容量
 
+### `kafka_broker_version_fallback`
+
+默认值：0.10.0
+
+如果依赖的 kafka 版本低于routine load依赖的 kafka 客户端版本, 将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0、0.8.2、0.8.1、0.8.0。
+
 ### `load_data_reserve_hours`
 
 默认值：4 （小时）
@@ -1156,8 +1166,8 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 
   `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
 
-  * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
-  * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+  * /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
+  * /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
   * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
   
   示例2如下：
@@ -1483,3 +1493,27 @@ webserver默认工作线程数
 * 类型: bool
 * 描述: 获取brpc连接时，通过hand_shake rpc 判断连接的可用性，如果不可用则重新建立连接 
 * 默认值: false
+
+### `high_priority_flush_thread_num_per_store`
+
+* 类型：int32
+* 描述：每个存储路径所分配的用于高优导入任务的 flush 线程数量。
+* 默认值：1
+
+### `routine_load_consumer_pool_size`
+
+* 类型：int32
+* 描述：routine load 所使用的 data consumer 的缓存数量。
+* 默认值：10
+
+### `load_task_high_priority_threshold_second`
+
+* 类型：int32
+* 描述：当一个导入任务的超时时间小于这个阈值是，Doris 将认为他是一个高优任务。高优任务会使用独立的 flush 线程池。
+* 默认：120
+
+### `min_load_rpc_timeout_ms`
+
+* 类型：int32
+* 描述：load 作业中各个rpc 的最小超时时间。
+* 默认：20

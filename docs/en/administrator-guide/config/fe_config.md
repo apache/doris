@@ -787,7 +787,7 @@ The tryLock timeout configuration of catalog lock.  Normally it does not need to
 
 ### max_query_retry_time
 
-Default：2
+Default：1
 
 IsMutable：true
 
@@ -1554,7 +1554,7 @@ MasterOnly：true
 Maximal memory layout length of a row. default is 100 KB. In BE, the maximal size of a RowBlock is 100MB(Configure as max_unpacked_row_block_size in be.conf). And each RowBlock contains 1024 rows. So the maximal size of a row is approximately 100 KB.
      eg.
      schema: k1(int), v1(decimal), v2(varchar(2000))
-     then the memory layout length of a row is: 8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
+     then the memory layout length of a row is: 4(int) + 16(decimal) + 2000(varchar) = 2020 (Bytes)
      See memory layout length of all types, run 'help create table' in mysql-client.
      If you want to increase this number to support more columns in a row, you also need to increase the
      max_unpacked_row_block_size in be.conf. But the performance impact is unknown.
@@ -2074,7 +2074,7 @@ the transaction will be cleaned after transaction_clean_interval_second seconds 
 
 The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
 
-The default value is -1。
+The default value is -1
 
 ### use_compact_thrift_rpc
 
@@ -2082,3 +2082,75 @@ Default: true
 
 Whether to use compressed format to send query plan structure. After it is turned on, the size of the query plan structure can be reduced by about 50%, thereby avoiding some "send fragment timeout" errors.
 However, in some high-concurrency small query scenarios, the concurrency may be reduced by about 10%.
+
+### force_drop_redundant_replica
+
+Default: false
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+If set to true, the system will immediately drop redundant replicas in the tablet scheduling logic. This may cause some load jobs that are writing to the corresponding replica to fail, but it will speed up the balance and repair speed of the tablet.
+When there are a large number of replicas waiting to be balanced or repaired in the cluster, you can try to set this config to speed up the balance and repair of replicas at the expense of partial load success rate.
+
+### repair_slow_replica
+
+Default: true
+
+IsMutable：true
+
+MasterOnly: true
+
+If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version count of the fastest replica exceeds the value of `min_version_count_indicate_replica_compaction_too_slow`, and the ratio of the version count difference from the fastest replica exceeds the value of `valid_version_count_delta_ratio_between_replicas`
+
+### colocate_group_relocate_delay_second
+
+Default: 1800
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The relocation of a colocation group may involve a large number of tablets moving within the cluster. Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
+Reloaction usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
+
+### allow_replica_on_same_host
+
+Default: false
+
+Dynamically configured: false
+
+Only for Master FE: false
+
+Whether to allow multiple replicas of the same tablet to be distributed on the same host. This parameter is mainly used for local testing, to facilitate building multiple BEs to test certain multi-replica situations. Do not use it for non-test environments.
+
+### min_version_count_indicate_replica_compaction_too_slow
+
+Default: 300
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The version count threshold used to judge whether replica compaction is too slow
+
+### valid_version_count_delta_ratio_between_replicas
+
+Default: 0.5
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The valid ratio threshold of the difference between the version count of the slowest replica and the fastest replica. If `repair_slow_replica` is set to true, it is used to determine whether to repair the slowest replica
+
+### min_bytes_indicate_replica_too_large
+
+Default: 2 * 1024 * 1024 * 1024 (2G)
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The data size threshold used to judge whether replica is too large

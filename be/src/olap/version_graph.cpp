@@ -606,8 +606,8 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
             }
             cur_idx = next_idx;
         } else {
-            LOG(WARNING) << "fail to find path in version_graph. "
-                         << "spec_version: " << spec_version.first << "-" << spec_version.second;
+            VLOG_NOTICE << "fail to find path in version_graph. "
+                        << "spec_version: " << spec_version.first << "-" << spec_version.second;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
     }

@@ -40,6 +40,7 @@ public:
     // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
     // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
+    OLAPStatus next_block(vectorized::Block* block) override;
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
@@ -54,7 +55,7 @@ public:
         return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
     }
 
-    RowsetReaderType type() const override { return RowsetReaderType::BETA; }
+    RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
 private:
     RowsetReaderContext* _context;

@@ -74,7 +74,7 @@ public:
         if (std::filesystem::exists(tmp_data_path)) {
             std::filesystem::remove_all(tmp_data_path);
         }
-        copy_dir(test_engine_data_path, tmp_data_path);
+        FileUtils::copy_file(test_engine_data_path, tmp_data_path);
         _tablet_id = 15007;
         _schema_hash = 368169781;
         _tablet_data_path = tmp_data_path + "/" + std::to_string(0) + "/" +

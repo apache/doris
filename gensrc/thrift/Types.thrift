@@ -46,6 +46,7 @@ enum TStorageType {
 enum TStorageMedium {
     HDD,
     SSD,
+    S3,
 }
 
 enum TVarType {
@@ -181,7 +182,8 @@ enum TTaskType {
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
     ALTER,
     INSTALL_PLUGIN,
-    UNINSTALL_PLUGIN
+    UNINSTALL_PLUGIN,
+    COMPACTION
 }
 
 enum TStmtType {
@@ -407,6 +409,11 @@ struct TTabletCommitInfo {
     2: required i64 backendId
 }
 
+struct TErrorTabletInfo {
+    1: optional i64 tabletId
+    2: optional string msg
+}
+
 enum TLoadType {
     MANUL_LOAD,
     ROUTINE_LOAD,
@@ -422,6 +429,11 @@ enum TMergeType {
   APPEND,
   MERGE,
   DELETE
+}
+
+enum TSortType {
+    LEXICAL,
+    ZORDER, 
 }
 
 // represent a user identity

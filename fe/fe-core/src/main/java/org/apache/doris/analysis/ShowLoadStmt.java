@@ -134,6 +134,8 @@ public class ShowLoadStmt extends ShowStmt {
                     throw new AnalysisException("Only allow compound predicate with operator AND");
                 }
 
+                // check whether left.columnName equals to right.columnName
+                checkPredicateName(cp.getChild(0), cp.getChild(1));
                 analyzeSubPredicate(cp.getChild(0));
                 analyzeSubPredicate(cp.getChild(1));
             } else {
@@ -153,6 +155,14 @@ public class ShowLoadStmt extends ShowStmt {
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
             }
+        }
+    }
+
+    private void checkPredicateName(Expr leftChild, Expr rightChild) throws AnalysisException {
+        String leftChildColumnName = ((SlotRef) leftChild.getChild(0)).getColumnName();
+        String rightChildColumnName = ((SlotRef) rightChild.getChild(0)).getColumnName();
+        if (leftChildColumnName.equals(rightChildColumnName)) {
+            throw new AnalysisException("column names on both sides of operator AND should be diffrent");
         }
     }
 

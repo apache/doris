@@ -138,7 +138,7 @@ public class DorisStreamLoad implements Serializable{
         }
     }
 
-    public void load(List<List<Object>> rows) throws StreamLoadException {
+    public String listToString(List<List<Object>> rows){
         StringJoiner lines = new StringJoiner(LINE_DELIMITER);
         for (List<Object> row : rows) {
             StringJoiner line = new StringJoiner(FIELD_DELIMITER);
@@ -151,16 +151,21 @@ public class DorisStreamLoad implements Serializable{
             }
             lines.add(line.toString());
         }
-        load(lines.toString());
+        return lines.toString();
     }
 
+
+    public void load(List<List<Object>> rows) throws StreamLoadException {
+        String records = listToString(rows);
+        load(records);
+    }
     public void load(String value) throws StreamLoadException {
         LOG.debug("Streamload Request:{} ,Body:{}", loadUrlStr, value);
         LoadResponse loadResponse = loadBatch(value);
-        LOG.info("Streamload Response:{}",loadResponse);
         if(loadResponse.status != 200){
             throw new StreamLoadException("stream load error: " + loadResponse.respContent);
         }else{
+            LOG.info("Streamload Response:{}",loadResponse);
             ObjectMapper obj = new ObjectMapper();
             try {
                 RespContent respContent = obj.readValue(loadResponse.respContent, RespContent.class);
@@ -182,6 +187,7 @@ public class DorisStreamLoad implements Serializable{
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
+        int status = -1;
         try {
             // build request and send to new be location
             beConn = getConnection(loadUrlStr, label);
@@ -191,7 +197,7 @@ public class DorisStreamLoad implements Serializable{
             bos.close();
 
             // get respond
-            int status = beConn.getResponseCode();
+            status = beConn.getResponseCode();
             String respMsg = beConn.getResponseMessage();
             InputStream stream = (InputStream) beConn.getContent();
             BufferedReader br = new BufferedReader(new InputStreamReader(stream));
@@ -204,9 +210,9 @@ public class DorisStreamLoad implements Serializable{
 
         } catch (Exception e) {
             e.printStackTrace();
-            String err = "failed to execute spark streamload with label: " + label;
+            String err = "http request exception,load url : "+loadUrlStr+",failed to execute spark streamload with label: " + label;
             LOG.warn(err, e);
-            return new LoadResponse(-1, e.getMessage(), err);
+            return new LoadResponse(status, e.getMessage(), err);
         } finally {
             if (feConn != null) {
                 feConn.disconnect();

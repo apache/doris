@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -148,6 +149,8 @@ private:
 // The entry with smaller CachePriority will evict firstly
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
+using CacheValuePredicate = std::function<bool(const void*)>;
+
 class Cache {
 public:
     Cache() {}
@@ -216,7 +219,7 @@ public:
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(bool (*pred)(const void* value)) { return 0; }
+    virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
@@ -317,7 +320,7 @@ public:
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
     int64_t prune();
-    int64_t prune_if(bool (*pred)(const void* value));
+    int64_t prune_if(CacheValuePredicate pred);
 
     uint64_t get_lookup_count() const { return _lookup_count; }
     uint64_t get_hit_count() const { return _hit_count; }
@@ -330,7 +333,6 @@ private:
     bool _unref(LRUHandle* e);
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
-    void _prune_one(LRUHandle* old);
 
 private:
     LRUCacheType _type;
@@ -374,7 +376,7 @@ public:
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id();
     virtual int64_t prune();
-    virtual int64_t prune_if(bool (*pred)(const void* value));
+    virtual int64_t prune_if(CacheValuePredicate pred);
 
 private:
     void update_cache_metrics() const;

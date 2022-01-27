@@ -89,7 +89,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, const std::string& file_name,
+                         uint64_t num_rows, const FilePathDesc& path_desc,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();
@@ -132,7 +132,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 const std::string& file_name);
+                 FilePathDesc path_desc);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -167,7 +167,7 @@ private:
     ColumnMetaPB _meta;
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
-    std::string _file_name;
+    FilePathDesc _path_desc;
 
     const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
@@ -215,10 +215,19 @@ public:
         return next_batch(n, dst, &has_null);
     }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     // After one seek, we can call this function many times to read data
     // into ColumnBlockView. when read string type data, memory will allocated
     // from MemPool
     virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
+
+    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) {
+        return Status::NotSupported("not implement");
+    }
 
     virtual ordinal_t get_current_ordinal() const = 0;
 
@@ -268,6 +277,8 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) override;
+
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
     // get row ranges by zone map
@@ -308,6 +319,9 @@ private:
 
     // current value ordinal
     ordinal_t _current_ordinal = 0;
+
+    uint32_t* _dict_start_offset_array = nullptr;
+    uint32_t* _dict_len_array = nullptr;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
@@ -401,11 +415,20 @@ public:
         return Status::OK();
     }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
 private:
+    void insert_default_data(vectorized::MutableColumnPtr &dst, size_t n);
+
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;

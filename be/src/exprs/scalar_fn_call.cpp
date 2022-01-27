@@ -72,7 +72,6 @@ Status ScalarFnCall::prepare(RuntimeState* state, const RowDescriptor& desc, Exp
     }
 
     _fn_context_index = context->register_func(state, return_type, arg_types, varargs_buffer_size);
-    // _scalar_fn = OpcodeRegistry::instance()->get_function_ptr(_opcode);
     Status status = Status::OK();
     if (_scalar_fn == nullptr) {
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
@@ -88,61 +87,11 @@ Status ScalarFnCall::prepare(RuntimeState* state, const RowDescriptor& desc, Exp
             // ret_type = ColumnType(thrift_to_type(_fn.ret_type));
             std::string symbol = SymbolsUtil::mangle_user_function(_fn.scalar_fn.symbol, arg_types,
                                                                    _fn.has_var_args, nullptr);
+
             status = UserFunctionCache::instance()->get_function_ptr(
                     _fn.id, symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
         }
     }
-#if 0
-    // If the codegen object hasn't been created yet and we're calling a builtin or native
-    // UDF with <= 8 non-variadic arguments, we can use the interpreted path and call the
-    // builtin without codegen. This saves us the overhead of creating the codegen object
-    // when it's not necessary (i.e., in plan fragments with no codegen-enabled operators).
-    // In addition, we can never codegen char arguments.
-    // TODO: codegen for char arguments
-    if (char_arg || (!state->codegen_created() && num_fixed_args() <= 8 &&
-                     (_fn.binary_type == TFunctionBinaryType::BUILTIN ||
-                      _fn.binary_type == TFunctionBinaryType::NATIVE))) {
-        // Builtins with char arguments must still have <= 8 arguments.
-        // TODO: delete when we have codegen for char arguments
-        if (char_arg) {
-            DCHECK(num_fixed_args() <= 8 && _fn.binary_type == TFunctionBinaryType::BUILTIN);
-        }
-        Status status = UserFunctionCache::instance()->GetSoFunctionPtr(
-            _fn.hdfs_location, _fn.scalar_fn.symbol, &_scalar_fn, &cache_entry_);
-        if (!status.ok()) {
-            if (_fn.binary_type == TFunctionBinaryType::BUILTIN) {
-                // Builtins symbols should exist unless there is a version mismatch.
-                status.SetErrorMsg(ErrorMsg(TErrorCode::MISSING_BUILTIN,
-                                            _fn.name.function_name, _fn.scalar_fn.symbol));
-                return status;
-            } else {
-                DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::NATIVE);
-                return Status::InternalError(strings::Substitute("Problem loading UDF '$0':\n$1",
-                                         _fn.name.function_name, status.GetDetail()));
-                return status;
-            }
-        }
-    } else {
-        // If we got here, either codegen is enabled or we need codegen to run this function.
-        LlvmCodeGen* codegen;
-        RETURN_IF_ERROR(state->GetCodegen(&codegen));
-
-        if (_fn.binary_type == TFunctionBinaryType::IR) {
-            std::string local_path;
-            RETURN_IF_ERROR(UserFunctionCache::instance()->GetLocalLibPath(
-                    _fn.hdfs_location, UserFunctionCache::TYPE_IR, &local_path));
-            // Link the UDF module into this query's main module (essentially copy the UDF
-            // module into the main module) so the UDF's functions are available in the main
-            // module.
-            RETURN_IF_ERROR(codegen->LinkModule(local_path));
-        }
-
-        Function* ir_udf_wrapper;
-        RETURN_IF_ERROR(GetCodegendComputeFn(state, &ir_udf_wrapper));
-        // TODO: don't do this for child exprs
-        codegen->AddFunctionToJit(ir_udf_wrapper, &_scalar_fn_wrapper);
-    }
-#endif
     if (_fn.scalar_fn.__isset.prepare_fn_symbol) {
         RETURN_IF_ERROR(get_function(state, _fn.scalar_fn.prepare_fn_symbol,
                                      reinterpret_cast<void**>(&_prepare_fn)));

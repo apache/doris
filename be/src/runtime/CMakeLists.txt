@@ -59,7 +59,6 @@ set(RUNTIME_FILES
     qsorter.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
-    data_spliter.cpp
     dpp_sink.cpp
     etl_job_mgr.cpp
     load_path_mgr.cpp
@@ -108,7 +107,7 @@ set(RUNTIME_FILES
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
-    fold_constant_mgr.cpp
+    fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
     odbc_table_sink.cpp	

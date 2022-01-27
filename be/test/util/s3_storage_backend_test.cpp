@@ -158,7 +158,7 @@ TEST_F(S3StorageBackendTest, s3_list) {
     status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind2.md5", _content);
     ASSERT_TRUE(status.ok());
     std::map<std::string, FileStat> files;
-    status = _s3->list(_s3_base_path, &files);
+    status = _s3->list(_s3_base_path, true, false, &files);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(files.find("Ode_to_the_West_Wind") != files.end());
     ASSERT_TRUE(files.find("Ode_to_the_West_Wind1") != files.end());
@@ -182,8 +182,6 @@ TEST_F(S3StorageBackendTest, s3_mkdir) {
     ASSERT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/dir");
     ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
-    status = _s3->exist(_s3_base_path + "/dir/");
-    ASSERT_TRUE(status.ok());
 }
 
 } // end namespace doris

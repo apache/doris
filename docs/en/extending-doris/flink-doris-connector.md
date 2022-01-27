@@ -34,8 +34,9 @@ Flink Doris Connector can support read and write data stored in Doris through Fl
 
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
-| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
+| 1.11.6-2.12-xx | 1.11.x | 0.13+  | 8    | 2.12  |
+| 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
+| 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
 
 **For Flink 1.13.x version adaptation issues**
 
@@ -63,7 +64,7 @@ Execute following command in dir `extension/flink-doris-connector/`:
 2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
 
 ```bash
-sh build.sh
+sh build.sh 1.11.6 2.12 # flink 1.11.6 scala 2.12
 ```
 
 After successful compilation, the file `doris-flink-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
@@ -78,15 +79,43 @@ conf/fe.conf
 ```
 enable_http_server_v2 = true
 ```
+## Using Maven
+
+Add Dependency
+
+```
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>doris-flink-connector</artifactId>
+  <version>1.11.6-2.12-SNAPSHOT</version>
+</dependency>
+```
+
+**Remarks**
+
+`1.11.6 ` can be substitute with `1.12.7` or `1.13.5` base on flink version you are using 
 
 
 ## How to use
-The purpose of this step is to register the Doris data source on Flink. 
-This step is operated on Flink.
-There are two ways to use sql and java. The following are examples to illustrate
+
+There are three ways to use Flink Doris Connector. 
+
+* SQL
+* DataStream
+* DataSet
+
+### Parameters Configuration
+
+Flink Doris Connector Sink writes data to Doris by the `Stream load`, and also supports the configurations of `Stream load`
+
+* SQL  configured by `sink.properties.` in the `WITH`
+* DataStream configured by `DorisExecutionOptions.builder().setStreamLoadProp(Properties)`
+
+
 ### SQL
-The purpose of this step is to register the Doris data source on Flink. 
-This step is operated on Flink
+
+* Source
+
 ```sql
 CREATE TABLE flink_doris_source (
     name STRING,
@@ -101,7 +130,11 @@ CREATE TABLE flink_doris_source (
       'username' = '$YOUR_DORIS_USERNAME',
       'password' = '$YOUR_DORIS_PASSWORD'
 );
+```
 
+* Sink
+
+```sql
 CREATE TABLE flink_doris_sink (
     name STRING,
     age INT,
@@ -115,29 +148,42 @@ CREATE TABLE flink_doris_sink (
       'username' = '$YOUR_DORIS_USERNAME',
       'password' = '$YOUR_DORIS_PASSWORD'
 );
+```
 
+* Insert
+
+```sql
 INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 ```
 
-### DataStreamSource
+### DataStream
 
-```scala
+* Source
+
+```java
  Properties properties = new Properties();
  properties.put("fenodes","FE_IP:8030");
  properties.put("username","root");
  properties.put("password","");
  properties.put("table.identifier","db.table");
- env.addSource(new DorisSourceFunction(new DorisStreamOptions(properties),new SimpleListDeserializationSchema())).print();
+ env.addSource(new DorisSourceFunction(
+                        new DorisStreamOptions(properties), 
+                        new SimpleListDeserializationSchema()
+                )
+        ).print(); 
 ```
 
-### DataStreamSink
+* Sink
+
+Json Stream
 
 ```java
-// -------- sink with raw json string stream --------
 Properties pro = new Properties();
 pro.setProperty("format", "json");
 pro.setProperty("strip_outer_array", "true");
-env.fromElements( "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+env.fromElements(
+    "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}"
+    )
      .addSink(
      	DorisSink.sink(
             DorisReadOptions.builder().build(),
@@ -152,9 +198,14 @@ env.fromElements( "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latit
                     .setUsername("root")
                     .setPassword("").build()
      	));
+```
 
-OR
-env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+Json Stream
+
+```java
+env.fromElements(
+    "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}"
+    )
     .addSink(
     	DorisSink.sink(
         	DorisOptions.builder()
@@ -163,9 +214,11 @@ env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitu
                     .setUsername("root")
                     .setPassword("").build()
     	));
+```
 
+RowData Stream
 
-// -------- sink with RowData stream --------
+```java
 DataStream<RowData> source = env.fromElements("")
     .map(new MapFunction<String, RowData>() {
         @Override
@@ -199,7 +252,9 @@ source.addSink(
     ));
 ```
 
-### DataSetSink
+### DataSet
+
+* Sink
 
 ```java
 MapOperator<String, RowData> data = env.fromElements("")
@@ -223,10 +278,11 @@ DorisReadOptions readOptions = DorisReadOptions.defaults();
 DorisExecutionOptions executionOptions = DorisExecutionOptions.defaults();
 
 LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
-String[] fiels = {"city", "longitude", "latitude"};
+String[] fields = {"city", "longitude", "latitude"};
 
-DorisDynamicOutputFormat outputFormat =
-    new DorisDynamicOutputFormat(dorisOptions, readOptions, executionOptions, types, fiels);
+DorisDynamicOutputFormat outputFormat = new DorisDynamicOutputFormat(
+    dorisOptions, readOptions, executionOptions, types, fields
+    );
 
 outputFormat.open(0, 1);
 data.output(outputFormat);
@@ -254,10 +310,11 @@ outputFormat.close();
 | doris.deserialize.queue.size     | 64                | Asynchronous conversion of the internal processing queue in Arrow format takes effect when doris.deserialize.arrow.async is true        |
 | doris.read.field            | --            | List of column names in the Doris table, separated by commas                  |
 | doris.filter.query          | --            | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
-| sink.batch.size                        | 100            | Maximum number of lines in a single write BE                                             |
-| sink.max-retries                        | 1            | Number of retries after writing BE failed                                              |
-| sink.batch.interval                         | 1s            | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 1 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
-| sink.properties.*     | --               | The stream load parameters.eg:sink.properties.column_separator' = ','. Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /> Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
+| sink.batch.size                        | 10000          | Maximum number of lines in a single write BE                                             |
+| sink.max-retries                        | 1          | Number of retries after writing BE failed                                              |
+| sink.batch.interval                         | 10s           | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 10 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
+| sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br />  Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />  Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
+| sink.enable-delete     | true               | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
 
 
 ## Doris & Flink Column Type Mapping
@@ -281,3 +338,38 @@ outputFormat.close();
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## An example of using Flink CDC to access Doris (supports insert/update/delete events)
+```sql
+CREATE TABLE cdc_mysql_source (
+  id int
+  ,name VARCHAR
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+-- Support delete event synchronization (sink.enable-delete='true'), requires Doris table to enable batch delete function
+CREATE TABLE doris_sink (
+id INT,
+name STRING
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.strip_outer_array' = 'true',
+  'sink.enable-delete' = 'true'
+);
+
+insert into doris_sink select id,name from cdc_mysql_source;
+```

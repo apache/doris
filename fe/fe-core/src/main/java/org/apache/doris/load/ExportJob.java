@@ -67,6 +67,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TAgentResult;
@@ -256,12 +257,14 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    private void registerToDesc() {
+    private void registerToDesc() throws UserException {
         TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
+        analyzer.registerTableRef(tableRef);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
+        exportTupleDesc.setAliases(tableRef.getAliases(), tableRef.hasExplicitAlias());
         if (exportColumns.isEmpty()) {
             for (Column column : exportTable.getBaseSchema()) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
@@ -338,7 +341,7 @@ public class ExportJob implements Writable {
         if (whereExpr == null) {
             return;
         }
-        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
 
         // analyze where slot ref
         Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -451,7 +454,7 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
                     id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
-                    TimeUtils.DEFAULT_TIME_ZONE);
+                    TimeUtils.DEFAULT_TIME_ZONE, true);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
@@ -655,7 +658,7 @@ public class ExportJob implements Writable {
                 continue;
             }
             long backendId = backend.getId();
-            if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
+            if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                 continue;
             }
 

@@ -18,10 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.InlineView;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -29,6 +26,7 @@ import org.apache.doris.common.UserException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,11 +38,11 @@ public class LateralViewRef extends TableRef {
     private Expr expr;
     private String viewName;
     private String columnName;
-    private BaseTableRef relatedTableRef;
+    private TableRef relatedTableRef;
 
     // after analyzed
     private FunctionCallExpr fnExpr;
-    private List<SlotRef> originSlotRefList = Lists.newArrayList();
+    private ArrayList<Expr> originSlotRefList = Lists.newArrayList();
     private InlineView view;
     private SlotRef explodeSlotRef;
 
@@ -55,7 +53,7 @@ public class LateralViewRef extends TableRef {
         this.columnName = columnName;
     }
 
-    public void setRelatedTable(BaseTableRef relatedTableRef) {
+    public void setRelatedTable(TableRef relatedTableRef) {
         this.relatedTableRef = relatedTableRef;
     }
 
@@ -73,26 +71,13 @@ public class LateralViewRef extends TableRef {
             return;
         }
         Preconditions.checkNotNull(relatedTableRef);
-        // analyze table
-        if (!(relatedTableRef.getTable() instanceof OlapTable)) {
-            throw new AnalysisException("Only doris table could be exploded");
-        }
         // analyze function and slot
         if (!(expr instanceof FunctionCallExpr)) {
             throw new AnalysisException("Only support function call expr in lateral view");
         }
-        fnExpr = (FunctionCallExpr) expr;
-        fnExpr.setTableFnCall(true);
-        checkAndSupplyDefaultTableName(fnExpr);
-        fnExpr.analyze(analyzer);
-        if (!fnExpr.getFnName().getFunction().equals(FunctionSet.EXPLODE_SPLIT)) {
-            throw new AnalysisException("Only support explode function in lateral view");
-        }
-        checkScalarFunction(fnExpr.getChild(0));
-        if (!(fnExpr.getChild(1) instanceof StringLiteral)) {
-            throw new AnalysisException("Split separator of explode must be a string const");
-        }
-        fnExpr.getChild(0).collect(SlotRef.class, originSlotRefList);
+
+        analyzeFunctionExpr(analyzer);
+
         // analyze lateral view
         desc = analyzer.registerTableRef(this);
         explodeSlotRef = new SlotRef(new TableName(null, viewName), columnName);
@@ -100,13 +85,23 @@ public class LateralViewRef extends TableRef {
         isAnalyzed = true;  // true now that we have assigned desc
     }
 
+    private void analyzeFunctionExpr(Analyzer analyzer) throws AnalysisException {
+        fnExpr = (FunctionCallExpr) expr;
+        fnExpr.setTableFnCall(true);
+        checkAndSupplyDefaultTableName(fnExpr);
+        fnExpr.analyze(analyzer);
+        for (Expr expr : fnExpr.getChildren()) {
+            checkScalarFunction(expr);
+        }
+        fnExpr.collect(SlotRef.class, originSlotRefList);
+    }
+
     @Override
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
         // Create a fake catalog table for the lateral view
         List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, Type.VARCHAR,
-                false, null, true,
-                null, ""));
+        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(),
+                false, null, true, null, ""));
         view = new InlineView(viewName, columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
@@ -115,9 +110,12 @@ public class LateralViewRef extends TableRef {
         return result;
     }
 
-    public void materializeRequiredSlots() {
-        for (SlotRef originSlotRef : originSlotRefList) {
-            originSlotRef.getDesc().setIsMaterialized(true);
+    public void materializeRequiredSlots(ExprSubstitutionMap baseTblSmap, Analyzer analyzer) throws AnalysisException {
+        if (relatedTableRef instanceof InlineViewRef) {
+            originSlotRefList = Expr.trySubstituteList(originSlotRefList, baseTblSmap, analyzer, false);
+        }
+        for (Expr originSlotRef : originSlotRefList) {
+            ((SlotRef) originSlotRef).getDesc().setIsMaterialized(true);
         }
         explodeSlotRef.getDesc().setIsMaterialized(true);
     }
@@ -181,3 +179,4 @@ public class LateralViewRef extends TableRef {
         }
     }
 }
+

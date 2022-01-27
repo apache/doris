@@ -111,8 +111,8 @@ protected:
         // the wrong answer (it use (filename,offset) as cache key)
         std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions block_opts({filename});
-        Status st = fs::fs_util::block_manager()->create_block(block_opts, &wblock);
+        fs::CreateBlockOptions block_opts(filename);
+        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(block_opts, &wblock);
         ASSERT_TRUE(st.ok());
         SegmentWriter writer(wblock.get(), 0, &build_schema, opts);
         st = writer.init(10);
@@ -136,7 +136,9 @@ protected:
         ASSERT_TRUE(st.ok());
         ASSERT_TRUE(wblock->close().ok());
 
-        st = Segment::open(filename, 0, &query_schema, res);
+        FilePathDesc path_desc;
+        path_desc.filepath = filename;
+        st = Segment::open(path_desc, 0, &query_schema, res);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(nrows, (*res)->num_rows());
     }
@@ -613,8 +615,8 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
 
     std::string fname = dname + "/int_case";
     std::unique_ptr<fs::WritableBlock> wblock;
-    fs::CreateBlockOptions wblock_opts({fname});
-    Status st = fs::fs_util::block_manager()->create_block(wblock_opts, &wblock);
+    fs::CreateBlockOptions wblock_opts(fname);
+    Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok()) << st.to_string();
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);
@@ -783,8 +785,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     std::string fname = dname + "/string_case";
     std::unique_ptr<fs::WritableBlock> wblock;
-    fs::CreateBlockOptions wblock_opts({fname});
-    Status st = fs::fs_util::block_manager()->create_block(wblock_opts, &wblock);
+    fs::CreateBlockOptions wblock_opts(fname);
+    Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok());
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);
@@ -817,7 +819,9 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     {
         std::shared_ptr<Segment> segment;
-        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
+        FilePathDesc path_desc;
+        path_desc.filepath = fname;
+        st = Segment::open(path_desc, 0, tablet_schema.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
@@ -1160,7 +1164,7 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

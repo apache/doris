@@ -99,7 +99,7 @@ OLAPStatus Tablet::_init_once_action() {
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path_desc, rs_meta, &rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init rowset. tablet_id=" << tablet_id()
                          << ", schema_hash=" << schema_hash() << ", version=" << version
@@ -113,7 +113,7 @@ OLAPStatus Tablet::_init_once_action() {
     for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, stale_rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path_desc, stale_rs_meta, &rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash() << ", version=" << version
@@ -183,7 +183,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     for (auto& rs_meta : rowsets_to_clone) {
         Version version = {rs_meta->start_version(), rs_meta->end_version()};
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path_desc, rs_meta, &rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init rowset. version=" << version;
             return res;
@@ -659,7 +659,7 @@ OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
                         << ", version='" << version.first << "-" << version.second;
 
             it = _stale_rs_version_map.find(version);
-            if (it == _rs_version_map.end()) {
+            if (it == _stale_rs_version_map.end()) {
                 LOG(WARNING) << "fail to find Rowset in stale_rs_version for version. tablet="
                              << full_name() << ", version='" << version.first << "-"
                              << version.second;
@@ -836,6 +836,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
                   // simple because 2 versions are certainly not overlapping
                   return left.first.first < right.first.first;
               });
+
     Version max_continuous_version = {-1, 0};
     VersionHash max_continuous_version_hash = 0;
     for (int i = 0; i < existing_versions.size(); ++i) {
@@ -944,10 +945,10 @@ void Tablet::delete_all_files() {
 
 bool Tablet::check_path(const std::string& path_to_check) const {
     ReadLock rdlock(&_meta_lock);
-    if (path_to_check == _tablet_path) {
+    if (path_to_check == _tablet_path_desc.filepath) {
         return true;
     }
-    std::string tablet_id_dir = path_util::dir_name(_tablet_path);
+    std::string tablet_id_dir = path_util::dir_name(_tablet_path_desc.filepath);
     if (path_to_check == tablet_id_dir) {
         return true;
     }
@@ -1108,9 +1109,17 @@ void Tablet::get_compaction_status(std::string* json_result) {
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
+    rapidjson::Document missing_versions_arr;
     versions_arr.SetArray();
+    missing_versions_arr.SetArray();
+    int64_t last_version = -1;
     for (int i = 0; i < rowsets.size(); ++i) {
         const Version& ver = rowsets[i]->version();
+        if (ver.first != last_version + 1) {
+            rapidjson::Value miss_value;
+            miss_value.SetString(strings::Substitute("[$0-$1]", last_version + 1, ver.first).c_str(), missing_versions_arr.GetAllocator());
+            missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
+        }
         rapidjson::Value value;
         std::string disk_size =
                 PrettyPrinter::print(rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
@@ -1121,8 +1130,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
                 rowsets[i]->rowset_id().to_string(), disk_size);
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
+        last_version = ver.second;
     }
     root.AddMember("rowsets", versions_arr, root.GetAllocator());
+    root.AddMember("missing_rowsets", missing_versions_arr, root.GetAllocator());
 
     // print all stale rowsets' version as an array
     rapidjson::Document stale_versions_arr;

@@ -31,6 +31,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "env/env.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
@@ -52,7 +53,7 @@ typedef UniqueId TabletUid;
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 
 struct DataDirInfo {
-    std::string path;
+    FilePathDesc path_desc;
     size_t path_hash = 0;
     int64_t disk_capacity = 1; // actual disk capacity
     int64_t available = 0;     // 可用空间，单位字节

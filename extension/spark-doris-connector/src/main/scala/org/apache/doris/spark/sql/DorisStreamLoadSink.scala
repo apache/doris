@@ -23,17 +23,19 @@ import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.streaming.Sink
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.slf4j.{Logger, LoggerFactory}
-
 import java.io.IOException
 import java.util
+
+import org.apache.doris.spark.rest.RestService
+
 import scala.util.control.Breaks
 
 private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSettings) extends Sink with Serializable {
 
   private val logger: Logger = LoggerFactory.getLogger(classOf[DorisStreamLoadSink].getName)
   @volatile private var latestBatchId = -1L
-  val maxRowCount: Int = settings.getIntegerProperty(ConfigurationOptions.DORIS_BATCH_SIZE, ConfigurationOptions.DORIS_BATCH_SIZE_DEFAULT)
-  val maxRetryTimes: Int = settings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES, ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT)
+  val maxRowCount: Int = settings.getIntegerProperty(ConfigurationOptions.DORIS_SINK_BATCH_SIZE, ConfigurationOptions.SINK_BATCH_SIZE_DEFAULT)
+  val maxRetryTimes: Int = settings.getIntegerProperty(ConfigurationOptions.DORIS_SINK_MAX_RETRIES, ConfigurationOptions.SINK_MAX_RETRIES_DEFAULT)
   val dorisStreamLoader: DorisStreamLoad = CachedDorisStreamLoadClient.getOrCreate(settings)
 
   override def addBatch(batchId: Long, data: DataFrame): Unit = {
@@ -72,7 +74,7 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
         val loop = new Breaks
         loop.breakable {
 
-          for (i <- 1 to maxRetryTimes) {
+          for (i <- 0 to maxRetryTimes) {
             try {
               dorisStreamLoader.load(rowsBuffer)
               rowsBuffer.clear()
@@ -81,13 +83,22 @@ private[sql] class DorisStreamLoadSink(sqlContext: SQLContext, settings: SparkSe
             catch {
               case e: Exception =>
                 try {
+                  logger.warn("Failed to load data on BE: {} node ", dorisStreamLoader.getLoadUrlStr)
+                  //If the current BE node fails to execute Stream Load, randomly switch to other BE nodes and try again
+                  dorisStreamLoader.setHostPort(RestService.randomBackendV2(settings,logger))
                   Thread.sleep(1000 * i)
                 } catch {
                   case ex: InterruptedException =>
+                    logger.warn("Data that failed to load : " + dorisStreamLoader.listToString(rowsBuffer))
                     Thread.currentThread.interrupt()
                     throw new IOException("unable to flush; interrupted while doing another attempt", e)
                 }
             }
+          }
+
+          if(!rowsBuffer.isEmpty){
+            logger.warn("Data that failed to load : " + dorisStreamLoader.listToString(rowsBuffer))
+            throw new IOException(s"Failed to load data on BE: ${dorisStreamLoader.getLoadUrlStr} node and exceeded the max retry times.")
           }
         }
       }

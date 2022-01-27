@@ -24,6 +24,7 @@ This module is doris builtin functions
 
 import sys
 import os
+import errno
 from string import Template
 import doris_builtins_functions
 
@@ -165,19 +166,28 @@ def generate_fe_registry_init(filename):
         java_registry_file.write("        nondeterministicFuncNames.add(\"%s\");\n" % entry)
     java_registry_file.write("        functionSet.buildNondeterministicFunctions(nondeterministicFuncNames);\n");
 
+    java_registry_file.write("        funcNames = Sets.newHashSet();\n")
+    for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
+        java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
+    java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
+
     java_registry_file.write(java_registry_epilogue)
     java_registry_file.close()
 
+if __name__ == "__main__":
 
-# Read the function metadata inputs
-for function in doris_builtins_functions.visible_functions:
-    add_function(function, True)
-for function in doris_builtins_functions.invisible_functions:
-    add_function(function, False)
+    try:
+        os.makedirs(FE_PATH)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            pass
+        else:
+            raise
 
-if not os.path.exists(FE_PATH):
-    os.makedirs(FE_PATH)
+    # Read the function metadata inputs
+    for function in doris_builtins_functions.visible_functions:
+        add_function(function, True)
+    for function in doris_builtins_functions.invisible_functions:
+        add_function(function, False)
 
-generate_fe_registry_init(FE_PATH + "ScalarBuiltins.java")
-
-
+    generate_fe_registry_init(FE_PATH + "ScalarBuiltins.java")

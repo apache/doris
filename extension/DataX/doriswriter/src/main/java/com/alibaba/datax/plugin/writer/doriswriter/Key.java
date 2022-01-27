@@ -1,22 +1,20 @@
-/*
-  Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
-  distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
-  to you under the Apache License, Version 2.0 (the
-  "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
-    http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing,
-  software distributed under the License is distributed on an
-  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
-  specific language governing permissions and limitations
-  under the License.
-  -->
- */
 package com.alibaba.datax.plugin.writer.doriswriter;
 
 import com.alibaba.datax.common.exception.DataXException;
@@ -48,24 +46,18 @@ public class Key implements Serializable {
     public static final String MAX_BATCH_BYTE_SIZE = "maxBatchByteSize";
     public static final String LABEL_PREFIX = "labelPrefix";
     public static final String LINE_DELIMITER = "lineDelimiter";
-    public static final String COLUMN_SEPARATOR = "columnSeparator";
-    public static final String FORMAT = "format";
     public static final String CONNECT_TIMEOUT = "connectTimeout";
     private final Configuration options;
-    private final String columnSeparatorDesc;
     private final String lineDelimiterDesc;
 
     private static final long DEFAULT_MAX_BATCH_ROWS = 50_0000;
     private static final long DEFAULT_MAX_BATCH_BYTE_SIZE = 100 * 1024 * 1024; // 100MB
     private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
-    private static final String DEFAULT_FORMAT = "json";
     private static final int DEFAULT_CONNECT_TIMEOUT = -1;
 
     public Key(final Configuration options) {
         this.options = options;
-        this.columnSeparatorDesc = parseHexReadable(this.getColumnSeparator());
         this.lineDelimiterDesc = parseHexReadable(this.getLineDelimiter());
     }
 
@@ -134,21 +126,8 @@ public class Key implements Serializable {
         return this.options.getString(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
     }
 
-    public String getFormat() {
-        return this.options.getString(FORMAT, DEFAULT_FORMAT);
-    }
-
-    public String getColumnSeparator() {
-        return this.options.getString(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
-    }
-
     public int getConnectTimeout() {
         return this.options.getInt(CONNECT_TIMEOUT, DEFAULT_CONNECT_TIMEOUT);
-    }
-
-
-    public String getColumnSeparatorDesc() {
-        return columnSeparatorDesc;
     }
 
     public String getLineDelimiterDesc() {
@@ -190,4 +169,3 @@ public class Key implements Serializable {
         }
     }
 }
-

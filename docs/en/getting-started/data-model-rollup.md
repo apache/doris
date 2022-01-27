@@ -419,11 +419,11 @@ After the creation, the data stored in the ROLLUP is as follows:
 
 |city|age|cost|max\_dwell\_time|min\_dwell\_time|
 |---|---|---|---|---|
-| Beijing | 20 | 0 | 30 | 10 | 2|
-| Beijing | 30 | 1 | 2 | 22 | 22|
-| Shanghai | 20 | 1 | 200 | 5 | 5|
-| Guangzhou | 32 | 0 | 30 | 11 | 11|
-| Shenzhen | 35 | 0 | 111 | 6 | 3|
+| Beijing | 20 | 35 | 10 | 2|
+| Beijing | 30 | 2 | 22 | 22|
+| Shanghai | 20 | 200 | 5 | 5|
+| Guangzhou | 32 | 30 | 11 | 11|
+| Shenzhen | 35 | 111 | 6 | 3|
 
 When we do the following queries:
 

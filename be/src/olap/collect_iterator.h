@@ -20,10 +20,11 @@
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
+#include "util/tuple_row_zorder_compare.h"
 
 namespace doris {
 
-class Reader;
+class TabletReader;
 class RowCursor;
 
 class CollectIterator {
@@ -31,7 +32,7 @@ public:
     ~CollectIterator();
 
     // Hold reader point to get reader params
-    void init(Reader* reader);
+    void init(TabletReader* reader);
 
     OLAPStatus add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -66,6 +67,19 @@ private:
 
         virtual OLAPStatus next(const RowCursor** row, bool* delete_flag) = 0;
         virtual ~LevelIterator() = 0;
+
+        bool need_skip() const {
+            return _skip_row;
+        }
+
+        void set_need_skip(bool skip) const {
+            _skip_row = skip;
+        }
+
+        // Only use in unique reader. Heap will set _skip_row = true.
+        // when build heap find the row in LevelIterator have same key but lower version or sequence
+        // the row of LevelIteratro should be skiped to prevent useless compare and function call
+        mutable bool _skip_row = false;
     };
 
     // Compare row cursors between multiple merge elements,
@@ -74,20 +88,44 @@ private:
     public:
         LevelIteratorComparator(const bool reverse = false, int sequence_id_idx = -1) :
             _reverse(reverse), _sequence_id_idx(sequence_id_idx) {}
-        bool operator()(const LevelIterator* a, const LevelIterator* b);
+        virtual bool operator()(const LevelIterator* a, const LevelIterator* b);
 
     private:
         bool _reverse;
         int _sequence_id_idx;
     };
 
+    class LevelZorderIteratorComparator: public LevelIteratorComparator {
+    public:
+        LevelZorderIteratorComparator(const bool reverse = false, int sequence_id_idx = -1, const size_t sort_col_num = 0) :
+            _reverse(reverse), _sequence_id_idx(sequence_id_idx), _sort_col_num(sort_col_num) {
+            _comparator = TupleRowZOrderComparator(sort_col_num);
+        }
+        virtual bool operator()(const LevelIterator* a, const LevelIterator* b);
+
+    private:
+        bool _reverse = false;
+        int _sequence_id_idx;
+        size_t _sort_col_num = 0;
+        TupleRowZOrderComparator _comparator;
+    };
+
+    class BaseComparator {
+    public:
+        BaseComparator(std::shared_ptr<LevelIteratorComparator>& cmp);
+        bool operator()(const LevelIterator* a, const LevelIterator* b);
+
+    private:
+        std::shared_ptr<LevelIteratorComparator> _cmp;
+    };
+
     typedef std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
-                                LevelIteratorComparator>
+                    BaseComparator>
             MergeHeap;
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {
     public:
-        Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader);
+        Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader);
 
         OLAPStatus init() override;
 
@@ -110,7 +148,7 @@ private:
         RowsetReaderSharedPtr _rs_reader;
         const RowCursor* _current_row = nullptr;  // It points to the returned row
         bool _is_delete = false;
-        Reader* _reader = nullptr;
+        TabletReader* _reader = nullptr;
         RowCursor _row_cursor;  // It points to rows inside `_row_block`, maybe not returned
         RowBlock* _row_block = nullptr;
     };
@@ -118,7 +156,9 @@ private:
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(std::list<LevelIterator*>, bool, bool, int);
+
+        Level1Iterator(const std::list<LevelIterator*>& children, bool merge, bool reverse,
+                       int sequence_id_idx, uint64_t* merge_count, SortType sort_type, int sort_col_num);
 
         OLAPStatus init() override;
 
@@ -157,6 +197,10 @@ private:
         // used when `_merge == false`
         int _child_idx = 0;
         int _sequence_id_idx = -1;
+
+        uint64_t* _merged_rows = nullptr;
+        SortType _sort_type;
+        int _sort_col_num;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;
@@ -169,7 +213,7 @@ private:
     bool _reverse = false;
 
     // Hold reader point to access read params, such as fetch conditions.
-    Reader* _reader = nullptr;
+    TabletReader* _reader = nullptr;
 };
 
 } // namespace doris

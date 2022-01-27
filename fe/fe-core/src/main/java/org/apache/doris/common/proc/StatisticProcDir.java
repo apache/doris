@@ -24,12 +24,14 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
@@ -56,6 +58,7 @@ public class StatisticProcDir implements ProcDirInterface {
             .add("DbId").add("DbName").add("TableNum").add("PartitionNum")
             .add("IndexNum").add("TabletNum").add("ReplicaNum").add("UnhealthyTabletNum")
             .add("InconsistentTabletNum").add("CloningTabletNum").add("BadTabletNum")
+            .add("CompactionTooSlowTabletNum").add("OversizeTabletNum")
             .build();
     private static final Logger LOG = LogManager.getLogger(StatisticProcDir.class);
 
@@ -113,10 +116,15 @@ public class StatisticProcDir implements ProcDirInterface {
         int inconsistentTabletNum;
         int cloningTabletNum;
         int badTabletNum;
+        int compactionTooSlowTabletNum;
+        int oversizeTabletNum;
+
         Set<Long> unhealthyTabletIds;
         Set<Long> inconsistentTabletIds;
         Set<Long> cloningTabletIds;
         Set<Long> unrecoverableTabletIds;
+        Set<Long> compactionTooSlowTabletIds;
+        Set<Long> oversizeTabletIds;
 
         DBStatistic() {
             this.summary = true;
@@ -132,6 +140,8 @@ public class StatisticProcDir implements ProcDirInterface {
             this.unrecoverableTabletIds = new HashSet<>();
             this.cloningTabletIds = AgentTaskQueue.getTask(db.getId(), TTaskType.CLONE)
                     .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
+            this.compactionTooSlowTabletIds = new HashSet<>();
+            this.oversizeTabletIds = new HashSet<>();
 
             SystemInfoService infoService = Catalog.getCurrentSystemInfo();
             ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
@@ -178,6 +188,18 @@ public class StatisticProcDir implements ProcDirInterface {
                                 if (!tablet.isConsistent()) {
                                     inconsistentTabletIds.add(tablet.getId());
                                 }
+
+                                if (tablet.getDataSize(true) > Config.min_bytes_indicate_replica_too_large) {
+                                    oversizeTabletIds.add(tablet.getId());
+                                }
+
+                                for (Replica replica : tablet.getReplicas()) {
+                                    if (replica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow) {
+                                        compactionTooSlowTabletIds.add(tablet.getId());
+                                        break;
+                                    }
+                                }
+
                             } // end for tablets
                         } // end for indices
                     } // end for partitions
@@ -189,6 +211,8 @@ public class StatisticProcDir implements ProcDirInterface {
             inconsistentTabletNum = inconsistentTabletIds.size();
             cloningTabletNum = cloningTabletIds.size();
             badTabletNum = unrecoverableTabletIds.size();
+            compactionTooSlowTabletNum = compactionTooSlowTabletIds.size();
+            oversizeTabletNum = oversizeTabletIds.size();
         }
 
         DBStatistic reduce(DBStatistic other) {
@@ -203,6 +227,8 @@ public class StatisticProcDir implements ProcDirInterface {
                 this.inconsistentTabletNum += other.inconsistentTabletNum;
                 this.cloningTabletNum += other.cloningTabletNum;
                 this.badTabletNum += other.badTabletNum;
+                this.compactionTooSlowTabletNum += other.compactionTooSlowTabletNum;
+                this.oversizeTabletNum += other.oversizeTabletNum;
                 return this;
             } else if (other.summary) {
                 return other.reduce(this);
@@ -229,6 +255,8 @@ public class StatisticProcDir implements ProcDirInterface {
             row.add(inconsistentTabletNum);
             row.add(cloningTabletNum);
             row.add(badTabletNum);
+            row.add(compactionTooSlowTabletNum);
+            row.add(oversizeTabletNum);
             return row.stream().map(String::valueOf).collect(Collectors.toList());
         }
     }

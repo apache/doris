@@ -161,8 +161,8 @@ public class RestoreJobTest {
         
         new Expectations() {
             {
-                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, anyBoolean, anyBoolean, anyString,
-                        (TStorageMedium) any, (Tag) any);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, (SystemInfoService.BeAvailablePredicate) any,
+                        anyBoolean, anyString, (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean needAlive,

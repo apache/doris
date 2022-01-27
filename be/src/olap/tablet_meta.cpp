@@ -42,7 +42,8 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
             request.table_id, request.partition_id, request.tablet_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
-            request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK));
+            request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
+            request.storage_medium));
     return OLAP_SUCCESS;
 }
 
@@ -52,7 +53,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                       TabletUid tablet_uid, TTabletType::type tabletType)
+                       TabletUid tablet_uid, TTabletType::type tabletType,
+                       TStorageMedium::type t_storage_medium)
         : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -67,6 +69,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_DISK
                                            ? TabletTypePB::TABLET_TYPE_DISK
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
+    tablet_meta_pb.set_storage_medium(fs::fs_util::get_storage_medium_pb(t_storage_medium));
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -86,6 +89,15 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         break;
     }
     schema->set_compress_kind(COMPRESS_LZ4);
+
+    switch(tablet_schema.sort_type) {
+        case TSortType::type::ZORDER:
+            schema->set_sort_type(SortType::ZORDER);
+            break;
+        default:
+            schema->set_sort_type(SortType::LEXICAL);
+    }
+    schema->set_sort_col_num(tablet_schema.sort_col_num);
     tablet_meta_pb.set_in_restore_mode(false);
 
     // set column information

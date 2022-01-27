@@ -57,8 +57,8 @@ TEST_F(MultiBytesSeparatorTest, normal) {
 
     const std::vector<TBrokerRangeDesc> ranges;
     const std::vector<TNetworkAddress> broker_addresses;
-    const std::vector<ExprContext*> pre_filter_ctxs;
-    BrokerScanner scanner(nullptr, nullptr, params, ranges, broker_addresses, pre_filter_ctxs, nullptr);
+    const std::vector<TExpr> pre_filter_texprs;
+    BrokerScanner scanner(nullptr, nullptr, params, ranges, broker_addresses, pre_filter_texprs, nullptr);
 
 #define private public
 

@@ -136,7 +136,8 @@ set runtime_filter_type=7;
 
 - **IN predicate**: Construct IN predicate based on all the values ​​of Key listed in the join on clause on the right table, and use the constructed IN predicate to filter on the left table. Compared with Bloom Filter, the cost of construction and application is lower. The amount of data in the right table is lower. When it is less, it tends to perform better.
     - By default, only the number of data rows in the right table is less than 1024 will be pushed down (can be adjusted by `runtime_filter_max_in_num` in the session variable).
-    - Currently IN predicate does not implement a merge method, that is, it cannot be pushed down across Fragments, so currently when it is necessary to push down to the ScanNode of the left table of shuffle join, if Bloom Filter is not generated, then we will convert IN predicate to Bloom Filter for Process pushdown across Fragments, so even if the type only selects IN predicate, Bloom Filter may actually be applied;
+    - Currently IN predicate already implement a merge method.
+    - When IN predicate and other filters are specified at the same time, and the filtering value of IN predicate does not reach runtime_filter_max_in_num will try to remove other filters. The reason is that IN predicate is an accurate filtering condition. Even if there is no other filter, it can filter efficiently. If it is used at the same time, other filters will do useless work. Currently, only when the producer and consumer of the runtime filter are in the same fragment can there be logic to remove the Non-IN predicate.
 
 #### 2.runtime_filter_mode
 Used to control the transmission range of Runtime Filter between instances.

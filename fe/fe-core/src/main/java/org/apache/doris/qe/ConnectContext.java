@@ -130,6 +130,9 @@ public class ConnectContext {
 
     private String sqlHash;
 
+    // The FE ip current connected
+    private String currentConnectedFEIp = "";
+
     public static ConnectContext get() {
         return threadLocalInfo.get();
     }
@@ -182,12 +185,15 @@ public class ConnectContext {
     public boolean isTxnModel() {
         return txnEntry != null && txnEntry.isTxnModel();
     }
+
     public boolean isTxnIniting() {
         return txnEntry != null && txnEntry.isTxnIniting();
     }
+
     public boolean isTxnBegin() {
         return txnEntry != null && txnEntry.isTxnBegin();
     }
+
     public void closeTxn() {
         if (isTxnModel()) {
             if (isTxnBegin()) {
@@ -275,11 +281,17 @@ public class ConnectContext {
         this.qualifiedUser = qualifiedUser;
     }
 
-    public boolean getIsTempUser() { return isTempUser;}
+    public boolean getIsTempUser() {
+        return isTempUser;
+    }
 
-    public void setIsTempUser(boolean isTempUser) { this.isTempUser = isTempUser;}
+    public void setIsTempUser(boolean isTempUser) {
+        this.isTempUser = isTempUser;
+    }
 
-    public PaloRole getLdapGroupsPrivs() { return ldapGroupsPrivs; }
+    public PaloRole getLdapGroupsPrivs() {
+        return ldapGroupsPrivs;
+    }
 
     public void setLdapGroupsPrivs(PaloRole ldapGroupsPrivs) {
         this.ldapGroupsPrivs = ldapGroupsPrivs;
@@ -434,7 +446,7 @@ public class ConnectContext {
     // kill operation with no protect.
     public void kill(boolean killConnection) {
         LOG.warn("kill timeout query, {}, kill connection: {}",
-                 getMysqlChannel().getRemoteHostPortString(), killConnection);
+                getMysqlChannel().getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -460,7 +472,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -468,7 +480,7 @@ public class ConnectContext {
         } else {
             if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
                 LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
                 // Only kill
                 killFlag = true;
@@ -498,6 +510,18 @@ public class ConnectContext {
     public void setResourceTags(Set<Tag> resourceTags) {
         this.resourceTags = resourceTags;
         this.isResourceTagsSet = !this.resourceTags.isEmpty();
+    }
+
+    public void setCurrentConnectedFEIp(String ip) {
+        this.currentConnectedFEIp = ip;
+    }
+
+    public String getCurrentConnectedFEIp() {
+        return currentConnectedFEIp;
+    }
+
+    public String getRemoteIp() {
+        return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
     }
 
     public class ThreadInfo {

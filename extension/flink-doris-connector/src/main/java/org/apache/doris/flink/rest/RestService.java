@@ -86,7 +86,7 @@ public class RestService implements Serializable {
     private static final String QUERY_PLAN = "_query_plan";
     @Deprecated
     private static final String BACKENDS = "/rest/v1/system?path=//backends";
-    private static final String BACKENDS_V2 = "/api/backends?is_aliva=true";
+    private static final String BACKENDS_V2 = "/api/backends?is_alive=true";
     private static final String FE_LOGIN = "/rest/v1/login";
 
     /**
@@ -444,11 +444,11 @@ public class RestService implements Serializable {
     }
 
     /**
-     * find Doris RDD partitions from Doris FE.
+     * find Doris partitions from Doris FE.
      *
      * @param options configuration of request
      * @param logger  {@link Logger}
-     * @return an list of Doris RDD partitions
+     * @return an list of Doris partitions
      * @throws DorisException throw when find partition failed
      */
     public static List<PartitionDefinition> findPartitions(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException {

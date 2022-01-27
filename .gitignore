@@ -18,18 +18,17 @@ thirdparty/installed
 .DS_Store
 *.iml
 core.*
-extension/spark-doris-connector/.classpath
-extension/spark-doris-connector/target
-extension/flink-doris-connector/.classpath
-extension/flink-doris-connector/target
+extension/**/.classpath
+extension/**/target
+
 fe/log
 custom_env.sh
 ut_dir
 log/
-fe_plugins/*/target
+fe_plugins/**/target
 fe_plugins/output
 fe/mocked
-fe/*/target
+fe/**/target
 dependency-reduced-pom.xml
 fe_plugins/**/.classpath
 fe_plugins/**/.factorypath
@@ -38,7 +37,7 @@ fe/fe-core/src/main/resources/static/
 nohup.out
 
 
-#ignore eclipse project file & idea project file
+# ignore eclipse project file & idea project file
 .cproject
 .project
 .settings/
@@ -65,7 +64,11 @@ docs/package-lock.json
 fe/fe-common/.classpath
 rpc_data/
 
+## ignore sample target
+samples/doris-demo/*/target
 
-#ignore vscode project file
+# ignore vscode project file
 .vscode
-samples/doris-demo/stream-load-demo/target
+be/.devcontainer/
+
+derby.log

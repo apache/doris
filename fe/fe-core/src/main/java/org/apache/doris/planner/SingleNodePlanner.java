@@ -68,6 +68,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1366,7 +1367,8 @@ public class SingleNodePlanner {
         // inline view's plan.
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
-        if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+        // Vec exec engine not need the function of TupleIsNull, So here just skip wrap it
+        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping
@@ -1700,7 +1702,6 @@ public class SingleNodePlanner {
                 break;
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode) {
-            PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             scanNode.setSortColumn(tblRef.getSortColumn());
         }
 
@@ -1862,19 +1863,22 @@ public class SingleNodePlanner {
      * table ref is not implemented.
      */
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
-            throws UserException, AnalysisException {
+            throws UserException {
+        PlanNode scanNode = null;
         if (tblRef instanceof BaseTableRef) {
-            PlanNode scanNode = createScanNode(analyzer, tblRef, selectStmt);
-            List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
-            if (lateralViewRefs != null && lateralViewRefs.size() != 0) {
-                return createTableFunctionNode(analyzer, scanNode, lateralViewRefs, selectStmt);
-            }
-            return scanNode;
+            scanNode = createScanNode(analyzer, tblRef, selectStmt);
         }
         if (tblRef instanceof InlineViewRef) {
-            return createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
+            scanNode = createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
         }
-        throw new UserException("unknown TableRef node");
+        if (scanNode == null) {
+            throw new UserException("unknown TableRef node");
+        }
+        List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
+        if (lateralViewRefs == null || lateralViewRefs.size() == 0) {
+            return scanNode;
+        }
+        return createTableFunctionNode(analyzer, scanNode, lateralViewRefs, selectStmt);
     }
 
     private PlanNode createTableFunctionNode(Analyzer analyzer, PlanNode inputNode,

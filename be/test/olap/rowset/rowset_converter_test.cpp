@@ -61,7 +61,7 @@ void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_
     rowset_writer_context->tablet_schema_hash = 1111;
     rowset_writer_context->partition_id = 10;
     rowset_writer_context->rowset_type = dst_type;
-    rowset_writer_context->rowset_path_prefix = config::storage_root_path + "/data/0/12345/1111";
+    rowset_writer_context->path_desc.filepath = config::storage_root_path + "/data/0/12345/1111";
     rowset_writer_context->rowset_state = VISIBLE;
     rowset_writer_context->tablet_schema = tablet_schema;
     rowset_writer_context->version.first = 0;
@@ -235,14 +235,16 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     create_tablet_meta(&tablet_schema, tablet_meta.get());
     RowsetConverter rowset_converter(tablet_meta);
     RowsetMetaPB dst_rowset_meta_pb;
+    FilePathDesc schema_hash_path_desc;
+    schema_hash_path_desc.filepath = _schema_hash_path;
     if (dst_type == BETA_ROWSET) {
         ASSERT_EQ(OLAP_SUCCESS,
-                  rowset_converter.convert_alpha_to_beta(src_rowset->rowset_meta(),
-                                                         _schema_hash_path, &dst_rowset_meta_pb));
+                  rowset_converter.convert_alpha_to_beta(
+                          src_rowset->rowset_meta(), schema_hash_path_desc, &dst_rowset_meta_pb));
     } else {
         ASSERT_EQ(OLAP_SUCCESS,
-                  rowset_converter.convert_beta_to_alpha(src_rowset->rowset_meta(),
-                                                         _schema_hash_path, &dst_rowset_meta_pb));
+                  rowset_converter.convert_beta_to_alpha(
+                          src_rowset->rowset_meta(), schema_hash_path_desc, &dst_rowset_meta_pb));
     }
 
     ASSERT_EQ(dst_type, dst_rowset_meta_pb.rowset_type());
@@ -253,7 +255,7 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     RowsetMetaSharedPtr dst_rowset_meta(new RowsetMeta());
     ASSERT_TRUE(dst_rowset_meta->init_from_pb(dst_rowset_meta_pb));
     RowsetSharedPtr dst_rowset;
-    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(&tablet_schema, _schema_hash_path,
+    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(&tablet_schema, schema_hash_path_desc,
                                                          dst_rowset_meta, &dst_rowset));
 
     RowsetReaderSharedPtr dst_rowset_reader;
@@ -297,7 +299,7 @@ TEST_F(RowsetConverterTest, TestConvertBetaRowsetToAlpha) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     doris::SegmentLoader::create_global_instance(1000);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

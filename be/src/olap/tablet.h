@@ -82,6 +82,8 @@ public:
 
     // properties encapsulated in TabletSchema
     inline KeysType keys_type() const;
+    inline SortType sort_type() const;
+    inline size_t sort_col_num() const;
     inline size_t num_columns() const;
     inline size_t num_null_columns() const;
     inline size_t num_key_columns() const;
@@ -250,11 +252,23 @@ public:
     void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
     bool get_clone_occurred() { return _is_clone_occurred; }
 
+    void set_cumulative_compaction_policy(
+            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+        _cumulative_compaction_policy = cumulative_compaction_policy;
+    }
+
+    std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy() {
+        return _cumulative_compaction_policy;
+    }
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     OLAPStatus _contains_version(const Version& version);
+
+    // Returns:
+    // version: the max continuous version from beginning
     void _max_continuous_version_from_beginning_unlocked(Version* version,
                                                          VersionHash* v_hash) const;
     RowsetSharedPtr _rowset_with_largest_size();
@@ -392,6 +406,14 @@ inline Version Tablet::max_version() const {
 
 inline KeysType Tablet::keys_type() const {
     return _schema.keys_type();
+}
+
+inline SortType Tablet::sort_type() const {
+    return _schema.sort_type();
+}
+
+inline size_t Tablet::sort_col_num() const {
+    return _schema.sort_col_num();
 }
 
 inline size_t Tablet::num_columns() const {

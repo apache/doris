@@ -79,6 +79,7 @@ enum OLAPDataVersion {
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
+static const std::string TABLET_UID = "/tablet_uid";
 static const std::string DPP_PREFIX = "/dpp_download";
 static const std::string SNAPSHOT_PREFIX = "/snapshot";
 static const std::string TRASH_PREFIX = "/trash";
@@ -383,7 +384,8 @@ enum OLAPStatus {
     OLAP_ERR_ROWSET_LOAD_FAILED = -3109,
     OLAP_ERR_ROWSET_READER_INIT = -3110,
     OLAP_ERR_ROWSET_READ_FAILED = -3111,
-    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112
+    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112,
+    OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE = -3113
 };
 
 enum ColumnFamilyIndex {

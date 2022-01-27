@@ -390,7 +390,8 @@ public class BrokerScanNode extends LoadScanNode {
     private void assignBackends() throws UserException {
         backends = Lists.newArrayList();
         for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAvailable()) {
+            // broker scan node is used for query or load
+            if (be.isQueryAvailable() && be.isLoadAvailable()) {
                 backends.add(be);
             }
         }

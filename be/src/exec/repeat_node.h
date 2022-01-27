@@ -40,7 +40,7 @@ public:
 protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
-private:
+protected:
     Status get_repeated_batch(RowBatch* child_row_batch, int repeat_id_idx, RowBatch* row_batch);
 
     // Slot id set used to indicate those slots need to set to null.

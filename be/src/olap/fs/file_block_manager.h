@@ -70,16 +70,12 @@ public:
 
     Status create_block(const CreateBlockOptions& opts,
                         std::unique_ptr<WritableBlock>* block) override;
-    Status open_block(const std::string& path, std::unique_ptr<ReadableBlock>* block) override;
+    Status open_block(const FilePathDesc& path_desc, std::unique_ptr<ReadableBlock>* block) override;
 
     Status get_all_block_ids(std::vector<BlockId>* block_ids) override {
         // TODO(lingbin): to be implemented after we assign each block an id
         return Status::OK();
     };
-
-private:
-    friend class internal::FileReadableBlock;
-    friend class internal::FileWritableBlock;
 
     // Deletes an existing block, allowing its space to be reclaimed by the
     // filesystem. The change is immediately made durable.
@@ -87,10 +83,17 @@ private:
     // Blocks may be deleted while they are open for reading or writing;
     // the actual deletion will take place after the last open reader or
     // writer is closed.
-    Status _delete_block(const std::string& path);
+    // is_dir: whether this path is a dir or file. if it is true, delete all files in this path
+    Status delete_block(const FilePathDesc& path_desc, bool is_dir = false);
+
+    Status link_file(const FilePathDesc& src_path_desc, const FilePathDesc& dest_path_desc) override;
+
+private:
+    friend class internal::FileReadableBlock;
+    friend class internal::FileWritableBlock;
 
     // Synchronizes the metadata for a block with the given location.
-    Status _sync_metadata(const std::string& path);
+    Status _sync_metadata(const FilePathDesc& path_desc);
 
     Env* env() const { return _env; }
 

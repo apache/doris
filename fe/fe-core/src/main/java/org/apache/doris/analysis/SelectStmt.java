@@ -113,6 +113,9 @@ public class SelectStmt extends QueryStmt {
     // Table alias generator used during query rewriting.
     private TableAliasGenerator tableAliasGenerator = null;
 
+    // Members that need to be reset to origin
+    private SelectList originSelectList;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -131,6 +134,7 @@ public class SelectStmt extends QueryStmt {
             LimitElement limitElement) {
         super(orderByElements, limitElement);
         this.selectList = selectList;
+        this.originSelectList = selectList.clone();
         if (fromClause == null) {
             fromClause_ = new FromClause();
         } else {
@@ -185,6 +189,13 @@ public class SelectStmt extends QueryStmt {
         analyticInfo = null;
         baseTblSmap.clear();
         groupingInfo = null;
+    }
+
+    @Override
+    public void resetSelectList() {
+        if (originSelectList != null) {
+            selectList = originSelectList;
+        }
     }
 
     @Override
@@ -500,6 +511,11 @@ public class SelectStmt extends QueryStmt {
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
 
+        // Change all outer join tuple to null here after analyze where and from clause
+        // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
+        // the solt desc nullable mark must be corrected to make sure BE exec query right.
+        analyzer.changeAllOuterJoinTupleToNull();
+
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -562,6 +578,15 @@ public class SelectStmt extends QueryStmt {
         }
 
         return result;
+    }
+
+    public boolean hasInlineView() {
+        for (TableRef ref : fromClause_) {
+            if (ref instanceof InlineViewRef) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -697,7 +722,7 @@ public class SelectStmt extends QueryStmt {
         for (TableRef tableRef : fromClause_.getTableRefs()) {
             if (tableRef.lateralViewRefs != null) {
                 for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
-                    lateralViewRef.materializeRequiredSlots();
+                    lateralViewRef.materializeRequiredSlots(baseTblSmap, analyzer);
                 }
             }
         }
@@ -1306,7 +1331,7 @@ public class SelectStmt extends QueryStmt {
         // Also equal exprs in the statements of subqueries.
         List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
-            whereClause = rewriter.rewrite(whereClause, analyzer);
+            whereClause = rewriter.rewrite(whereClause, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
             whereClause.collect(Subquery.class, subqueryExprs);
 
         }
@@ -1374,8 +1399,8 @@ public class SelectStmt extends QueryStmt {
 
         }
         if (havingClause != null) {
-            registerExprId(havingClause);
-            exprMap.put(havingClause.getId().toString(), havingClause);
+            registerExprId(havingClauseAfterAnaylzed);
+            exprMap.put(havingClauseAfterAnaylzed.getId().toString(), havingClauseAfterAnaylzed);
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
         for (Subquery subquery : subqueryExprs) {
@@ -1481,7 +1506,7 @@ public class SelectStmt extends QueryStmt {
             whereClause.collect(Subquery.class, subqueryExprs);
         }
         if (havingClause != null) {
-            havingClause = rewrittenExprMap.get(havingClause.getId().toString());
+            havingClause = rewrittenExprMap.get(havingClauseAfterAnaylzed.getId().toString());
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
 

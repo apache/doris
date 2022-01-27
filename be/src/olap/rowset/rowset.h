@@ -23,6 +23,7 @@
 #include <mutex>
 #include <vector>
 
+#include "env/env.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
@@ -198,10 +199,12 @@ public:
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
-    virtual OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) = 0;
+    virtual OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) = 0;
 
     // copy all files to `dir`
     virtual OLAPStatus copy_files_to(const std::string& dir) = 0;
+
+    virtual OLAPStatus upload_files_to(const FilePathDesc& dir_desc) { return OLAP_SUCCESS; }
 
     virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
@@ -211,7 +214,7 @@ public:
     virtual bool check_file_exist() = 0;
 
     // return an unique identifier string for this rowset
-    std::string unique_id() const { return _rowset_path + "/" + rowset_id().to_string(); }
+    std::string unique_id() const { return _rowset_path_desc.filepath + "/" + rowset_id().to_string(); }
 
     bool need_delete_file() const { return _need_delete_file; }
 
@@ -254,7 +257,7 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(const TabletSchema* schema, std::string rowset_path, RowsetMetaSharedPtr rowset_meta);
+    Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc, RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual OLAPStatus init() = 0;
@@ -269,7 +272,7 @@ protected:
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
 
     const TabletSchema* _schema;
-    std::string _rowset_path;
+    FilePathDesc _rowset_path_desc;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor
     bool _is_pending;    // rowset is pending iff it's not in visible state

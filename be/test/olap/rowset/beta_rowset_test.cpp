@@ -133,7 +133,7 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->rowset_path_prefix = "./data_test/data/beta_rowset_test";
+        rowset_writer_context->path_desc.filepath = "./data_test/data/beta_rowset_test";
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -353,7 +353,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     doris::SegmentLoader::create_global_instance(1000);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

@@ -84,6 +84,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
         "[50-50] 0 DELETE NONOVERLAPPING 574.00 B",
         "[51-51] 5 DATA OVERLAPPING 574.00 B"
     ],
+    "missing_rowsets": [],
     "stale version path": [
         {
             "path id": "2",
@@ -106,6 +107,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
 * last cumulative failure time：上一次尝试 cumulative compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 cumulative compaction。
 * last base failure time：上一次尝试 base compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 base compaction。
 * rowsets：该 tablet 当前的 rowset 集合。如 [0-48] 表示 0-48 版本。第二位数字表示该版本中 segment 的数量。`DELETE` 表示 delete 版本。`DATA` 表示数据版本。`OVERLAPPING` 和 `NONOVERLAPPING` 表示segment数据是否重叠。
+* missing_rowsets: 缺失的版本。
 * stale version path：该 table 当前被合并rowset集合的合并版本路径，该结构是一个数组结构，每个元素表示一个合并路径。每个元素中包含了三个属性：path id 表示版本路径id，last create time 表示当前路径上最近的 rowset 创建时间，默认在这个时间半个小时之后这条路径上的所有 rowset 会被过期删除。
 
 ### 示例

@@ -35,7 +35,7 @@ void OrdinalIndexWriter::append_entry(ordinal_t ordinal, const PagePointer& data
 }
 
 Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* meta) {
-    CHECK(_page_builder->count() > 0) << "no entry has been added, filepath=" << wblock->path();
+    CHECK(_page_builder->count() > 0) << "no entry has been added, filepath=" << wblock->path_desc().filepath;
     meta->set_type(ORDINAL_INDEX);
     BTreeMetaPB* root_page_meta = meta->mutable_ordinal_index()->mutable_root_page();
 
@@ -69,8 +69,8 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     }
     // need to read index page
     std::unique_ptr<fs::ReadableBlock> rblock;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
-    RETURN_IF_ERROR(block_mgr->open_block(_filename, &rblock));
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc.storage_medium);
+    RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
 
     PageReadOptions opts;
     opts.rblock = rblock.get();

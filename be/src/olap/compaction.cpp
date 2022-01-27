@@ -159,7 +159,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         context.rowset_type = BETA_ROWSET;
     }
-    context.rowset_path_prefix = _tablet->tablet_path();
+    context.path_desc = _tablet->tablet_path_desc();
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
     context.version = _output_version;

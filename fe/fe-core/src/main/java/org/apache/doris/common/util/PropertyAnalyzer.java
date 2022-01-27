@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -34,6 +35,7 @@ import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
+import org.apache.doris.thrift.TSortType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -97,6 +99,10 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
     public static final String TAG_LOCATION = "tag.location";
+
+    public static final String PROPERTIES_DISABLE_QUERY = "disable_query";
+
+    public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -455,12 +461,20 @@ public class PropertyAnalyzer {
         return ScalarType.createType(type);
     }
 
-    public static Tag analyzeBackendTagProperties(Map<String, String> properties) throws AnalysisException {
+    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key, Boolean defaultValue) throws AnalysisException {
+        if (properties.containsKey(key)) {
+            String value = properties.remove(key);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
+    }
+
+    public static Tag analyzeBackendTagProperties(Map<String, String> properties, Tag defaultValue) throws AnalysisException {
         if (properties.containsKey(TAG_LOCATION)) {
             String tagVal = properties.remove(TAG_LOCATION);
             return Tag.create(Tag.TYPE_LOCATION, tagVal);
         }
-        return Tag.DEFAULT_BACKEND_TAG;
+        return defaultValue;
     }
 
     // There are 2 kinds of replication property:
@@ -521,5 +535,44 @@ public class PropertyAnalyzer {
             throw new AnalysisException("Not specified replica allocation property");
         }
         return replicaAlloc;
+    }
+
+    public static DataSortInfo analyzeDataSortInfo(Map<String, String> properties, KeysType keyType,
+                                                   int keyCount, TStorageFormat storageFormat) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return new DataSortInfo(TSortType.LEXICAL, keyCount);
+        }
+        String sortMethod = TSortType.LEXICAL.name();
+        if (properties.containsKey(DataSortInfo.DATA_SORT_TYPE)) {
+            sortMethod = properties.remove(DataSortInfo.DATA_SORT_TYPE);
+        }
+        TSortType sortType = TSortType.LEXICAL;
+        if (sortMethod.equalsIgnoreCase(TSortType.ZORDER.name())) {
+            sortType = TSortType.ZORDER;
+        } else if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
+            sortType = TSortType.LEXICAL;
+        } else {
+            throw new AnalysisException("only support zorder/lexical method!");
+        }
+        if (keyType != KeysType.DUP_KEYS && sortType == TSortType.ZORDER) {
+            throw new AnalysisException("only duplicate key supports zorder method!");
+        }
+        if (storageFormat != TStorageFormat.V2 && sortType == TSortType.ZORDER) {
+            throw new AnalysisException("only V2 storage format supports zorder method!");
+        }
+
+        int colNum = keyCount;
+        if (properties.containsKey(DataSortInfo.DATA_SORT_COL_NUM)) {
+            try {
+                colNum = Integer.valueOf(properties.remove(DataSortInfo.DATA_SORT_COL_NUM));
+            } catch (Exception e) {
+                throw new AnalysisException("param " + DataSortInfo.DATA_SORT_COL_NUM + " error");
+            }
+        }
+        if (sortType == TSortType.ZORDER && (colNum <= 1 || colNum > keyCount)) {
+            throw new AnalysisException("z-order needs 2 columns at least, " + keyCount + " columns at most!");
+        }
+        DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
+        return dataSortInfo;
     }
 }

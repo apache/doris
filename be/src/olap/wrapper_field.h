@@ -42,7 +42,7 @@ public:
         delete _rep;
         delete[] _owned_buf;
         if (_long_text_buf) {
-            delete _long_text_buf;
+            free(_long_text_buf);
         }
     }
 
