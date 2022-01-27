@@ -35,7 +35,7 @@ namespace segment_v2 {
 // This struct can be reused, client should call reset first before reusing
 // this object
 struct ParsedPage {
-    static Status create(PageHandle handle, const Slice& body, const DataPageFooterPB& footer,
+    static Status create(PageHandle handle, struct OlapReaderStatistics* stats, const Slice& body, const DataPageFooterPB& footer,
                          const EncodingInfo* encoding, const PagePointer& page_pointer,
                          uint32_t page_index, std::unique_ptr<ParsedPage>* result) {
         std::unique_ptr<ParsedPage> page(new ParsedPage);
@@ -51,7 +51,7 @@ struct ParsedPage {
         }
 
         Slice data_slice(body.data, body.size - null_size);
-        PageDecoderOptions opts;
+        PageDecoderOptions opts(stats);
         RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
         RETURN_IF_ERROR(page->data_decoder->init());
 

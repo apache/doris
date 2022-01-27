@@ -596,6 +596,8 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &d
             }
         }
 
+        SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[0]); // demo debug time
+
         // number of rows to be read from this page
         size_t nrows_in_page = std::min(remaining, _page->remaining());
         size_t nrows_to_read = nrows_in_page;
@@ -654,7 +656,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     _opts.type = DATA_PAGE;
     RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
     // parse data page
-    RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+    RETURN_IF_ERROR(ParsedPage::create(std::move(handle), _opts.stats, page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
                                        &_page));
 
@@ -675,7 +677,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                                                    &_dict_page_handle, &dict_data, &dict_footer));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
-                _dict_decoder.reset(new BinaryPlainPageDecoder(dict_data));
+                _dict_decoder.reset(new BinaryPlainPageDecoder(dict_data, _opts.stats));
                 RETURN_IF_ERROR(_dict_decoder->init());
             }
 

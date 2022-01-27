@@ -101,7 +101,7 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     RETURN_IF_ERROR(_reader->read_page(_rblock.get(), pp, &handle, &body, &footer, DATA_PAGE));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
-    return ParsedPage::create(std::move(handle), body, footer.data_page_footer(),
+    return ParsedPage::create(std::move(handle), nullptr, body, footer.data_page_footer(),
                               _reader->encoding_info(), pp, 0, &_data_page);
 }
 

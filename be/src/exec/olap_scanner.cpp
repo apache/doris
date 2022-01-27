@@ -540,6 +540,10 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, stats.rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, stats.index_load_ns);
+    COUNTER_UPDATE(_parent->_general_debug_timer[0], stats.general_debug_ns[0]);
+    COUNTER_UPDATE(_parent->_general_debug_timer[1], stats.general_debug_ns[1]);
+    COUNTER_UPDATE(_parent->_general_debug_timer[2], stats.general_debug_ns[2]);
+    COUNTER_UPDATE(_parent->_general_debug_timer[3], stats.general_debug_ns[3]);
 
     COUNTER_UPDATE(_parent->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, stats.cached_pages_num);

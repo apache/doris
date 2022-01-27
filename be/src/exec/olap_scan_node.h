@@ -300,6 +300,7 @@ protected:
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
 
     RuntimeProfile::Counter* _index_load_timer = nullptr;
+    RuntimeProfile::Counter* _general_debug_timer[4] = {};
 
     // total pages read
     // used by segment v2

@@ -154,8 +154,6 @@ private:
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
-    BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) {}
-
     BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options)
             : _data(data),
               _options(options),
@@ -235,6 +233,9 @@ public:
             *n = 0;
             return Status::OK();
         }
+
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[2]);
+
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         auto* dst_col_ptr = dst.get();

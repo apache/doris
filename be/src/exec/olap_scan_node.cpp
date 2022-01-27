@@ -137,6 +137,11 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");
     _index_load_timer = ADD_TIMER(_segment_profile, "IndexLoadTime_V1");
 
+    _general_debug_timer[0] = ADD_TIMER(_segment_profile, "GeneralDebugTimer0");
+    _general_debug_timer[1] = ADD_TIMER(_segment_profile, "GeneralDebugTimer1");
+    _general_debug_timer[2] = ADD_TIMER(_segment_profile, "GeneralDebugTimer2");
+    _general_debug_timer[3] = ADD_TIMER(_segment_profile, "GeneralDebugTimer3");
+
     _scan_timer = ADD_TIMER(_scanner_profile, "ScanTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScanCpuTime");
 

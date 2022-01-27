@@ -252,6 +252,8 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
         *n = 0;
         return Status::OK();
     }
+
+    SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[1]); //demo debug timer
  
     size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle_ptr->_num_elements - _bit_shuffle_ptr->_cur_index));
     *n = max_fetch;
