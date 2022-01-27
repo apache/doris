@@ -92,12 +92,12 @@ download_func() {
     fi
 
 
-    SUCCESS=0
+    local STATUS=1
     for attemp in 1 2; do
         if [ -r "$DESC_DIR/$FILENAME" ]; then
             if md5sum_func $FILENAME $DESC_DIR $MD5SUM; then
                 echo "Archive $FILENAME already exist."
-                SUCCESS=1
+                STATUS=0
                 break;
             fi
             echo "Archive $FILENAME will be removed and download again."
@@ -107,7 +107,7 @@ download_func() {
             wget --no-check-certificate $DOWNLOAD_URL -O $DESC_DIR/$FILENAME
             if [ "$?"x == "0"x ]; then
                 if md5sum_func $FILENAME $DESC_DIR $MD5SUM; then
-                    SUCCESS=1
+                    STATUS=0
                     echo "Success to download $FILENAME"
                     break;
                 fi
@@ -119,10 +119,10 @@ download_func() {
         fi
     done
 
-    if [ $SUCCESS -ne 1 ]; then
+    if [ $STATUS -ne 0 ]; then
         echo "Failed to download $FILENAME"
     fi
-    return $SUCCESS
+    return $STATUS
 }
 
 # download thirdparty archives
@@ -145,7 +145,7 @@ do
             #try to download from home
             URL=$TP_ARCH"_DOWNLOAD"
             download_func ${!NAME} ${!URL} $TP_SOURCE_DIR ${!MD5SUM}
-            if [ "$?x" == "0x" ]; then
+            if [ "$?x" == "1x" ]; then
                 echo "Failed to download ${!NAME}"
                 exit 1 # download failed again exit.
             fi
