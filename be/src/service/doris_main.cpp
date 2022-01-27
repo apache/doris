@@ -52,6 +52,7 @@
 #include "service/http_service.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
+#include "runtime/thread_status.h"
 #include "util/logging.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
