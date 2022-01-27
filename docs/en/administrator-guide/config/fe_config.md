@@ -2074,7 +2074,7 @@ the transaction will be cleaned after transaction_clean_interval_second seconds 
 
 The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
 
-The default value is -1。
+The default value is -1
 
 ### use_compact_thrift_rpc
 
@@ -2095,10 +2095,14 @@ If set to true, the system will immediately drop redundant replicas in the table
 When there are a large number of replicas waiting to be balanced or repaired in the cluster, you can try to set this config to speed up the balance and repair of replicas at the expense of partial load success rate.
 
 ### repair_slow_replica
+
 Default: true
+
 IsMutable：true
+
 MasterOnly: true
-If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version difference between the fastest and slowest replica exceeds 100, and the difference exceeds 30% of the fastest replica
+
+If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version count of the fastest replica exceeds the value of `min_version_count_indicate_replica_compaction_too_slow`, and the ratio of the version count difference from the fastest replica exceeds the value of `valid_version_count_delta_ratio_between_replicas`
 
 ### colocate_group_relocate_delay_second
 
@@ -2121,3 +2125,32 @@ Only for Master FE: false
 
 Whether to allow multiple replicas of the same tablet to be distributed on the same host. This parameter is mainly used for local testing, to facilitate building multiple BEs to test certain multi-replica situations. Do not use it for non-test environments.
 
+### min_version_count_indicate_replica_compaction_too_slow
+
+Default: 300
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The version count threshold used to judge whether replica compaction is too slow
+
+### valid_version_count_delta_ratio_between_replicas
+
+Default: 0.5
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The valid ratio threshold of the difference between the version count of the slowest replica and the fastest replica. If `repair_slow_replica` is set to true, it is used to determine whether to repair the slowest replica
+
+### min_bytes_indicate_replica_too_large
+
+Default: 2 * 1024 * 1024 * 1024 (2G)
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The data size threshold used to judge whether replica is too large
