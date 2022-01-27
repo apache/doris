@@ -38,6 +38,7 @@
 #include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 
@@ -234,7 +235,7 @@ public:
             return Status::OK();
         }
 
-        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[2]);
+        //SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[2]);
 
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 

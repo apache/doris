@@ -589,6 +589,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &d
     *has_null = false;
     while (remaining > 0) {
         if (!_page->has_remaining()) {
+            SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[0]); // demo debug time
             bool eos = false;
             RETURN_IF_ERROR(_load_next_page(&eos));
             if (eos) {
@@ -596,7 +597,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &d
             }
         }
 
-        SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[0]); // demo debug time
+        SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[1]); // demo debug time
 
         // number of rows to be read from this page
         size_t nrows_in_page = std::min(remaining, _page->remaining());

@@ -275,7 +275,7 @@ struct OlapReaderStatistics {
     int64_t rows_conditions_filtered = 0;
 
     int64_t index_load_ns = 0;
-    int64_t general_debug_ns[4] = {};
+    int64_t general_debug_ns[10] = {};
 
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
