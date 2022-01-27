@@ -31,6 +31,8 @@
 namespace doris {
 namespace segment_v2 {
 
+static OlapReaderStatistics s_stats;
+
 // This contains information when one page is loaded, and ready for read
 // This struct can be reused, client should call reset first before reusing
 // this object
@@ -38,6 +40,9 @@ struct ParsedPage {
     static Status create(PageHandle handle, struct OlapReaderStatistics* stats, const Slice& body, const DataPageFooterPB& footer,
                          const EncodingInfo* encoding, const PagePointer& page_pointer,
                          uint32_t page_index, std::unique_ptr<ParsedPage>* result) {
+        if (stats == nullptr) stats = &s_stats;
+
+        SCOPED_RAW_TIMER(&stats->general_debug_ns[17]);
         std::unique_ptr<ParsedPage> page(new ParsedPage);
         page->page_handle = std::move(handle);
 
@@ -52,8 +57,14 @@ struct ParsedPage {
 
         Slice data_slice(body.data, body.size - null_size);
         PageDecoderOptions opts(stats);
-        RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
-        RETURN_IF_ERROR(page->data_decoder->init());
+        {
+            SCOPED_RAW_TIMER(&stats->general_debug_ns[18]);
+            RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
+        }
+        {
+            SCOPED_RAW_TIMER(&stats->general_debug_ns[19]);
+            RETURN_IF_ERROR(page->data_decoder->init());
+        }
 
         page->first_ordinal = footer.first_ordinal();
         page->num_rows = footer.num_values();

@@ -657,9 +657,12 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     _opts.type = DATA_PAGE;
     RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
     // parse data page
+    {
+    SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[14]);
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), _opts.stats, page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
                                        &_page));
+    }
 
     // dictionary page is read when the first data page that uses it is read,
     // this is to optimize the memory usage: when there is no query on one column, we could
@@ -667,8 +670,10 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     // note that concurrent iterators for the same column won't repeatedly read dictionary page
     // because of page cache.
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
+        SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[15]);
         auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page->data_decoder);
         if (dict_page_decoder->is_dict_encoding()) {
+            SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[16]);
             if (_dict_decoder == nullptr) {
                 // read dictionary page
                 Slice dict_data;

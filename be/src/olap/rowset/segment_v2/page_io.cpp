@@ -118,6 +118,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath, opts.page_pointer.offset);
     if (opts.use_page_cache && cache->is_cache_available(opts.type) && cache->lookup(cache_key, &cache_handle, opts.type)) {
+        SCOPED_RAW_TIMER(&opts.stats->general_debug_ns[10]);
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
         opts.stats->cached_pages_num++;
@@ -148,6 +149,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     if (opts.verify_checksum) {
+        SCOPED_RAW_TIMER(&opts.stats->general_debug_ns[11]);
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
@@ -166,6 +168,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
     uint32_t body_size = page_slice.size - 4 - footer_size;
     if (body_size != footer->uncompressed_size()) { // need decompress body
+        SCOPED_RAW_TIMER(&opts.stats->general_debug_ns[12]);
         if (opts.codec == nullptr) {
             return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
         }
@@ -193,6 +196,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         opts.stats->uncompressed_bytes_read += body_size;
     }
 
+    SCOPED_RAW_TIMER(&opts.stats->general_debug_ns[13]);
     *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
     if (opts.use_page_cache && cache->is_cache_available(opts.type)) {
         // insert this page into cache and return the cache handle

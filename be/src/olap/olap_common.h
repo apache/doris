@@ -238,6 +238,8 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
+const int GENERAL_DEBUG_COUNT = 20;
+
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -275,7 +277,7 @@ struct OlapReaderStatistics {
     int64_t rows_conditions_filtered = 0;
 
     int64_t index_load_ns = 0;
-    int64_t general_debug_ns[10] = {};
+    int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
