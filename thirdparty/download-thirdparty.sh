@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-#set -e
+set -e
 ################################################################
 # This script will download all thirdparties and java libraries
 # which are defined in *vars.sh*, unpack patch them if necessary.
