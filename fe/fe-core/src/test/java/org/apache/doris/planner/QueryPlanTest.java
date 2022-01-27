@@ -453,13 +453,13 @@ public class QueryPlanTest {
         queryStr = "explain insert into test.bitmap_table select id, to_bitmap(id2) from test.bitmap_table_2;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | to_bitmap(`id2`)"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | to_bitmap(CAST(`id2` AS CHARACTER))"));
         Assert.assertTrue(explainString.contains("0:OlapScanNode"));
 
         queryStr = "explain insert into test.bitmap_table select id, bitmap_hash(id2) from test.bitmap_table_2;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | bitmap_hash(`id2`)"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | bitmap_hash(CAST(`id2` AS CHARACTER))"));
         Assert.assertTrue(explainString.contains("0:OlapScanNode"));
 
         queryStr = "explain insert into test.bitmap_table select id, id from test.bitmap_table_2;";
