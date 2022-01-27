@@ -32,7 +32,6 @@ import com.google.common.base.Strings;
 import java.util.HashMap;
 import java.util.Map;
 
-// 用于描述CREATE DATABASE的内部结构
 public class CreateDbStmt extends DdlStmt {
     private boolean ifNotExists;
     private String dbName;
