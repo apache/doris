@@ -145,6 +145,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("convert", new Integer(SqlParserSymbols.KW_CONVERT));
         keywordMap.put("count", new Integer(SqlParserSymbols.KW_COUNT));
         keywordMap.put("create", new Integer(SqlParserSymbols.KW_CREATE));
+        keywordMap.put("creation", new Integer(SqlParserSymbols.KW_CREATION));
         keywordMap.put("cross", new Integer(SqlParserSymbols.KW_CROSS));
         keywordMap.put("cube", new Integer(SqlParserSymbols.KW_CUBE));
         keywordMap.put("current", new Integer(SqlParserSymbols.KW_CURRENT));

@@ -701,6 +701,12 @@ public class Config extends ConfigBase {
     public static int max_stream_load_record_size = 5000;
 
     /**
+     * Default max number of recent iceberg database table creation record that can be stored in memory.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_iceberg_table_creation_record_size = 2000;
+
+    /**
      * Whether to disable show stream load and clear stream load records in memory.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1079,6 +1085,12 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long es_state_sync_interval_second = 10;
+
+    /**
+     * fe will create iceberg table every es_state_sync_interval_secs
+     */
+    @ConfField
+    public static long iceberg_table_creation_interval_second = 10;
 
     /**
      * the factor of delay time before deciding to repair tablet.

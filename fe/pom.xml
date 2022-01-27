@@ -119,6 +119,7 @@ under the License.
         <log4j2.version>2.17.1</log4j2.version>
         <revision>0.15-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
+        <iceberg.version>0.12.0</iceberg.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -613,6 +614,11 @@ under the License.
                         <groupId>tomcat</groupId>
                         <artifactId>jasper-compiler</artifactId>
                     </exclusion>
+                    <!-- confilict with parquet version in iceberg -->
+                    <exclusion>
+                        <groupId>org.apache.parquet</groupId>
+                        <artifactId>parquet-hadoop-bundle</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
@@ -684,6 +690,21 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
+
+            <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-core -->
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-core</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+
+            <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-hive-metastore -->
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-hive-metastore</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
