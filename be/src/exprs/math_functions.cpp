@@ -27,8 +27,8 @@
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
 #include "runtime/decimalv2_value.h"
-#include "util/string_parser.hpp"
 #include "util/simd/vstring_function.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -113,7 +113,7 @@ DecimalV2Val MathFunctions::abs(FunctionContext* ctx, const doris_udf::DecimalV2
     if (UNLIKELY(val.val == MIN_INT128)) {
         return DecimalV2Val::null();
     } else {
-        return DecimalV2Val(::abs(val.val));
+        return DecimalV2Val(val.val > 0 ? val.val : -val.val);
     }
 }
 
@@ -124,7 +124,7 @@ LargeIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::LargeIntVa
     if (UNLIKELY(val.val == MIN_INT128)) {
         return LargeIntVal::null();
     } else {
-        return LargeIntVal(::abs(val.val));
+        return LargeIntVal(val.val > 0 ? val.val : -val.val);
     }
 }
 
@@ -132,28 +132,28 @@ LargeIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::BigIntVal&
     if (val.is_null) {
         return LargeIntVal::null();
     }
-    return LargeIntVal(::abs(__int128(val.val)));
+    return LargeIntVal(__int128(std::abs(val.val)));
 }
 
 BigIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::IntVal& val) {
     if (val.is_null) {
         return BigIntVal::null();
     }
-    return BigIntVal(::abs(int64_t(val.val)));
+    return BigIntVal(int64_t(std::abs(val.val)));
 }
 
 IntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::SmallIntVal& val) {
     if (val.is_null) {
         return IntVal::null();
     }
-    return IntVal(::abs(int32_t(val.val)));
+    return IntVal(int32_t(std::abs(val.val)));
 }
 
 SmallIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::TinyIntVal& val) {
     if (val.is_null) {
         return SmallIntVal::null();
     }
-    return SmallIntVal(::abs(int16_t(val.val)));
+    return SmallIntVal(int16_t(std::abs(val.val)));
 }
 
 // Generates a UDF that always calls FN() on the input val and returns it.
@@ -352,7 +352,7 @@ StringVal MathFunctions::hex_string(FunctionContext* ctx, const StringVal& s) {
     }
 
     StringVal result = StringVal::create_temp_string_val(ctx, s.len * 2);
-    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char *>(result.ptr));
+    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char*>(result.ptr));
     return result;
 }
 

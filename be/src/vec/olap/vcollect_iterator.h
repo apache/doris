@@ -17,7 +17,11 @@
 
 #pragma once
 
+#ifdef USE_LIBCPP
+#include <queue>
+#else
 #include <ext/pb_ds/priority_queue.hpp>
+#endif
 
 #include "olap/olap_define.h"
 #include "olap/reader.h"
@@ -106,8 +110,13 @@ private:
         int _sequence;
     };
 
+#ifdef USE_LIBCPP
+    using MergeHeap = std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
+                                          LevelIteratorComparator>;
+#else
     using MergeHeap = __gnu_pbds::priority_queue<LevelIterator*, LevelIteratorComparator,
                                                  __gnu_pbds::pairing_heap_tag>;
+#endif
 
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {

@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <random>
 #include <thread>
 
 #include "common/config.h"
@@ -377,9 +378,9 @@ Status DataStreamSender::prepare(RuntimeState* state) {
             state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
-        // Randomize the order we open/transmit to channels to avoid thundering herd problems.
-        srand(reinterpret_cast<uint64_t>(this));
-        random_shuffle(_channels.begin(), _channels.end());
+        std::random_device rd;
+        std::mt19937 g(rd());
+        shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));

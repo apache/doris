@@ -350,7 +350,15 @@ if (COMPILER_GCC)
     add_compile_options(-Wno-stringop-overflow)
 endif ()
 
+if (USE_LDD)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
+endif ()
+
 if (COMPILER_CLANG)
+    if (USE_LIBCPP)
+        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+        add_definitions(-DUSE_LIBCPP)
+    endif()
 
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
@@ -766,7 +774,7 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
-if (${MAKE_TEST} STREQUAL "OFF")
+if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_META_TOOL} STREQUAL "ON")
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
