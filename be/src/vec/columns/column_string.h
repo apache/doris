@@ -224,6 +224,8 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);
     }

@@ -65,6 +65,12 @@ ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
     return ColumnConst::create(data, replicated_size);
 }
 
+void ColumnConst::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    if (s == 0) return;
+    auto& res = reinterpret_cast<ColumnConst&>(column);
+    res.s = s;
+}
+
 ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     if (limit == 0) {
         limit = s;

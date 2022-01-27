@@ -175,9 +175,8 @@ struct ProcessHashTableProbe {
 
         KeyGetter key_getter(_probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
-        IColumn::Offsets offset_data;
+        std::vector<uint32_t> items_counts(_probe_rows);
         auto& mcol = mutable_block.mutable_columns();
-        offset_data.assign(_probe_rows, (uint32_t)0);
 
         int right_col_idx = _join_node->_is_right_semi_anti ? 0 : _left_table_data_types.size();
         int right_col_len = _right_table_data_types.size();
@@ -187,10 +186,12 @@ struct ProcessHashTableProbe {
             // ignore null rows
             if constexpr (ignore_null) {
                 if ((*null_map)[_probe_index]) {
-                    offset_data[_probe_index++] = current_offset;
+                    items_counts[_probe_index++] = 0;
                     continue;
                 }
             }
+
+            int repeat_count = 0;
             auto find_result =
                     (*null_map)[_probe_index]
                             ? decltype(key_getter.find_key(hash_table_ctx.hash_table, _probe_index,
@@ -203,7 +204,7 @@ struct ProcessHashTableProbe {
             if (find_result.is_found()) {
                 // left semi join only need one match, do not need insert the data of right table
                 if (_join_node->_join_op == TJoinOp::LEFT_SEMI_JOIN) {
-                    ++current_offset;
+                    ++repeat_count;
                 } else if (_join_node->_join_op == TJoinOp::LEFT_ANTI_JOIN) {
                     // do nothing
                 } else {
@@ -215,7 +216,7 @@ struct ProcessHashTableProbe {
                         // right semi/anti join should dispose the data in hash table
                         // after probe data eof
                         if (!_join_node->_is_right_semi_anti) {
-                            ++current_offset;
+                            ++repeat_count;
                             for (size_t j = 0; j < right_col_len; ++j) {
                                 auto& column = *mapped.block->get_by_position(j).column;
                                 mcol[j + right_col_idx]->insert_from(column, mapped.row_num);
@@ -226,7 +227,7 @@ struct ProcessHashTableProbe {
                             // right semi/anti join should dispose the data in hash table
                             // after probe data eof
                             if (!_join_node->_is_right_semi_anti) {
-                                ++current_offset;
+                                ++repeat_count;
                                 for (size_t j = 0; j < right_col_len; ++j) {
                                     auto& column = *it->block->get_by_position(j).column;
                                     // TODO: interface insert from cause serious performance problems
@@ -240,7 +241,7 @@ struct ProcessHashTableProbe {
                 }
             } else if (_join_node->_match_all_probe ||
                        _join_node->_join_op == TJoinOp::LEFT_ANTI_JOIN) {
-                ++current_offset;
+                ++repeat_count;
                 // only full outer / left outer need insert the data of right table
                 if (_join_node->_match_all_probe) {
                     for (size_t j = 0; j < right_col_len; ++j) {
@@ -250,22 +251,19 @@ struct ProcessHashTableProbe {
                 }
             }
 
-            offset_data[_probe_index++] = current_offset;
+            items_counts[_probe_index++] = repeat_count;
+            current_offset += repeat_count;
 
             if (current_offset >= _batch_size) {
                 break;
             }
         }
-
-        for (int i = _probe_index; i < _probe_rows; ++i) {
-            offset_data[i] = current_offset;
-        }
-        output_block->swap(mutable_block.to_block());
-
+        
         for (int i = 0; i < right_col_idx; ++i) {
             auto& column = _probe_block.get_by_position(i).column;
-            output_block->get_by_position(i).column = column->replicate(offset_data);
+            column->replicate(items_counts.data(), current_offset, *mcol[i]);
         }
+        output_block->swap(mutable_block.to_block());
 
         return Status::OK();
     }
@@ -711,11 +709,13 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     }
 
     Status st;
-    output_block->clear();
 
     if (_probe_index < _probe_block.rows()) {
-        MutableBlock mutable_block(VectorizedUtils::create_empty_columnswithtypename(
-                _have_other_join_conjunct ? _row_desc_for_other_join_conjunt : row_desc()));
+        MutableBlock mutable_block = (output_block->mem_reuse() && !_have_other_join_conjunct) ?
+                MutableBlock(output_block) :
+                MutableBlock(VectorizedUtils::create_empty_columnswithtypename(
+                        !_have_other_join_conjunct ? row_desc() : _row_desc_for_other_join_conjunt));
+
         std::visit(
                 [&](auto&& arg) {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;

@@ -111,6 +111,7 @@ public:
     size_t allocated_bytes() const override;
     void protect() override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void get_extremes(Field& min, Field& max) const override;
 
