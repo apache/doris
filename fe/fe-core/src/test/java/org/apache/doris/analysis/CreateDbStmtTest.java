@@ -29,6 +29,9 @@ import org.junit.Test;
 
 import mockit.Mocked;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class CreateDbStmtTest {
     private Analyzer analyzer;
 
@@ -46,7 +49,7 @@ public class CreateDbStmtTest {
 
     @Test
     public void testAnalyzeNormal() throws UserException, AnalysisException {
-        CreateDbStmt dbStmt = new CreateDbStmt(false, "test");
+        CreateDbStmt dbStmt = new CreateDbStmt(false, "test", null);
         dbStmt.analyze(analyzer);
         Assert.assertEquals("testCluster:test", dbStmt.getFullDbName());
         Assert.assertEquals("CREATE DATABASE `testCluster:test`", dbStmt.toString());
@@ -54,7 +57,32 @@ public class CreateDbStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testAnalyzeWithException() throws UserException, AnalysisException {
-        CreateDbStmt stmt = new CreateDbStmt(false, "");
+        CreateDbStmt stmt = new CreateDbStmt(false, "", null);
+        stmt.analyze(analyzer);
+        Assert.fail("no exception");
+    }
+
+    @Test
+    public void testAnalyzeIcebergNormal() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.database", "doris");
+        properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateDbStmt stmt = new CreateDbStmt(false, "test", properties);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("testCluster:test", stmt.getFullDbName());
+        Assert.assertEquals("CREATE DATABASE `testCluster:test`\n" +
+                "PROPERTIES (\n" +
+                "\"iceberg.database\" = \"doris\",\n" +
+                "\"iceberg.hive.metastore.uris\" = \"thrift://127.0.0.1:9087\"\n" +
+                ")", stmt.toString());
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testAnalyzeIcebergWithException() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.database", "doris");
+        properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateDbStmt stmt = new CreateDbStmt(false, "test", properties);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }

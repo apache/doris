@@ -225,7 +225,7 @@ public abstract class PropertySchema<T> {
     public static final class DateProperty extends PropertySchema<Date> {
         SimpleDateFormat dateFormat;
 
-        DateProperty(String name, SimpleDateFormat dateFormat) {
+        public DateProperty(String name, SimpleDateFormat dateFormat) {
             super(name);
             this.dateFormat = dateFormat;
         }
