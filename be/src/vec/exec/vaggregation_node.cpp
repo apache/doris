@@ -516,7 +516,7 @@ Status AggregationNode::_execute_without_key(Block* block) {
     SCOPED_TIMER(_build_timer);
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->execute_single_add(
-                block, _agg_data.without_key + _offsets_of_aggregate_states[i]);
+                block, _agg_data.without_key + _offsets_of_aggregate_states[i], &_agg_arena_pool);
     }
     return Status::OK();
 }
@@ -550,7 +550,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
             }
         } else {
             _aggregate_evaluators[i]->execute_single_add(
-                    block, _agg_data.without_key + _offsets_of_aggregate_states[i]);
+                    block, _agg_data.without_key + _offsets_of_aggregate_states[i], &_agg_arena_pool);
         }
     }
     return Status::OK();
