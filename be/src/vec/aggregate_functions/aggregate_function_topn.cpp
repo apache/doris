@@ -24,27 +24,15 @@ struct currying_function_topn {
     template <typename T>
     using Function = AggregateFunctionTopN<AggregateFunctionTopNData, Impl<T>>;
 
-    template <typename T>
-    using FunctionNumric = Function<NumricDataImplTopN<T>>;
-
     AggregateFunctionPtr operator()(const std::string& name, const DataTypes& argument_types) {
         AggregateFunctionPtr res = nullptr;
-        DataTypePtr data_type = argument_types[0];
-
-        if (is_decimal(data_type)) {
-            res.reset(new Function<DecimalDataImplTopN>(argument_types));
-        } else if (is_date_or_datetime(data_type)) {
-            res.reset(new Function<DatetimeDataImplTopN>(argument_types));
-        } else if (is_string(data_type)) {
-            res.reset(new Function<StringDataImplTopN>(argument_types));
-        } else {
-            res.reset(create_with_numeric_type<FunctionNumric>(*data_type, argument_types));
-        }
+        res.reset(new Function<StringDataImplTopN>(argument_types));
 
         if (!res) {
             LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
                                         argument_types[0]->get_name(), name);
         }
+
         return res;
     }
 };

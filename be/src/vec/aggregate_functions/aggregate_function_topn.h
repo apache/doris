@@ -154,51 +154,12 @@ struct AggregateFunctionTopNData {
     phmap::flat_hash_map<std::string, uint64_t> counter_map;
 };
 
-// specific to_string()
-template <typename T>
-struct NumricDataImplTopN {
-    using DataType = DataTypeNumber<T>;
-    static std::string to_string(const IColumn& column, size_t row_num) {
-        if constexpr (std::is_same_v<T, Int128>) {
-            return LargeIntValue::to_string(
-                    static_cast<const typename DataType::ColumnType&>(column).get_element(row_num));
-        } else {
-            return std::to_string(
-                    static_cast<const typename DataType::ColumnType&>(column).get_element(row_num));
-        }
-    }
-};
-
 struct StringDataImplTopN {
     using DataType = DataTypeString;
     static std::string to_string(const IColumn& column, size_t row_num) {
         StringRef ref =
                 static_cast<const typename DataType::ColumnType&>(column).get_data_at(row_num);
         return std::string(ref.data, ref.size);
-    }
-};
-
-struct DecimalDataImplTopN {
-    using DataType = DataTypeDecimal<Decimal128>;
-    static std::string to_string(const IColumn& column, size_t row_num) {
-        DecimalV2Val value = DecimalV2Val(
-                static_cast<const typename DataType::ColumnType&>(column).get_element(row_num));
-        return DecimalV2Value::from_decimal_val(value).to_string();
-    }
-};
-
-// specific input(int, int int, merge only)
-struct DatetimeDataImplTopN {
-    using DataType = DataTypeDateTime;
-    static std::string to_string(const IColumn& column, size_t row_num) {
-        StringRef source =
-                static_cast<const typename DataType::ColumnType&>(column).get_data_at(row_num);
-        const VecDateTimeValue& ts_value = reinterpret_cast<const VecDateTimeValue&>(*source.data);
-
-        static char str[MAX_DTVALUE_STR_LEN];
-        ts_value.to_string(str);
-
-        return std::string(str);
     }
 };
 
