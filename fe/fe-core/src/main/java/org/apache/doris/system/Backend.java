@@ -563,13 +563,13 @@ public class Backend implements Writable {
         }
         isAlive.set(in.readBoolean());
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 5) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_5) {
             isDecommissioned.set(in.readBoolean());
         }
 
         lastUpdateMs = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 2) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_2) {
             lastStartTime = in.readLong();
 
             Map<String, DiskInfo> disks = Maps.newHashMap();

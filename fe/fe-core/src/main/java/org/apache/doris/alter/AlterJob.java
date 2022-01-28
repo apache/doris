@@ -306,7 +306,7 @@ public abstract class AlterJob implements Writable {
     public synchronized void readFields(DataInput in) throws IOException {
         // read common members as write in AlterJob.write().
         // except 'type' member, which is read in AlterJob.read()
-        if (Catalog.getCurrentCatalogJournalVersion() >= 4) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_4) {
             state = JobState.valueOf(Text.readString(in));
         }
 
