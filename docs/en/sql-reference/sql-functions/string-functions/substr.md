@@ -35,7 +35,7 @@ Find a substring, return the part of the string described by the first parameter
 ## example
 
 ```
-mysql> select substr("Hello doris",2,1);
+mysql> select substr("Hello doris", 2, 1);
 +-----------------------------+
 | substr('Hello doris', 2, 1) |
 +-----------------------------+
