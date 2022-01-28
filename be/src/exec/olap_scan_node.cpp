@@ -159,6 +159,13 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     // time of node to wait for batch/block queue
     _olap_wait_batch_queue_timer = ADD_TIMER(_runtime_profile, "BatchQueueWaitTime");
+
+    // for the purpose of debugging or profiling
+    for (int i = 0; i < sizeof(_general_debug_timer)/sizeof(*_general_debug_timer); ++i) {
+        char name[64];
+        snprintf(name, sizeof(name), "GeneralDebugTimer%d", i);
+        _general_debug_timer[i] = ADD_TIMER(_segment_profile, name);
+    }
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {

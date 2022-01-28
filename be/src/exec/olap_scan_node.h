@@ -325,6 +325,9 @@ protected:
 
     RuntimeProfile::Counter* _olap_wait_batch_queue_timer = nullptr;
 
+    // for debugging or profiling, record any info as you want
+    RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
+
     vectorized::VExpr* _dfs_peel_conjunct(vectorized::VExpr* expr, int& leaf_index);
     void _peel_pushed_conjuncts(); // remove pushed expr from conjunct tree
 };

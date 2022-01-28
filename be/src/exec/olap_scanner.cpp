@@ -541,6 +541,11 @@ void OlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_index_load_timer, stats.index_load_ns);
 
+    size_t timer_count = sizeof(stats.general_debug_ns) / sizeof(*stats.general_debug_ns);
+    for (size_t i = 0; i < timer_count; ++i) {
+        COUNTER_UPDATE(_parent->_general_debug_timer[i], stats.general_debug_ns[i]);
+    }
+
     COUNTER_UPDATE(_parent->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, stats.cached_pages_num);
 
