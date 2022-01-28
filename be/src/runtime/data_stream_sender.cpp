@@ -464,7 +464,9 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
             }
             // rollover
             _current_pb_batch = (_current_pb_batch == &_pb_batch1 ? &_pb_batch2 : &_pb_batch1);
-            _tuple_data_buffer_ptr = (_tuple_data_buffer_ptr == &_tuple_data_buffer1) ? &_tuple_data_buffer2 : &_tuple_data_buffer1;
+            if (_transfer_data_by_brpc_attachment) {
+                _tuple_data_buffer_ptr = (_tuple_data_buffer_ptr == &_tuple_data_buffer1) ? &_tuple_data_buffer2 : &_tuple_data_buffer1;
+            }
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // Round-robin batches among channels. Wait for the current channel to finish its

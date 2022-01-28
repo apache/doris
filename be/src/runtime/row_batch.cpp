@@ -382,6 +382,8 @@ size_t RowBatch::serialize(PRowBatch* output_batch, std::string* allocated_buf) 
         // all tuple data will be written in the allocated_buf
         // instead of tuple_data in PRowBatch
         mutable_tuple_data = allocated_buf;
+        // tuple_data is a required field
+        output_batch->set_tuple_data("");
     } else {
         mutable_tuple_data = output_batch->mutable_tuple_data();
         mutable_tuple_data->resize(size);
