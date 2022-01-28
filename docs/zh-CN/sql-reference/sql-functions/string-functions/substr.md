@@ -35,7 +35,7 @@ under the License.
 ## example
 
 ```
-mysql> select substr("Hello doris",2,1);
+mysql> select substr("Hello doris", 2, 1);
 +-----------------------------+
 | substr('Hello doris', 2, 1) |
 +-----------------------------+
@@ -43,7 +43,7 @@ mysql> select substr("Hello doris",2,1);
 +-----------------------------+
 
 
-mysql> select substr("Hello doris",1,2);
+mysql> select substr("Hello doris", 1, 2);
 +-----------------------------+
 | substr('Hello doris', 1, 2) |
 +-----------------------------+
