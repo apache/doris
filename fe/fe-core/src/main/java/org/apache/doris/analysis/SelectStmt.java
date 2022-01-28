@@ -438,7 +438,7 @@ public class SelectStmt extends QueryStmt {
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
             for (SelectListItem item : selectList.getItems()) {
                 if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
-                    for (Expr expr: groupByClause.getGroupingExprs()) {
+                    for (Expr expr : groupByClause.getGroupingExprs()) {
                         if (item.getExpr().contains(expr)) {
                             throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
                                     + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
@@ -877,6 +877,12 @@ public class SelectStmt extends QueryStmt {
             expandStar(new TableName(tableRef.getAliasAsName().getDb(),
                             tableRef.getAliasAsName().getTbl()),
                     tableRef.getDesc());
+
+            if (tableRef.lateralViewRefs != null) {
+                for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
+                    expandStar(lateralViewRef.getName(), lateralViewRef.getDesc());
+                }
+            }
         }
     }
 
@@ -1049,7 +1055,7 @@ public class SelectStmt extends QueryStmt {
             groupByClause.analyze(analyzer);
             createAggInfo(groupByClause.getGroupingExprs(), aggExprs, analyzer);
         } else {
-            createAggInfo( new ArrayList<>(), aggExprs, analyzer);
+            createAggInfo(new ArrayList<>(), aggExprs, analyzer);
         }
 
         // combine avg smap with the one that produces the final agg output
@@ -1874,3 +1880,4 @@ public class SelectStmt extends QueryStmt {
         return this.id.equals(((SelectStmt) obj).id);
     }
 }
+

@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
@@ -28,6 +29,7 @@ import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.File;
@@ -58,6 +60,11 @@ public class TableFunctionPlanTest {
 
         createTblStmtStr = "create table db1.tbl2(k1 int, k2 varchar, v1 bitmap bitmap_union) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        createTblStmtStr = "create table db1.table_for_view (k1 int, k2 int, k3 varchar(100)) distributed by hash(k1)" +
+                "properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
@@ -441,6 +448,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("table function: explode_json_array_double('[1.1, 2.2, 3.3]')"));
         Assert.assertTrue(explainString.contains("output slot id: 0 1"));
     }
+
     /*
     Case4 agg and order column in the same stmt with lateral view
     select min(c1) from (select k1 as c1, min(k2) as c2 from tbl1 group by k1) tmp1
@@ -469,5 +477,56 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 2"));
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
+    }
+
+    @Test
+    public void testLaterViewWithView() throws Exception {
+        // test 1
+        String createViewStr = "create view db1.v1 (k1,e1) as select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1;";
+        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
+        Catalog.getCurrentCatalog().createView(createViewStmt);
+
+        String sql = "select * from db1.v1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+        // query again to see if it has error
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    @Test
+    public void testLaterViewWithWhere() throws Exception {
+        String sql = "select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1 where k1 in (select k2 from db1.table_for_view);";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("join op: LEFT SEMI JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("equal join conjunct: `k1` = `k2`"));
+        Assert.assertTrue(!explainString.contains("equal join conjunct: `k2` = `k2`"));
+    }
+
+    @Test
+    public void testLaterViewWithCTE() throws Exception {
+        String sql = "with tmp as (select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp2 as e1) select * from tmp;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`table_for_view`.`k3`, ',') "));
+    }
+
+    @Ignore
+    // errCode = 2, detailMessage = Unknown column 'e1' in 'table list'
+    public void testLaterViewWithCTEBug() throws Exception {
+        String sql = "with tmp as (select * from db1.table_for_view where k2=1) select k1,e1 from tmp lateral view explode_split(k3,',') tmp2 as e1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(!explainString.contains("Unknown column 'e1' in 'table list'"));
+    }
+
+    @Ignore
+    // errCode = 2, detailMessage = Unknown column 'e1' in 'table list'
+    public void testLaterViewUnknowColumnBug() throws Exception {
+        // test2
+        String createViewStr = "create view db1.v2 (k1,k3) as select k1,k3 from db1.table_for_view;";
+        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
+        Catalog.getCurrentCatalog().createView(createViewStmt);
+        String sql = "select k1,e1 from db1.v2 lateral view explode_split(k3,',') tmp as e1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(!explainString.contains("Unknown column 'e1' in 'table list'"));
     }
 }
