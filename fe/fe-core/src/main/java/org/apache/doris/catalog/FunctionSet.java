@@ -1445,7 +1445,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 // vectorized 
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                     t,
-                    Type.BIGINT,
+                    t,
                     prefix + MULTI_DISTINCT_INIT_SYMBOL.get(t),
                     prefix + MULTI_DISTINCT_UPDATE_SYMBOL.get(t),
                     prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t),

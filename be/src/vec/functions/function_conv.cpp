@@ -52,7 +52,7 @@ public:
         ColumnPtr argument_columns[3];
 
         for (int i = 0; i < 3; ++i) {
-            argument_columns[i] = block.get_by_position(arguments[i]).column;
+            argument_columns[i] = block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
                 argument_columns[i] = nullable->get_nested_column_ptr();
                 VectorizedUtils::update_null_map(result_null_map_column->get_data(),
