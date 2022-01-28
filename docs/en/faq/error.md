@@ -81,7 +81,7 @@ If you need to recover from this error. First, confirm whether all nodes are the
 
 In addition to Broken Pipe, there may be other strange errors.
 
-This situation usually occurs after opening httpv2. Because httpv2 is an http service implemented using spring boot, and uses tomcat as the default built-in container. But jetty's handling of 307 forwarding seems to have some problems, so the built-in container will be modified to jetty later. In addition, the version of apache http client in the java program needs to use a version later than 4.5.13. In the previous version, there were also some problems with the processing of forwarding.
+This situation usually occurs after opening httpv2. Because httpv2 is an http service implemented using spring boot, and uses tomcat as the default built-in container. But tomcat's handling of 307 forwarding seems to have some problems, so the built-in container will be modified to jetty later. In addition, the version of apache http client in the java program needs to use a version later than 4.5.13. In the previous version, there were also some problems with the processing of forwarding.
 
 So this problem can be solved in two ways:
 
