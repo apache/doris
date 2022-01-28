@@ -404,7 +404,7 @@ IsMutable：true
 MasterOnly：true
 
 If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
-  
+
 ### drop_backend_after_decommission
 
 Default：false
@@ -1714,22 +1714,6 @@ The backlog_num for mysql nio server, When you enlarge this backlog_num, you sho
 Default：1024
 
 The backlog_num for netty http server, When you enlarge this backlog_num, you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
-
-### http_max_line_length
-
-Default：4096
-
-The max length of an HTTP URL. The unit of this configuration is BYTE. Defaults to 4096.
-
-###  http_max_header_size
-
-Default：8192
-
-The max size of allowed HTTP headers. The unit of this configuration is BYTE. Defaults to 8192.
-
-###  http_max_chunk_size
-
-Default：8192
 
 ### http_port
 

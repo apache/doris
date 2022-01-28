@@ -38,9 +38,12 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.httpv2.HttpServer;
+import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
@@ -110,6 +113,8 @@ abstract public class DorisHttpTestCase {
     public static int HTTP_PORT;
 
     protected static String URI;
+
+    public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
 
     protected String rootAuth = Credentials.basic("root", "");
 
@@ -295,13 +300,13 @@ abstract public class DorisHttpTestCase {
             }
         }
 
-        httpServer = new HttpServer(HTTP_PORT);
-        httpServer.setup();
-        httpServer.start();
-        // must ensure the http server started before any unit test
-        while (!httpServer.isStarted()) {
-            Thread.sleep(500);
-        }
+        httpServer = new HttpServer ();
+        httpServer.setPort(Config.http_port);
+        httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+        httpServer.setAcceptors(Config.jetty_server_acceptors);
+        httpServer.setSelectors(Config.jetty_server_selectors);
+        httpServer.setWorkers(Config.jetty_server_workers);
+        httpServer.start(DORIS_HOME_DIR);
     }
 
 
@@ -341,10 +346,6 @@ abstract public class DorisHttpTestCase {
     public void tearDown() {
     }
 
-    @AfterClass
-    public static void closeHttpServer() {
-        httpServer.shutDown();
-    }
 
     public void doSetUp() {
 

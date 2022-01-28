@@ -26,7 +26,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.http.rest.BootstrapFinishAction;
+import org.apache.doris.httpv2.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;

@@ -26,7 +26,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.http.HttpServer;
+import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
@@ -134,24 +134,14 @@ public class PaloFe {
 
             feServer.start();
 
-            if (!Config.enable_http_server_v2) {
-                HttpServer httpServer = new HttpServer(
-                        Config.http_port,
-                        Config.http_max_line_length,
-                        Config.http_max_header_size,
-                        Config.http_max_chunk_size
-                );
-                httpServer.setup();
-                httpServer.start();
-            } else {
-                org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
-                httpServer2.setPort(Config.http_port);
-                httpServer2.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
-                httpServer2.setAcceptors(Config.jetty_server_acceptors);
-                httpServer2.setSelectors(Config.jetty_server_selectors);
-                httpServer2.setWorkers(Config.jetty_server_workers);
-                httpServer2.start(dorisHomeDir);
-            }
+
+            HttpServer httpServer2 = new HttpServer();
+            httpServer2.setPort(Config.http_port);
+            httpServer2.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+            httpServer2.setAcceptors(Config.jetty_server_acceptors);
+            httpServer2.setSelectors(Config.jetty_server_selectors);
+            httpServer2.setWorkers(Config.jetty_server_workers);
+            httpServer2.start(dorisHomeDir);
 
             qeService.start();
 

@@ -20,8 +20,8 @@ package org.apache.doris.journal.bdbje;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.http.HttpServer;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.httpv2.HttpServer;
+import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.QeService;
@@ -86,20 +86,9 @@ public class BDBDebugger {
     // Only start MySQL and HttpServer
     private void startService(String dorisHomeDir) throws IllegalArgException, IOException {
         // HTTP server
-        if (!Config.enable_http_server_v2) {
-            HttpServer httpServer = new HttpServer(
-                    Config.http_port,
-                    Config.http_max_line_length,
-                    Config.http_max_header_size,
-                    Config.http_max_chunk_size
-            );
-            httpServer.setup();
-            httpServer.start();
-        } else {
-            org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
-            httpServer2.setPort(Config.http_port);
-            httpServer2.start(dorisHomeDir);
-        }
+        HttpServer httpServer2 = new HttpServer();
+        httpServer2.setPort(Config.http_port);
+        httpServer2.start(dorisHomeDir);
 
         // MySQl server
         QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
