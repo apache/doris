@@ -70,6 +70,10 @@ ResultFileSink::~ResultFileSink() {
     }
 }
 
+Status ResultFileSink::init(const TDataSink& tsink) {
+    return Status::OK();
+}
+
 Status ResultFileSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(Expr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_expr_ctxs));

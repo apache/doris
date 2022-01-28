@@ -49,6 +49,7 @@ public:
                    const std::vector<TPlanFragmentDestination>& destinations, ObjectPool* pool,
                    int sender_id, DescriptorTbl& descs);
     virtual ~ResultFileSink();
+    virtual Status init(const TDataSink& thrift_sink);
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     // send data in 'batch' to this backend stream mgr
