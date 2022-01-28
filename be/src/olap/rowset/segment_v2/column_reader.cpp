@@ -655,6 +655,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                       _opts.stats,
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
                                        &_page));
 
@@ -675,7 +676,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                                                    &_dict_page_handle, &dict_data, &dict_footer));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
-                _dict_decoder.reset(new BinaryPlainPageDecoder(dict_data));
+                _dict_decoder.reset(new BinaryPlainPageDecoder(dict_data, _opts.stats));
                 RETURN_IF_ERROR(_dict_decoder->init());
             }
 
