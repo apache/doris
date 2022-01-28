@@ -543,7 +543,7 @@ public class UserProperty implements Writable {
             // boolean isAdmin
             in.readBoolean();
 
-            if (Catalog.getCurrentCatalogJournalVersion() >= 1) {
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_1) {
                 // boolean isSuperuser
                 in.readBoolean();
             }
