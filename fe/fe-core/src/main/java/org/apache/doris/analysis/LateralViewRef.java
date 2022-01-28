@@ -85,6 +85,11 @@ public class LateralViewRef extends TableRef {
         isAnalyzed = true;  // true now that we have assigned desc
     }
 
+    @Override
+    public TableRef clone() {
+        return new LateralViewRef(this.expr.clone(), this.viewName, this.columnName);
+    }
+
     private void analyzeFunctionExpr(Analyzer analyzer) throws AnalysisException {
         fnExpr = (FunctionCallExpr) expr;
         fnExpr.setTableFnCall(true);
@@ -178,5 +183,29 @@ public class LateralViewRef extends TableRef {
             throw new AnalysisException("Subquery is not allowed in lateral view");
         }
     }
+
+    @Override
+    public String toSql() {
+        return "lateral view " + fnExpr.toSql() + " " + viewName + " as " + columnName;
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
+
+    @Override
+    public void reset() {
+        isAnalyzed = false;
+        expr.reset();
+        fnExpr = null;
+        originSlotRefList = Lists.newArrayList();
+        view = null;
+        explodeSlotRef = null;
+        // There is no need to call the reset function of @relatedTableRef here.
+        // The main reason is that @lateralViewRef itself is an attribute of @relatedTableRef
+        // The reset of @lateralViewRef happens in the reset() of @relatedTableRef.
+    }
 }
+
 
