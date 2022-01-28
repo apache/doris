@@ -164,6 +164,7 @@ public:
               _cur_idx(0) {}
 
     Status init() override {
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[21]); //demo debug timer
         CHECK(!_parsed);
 
         if (_data.size < sizeof(uint32_t)) {

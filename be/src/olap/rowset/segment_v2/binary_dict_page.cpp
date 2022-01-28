@@ -195,6 +195,7 @@ BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOption
           _encoding_type(UNKNOWN_ENCODING) {}
 
 Status BinaryDictPageDecoder::init() {
+    SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[20]); //demo debug timer
     CHECK(!_parsed);
     if (_data.size < BINARY_DICT_PAGE_HEADER_SIZE) {
         return Status::Corruption(strings::Substitute("invalid data size:$0, header size:$1",
@@ -208,9 +209,11 @@ Status BinaryDictPageDecoder::init() {
         // And then copy the strings corresponding to the codewords to the destination buffer
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
 
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[30]); //demo debug timer
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[31]); //demo debug timer
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
     } else {
@@ -218,7 +221,10 @@ Status BinaryDictPageDecoder::init() {
         return Status::Corruption(strings::Substitute("invalid encoding type:$0", _encoding_type));
     }
 
-    RETURN_IF_ERROR(_data_page_decoder->init());
+    {
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[32]); //demo debug timer
+        RETURN_IF_ERROR(_data_page_decoder->init());
+    }
     _parsed = true;
     return Status::OK();
 }

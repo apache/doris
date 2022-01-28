@@ -37,6 +37,7 @@
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "util/runtime_profile.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/columns/column_nullable.h"
 
@@ -222,6 +223,7 @@ public:
     }
 
     Status init() override {
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[22]); //demo debug timer
         CHECK(!_parsed);
         if (_data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
             std::stringstream ss;

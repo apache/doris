@@ -108,6 +108,7 @@ public:
             : _data(data), _options(options), _parsed(false), _num_elems(0), _cur_idx(0) {}
 
     Status init() override {
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[26]); //demo debug timer
         CHECK(!_parsed);
 
         if (_data.size < PLAIN_PAGE_HEADER_SIZE) {

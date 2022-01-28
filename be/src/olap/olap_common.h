@@ -238,7 +238,7 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
-const int GENERAL_DEBUG_COUNT = 20;
+const int GENERAL_DEBUG_COUNT = 40;
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {

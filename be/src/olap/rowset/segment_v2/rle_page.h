@@ -156,6 +156,7 @@ public:
               _bit_width(0) {}
 
     Status init() override {
+        SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[28]); //demo debug timer
         CHECK(!_parsed);
 
         if (_data.size < RLE_PAGE_HEADER_SIZE) {
