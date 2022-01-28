@@ -3254,7 +3254,8 @@ public class Catalog {
                     }
                 }
             } else {
-                distributionInfo = defaultDistributionInfo;
+                // make sure partition-dristribution-info is deep copied from default-distribution-info
+                distributionInfo = defaultDistributionInfo.toDistributionDesc().toDistributionInfo(baseSchema);
             }
 
             // check colocation
@@ -3694,7 +3695,7 @@ public class Catalog {
         // create distribution info
         DistributionDesc distributionDesc = stmt.getDistributionDesc();
         Preconditions.checkNotNull(distributionDesc);
-        DistributionInfo distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+        DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
         // calc short key column count
         short shortKeyColumnCount = Catalog.calcShortKeyColumnCount(baseSchema, stmt.getProperties());
@@ -3706,7 +3707,7 @@ public class Catalog {
         // create table
         long tableId = Catalog.getCurrentCatalog().getNextId();
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
-                distributionInfo, indexes);
+                defaultDistributionInfo, indexes);
         olapTable.setComment(stmt.getComment());
 
         // set base index id
@@ -3879,12 +3880,13 @@ public class Catalog {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 // this is a 1-level partitioned table
                 // use table name as partition name
+                DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                 String partitionName = tableName;
                 long partitionId = partitionNameToId.get(partitionName);
 
                 // check replica quota if this operation done
                 long indexNum = olapTable.getIndexIdToMeta().size();
-                long bucketNum = distributionInfo.getBucketNum();
+                long bucketNum = partitionDistributionInfo.getBucketNum();
                 long replicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
                 long totalReplicaNum = indexNum * bucketNum * replicaNum;
                 if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
@@ -3897,7 +3899,7 @@ public class Catalog {
                         olapTable.getId(), olapTable.getBaseIndexId(),
                         partitionId, partitionName,
                         olapTable.getIndexIdToMeta(),
-                        distributionInfo,
+                        partitionDistributionInfo,
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicaAllocation(partitionId),
                         versionInfo, bfColumns, bfFpp,
@@ -3944,9 +3946,10 @@ public class Catalog {
                 // this is a 2-level partitioned tables
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
                     DataProperty dataProperty = partitionInfo.getDataProperty(entry.getValue());
+                    DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
-                            olapTable.getIndexIdToMeta(), distributionInfo,
+                            olapTable.getIndexIdToMeta(), partitionDistributionInfo,
                             dataProperty.getStorageMedium(),
                             partitionInfo.getReplicaAllocation(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
