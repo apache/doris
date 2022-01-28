@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "util/stack_util.h"
+
 namespace doris {
 
 // Transfer RowBatch in ProtoBuf Request to Controller Attachment.
@@ -28,6 +30,9 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request, const st
     row_batch->set_tuple_data("");
     brpc_request->set_transfer_by_attachment(true);
 
+    if (tuple_data.size() == 0) {
+        LOG(FATAL) << "cmy get empty tuple data. row num: " << row_batch->num_rows() << ", " << get_stack_trace();
+    }
     butil::IOBuf attachment;
     attachment.append(tuple_data);
     closure->cntl.request_attachment().swap(attachment);
@@ -40,6 +45,7 @@ inline void attachment_transfer_request_row_batch(const Params* brpc_request, br
     if (req->has_row_batch() && req->transfer_by_attachment()) {
         auto rb = req->mutable_row_batch();
         const butil::IOBuf& io_buf = cntl->request_attachment();
+        CHECK(io_buf.size() > 0) << io_buf.size() << ", row num: " << req->row_batch().num_rows();
         io_buf.copy_to(rb->mutable_tuple_data(), io_buf.size(), 0);
     }
 }

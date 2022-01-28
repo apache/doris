@@ -66,6 +66,7 @@ DataStreamSender::Channel::Channel(DataStreamSender* parent, const RowDescriptor
           _need_close(false),
           _be_number(0),
           _brpc_dest_addr(brpc_dest),
+          _ch_cur_pb_batch(&_ch_pb_batch1),
           _is_transfer_chain(is_transfer_chain),
           _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
     std::string localhost = BackendOptions::get_localhost();
@@ -148,7 +149,7 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 
     if (_parent->_transfer_data_by_brpc_attachment && _brpc_request.has_row_batch()) {
         request_row_batch_transfer_attachment<PTransmitDataParams,
-            RefCountClosure<PTransmitDataResult>>(&_brpc_request, *(_parent->_tuple_data_buffer_ptr),
+            RefCountClosure<PTransmitDataResult>>(&_brpc_request, _parent->_tuple_data_buffer,
                     _closure);
     }
     _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
@@ -192,15 +193,15 @@ Status DataStreamSender::Channel::send_current_batch(bool eos) {
     if (is_local()) {
         return send_local_batch(eos);
     }
-    {
-        SCOPED_TIMER(_parent->_serialize_batch_timer);
-        size_t uncompressed_bytes = _batch->serialize(&_pb_batch);
-        COUNTER_UPDATE(_parent->_bytes_sent_counter, RowBatch::get_batch_size(_pb_batch));
-        COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes);
-    }
+    RETURN_IF_ERROR(_parent->serialize_batch(_batch.get(), _ch_cur_pb_batch));
     _batch->reset();
-    RETURN_IF_ERROR(send_batch(&_pb_batch, eos));
+    RETURN_IF_ERROR(send_batch(_ch_cur_pb_batch, eos));
+    ch_roll_pb_batch();
     return Status::OK();
+}
+
+void DataStreamSender::Channel::ch_roll_pb_batch() {
+    _ch_cur_pb_batch = (_ch_cur_pb_batch == &_ch_pb_batch1 ? &_ch_pb_batch2 : &_ch_pb_batch1);
 }
 
 Status DataStreamSender::Channel::send_local_batch(bool eos) {
@@ -266,17 +267,13 @@ Status DataStreamSender::Channel::close_wait(RuntimeState* state) {
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc)
         : _row_desc(row_desc),
-          _current_pb_batch(&_pb_batch1),
+          _cur_pb_batch(&_pb_batch1),
           _pool(pool),
           _sender_id(sender_id),
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
-
-    if (_transfer_data_by_brpc_attachment) {
-        _tuple_data_buffer_ptr = &_tuple_data_buffer1;
-    }
 }
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
@@ -286,7 +283,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
                                    bool send_query_statistics_with_every_batch)
         : _row_desc(row_desc),
           _profile(nullptr),
-          _current_pb_batch(&_pb_batch1),
+          _cur_pb_batch(&_pb_batch1),
           _pool(pool),
           _sender_id(sender_id),
           _serialize_batch_timer(nullptr),
@@ -297,10 +294,6 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
           _dest_node_id(sink.dest_node_id),
           _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
-
-    if (_transfer_data_by_brpc_attachment) {
-        _tuple_data_buffer_ptr = &_tuple_data_buffer1;
-    }
 
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
@@ -454,19 +447,16 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
                 RETURN_IF_ERROR(channel->send_local_batch(batch, false));
             }
         } else {
-            RETURN_IF_ERROR(serialize_batch(batch, _current_pb_batch, _channels.size()));
+            RETURN_IF_ERROR(serialize_batch(batch, _cur_pb_batch, _channels.size()));
             for (auto channel : _channels) {
                 if (channel->is_local()) {
                     RETURN_IF_ERROR(channel->send_local_batch(batch, false));
                 } else {
-                    RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
+                    RETURN_IF_ERROR(channel->send_batch(_cur_pb_batch));
                 }
             }
             // rollover
-            _current_pb_batch = (_current_pb_batch == &_pb_batch1 ? &_pb_batch2 : &_pb_batch1);
-            if (_transfer_data_by_brpc_attachment) {
-                _tuple_data_buffer_ptr = (_tuple_data_buffer_ptr == &_tuple_data_buffer1) ? &_tuple_data_buffer2 : &_tuple_data_buffer1;
-            }
+            _roll_pb_batch();
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // Round-robin batches among channels. Wait for the current channel to finish its
@@ -475,8 +465,9 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
         if (current_channel->is_local()) {
             RETURN_IF_ERROR(current_channel->send_local_batch(batch, false));
         } else {
-            RETURN_IF_ERROR(serialize_batch(batch, current_channel->pb_batch()));
-            RETURN_IF_ERROR(current_channel->send_batch(current_channel->pb_batch()));
+            RETURN_IF_ERROR(serialize_batch(batch, current_channel->ch_cur_pb_batch()));
+            RETURN_IF_ERROR(current_channel->send_batch(current_channel->ch_cur_pb_batch()));
+            current_channel->ch_roll_pb_batch();
         }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
@@ -536,6 +527,10 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
     }
 
     return Status::OK();
+}
+
+void DataStreamSender::_roll_pb_batch() {
+    _cur_pb_batch = (_cur_pb_batch == &_pb_batch1 ? &_pb_batch2 : &_pb_batch1);
 }
 
 int DataStreamSender::binary_find_partition(const PartRangeKey& key) const {
@@ -664,7 +659,7 @@ Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
 Status DataStreamSender::serialize_batch(RowBatch* src, PRowBatch* dest, int num_receivers) {
     {
         SCOPED_TIMER(_serialize_batch_timer);
-        size_t uncompressed_bytes = src->serialize(dest, _tuple_data_buffer_ptr);
+        size_t uncompressed_bytes = src->serialize(dest, &_tuple_data_buffer);
         size_t bytes = RowBatch::get_batch_size(*dest);
         // TODO(zc)
         // int uncompressed_bytes = bytes - dest->tuple_data.size() + dest->uncompressed_size;

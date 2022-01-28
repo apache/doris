@@ -152,7 +152,7 @@ protected:
 
         int64_t num_data_bytes_sent() const { return _num_data_bytes_sent; }
 
-        PRowBatch* pb_batch() { return &_pb_batch; }
+        PRowBatch* ch_cur_pb_batch() { return _ch_cur_pb_batch; }
 
         std::string get_fragment_instance_id_str() {
             UniqueId uid(_fragment_instance_id);
@@ -181,6 +181,8 @@ protected:
         // Returns send_batch() status.
         Status send_current_batch(bool eos = false);
         Status close_internal();
+        // this must be called after calling `send_batch()`
+        void ch_roll_pb_batch();
 
         DataStreamSender* _parent;
         int _buffer_size;
@@ -203,7 +205,11 @@ protected:
 
         // TODO(zc): initused for brpc
         PUniqueId _finst_id;
-        PRowBatch _pb_batch;
+
+        PRowBatch* _ch_cur_pb_batch;
+        PRowBatch _ch_pb_batch1;
+        PRowBatch _ch_pb_batch2;
+
         PTransmitDataParams _brpc_request;
         std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
         RefCountClosure<PTransmitDataResult>* _closure = nullptr;
@@ -215,7 +221,7 @@ protected:
     };
 
     RuntimeProfile* _profile; // Allocated from _pool
-    PRowBatch* _current_pb_batch;
+    PRowBatch* _cur_pb_batch;
     std::shared_ptr<MemTracker> _mem_tracker;
     ObjectPool* _pool;
     // Sender instance id, unique within a fragment.
@@ -241,6 +247,8 @@ private:
     Status process_distribute(RuntimeState* state, TupleRow* row, const PartitionInfo* part,
                               size_t* hash_val);
 
+    void _roll_pb_batch();
+
     int _current_channel_idx; // index of current channel to send to if _random == true
 
     TPartitionType::type _part_type;
@@ -251,15 +259,11 @@ private:
     PRowBatch _pb_batch1;
     PRowBatch _pb_batch2;
 
-    // These two buffer are used to store the serialized rowbatch data.
+    // This buffer is used to store the serialized rowbatch data.
     // Only works when `config::transfer_data_by_brpc_attachment` is true.
     // The data in the buffer is copied to the attachment of the brpc when it is sent,
     // to avoid an extra pb serialization in the brpc.
-    // The two buffers are used interchangeably, similar to _pb_batch1 and _pb_batch2 above.
-    // `_tuple_data_buffer_ptr` will point to one of 2 buffers.
-    std::string* _tuple_data_buffer_ptr = nullptr;
-    std::string _tuple_data_buffer1;
-    std::string _tuple_data_buffer2;
+    std::string _tuple_data_buffer;
 
     std::vector<ExprContext*> _partition_expr_ctxs; // compute per-row partition values
 

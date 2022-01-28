@@ -156,9 +156,9 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
                 state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
-            RETURN_IF_ERROR(serialize_batch(_output_batch, _current_pb_batch, _channels.size()));
+            RETURN_IF_ERROR(serialize_batch(_output_batch, _cur_pb_batch, _channels.size()));
             for (auto channel : _channels) {
-                RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
+                RETURN_IF_ERROR(channel->send_batch(_cur_pb_batch));
             }
         }
         Status final_st = Status::OK();
