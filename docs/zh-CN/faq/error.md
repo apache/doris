@@ -80,7 +80,7 @@ Doris的 Master FE 节点会主动发送心跳给各个FE或BE节点，并且在
 
 除了 Broken Pipe 外，还可能出现一些其他的奇怪的错误。
 
-这个情况通常出现在开启httpv2后。因为httpv2是使用spring boot实现的http 服务，并且使用tomcat作为默认内置容器。但是jetty对307转发的处理似乎有些问题，所以后面将内置容器修改为了jetty。此外，在java程序中的 apache http client的版本需要使用4.5.13以后的版本。之前的版本，对转发的处理也存在一些问题。
+这个情况通常出现在开启httpv2后。因为httpv2是使用spring boot实现的http 服务，并且使用tomcat作为默认内置容器。但是tomcat对307转发的处理似乎有些问题，所以后面将内置容器修改为了jetty。此外，在java程序中的 apache http client的版本需要使用4.5.13以后的版本。之前的版本，对转发的处理也存在一些问题。
 
 所以这个问题可以有两种解决方式：
 
