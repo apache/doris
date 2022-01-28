@@ -373,7 +373,7 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
-               "substr",
+              "substr",
               "unhex",
               {
                 title: "模糊匹配",
