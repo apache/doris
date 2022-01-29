@@ -370,7 +370,7 @@ int RowDescriptor::get_row_size() const {
 }
 
 int RowDescriptor::get_tuple_idx(TupleId id) const {
-    DCHECK_LT(id, _tuple_idx_map.size()) << "RowDescriptor: " << debug_string();
+    CHECK_LT(id, _tuple_idx_map.size()) << "RowDescriptor: " << debug_string();
     return _tuple_idx_map[id];
 }
 

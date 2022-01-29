@@ -1732,9 +1732,10 @@ public class SelectStmt extends QueryStmt {
                 tupleIdList.addAll(tblRef.getMaterializedTupleIds());
             }
         }
-        // Fixme(kks): get tuple id from analyticInfo is wrong, should get from AnalyticEvalNode
+        // Fixme(ml): get tuple id from analyticInfo is wrong, should get from AnalyticEvalNode
+        // Fixme(ml): The tuple id of AnalyticEvalNode actually is the physical output tuple from analytic planner
         // We materialize the agg tuple or the table refs together with the analytic tuple.
-        if (hasAnalyticInfo() && isEvaluateOrderBy()) {
+        if (hasAnalyticInfo() && !isEvaluateOrderBy()) {
             tupleIdList.add(analyticInfo.getOutputTupleId());
         }
     }

@@ -1824,4 +1824,42 @@ public class QueryPlanTest {
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
 
+    // Fix: issue-#7929
+    @Test
+    public void testEmptyNodeWithOuterJoinAndAnalyticFunction() throws Exception {
+        // create database
+        String createDbStmtStr = "create database issue7929;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createTable(" CREATE TABLE issue7929.`t1` (\n" +
+                "  `k1` int(11) NULL COMMENT \"\",\n" +
+                "  `k2` int(11) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")");
+        createTable("CREATE TABLE issue7929.`t2` (\n" +
+                "  `j1` int(11) NULL COMMENT \"\",\n" +
+                "  `j2` int(11) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`j1`, `j2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`j1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")");
+        String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2)a on t1.k1=a.x where 1=0;";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
+        Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
+        Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
+
+    }
+
 }
