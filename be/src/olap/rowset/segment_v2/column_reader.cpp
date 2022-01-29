@@ -677,18 +677,18 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 // PLAIN_ENCODING is supported for dict page right now
                 _dict_decoder.reset(new BinaryPlainPageDecoder(dict_data));
                 RETURN_IF_ERROR(_dict_decoder->init());
-            }
 
-            BinaryPlainPageDecoder* pd_decoder = (BinaryPlainPageDecoder*)_dict_decoder.get();
-            _dict_start_offset_array = new uint32_t[pd_decoder->_num_elems];
-            _dict_len_array = new uint32_t[pd_decoder->_num_elems];
+                auto* pd_decoder = (BinaryPlainPageDecoder*)_dict_decoder.get();
+                _dict_start_offset_array = new uint32_t[pd_decoder->_num_elems];
+                _dict_len_array = new uint32_t[pd_decoder->_num_elems];
 
-            // todo(wb) padding dict value for SIMD comparison
-            for (int i = 0; i < pd_decoder->_num_elems; i++) {
-                const uint32_t start_offset = pd_decoder->offset(i);
-                uint32_t len = pd_decoder->offset(i + 1) - start_offset;
-                _dict_start_offset_array[i] = start_offset;
-                _dict_len_array[i] = len;
+                // todo(wb) padding dict value for SIMD comparison
+                for (int i = 0; i < pd_decoder->_num_elems; i++) {
+                    const uint32_t start_offset = pd_decoder->offset(i);
+                    uint32_t len = pd_decoder->offset(i + 1) - start_offset;
+                    _dict_start_offset_array[i] = start_offset;
+                    _dict_len_array[i] = len;
+                }
             }
 
             dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_start_offset_array, _dict_len_array);
