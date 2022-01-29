@@ -526,7 +526,9 @@ public class StmtExecutor implements ProfileWriter {
 
     // Analyze one statement to structure in memory.
     public void analyze(TQueryOptions tQueryOptions) throws UserException {
-        LOG.info("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(), context.getForwardedStmtId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(), context.getForwardedStmtId());
+        }
 
         parse();
 

@@ -81,7 +81,9 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public void registerQuery(TUniqueId queryId, QueryInfo info) throws UserException {
-        LOG.info("register query id = " + DebugUtil.printId(queryId) + ", job: " + info.getCoord().getJobId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("register query id = " + DebugUtil.printId(queryId) + ", job: " + info.getCoord().getJobId());
+        }
         final QueryInfo result = coordinatorMap.putIfAbsent(queryId, info);
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
@@ -121,7 +123,9 @@ public final class QeProcessorImpl implements QeProcessor {
     public void unregisterQuery(TUniqueId queryId) {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
-            LOG.info("deregister query id {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("deregister query id {}", DebugUtil.printId(queryId));
+            }
             if (queryInfo.getConnectContext() != null &&
                     !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {

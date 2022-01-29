@@ -471,8 +471,9 @@ public class Coordinator {
                     addressToBackendID.get(execBeAddr),
                     toBrpcHost(execBeAddr),
                     queryOptions.query_timeout * 1000);
-
-            LOG.info("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
+            }
 
             if (topDataSink instanceof ResultFileSink
                     && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
