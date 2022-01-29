@@ -1070,16 +1070,6 @@ public class SingleNodePlanner {
                 && groupingInfo != null);
         root = new RepeatNode(ctx_.getNextNodeId(), root, groupingInfo, groupByClause);
         root.init(analyzer);
-        // set agg outtuple nullable
-        AggregateInfo aggInfo = selectStmt.getAggInfo();
-        TupleId aggOutTupleId = aggInfo.getOutputTupleId();
-        TupleDescriptor aggOutTupleDescriptor = analyzer.getDescTbl().getTupleDesc(aggOutTupleId);
-        int aggregateExprStartIndex = groupByClause.getGroupingExprs().size();
-        for (int i = 0; i < aggregateExprStartIndex; ++i) {
-            SlotDescriptor slot = aggOutTupleDescriptor.getSlots().get(i);
-            if (!slot.getIsNullable())
-                slot.setIsNullable(true);
-        }
         return root;
     }
 

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SeaTunnel",
-    "language": "zh-CN"
+    "title": "Seatunnel Connector Spark Doris",
+    "language": "en"
 }
 ---
 
@@ -24,20 +24,19 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SeaTunnel
-最新版本的[SeaTunnel (原 waterdrop )](https://interestinglab.github.io/seatunnel-docs/#/) 已经支持 Doris 的连接器, SeaTunnel 可以用过 Spark 引擎和 Flink 引擎同步数据至 Doris 中.
+# Seatunnel
 
-事实上, SeaTunnel 通过 Stream Load 方式同步数据,性能强劲,欢迎大家使用
+The newest [Apache SeaTunnel (waterdop) ](https://seatunnel.apache.org) has supported Doris connector,
+seatunnel can load data by Spark engine or Flink engine. 
 
-#安装 SeaTunnel
-[SeaTunnel 安装链接](https://interestinglab.github.io/seatunnel-docs/#/zh-cn/v2/flink/installation)
+In fact,seatunnel load data by stream load function.Everyone is welcome to use
+
+# Install Seatunnel
+[Seatunnel install](https://interestinglab.github.io/seatunnel-docs/#/zh-cn/v2/flink/installation)
 
 ## Spark Sink Doris
-
-### 插件代码
-Spark Sink Doris 的插件代码在[这里](https://github.com/InterestingLab/seatunnel/tree/dev/seatunnel-connectors/plugin-spark-sink-doris)
-### 参数列表
-| 参数名 | 参数类型 | 是否必要 | 默认值 | 引擎类型 |
+### Options
+| name | type | required | default value | engine |
 | --- | --- | --- | --- | --- |
 | fenodes | string | yes | - | Spark |
 | database | string | yes | - | Spark |
@@ -49,37 +48,37 @@ Spark Sink Doris 的插件代码在[这里](https://github.com/InterestingLab/se
 
 `fenodes [string]`
 
-Doris Fe节点地址:8030
-
+Doris FE address:8030
 
 `database [string]`
 
-写入 Doris 的库名
+Doris target database name
 
 `table [string]`
 
-写入 Doris 的表名
+Doris target table name
 
 `user [string]`
 
-Doris 访问用户
+Doris user name
 
 `password [string]`
 
-Doris 访问用户密码
+Doris user's password
 
 `batch_size [string]`
 
-Spark 通过 Stream Load 方式写入,每个批次提交条数
+Doris number of submissions per batch
 
 `doris. [string]`
+Doris stream_load properties,you can use 'doris.' prefix + stream_load properties
 
-Stream Load 方式写入的 Http 参数优化,在官网参数前加上'Doris.'前缀
-
-[更多 Stream Load 参数配置](https://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
+[More Doris stream_load Configurations](https://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
 
 ### Examples
-Hive 迁移数据至 Doris
+Hive to Doris
+
+Config properties
 ```
 env{
   spark.app.name = "hive2doris-template"
@@ -108,8 +107,8 @@ Console {
 
 Doris {
    fenodes="xxxx:8030"
-   database="tmp"
-   table="test"
+   database="gl_mint_dim"
+   table="dim_date"
    user="root"
    password="root"
    batch_size=1000
@@ -118,7 +117,7 @@ Doris {
    }
 }
 ```
-启动命令
+Start command
 ```
 sh bin/start-waterdrop-spark.sh --master local[4] --deploy-mode client --config ./config/spark.conf
 ```

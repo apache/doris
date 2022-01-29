@@ -181,6 +181,10 @@ public:
         for (size_t i = 0; i < length; ++i) insert_default();
     }
 
+    virtual void insert_elements(void* elements, size_t num) {
+        LOG(FATAL) << "Method insert_elements is not supported for " << get_name();
+    }
+
     /** Removes last n elements.
       * Is used to support exception-safety of several operations.
       *  For example, sometimes insertion should be reverted if we catch an exception during operation processing.

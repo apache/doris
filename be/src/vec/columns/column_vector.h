@@ -120,10 +120,14 @@ private:
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
     void insert_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<T>* res_ptr) {
+        auto& res_data = res_ptr->data; 
+        DCHECK(res_data.empty());
+        res_data.reserve(sel_size);
+        T* t = (T*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
-            T* val_ptr = &data[sel[i]];
-            res_ptr->insert_data((char*)val_ptr, 0);
+            t[i] = T(data[sel[i]]);
         }
+        res_data.set_end_ptr(t + sel_size);
     }
 
 public:
@@ -144,6 +148,12 @@ public:
     }
 
     void insert_default() override { data.push_back(T()); }
+
+    void insert_many_defaults(size_t length) override {
+        size_t old_size = data.size();
+        data.resize(old_size + length);
+        memset(data.data() + old_size, 0, length * sizeof(data[0]));
+    }
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
 
@@ -201,6 +211,35 @@ public:
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
+
+    void insert_elements(void* elements, size_t num) {
+        auto old_size = data.size();
+        auto new_size = old_size + num;
+        data.resize(new_size);
+        memcpy(&data[old_size], elements, sizeof(value_type) * num);
+    }
+
+    void insert_elements(const value_type& element, size_t num) {
+        auto old_size = data.size();
+        auto new_size = old_size + num;
+        data.resize(new_size);
+        if constexpr (std::is_same_v<value_type, int8_t>) {
+            memset(&data[old_size], element, sizeof(value_type) * num);
+        } else if constexpr (std::is_same_v<value_type, uint8_t>) {
+            memset(&data[old_size], element, sizeof(value_type) * num);
+        } else {
+            for (size_t i = 0; i < num; ++i) {
+                data[old_size + i] = element;
+            }
+        }
+    }
+
+    void insert_zeroed_elements(size_t num) {
+        auto old_size = data.size();
+        auto new_size = old_size + num;
+        data.resize(new_size);
+        memset(&data[old_size], 0, sizeof(value_type) * num);
+    }
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
 

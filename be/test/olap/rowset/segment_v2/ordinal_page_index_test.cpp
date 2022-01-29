@@ -63,7 +63,8 @@ TEST_F(OrdinalPageIndexTest, normal) {
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts(filename);
-        ASSERT_TRUE(fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
+        ASSERT_TRUE(
+                fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
 
         ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
         ASSERT_EQ(ORDINAL_INDEX, index_meta.type());
@@ -160,7 +161,7 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

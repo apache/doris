@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -132,7 +133,7 @@ public class RepeatNode extends PlanNode {
         outputTupleDesc = groupingInfo.getVirtualTuple();
         //set aggregate nullable
         for (Expr slot : groupByClause.getGroupingExprs()) {
-            if (slot instanceof SlotRef) {
+            if (slot instanceof SlotRef && !(slot instanceof VirtualSlotRef)) {
                 ((SlotRef) slot).getDesc().setIsNullable(true);
             }
         }

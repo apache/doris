@@ -187,7 +187,8 @@ public:
             BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
             page_decoder.init();
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
+            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array,
+                                          dict_len_array);
 
             //check values
             size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
@@ -627,7 +628,7 @@ int main(int argc, char** argv) {
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
 
     doris::MultiBenchmark multi_bm;
     multi_bm.add_bm();

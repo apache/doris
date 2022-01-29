@@ -61,7 +61,7 @@ public class MetaObject implements Writable {
             this.signature = in.readLong();
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 6) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_6) {
             this.lastCheckTime = in.readLong();
         }
     }

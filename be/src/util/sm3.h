@@ -28,7 +28,7 @@ namespace doris {
 class SM3Digest {
 public:
     SM3Digest();
-
+    ~SM3Digest();
     void update(const void* data, size_t length);
     void digest();
 

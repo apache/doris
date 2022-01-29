@@ -201,6 +201,7 @@ module.exports = [
       "bucket-shuffle-join",
       "dynamic-partition",
       "export-manual",
+      "export_with_mysql_dump",
       "outfile",
       "partition_cache",
       "privilege",
@@ -237,11 +238,19 @@ module.exports = [
       "logstash",
       "odbc-of-doris",
       "hive-of-doris",
+      "iceberg-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
-      "seatunnel",
+      {
+        title: "Seatunnel",
+        directoryPath: "seatunnel/",
+        children: [
+          "spark-sink",
+          "flink-sink",
+        ],
+      },
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -364,6 +373,7 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              "substring",
               "unhex",
               {
                 title: "模糊匹配",
@@ -437,6 +447,16 @@ module.exports = [
               "orthogonal_bitmap_intersect",
               "orthogonal_bitmap_intersect_count",
               "orthogonal_bitmap_union_count",
+            ],
+          },
+          {
+            title: "bitwise函数",
+            directoryPath: "bitwise-functions/",
+            children: [
+              "bitand",
+              "bitor",
+              "bitxor",
+              "bitnot"
             ],
           },
           {
@@ -613,6 +633,7 @@ module.exports = [
               "SHOW SNAPSHOT",
               "SHOW SYNC JOB",
               "SHOW TABLES",
+              "SHOW TABLE CREATION",
               "SHOW TABLET",
               "SHOW TRANSACTION",
               "SPARK LOAD",

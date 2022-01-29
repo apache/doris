@@ -20,23 +20,23 @@ package org.apache.doris.rewrite;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NotLiteralExprPredicate;
 
 /**
  * this rule try to convert date expression, if date is invalid, it will be
- * converted into null literal to avoid to scan all partitions
- * if a date data is invalid or contains nanosecond, it will be convert into CastExpr
+ * converted into null literal to avoid scanning all partitions
+ * if a date data is invalid, Doris will try to cast it as datetime firstly,
  * only support rewriting pattern: slot + operator + date literal
  * Examples:
- * date = "2020-10-32" => NULL
+ * date = "2020-10-32" will throw analysis exception when in on clause or where clause,
+ * and be converted to be NULL when in other clause
  */
-public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteRule {
-    public static ExprRewriteRule INSTANCE = new SimplifyInvalidDateBinaryPredicatesDateRule();
-    public static final int DATETIME_STRING_MAX_LENGTH = new String("yyyy-MM-dd HH:ii:ss").length();
-    private static final NotLiteralExprPredicate NOT_LITERAL_EXPR_PREDICATE = new NotLiteralExprPredicate();
+public class RewriteDateLiteralRule implements ExprRewriteRule {
+    public final static ExprRewriteRule INSTANCE = new RewriteDateLiteralRule();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
@@ -52,28 +52,22 @@ public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteR
         if (!valueExpr.isConstant()) {
             return expr;
         }
-
-        // This is not a very good implementation and tricky.
-        // We have to handle the following cases:
-        // A. k1 is datetime, sql with "k1 > to_date(now())" will be converted to k1 > cast(to_date("xxxx-xx-xx"))
-        // B. k1 is datetime, sql with "k1 > '2021-10-32 10:00:00.100010'" will be converted to k1 > cast('2021-10-32 10:00:00.100010' as datetime)
-        // C. k1 is datetime, sql with "k1 > '2021-10-32'" will be converted to k1 > cast('2021-10-32' as datetime), and finally to converted to NullLiteral.
+        // Only consider CastExpr and try our best to convert non-date_literal to date_literal，to be compatible with MySQL
         if (valueExpr instanceof CastExpr) {
-            valueExpr = valueExpr.getChild(0);
-            if (valueExpr.contains(NOT_LITERAL_EXPR_PREDICATE)) {
-                // Case A.
-                return expr;
-            }
-            String dateStr = valueExpr.toSql();
-            if (dateStr.length() > DATETIME_STRING_MAX_LENGTH && dateStr.contains(".")) {
-                // Case B
-                return expr;
-            }
-            // Case C
-            return new NullLiteral();
-        } else {
-            if (valueExpr.contains(NOT_LITERAL_EXPR_PREDICATE)) {
-                return expr;
+            Expr childExpr = valueExpr.getChild(0);
+            if (childExpr instanceof LiteralExpr) {
+                try {
+                    String dateStr = childExpr.getStringValue();
+                    DateLiteral dateLiteral = new DateLiteral();
+                    dateLiteral.fromDateStr(dateStr);
+                    expr.setChild(1, dateLiteral);
+                } catch (AnalysisException e) {
+                    if (clauseType == ExprRewriter.ClauseType.OTHER_CLAUSE) {
+                        return new NullLiteral();
+                    } else {
+                        throw new AnalysisException("Incorrect datetime value: " + valueExpr.toSql() + " in expression: " + expr.toSql());
+                    }
+                }
             }
         }
         return expr;

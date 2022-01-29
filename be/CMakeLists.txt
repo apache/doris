@@ -347,9 +347,15 @@ if (COMPILER_GCC)
     # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
     # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
+    add_compile_options(-Wno-stringop-overflow)
 endif ()
 
 if (COMPILER_CLANG)
+
+    if(MAKE_TEST STREQUAL "OFF")
+        add_compile_options(-Qunused-arguments)
+    endif()
+
     # TODO: Fix all these warnings
     add_compile_options(
         -Wno-address-of-packed-member
@@ -820,6 +826,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/udf)
     add_subdirectory(${TEST_DIR}/util)
     add_subdirectory(${TEST_DIR}/vec/core)
+    add_subdirectory(${TEST_DIR}/vec/exec)
     add_subdirectory(${TEST_DIR}/vec/exprs)
     add_subdirectory(${TEST_DIR}/vec/function)
     add_subdirectory(${TEST_DIR}/vec/runtime)

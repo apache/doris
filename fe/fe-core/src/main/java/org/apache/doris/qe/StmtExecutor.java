@@ -676,6 +676,14 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 if (explainOptions != null) parsedStmt.setIsExplain(explainOptions);
             }
+            
+            if (parsedStmt instanceof InsertStmt && parsedStmt.isExplain()) {
+                if (ConnectContext.get() != null &&
+                        ConnectContext.get().getExecutor() != null &&
+                        ConnectContext.get().getExecutor().getParsedStmt() != null) {
+                    ConnectContext.get().getExecutor().getParsedStmt().setIsExplain(new ExplainOptions(true, false));
+                }
+            }
         }
         plannerProfile.setQueryAnalysisFinishTime();
 
@@ -1248,10 +1256,15 @@ public class StmtExecutor implements ProfileWriter {
 
                 coord.exec();
 
-                coord.join(context.getSessionVariable().getQueryTimeoutS());
+                boolean notTimeout = coord.join(context.getSessionVariable().getQueryTimeoutS());
                 if (!coord.isDone()) {
                     coord.cancel();
-                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+                    if (notTimeout) {
+                        errMsg = coord.getExecStatus().getErrorMsg();
+                        ErrorReport.reportDdlException("There exists unhealthy backend. " + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+                    }
                 }
 
                 if (!coord.getExecStatus().ok()) {

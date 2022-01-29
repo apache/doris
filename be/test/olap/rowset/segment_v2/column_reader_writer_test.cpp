@@ -33,9 +33,9 @@
 #include "runtime/mem_tracker.h"
 #include "test_util/test_util.h"
 #include "util/file_utils.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_nothing.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/data_type_number.h"
 
 using std::string;
 
@@ -126,31 +126,31 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     const TypeInfo* type_info = get_scalar_type_info(type);
     // read and check
     {
-        // read and check
-        ColumnReaderOptions reader_opts;
-        FilePathDesc path_desc;
-        path_desc.filepath = fname;
-        std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
-        ASSERT_TRUE(st.ok());
-
-        ColumnIterator* iter = nullptr;
-        st = reader->new_iterator(&iter);
-        ASSERT_TRUE(st.ok());
-        std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
-        block_manager->open_block(path_desc, &rblock);
-
-        ASSERT_TRUE(st.ok());
-        ColumnIteratorOptions iter_opts;
-        OlapReaderStatistics stats;
-        iter_opts.stats = &stats;
-        iter_opts.rblock = rblock.get();
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
-        st = iter->init(iter_opts);
-        ASSERT_TRUE(st.ok());
         // sequence read
         {
+            ColumnReaderOptions reader_opts;
+            FilePathDesc path_desc;
+            path_desc.filepath = fname;
+            std::unique_ptr<ColumnReader> reader;
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
+            ASSERT_TRUE(st.ok());
+
+            ColumnIterator* iter = nullptr;
+            st = reader->new_iterator(&iter);
+            ASSERT_TRUE(st.ok());
+            std::unique_ptr<fs::ReadableBlock> rblock;
+            fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+            block_manager->open_block(path_desc, &rblock);
+
+            ASSERT_TRUE(st.ok());
+            ColumnIteratorOptions iter_opts;
+            OlapReaderStatistics stats;
+            iter_opts.stats = &stats;
+            iter_opts.rblock = rblock.get();
+            iter_opts.mem_tracker = std::make_shared<MemTracker>();
+            st = iter->init(iter_opts);
+            ASSERT_TRUE(st.ok());
+
             st = iter->seek_to_first();
             ASSERT_TRUE(st.ok()) << st.to_string();
 
@@ -185,9 +185,33 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
                     break;
                 }
             }
+            delete iter;
         }
 
         {
+            ColumnReaderOptions reader_opts;
+            FilePathDesc path_desc;
+            path_desc.filepath = fname;
+            std::unique_ptr<ColumnReader> reader;
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
+            ASSERT_TRUE(st.ok());
+
+            ColumnIterator* iter = nullptr;
+            st = reader->new_iterator(&iter);
+            ASSERT_TRUE(st.ok());
+            std::unique_ptr<fs::ReadableBlock> rblock;
+            fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+            block_manager->open_block(path_desc, &rblock);
+
+            ASSERT_TRUE(st.ok());
+            ColumnIteratorOptions iter_opts;
+            OlapReaderStatistics stats;
+            iter_opts.stats = &stats;
+            iter_opts.rblock = rblock.get();
+            iter_opts.mem_tracker = std::make_shared<MemTracker>();
+            st = iter->init(iter_opts);
+            ASSERT_TRUE(st.ok());
+
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
@@ -219,9 +243,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
                     idx++;
                 }
             }
+            delete iter;
         }
-
-        delete iter;
     }
 }
 
@@ -802,7 +825,7 @@ TEST_F(ColumnReaderWriterTest, test_v_default_value) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

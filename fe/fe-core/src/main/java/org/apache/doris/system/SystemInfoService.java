@@ -873,6 +873,7 @@ public class SystemInfoService {
             if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
                 backends.addAll(list);
             } else {
+                list = list.stream().filter(beAvailablePredicate::isMatch).collect(Collectors.toList());
                 Collections.shuffle(list);
                 backends.add(list.get(0));
             }

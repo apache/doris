@@ -153,6 +153,14 @@ mkdir -p $LOG_DIR
 mkdir -p ${UDF_RUNTIME_DIR}
 rm -f ${UDF_RUNTIME_DIR}/*
 
+# clean all gcda file
+
+gcda_files=`find ${DORIS_TEST_BINARY_DIR} -name "*gcda"`
+for gcda_file in ${gcda_files[@]}
+do
+    rm $gcda_file
+done
+
 export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/test/
 
 # prepare gtest output dir

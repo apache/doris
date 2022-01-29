@@ -27,6 +27,10 @@ SM3Digest::SM3Digest() {
     EVP_DigestInit_ex(_ctx, _md, NULL);
 }
 
+SM3Digest::~SM3Digest() {
+    EVP_MD_CTX_free(_ctx);
+}
+
 void SM3Digest::update(const void* data, size_t length) {
     EVP_DigestUpdate(_ctx, data, length);
 }

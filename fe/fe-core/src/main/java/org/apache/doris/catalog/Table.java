@@ -63,7 +63,8 @@ public class Table extends MetaObject implements Writable {
         VIEW,
         BROKER,
         ELASTICSEARCH,
-        HIVE
+        HIVE,
+        ICEBERG
     }
 
     protected long id;
@@ -271,6 +272,8 @@ public class Table extends MetaObject implements Writable {
             table = new EsTable();
         } else if (type == TableType.HIVE) {
             table = new HiveTable();
+        } else if (type == TableType.ICEBERG) {
+            table = new IcebergTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }
