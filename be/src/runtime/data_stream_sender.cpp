@@ -61,7 +61,6 @@ DataStreamSender::Channel::Channel(DataStreamSender* parent, const RowDescriptor
           _row_desc(row_desc),
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
-          _num_data_bytes_sent(0),
           _packet_seq(0),
           _need_close(false),
           _be_number(0),
@@ -661,27 +660,11 @@ Status DataStreamSender::serialize_batch(RowBatch* src, PRowBatch* dest, int num
         SCOPED_TIMER(_serialize_batch_timer);
         size_t uncompressed_bytes = src->serialize(dest, &_tuple_data_buffer);
         size_t bytes = RowBatch::get_batch_size(*dest);
-        // TODO(zc)
-        // int uncompressed_bytes = bytes - dest->tuple_data.size() + dest->uncompressed_size;
-        // The size output_batch would be if we didn't compress tuple_data (will be equal to
-        // actual batch size if tuple_data isn't compressed)
         COUNTER_UPDATE(_bytes_sent_counter, bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }
 
     return Status::OK();
-}
-
-int64_t DataStreamSender::get_num_data_bytes_sent() const {
-    // TODO: do we need synchronization here or are reads & writes to 8-byte ints
-    // atomic?
-    int64_t result = 0;
-
-    for (int i = 0; i < _channels.size(); ++i) {
-        result += _channels[i]->num_data_bytes_sent();
-    }
-
-    return result;
 }
 
 } // namespace doris

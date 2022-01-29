@@ -97,10 +97,8 @@ public:
     /// used to maintain metrics.
     Status serialize_batch(RowBatch* src, PRowBatch* dest, int num_receivers = 1);
 
-    // Return total number of bytes sent in TRowBatch.data. If batches are
+    // Return total number of bytes sent in RowBatch.data. If batches are
     // broadcast to multiple receivers, they are counted once per receiver.
-    int64_t get_num_data_bytes_sent() const;
-
     virtual RuntimeProfile* profile() { return _profile; }
 
     RuntimeState* state() { return _state; }
@@ -111,7 +109,7 @@ protected:
     // to a single destination ipaddress/node.
     // It has a fixed-capacity buffer and allows the caller either to add rows to
     // that buffer individually (AddRow()), or circumvent the buffer altogether and send
-    // TRowBatches directly (SendBatch()). Either way, there can only be one in-flight RPC
+    // PRowBatches directly (SendBatch()). Either way, there can only be one in-flight RPC
     // at any one time (ie, sending will block if the most recent rpc hasn't finished,
     // which allows the receiver node to throttle the sender by withholding acks).
     // *Not* thread-safe.
@@ -149,8 +147,6 @@ protected:
 
         // Get close wait's response, to finish channel close operation.
         Status close_wait(RuntimeState* state);
-
-        int64_t num_data_bytes_sent() const { return _num_data_bytes_sent; }
 
         PRowBatch* ch_cur_pb_batch() { return _ch_cur_pb_batch; }
 
@@ -191,8 +187,6 @@ protected:
         TUniqueId _fragment_instance_id;
         PlanNodeId _dest_node_id;
 
-        // the number of TRowBatch.data bytes sent successfully
-        int64_t _num_data_bytes_sent;
         int64_t _packet_seq;
 
         // we're accumulating rows into this batch
