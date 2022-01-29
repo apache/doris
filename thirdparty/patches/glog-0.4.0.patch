@@ -338,3 +338,15 @@ diff -uprN a/src/logging.cc b/src/logging.cc
    }
  
    // Write to LOG file
+diff -uprN a/configure.ac b/configure.ac
+--- a/configure.ac      2022-01-24 22:47:23.776890869 +0800
++++ b/configure.ac      2022-01-24 22:47:03.418891534 +0800
+@@ -38,7 +38,7 @@ AC_CHECK_HEADERS(sys/syscall.h)
+ # For backtrace with glibc.
+ AC_CHECK_HEADERS(execinfo.h)
+ # For backtrace with libunwind.
+-AC_CHECK_HEADERS(libunwind.h, ac_cv_have_libunwind_h=1, ac_cv_have_libunwind_h=0)
++# AC_CHECK_HEADERS(libunwind.h, ac_cv_have_libunwind_h=1, ac_cv_have_libunwind_h=0)
+ AC_CHECK_HEADERS(ucontext.h)
+ AC_CHECK_HEADERS(sys/utsname.h)
+ AC_CHECK_HEADERS(pwd.h)
