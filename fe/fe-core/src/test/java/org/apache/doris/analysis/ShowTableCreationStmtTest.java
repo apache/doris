@@ -46,9 +46,10 @@ public class ShowTableCreationStmtTest {
         ShowTableCreationStmt stmt = new ShowTableCreationStmt("doris", "log");
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW TABLE CREATION FROM `testCluster:doris` LIKE `log`", stmt.toString());
-        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
-        Assert.assertEquals("Table", stmt.getMetaData().getColumn(0).getName());
-        Assert.assertEquals("Status", stmt.getMetaData().getColumn(1).getName());
+        Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("Database", stmt.getMetaData().getColumn(0).getName());
+        Assert.assertEquals("Table", stmt.getMetaData().getColumn(1).getName());
+        Assert.assertEquals("Status", stmt.getMetaData().getColumn(2).getName());
     }
 
     @Test

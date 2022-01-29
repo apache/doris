@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN SHOW DATA SKEW",
+    "title": "SHOW DATA SKEW",
     "language": "zh-CN"
 }
 ---
@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ADMIN SHOW DATA SKEW
+# SHOW DATA SKEW
 ## description
 
     该语句用于查看表或某个分区的数据倾斜情况。
 
     语法：
 
-        ADMIN SHOW DATA SKEW FROM [db_name.]tbl_name PARTITION (partition_name);
+        SHOW DATA SKEW FROM [db_name.]tbl_name PARTITION (partition_name);
 
     说明：
 
@@ -42,9 +42,9 @@ under the License.
 
     1. 查看表的数据倾斜情况
 
-        ADMIN SHOW DATA SKEW FROM db1.test PARTITION(p1);
+        SHOW DATA SKEW FROM db1.test PARTITION(p1);
 
 ## keyword
 
-    ADMIN,SHOW,DATA,SKEW
+    SHOW,DATA,SKEW
 

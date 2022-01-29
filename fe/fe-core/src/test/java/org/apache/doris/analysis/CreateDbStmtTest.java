@@ -48,7 +48,7 @@ public class CreateDbStmtTest {
     }
 
     @Test
-    public void testAnalyzeNormal() throws UserException, AnalysisException {
+    public void testAnalyzeNormal() throws UserException {
         CreateDbStmt dbStmt = new CreateDbStmt(false, "test", null);
         dbStmt.analyze(analyzer);
         Assert.assertEquals("testCluster:test", dbStmt.getFullDbName());
@@ -56,7 +56,7 @@ public class CreateDbStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testAnalyzeWithException() throws UserException, AnalysisException {
+    public void testAnalyzeWithException() throws UserException {
         CreateDbStmt stmt = new CreateDbStmt(false, "", null);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
@@ -82,8 +82,8 @@ public class CreateDbStmtTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("iceberg.database", "doris");
         properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
-        CreateDbStmt stmt = new CreateDbStmt(false, "test", properties);
+        CreateDbStmt stmt = new CreateDbStmt(false, "", properties);
         stmt.analyze(analyzer);
-        Assert.fail("no exception");
+        Assert.fail("No exception throws.");
     }
 }

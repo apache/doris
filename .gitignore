@@ -62,6 +62,11 @@ ui/node_modules
 ui/package-lock.json
 docs/package-lock.json
 fe/fe-common/.classpath
+fe/.flattened-pom.xml
+fe/fe-common/.flattened-pom.xml
+fe/fe-core/.flattened-pom.xml
+fe/spark-dpp/.flattened-pom.xml
+
 rpc_data/
 
 ## ignore sample target
