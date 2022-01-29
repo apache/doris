@@ -472,7 +472,7 @@ public class Coordinator {
                     toBrpcHost(execBeAddr),
                     queryOptions.query_timeout * 1000);
             if (LOG.isDebugEnabled()) {
-                LOG.info("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
+                LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
             }
 
             if (topDataSink instanceof ResultFileSink
