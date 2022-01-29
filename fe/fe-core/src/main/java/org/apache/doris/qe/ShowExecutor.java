@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminShowConfigStmt;
-import org.apache.doris.analysis.AdminShowDataSkewStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.DescribeStmt;
@@ -37,6 +36,7 @@ import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
+import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
@@ -317,8 +317,8 @@ public class ShowExecutor {
             handleShowQueryProfile();
         } else if (stmt instanceof ShowLoadProfileStmt) {
             handleShowLoadProfile();
-        } else if (stmt instanceof AdminShowDataSkewStmt) {
-            handleAdminShowDataSkew();
+        } else if (stmt instanceof ShowDataSkewStmt) {
+            handleShowDataSkew();
         } else if (stmt instanceof ShowSyncJobStmt) {
             handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
@@ -2026,8 +2026,8 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
-    private void handleAdminShowDataSkew() throws AnalysisException {
-        AdminShowDataSkewStmt showStmt = (AdminShowDataSkewStmt) stmt;
+    private void handleShowDataSkew() throws AnalysisException {
+        ShowDataSkewStmt showStmt = (ShowDataSkewStmt) stmt;
         try {
             List<List<String>> results = MetadataViewer.getDataSkew(showStmt);
             resultSet = new ShowResultSet(showStmt.getMetaData(), results);
