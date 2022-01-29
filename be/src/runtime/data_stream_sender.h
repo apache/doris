@@ -257,7 +257,9 @@ private:
     // Only works when `config::transfer_data_by_brpc_attachment` is true.
     // The data in the buffer is copied to the attachment of the brpc when it is sent,
     // to avoid an extra pb serialization in the brpc.
+    // _tuple_data_buffer_ptr will point to _tuple_data_buffer if `config::transfer_data_by_brpc_attachment` is true.
     std::string _tuple_data_buffer;
+    std::string* _tuple_data_buffer_ptr = nullptr;
 
     std::vector<ExprContext*> _partition_expr_ctxs; // compute per-row partition values
 

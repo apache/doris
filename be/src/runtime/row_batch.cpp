@@ -232,7 +232,8 @@ RowBatch::~RowBatch() {
     clear();
 }
 
-size_t RowBatch::serialize(PRowBatch* output_batch, std::string* allocated_buf) {
+void RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
+                         std::string* allocated_buf) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
@@ -279,8 +280,7 @@ size_t RowBatch::serialize(PRowBatch* output_batch, std::string* allocated_buf) 
             DCHECK_LE(offset, size);
         }
     }
-
-    DCHECK_EQ(offset, size);
+    CHECK_EQ(offset, size);
 
     if (config::compress_rowbatches && size > 0) {
         // Try compressing tuple_data to _compression_scratch, swap if compressed data is
@@ -304,11 +304,14 @@ size_t RowBatch::serialize(PRowBatch* output_batch, std::string* allocated_buf) 
         VLOG_ROW << "uncompressed size: " << size << ", compressed size: " << compressed_size;
     }
 
-    // return uncompressed size
+    // return compressed and uncompressed size
+    size_t pb_size = get_batch_size(*output_batch);
     if (allocated_buf == nullptr) {
-        return get_batch_size(*output_batch) - mutable_tuple_data->size() + size;
+        *uncompressed_size = pb_size - mutable_tuple_data->size() + size;
+        *compressed_size = pb_size;
     } else {
-        return get_batch_size(*output_batch) - size;
+        *uncompressed_size = pb_size + size;
+        *compressed_size = pb_size + mutable_tuple_data->size();
     }
 }
 

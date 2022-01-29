@@ -273,6 +273,10 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
+
+    if (_transfer_data_by_brpc_attachment) {
+        _tuple_data_buffer_ptr = &_tuple_data_buffer; 
+    }
 }
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
@@ -293,6 +297,10 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
           _dest_node_id(sink.dest_node_id),
           _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
+
+    if (_transfer_data_by_brpc_attachment) {
+        _tuple_data_buffer_ptr = &_tuple_data_buffer; 
+    }
 
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
@@ -658,9 +666,9 @@ Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
 Status DataStreamSender::serialize_batch(RowBatch* src, PRowBatch* dest, int num_receivers) {
     {
         SCOPED_TIMER(_serialize_batch_timer);
-        size_t uncompressed_bytes = src->serialize(dest, &_tuple_data_buffer);
-        size_t bytes = RowBatch::get_batch_size(*dest);
-        COUNTER_UPDATE(_bytes_sent_counter, bytes * num_receivers);
+        size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        src->serialize(dest, &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
+        COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }
 
