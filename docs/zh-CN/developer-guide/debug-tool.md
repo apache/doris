@@ -331,4 +331,11 @@ perf script | ./FlameGraph/stackcollapse-perf.pl | ./FlameGraph/flamegraph.pl > 
 
 ![CPU Flame](/images/cpu-flame-demo.svg)
 
+#### scan general debug timer
+OlapScanNode包含一组通用目的调试定时器（_general_debug_timer），_general_debug_timer已关联到OlapReaderStatistics.general_debug_ns数组，记录数据到general_debug_ns数组将自动更新到_general_debug_timer，其结果会在QueryProfile页面显示，供debugging和profiling之用。
 
+general_debug_ns有别于特定用途的有明确含义的定时器，testing和profiling过程中，你可以根据需要，用定时器组中的任何一个记录任何你想记录的内容，但使用general_debug_ns的代码不需要提交到代码库，仅做debugging和profiling之用，获取你想要信息的获取即可。
+
+比如你修改了某处代码，想测这个函数或者代码片段的开销，便可以借助general_debug_ns（下标不重复即可），示例代码如下：
+
+SCOPED_RAW_TIMER(&stats->general_debug_ns[2]);  //demo debug timer
