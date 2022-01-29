@@ -667,7 +667,7 @@ Status DataStreamSender::serialize_batch(RowBatch* src, PRowBatch* dest, int num
     {
         SCOPED_TIMER(_serialize_batch_timer);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        src->serialize(dest, &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
+        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }

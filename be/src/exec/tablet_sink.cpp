@@ -453,7 +453,11 @@ void NodeChannel::try_send_batch() {
     if (row_batch->num_rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
+        Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
+        if (!st.ok()) {
+            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg())); 
+            return;
+        }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
             LOG(WARNING) << "send batch too large, this rpc may failed. send size: "
                          << compressed_bytes << ", " << channel_info();
@@ -465,6 +469,7 @@ void NodeChannel::try_send_batch() {
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
+            return;
         } else {
             remain_ms = config::min_load_rpc_timeout_ms;
         }

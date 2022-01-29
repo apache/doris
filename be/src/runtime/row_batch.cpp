@@ -232,7 +232,7 @@ RowBatch::~RowBatch() {
     clear();
 }
 
-void RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
+Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
                          std::string* allocated_buf) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
@@ -260,7 +260,7 @@ void RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, siz
 
     // Copy tuple data, including strings, into output_batch (converting string
     // pointers into offsets in the process)
-    int offset = 0; // current offset into output_batch->tuple_data
+    int64_t offset = 0; // current offset into output_batch->tuple_data
     char* tuple_data = mutable_tuple_data->data();
     const auto& tuple_descs = _row_desc.tuple_descriptors();
     const auto& mutable_tuple_offsets = output_batch->mutable_tuple_offsets();
@@ -275,12 +275,22 @@ void RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, siz
                 continue;
             }
             // Record offset before creating copy (which increments offset and tuple_data)
-            mutable_tuple_offsets->Add(offset);
+            // In fact, the value of offset will not exceed the maximum value of int32, 
+            // as it has been determined after. The forced conversion here is just to pass compilation.
+            mutable_tuple_offsets->Add((int32_t) offset);
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
-            DCHECK_LE(offset, size);
+            CHECK_LE(offset, size);
+            if (offset >= std::numeric_limits<int32_t>::max()) {
+                // For historical reasons, the tuple offset field in PRowBatch is of type int32,
+                // so when the offset is larger than 2GB, it may cause the value to overflow.
+                // For compatibility reasons, we cannot modify the field type in PRowBatch directly.
+                // So when we encounter this situation, we need to use attachment to transmit the network data.
+                return Status::InternalError(fmt::format("The rowbatch is large than 2GB($0), "
+                            "please set BE config 'transfer_data_by_brpc_attachment' to true and restart BE.", size));
+            }
         }
     }
-    CHECK_EQ(offset, size);
+    CHECK_EQ(offset, size) << "offset: " << offset << " vs. size: " << size;
 
     if (config::compress_rowbatches && size > 0) {
         // Try compressing tuple_data to _compression_scratch, swap if compressed data is
@@ -313,6 +323,7 @@ void RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, siz
         *uncompressed_size = pb_size + size;
         *compressed_size = pb_size + mutable_tuple_data->size();
     }
+    return Status::OK();
 }
 
 // when row from files can't fill into tuple with schema limitation, increase the _num_uncommitted_rows in row batch, 

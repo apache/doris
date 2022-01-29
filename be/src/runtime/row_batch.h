@@ -355,8 +355,8 @@ public:
     // if tuple_data is actually uncompressed).
     // if allocated_buf is not null, the serialized tuple data will be saved in this buf
     // instead of `tuple_data` in PRowBatch.
-    void serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
-                   std::string* allocated_buf = nullptr);
+    Status serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
+                     std::string* allocated_buf = nullptr);
 
     // Utility function: returns total size of batch.
     static size_t get_batch_size(const PRowBatch& batch);
