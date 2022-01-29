@@ -65,30 +65,40 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
     }
 }
 
+// binary: column num | value1 | value2 | ...
 template <typename T>
-size_t DataTypeNumberBase<T>::serialize(const IColumn& column, PColumn* pcolumn) const {
-    const auto column_len = column.size();
-    pcolumn->mutable_binary()->resize(column_len * sizeof(FieldType));
-    auto* data = pcolumn->mutable_binary()->data();
-
-    // copy the data
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto* origin_data =
-            assert_cast<const ColumnVector<T>&>(*ptr.get()).get_data().data();
-    memcpy(data, origin_data, column_len * sizeof(FieldType));
-
-    return compress_binary(pcolumn);
+int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& column) const {
+    return sizeof(uint32_t) + column.size() * sizeof(FieldType);
 }
 
 template <typename T>
-void DataTypeNumberBase<T>::deserialize(const PColumn& pcolumn, IColumn* column) const {
-    std::string uncompressed;
-    read_binary(pcolumn, &uncompressed);
+char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf) const {
+    // column num
+    const auto column_num = column.size();
+    *reinterpret_cast<uint32_t*>(buf) = column_num;
+    buf += sizeof(uint32_t);
+    // column data
+    auto ptr = column.convert_to_full_column_if_const();
+    const auto* origin_data =
+            assert_cast<const ColumnVector<T>&>(*ptr.get()).get_data().data();
+    memcpy(buf, origin_data, column_num * sizeof(FieldType));
+    buf += column_num * sizeof(FieldType);
 
-    // read column_size
+    return buf;
+}
+
+template <typename T>
+const char* DataTypeNumberBase<T>::deserialize(const char* buf, IColumn* column) const {
+    // column num
+    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+    // column data
     auto& container = assert_cast<ColumnVector<T>*>(column)->get_data();
-    container.resize(uncompressed.size() / sizeof(T));
-    memcpy(container.data(), uncompressed.data(), uncompressed.size());
+    container.resize(column_num);
+    memcpy(container.data(), buf, column_num * sizeof(FieldType));
+    buf += column_num * sizeof(FieldType);
+
+    return buf;
 }
 
 template <typename T>

@@ -28,7 +28,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/data.pb.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple.h"
@@ -51,118 +50,73 @@
 
 namespace doris::vectorized {
 
-inline DataTypePtr create_data_type(const PColumn& pcolumn) {
-    switch (pcolumn.type()) {
-    case PColumn::UINT8: {
+inline DataTypePtr create_data_type(const PColumnMeta& pcolumn_meta) {
+    switch (pcolumn_meta.type()) {
+    case PDataType::UINT8: {
         return std::make_shared<DataTypeUInt8>();
     }
-    case PColumn::UINT16: {
+    case PDataType::UINT16: {
         return std::make_shared<DataTypeUInt16>();
     }
-    case PColumn::UINT32: {
+    case PDataType::UINT32: {
         return std::make_shared<DataTypeUInt32>();
     }
-    case PColumn::UINT64: {
+    case PDataType::UINT64: {
         return std::make_shared<DataTypeUInt64>();
     }
-    case PColumn::UINT128: {
+    case PDataType::UINT128: {
         return std::make_shared<DataTypeUInt128>();
     }
-    case PColumn::INT8: {
+    case PDataType::INT8: {
         return std::make_shared<DataTypeInt8>();
     }
-    case PColumn::INT16: {
+    case PDataType::INT16: {
         return std::make_shared<DataTypeInt16>();
     }
-    case PColumn::INT32: {
+    case PDataType::INT32: {
         return std::make_shared<DataTypeInt32>();
     }
-    case PColumn::INT64: {
+    case PDataType::INT64: {
         return std::make_shared<DataTypeInt64>();
     }
-    case PColumn::INT128: {
+    case PDataType::INT128: {
         return std::make_shared<DataTypeInt128>();
     }
-    case PColumn::FLOAT32: {
+    case PDataType::FLOAT32: {
         return std::make_shared<DataTypeFloat32>();
     }
-    case PColumn::FLOAT64: {
+    case PDataType::FLOAT64: {
         return std::make_shared<DataTypeFloat64>();
     }
-    case PColumn::STRING: {
+    case PDataType::STRING: {
         return std::make_shared<DataTypeString>();
     }
-    case PColumn::DATE: {
+    case PDataType::DATE: {
         return std::make_shared<DataTypeDate>();
     }
-    case PColumn::DATETIME: {
+    case PDataType::DATETIME: {
         return std::make_shared<DataTypeDateTime>();
     }
-    case PColumn::DECIMAL32: {
-        return std::make_shared<DataTypeDecimal<Decimal32>>(pcolumn.decimal_param().precision(),
-                                                            pcolumn.decimal_param().scale());
+    case PDataType::DECIMAL32: {
+        return std::make_shared<DataTypeDecimal<Decimal32>>(pcolumn_meta.decimal_param().precision(),
+                                                            pcolumn_meta.decimal_param().scale());
     }
-    case PColumn::DECIMAL64: {
-        return std::make_shared<DataTypeDecimal<Decimal64>>(pcolumn.decimal_param().precision(),
-                                                            pcolumn.decimal_param().scale());
+    case PDataType::DECIMAL64: {
+        return std::make_shared<DataTypeDecimal<Decimal64>>(pcolumn_meta.decimal_param().precision(),
+                                                            pcolumn_meta.decimal_param().scale());
     }
-    case PColumn::DECIMAL128: {
-        return std::make_shared<DataTypeDecimal<Decimal128>>(pcolumn.decimal_param().precision(),
-                                                             pcolumn.decimal_param().scale());
+    case PDataType::DECIMAL128: {
+        return std::make_shared<DataTypeDecimal<Decimal128>>(pcolumn_meta.decimal_param().precision(),
+                                                             pcolumn_meta.decimal_param().scale());
     }
-    case PColumn::BITMAP: {
+    case PDataType::BITMAP: {
         return std::make_shared<DataTypeBitMap>();
     }
     default: {
-        LOG(FATAL) << fmt::format("Unknown data type: {}, data type name: {}", pcolumn.type(),
-                                  PColumn::DataType_Name(pcolumn.type()));
+        LOG(FATAL) << fmt::format("Unknown data type: {}, data type name: {}", pcolumn_meta.type(),
+                                  PDataType_Type_Name(pcolumn_meta.type()));
         return nullptr;
     }
-    }
-}
-
-PColumn::DataType get_pdata_type(DataTypePtr data_type) {
-    switch (data_type->get_type_id()) {
-    case TypeIndex::UInt8:
-        return PColumn::UINT8;
-    case TypeIndex::UInt16:
-        return PColumn::UINT16;
-    case TypeIndex::UInt32:
-        return PColumn::UINT32;
-    case TypeIndex::UInt64:
-        return PColumn::UINT64;
-    case TypeIndex::UInt128:
-        return PColumn::UINT128;
-    case TypeIndex::Int8:
-        return PColumn::INT8;
-    case TypeIndex::Int16:
-        return PColumn::INT16;
-    case TypeIndex::Int32:
-        return PColumn::INT32;
-    case TypeIndex::Int64:
-        return PColumn::INT64;
-    case TypeIndex::Int128:
-        return PColumn::INT128;
-    case TypeIndex::Float32:
-        return PColumn::FLOAT32;
-    case TypeIndex::Float64:
-        return PColumn::FLOAT64;
-    case TypeIndex::Decimal32:
-        return PColumn::DECIMAL32;
-    case TypeIndex::Decimal64:
-        return PColumn::DECIMAL64;
-    case TypeIndex::Decimal128:
-        return PColumn::DECIMAL128;
-    case TypeIndex::String:
-        return PColumn::STRING;
-    case TypeIndex::Date:
-        return PColumn::DATE;
-    case TypeIndex::DateTime:
-        return PColumn::DATETIME;
-    case TypeIndex::BitMap:
-        return PColumn::BITMAP;
-    default:
-        return PColumn::UNKNOWN;
     }
 }
 
@@ -175,19 +129,35 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
 }
 
 Block::Block(const PBlock& pblock) {
-    for (const auto& pcolumn : pblock.columns()) {
-        DataTypePtr type = create_data_type(pcolumn);
+    const char* buf = nullptr;
+    std::string compression_scratch;
+    if (pblock.compressed()) {
+        // Decompress 
+        const char* compressed_data = pblock.column_values().c_str();
+        size_t compressed_size = pblock.column_values().size();
+        size_t uncompressed_size = 0;
+        bool success = snappy::GetUncompressedLength(compressed_data, compressed_size, &uncompressed_size);
+        DCHECK(success) << "snappy::GetUncompressedLength failed";
+        compression_scratch.resize(uncompressed_size);
+        success = snappy::RawUncompress(compressed_data, compressed_size, compression_scratch.data());
+        DCHECK(success) << "snappy::RawUncompress failed";
+        buf = compression_scratch.data();
+    } else {
+        buf = pblock.column_values().data();
+    }
+
+    for (const auto& pcol_meta : pblock.column_metas()) {
+        DataTypePtr type = create_data_type(pcol_meta);
         MutableColumnPtr data_column;
-        if (pcolumn.is_null_size() > 0) {
-            data_column =
-                    ColumnNullable::create(std::move(type->create_column()), ColumnUInt8::create());
+        if (pcol_meta.is_nullable()) {
+            data_column = ColumnNullable::create(std::move(type->create_column()), ColumnUInt8::create());
             type = make_nullable(type);
         } else {
             data_column = type->create_column();
         }
-        type->deserialize(pcolumn, data_column.get());
-        data.emplace_back(data_column->get_ptr(), type, pcolumn.name());
-    }
+        buf = type->deserialize(buf, data_column.get());
+        data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
+    } 
     initialize_index_by_name();
 }
 
@@ -730,28 +700,54 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     return Status::OK();
 }
 
-size_t Block::serialize(PBlock* pblock) const {
-    size_t block_size_before_compress = 0;
-
+Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
+                        size_t* compressed_bytes, std::string* allocated_buf) const {
+    // calc uncompressed size for allocation
+    size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
-        // name serialize
-        PColumn* pc = pblock->add_columns();
-        pc->set_name(c.name);
-        block_size_before_compress += c.name.size();
-
-        // type serialize
-        if (c.type->is_nullable()) {
-            pc->set_type(get_pdata_type(
-                    std::dynamic_pointer_cast<const DataTypeNullable>(c.type)->get_nested_type()));
-        } else {
-            pc->set_type(get_pdata_type(c.type));
-        }
-        // content serialize
-        block_size_before_compress += c.type->serialize(*(c.column), pc);
+        PColumnMeta* pcm = pblock->add_column_metas();
+        c.to_pb_column_meta(pcm);
+        // get serialized size
+        content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(*(c.column));
     }
 
-    return block_size_before_compress;
+    // serialize data values
+    allocated_buf->resize(content_uncompressed_size);
+    char* buf = allocated_buf->data();
+    char* start_buf = buf;
+    for (const auto& c : *this) {
+        buf = c.type->serialize(*(c.column), buf);
+    }
+    CHECK(content_uncompressed_size == (buf - start_buf)) << content_uncompressed_size << " vs. " << (buf - start_buf);
+    *uncompressed_bytes = content_uncompressed_size;
+
+    // compress
+    if (config::compress_rowbatches && content_uncompressed_size > 0) {
+        // Try compressing the content to compression_scratch,
+        // swap if compressed data is smaller
+        std::string compression_scratch;
+        uint32_t max_compressed_size = snappy::MaxCompressedLength(content_uncompressed_size);
+        compression_scratch.resize(max_compressed_size);
+
+        size_t compressed_size = 0;
+        char* compressed_output = compression_scratch.data();
+        snappy::RawCompress(allocated_buf->data(), content_uncompressed_size, compressed_output, &compressed_size);
+
+        if (LIKELY(compressed_size < content_uncompressed_size)) {
+            compression_scratch.resize(compressed_size);
+            allocated_buf->swap(compression_scratch);
+            pblock->set_compressed(true);
+            *compressed_bytes = compressed_size;
+        } else {
+            *compressed_bytes = content_uncompressed_size;
+        }
+
+        VLOG_ROW << "uncompressed size: " << content_uncompressed_size << ", compressed size: " << compressed_size;
+    }
+
+    return Status::OK();
 }
+
 
 void Block::serialize(RowBatch* output_batch, const RowDescriptor& row_desc) {
     auto num_rows = rows();

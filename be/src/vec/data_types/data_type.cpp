@@ -89,10 +89,60 @@ void IDataType::to_string(const IColumn& column, size_t row_num, BufferWritable&
 
 std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
     LOG(FATAL) << fmt::format("Data type {} to_string not implement.", get_name());
+    return "";
 }
 
 void IDataType::insert_default_into(IColumn& column) const {
     column.insert_default();
+}
+
+void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
+    col_meta->set_type(get_pdata_type(this));
+}
+
+PDataType_Type IDataType::get_pdata_type(const IDataType* data_type) {
+    switch (data_type->get_type_id()) {
+    case TypeIndex::UInt8:
+        return PDataType::UINT8;
+    case TypeIndex::UInt16:
+        return PDataType::UINT16;
+    case TypeIndex::UInt32:
+        return PDataType::UINT32;
+    case TypeIndex::UInt64:
+        return PDataType::UINT64;
+    case TypeIndex::UInt128:
+        return PDataType::UINT128;
+    case TypeIndex::Int8:
+        return PDataType::INT8;
+    case TypeIndex::Int16:
+        return PDataType::INT16;
+    case TypeIndex::Int32:
+        return PDataType::INT32;
+    case TypeIndex::Int64:
+        return PDataType::INT64;
+    case TypeIndex::Int128:
+        return PDataType::INT128;
+    case TypeIndex::Float32:
+        return PDataType::FLOAT32;
+    case TypeIndex::Float64:
+        return PDataType::FLOAT64;
+    case TypeIndex::Decimal32:
+        return PDataType::DECIMAL32;
+    case TypeIndex::Decimal64:
+        return PDataType::DECIMAL64;
+    case TypeIndex::Decimal128:
+        return PDataType::DECIMAL128;
+    case TypeIndex::String:
+        return PDataType::STRING;
+    case TypeIndex::Date:
+        return PDataType::DATE;
+    case TypeIndex::DateTime:
+        return PDataType::DATETIME;
+    case TypeIndex::BitMap:
+        return PDataType::BITMAP;
+    default:
+        return PDataType::UNKNOWN;
+    }
 }
 
 DataTypePtr IDataType::from_thrift(const doris::PrimitiveType& type, const bool is_nullable){

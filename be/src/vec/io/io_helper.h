@@ -140,37 +140,6 @@ inline void write_binary(const Type& x, BufferWritable& buf) {
     write_pod_binary(x, buf);
 }
 
-inline size_t write_binary(const std::ostringstream& buf, PColumn* pcolumn) {
-    std::string uncompressed = buf.str();
-    std::string compressed;
-    snappy::Compress(uncompressed.data(), uncompressed.size(), &compressed);
-    if (static_cast<double>(compressed.size()) / uncompressed.size() > 0.7) {
-        pcolumn->set_compressed(false);
-        pcolumn->mutable_binary()->append(uncompressed);
-    } else {
-        pcolumn->set_compressed(true);
-        pcolumn->mutable_binary()->append(compressed);
-    }
-
-    return uncompressed.size();
-}
-
-inline size_t compress_binary(PColumn* pcolumn) {
-    auto uncompressed = pcolumn->mutable_binary();
-    auto uncompressed_size = uncompressed->size();
-    std::string compressed;
-    snappy::Compress(uncompressed->data(), uncompressed_size, &compressed);
-
-    if (static_cast<double>(compressed.size()) / uncompressed_size > 0.7) {
-        pcolumn->set_compressed(false);
-    } else {
-        pcolumn->set_compressed(true);
-        pcolumn->mutable_binary()->swap(compressed);
-    }
-
-    return uncompressed_size;
-}
-
 /// Read POD-type in native format
 template <typename Type>
 inline void read_pod_binary(Type& x, BufferReadable& buf) {
@@ -249,6 +218,7 @@ inline void read_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
+#if 0
 inline void read_binary(const PColumn& pcolumn, std::string* data) {
     if (pcolumn.compressed()) {
         snappy::Uncompress(pcolumn.binary().data(), pcolumn.binary().size(), data);
@@ -256,6 +226,7 @@ inline void read_binary(const PColumn& pcolumn, std::string* data) {
         *data = pcolumn.binary();
     }
 }
+#endif
 
 template <typename T>
 bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
