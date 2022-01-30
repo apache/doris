@@ -96,6 +96,7 @@ private:
     int32_t _index_cache_percentage = 0;
     std::unique_ptr<Cache> _data_page_cache = nullptr;
     std::unique_ptr<Cache> _index_page_cache = nullptr;
+    std::unique_ptr<Cache> _bitshuffle_page_cache = nullptr;
 
     std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 
@@ -107,7 +108,7 @@ private:
         case segment_v2::INDEX_PAGE:
             return _index_page_cache.get();
         default:
-            return nullptr;
+            return _bitshuffle_page_cache.get();
         }
     }
 };

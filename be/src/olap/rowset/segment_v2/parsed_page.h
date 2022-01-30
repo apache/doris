@@ -39,7 +39,9 @@ static OlapReaderStatistics s_stats;
 struct ParsedPage {
     static Status create(PageHandle handle, struct OlapReaderStatistics* stats, const Slice& body, const DataPageFooterPB& footer,
                          const EncodingInfo* encoding, const PagePointer& page_pointer,
-                         uint32_t page_index, std::unique_ptr<ParsedPage>* result) {
+                         uint32_t page_index, std::unique_ptr<ParsedPage>* result,
+                         StoragePageCache::CacheKey cache_key
+                         ) {
         if (stats == nullptr) stats = &s_stats;
 
         SCOPED_RAW_TIMER(&stats->general_debug_ns[17]);
@@ -63,6 +65,7 @@ struct ParsedPage {
         }
         {
             SCOPED_RAW_TIMER(&stats->general_debug_ns[19]);
+            page->data_decoder->prepare(&cache_key);
             RETURN_IF_ERROR(page->data_decoder->init());
         }
 

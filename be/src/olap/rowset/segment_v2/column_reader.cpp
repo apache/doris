@@ -655,13 +655,18 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
+
+    StoragePageCache::CacheKey cache_key(
+            _opts.rblock->path_desc().filepath
+            iter.page().offset;
+
     RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
     // parse data page
     {
     SCOPED_RAW_TIMER(&_opts.stats->general_debug_ns[14]);
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), _opts.stats, page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
-                                       &_page));
+                                       &_page, cache_key));
     }
 
     // dictionary page is read when the first data page that uses it is read,

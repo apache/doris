@@ -31,6 +31,8 @@ public:
 
     virtual ~PageDecoder() {}
 
+    virtual void prepare(void* opaque) { }
+
     // Call this to do some preparation for decoder.
     // eg: parse data page header
     virtual Status init() = 0;

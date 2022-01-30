@@ -40,6 +40,9 @@ StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percenta
     } else {
         CHECK(false) << "invalid index page cache percentage";
     }
+
+    LOG(INFO) << "[zcw] BitshufflePageCache capacity:" << capacity * 0.5 << std::endl;
+    _bitshuffle_page_cache = std::unique_ptr<Cache>(new_lru_cache("BitshufflePageCache", capacity * 0.5, _mem_tracker));
 }
 
 bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle, segment_v2::PageTypePB page_type) {

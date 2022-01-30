@@ -222,6 +222,21 @@ public:
         ChunkAllocator::instance()->free(_chunk);
     }
 
+    struct CacheData {
+
+    }
+
+    void save2cache() {
+    }
+
+    void prepare(void* opaque) override {
+        StoragePageCache::CacheKey *cache_key = (StoragePageCache::CacheKey *)opaque;
+        auto cache = StoragePageCache::instance();
+        if (cache->lookup(*cache_key, &cache_handle, -1)) {
+            Slice data = cache_handle.data();
+        }
+    }
+
     Status init() override {
         SCOPED_RAW_TIMER(&_options.stats->general_debug_ns[22]); //demo debug timer
         CHECK(!_parsed);
@@ -448,6 +463,9 @@ private:
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
 
     Slice _data;
+
+    PageCacheHandle cache_handle;
+
     PageDecoderOptions _options;
     bool _parsed;
     size_t _num_elements;
