@@ -267,6 +267,11 @@ private:
     std::atomic<int64_t> _actual_consume_ns {0};
 
     // buffer for saving serialized row batch data.
+    // In the non-attachment approach, we need to use two PRowBatch structures alternately
+    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
+    // This is not necessary with the attachment approach, because the memory structures
+    // are already copied into attachment memory before sending, and will wait for
+    // the previous RPC to be fully completed before the next copy.
     std::string _tuple_data_buffer;
     std::string* _tuple_data_buffer_ptr = nullptr;
 };
@@ -453,6 +458,7 @@ protected:
     // Save the status of close() method
     Status _close_status;
 
+    // TODO(cmy): this should be removed after we switch to rpc attachment by default.
     bool _transfer_data_by_brpc_attachment = false;
 };
 

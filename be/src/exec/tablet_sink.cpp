@@ -460,7 +460,8 @@ void NodeChannel::try_send_batch() {
         }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
             LOG(WARNING) << "send batch too large, this rpc may failed. send size: "
-                         << compressed_bytes << ", " << channel_info();
+                         << compressed_bytes << ", threshold: " << config::brpc_max_body_size
+                         << ", " << channel_info();
         }
     }
 
