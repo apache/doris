@@ -39,7 +39,7 @@ struct ModuloImpl {
     static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
         if constexpr (std::is_floating_point_v<Result>) {
             null_map[index] = 0;
-            return fmod(a, b);
+            return std::fmod((double)a, (double)b);
         } else {
             null_map[index] = b == 0;
             return typename NumberTraits::ToInteger<A>::Type(a) %
@@ -47,7 +47,8 @@ struct ModuloImpl {
         }
     }
 
-    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map, size_t index) {
+    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map,
+                                       size_t index) {
         null_map[index] = b == DecimalV2Value(0);
         return a % (b + DecimalV2Value(b == DecimalV2Value(0)));
     }
@@ -64,7 +65,7 @@ struct ModuloByConstantImpl : BinaryOperationImplBase<A, B, ModuloImpl<A, B>> {
     static void vector_constant(const PaddedPODArray<A>& a, B b, PaddedPODArray<ResultType>& c) {
         // TODO: Support return NULL in the future
         if (UNLIKELY(b == 0)) {
-//        throw Exception("Division by zero", TStatusCode::VEC_ILLEGAL_DIVISION);
+            //        throw Exception("Division by zero", TStatusCode::VEC_ILLEGAL_DIVISION);
             memset(c.data(), 0, sizeof(ResultType) * c.size());
             return;
         }

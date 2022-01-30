@@ -23,6 +23,7 @@
 #include <cmath>
 #include <ctime>
 #include <string>
+#include <random>
 
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
@@ -412,7 +413,10 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
-    std::random_shuffle(data_dirs.begin(), data_dirs.end());
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(data_dirs.begin(), data_dirs.end(), g);
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
     // when travesing the data dir

@@ -342,6 +342,15 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
+if (USE_LDD)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
+endif ()
+
+if (USE_LIBCPP AND COMPILER_CLANG)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    add_definitions(-DUSE_LIBCPP)
+endif()
+
 if (COMPILER_GCC)
     # Avoid GCC 11 false alarm
     # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
@@ -760,7 +769,7 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
-if (${MAKE_TEST} STREQUAL "OFF")
+if (${BUILD_META_TOOL} STREQUAL "ON")
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
