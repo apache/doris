@@ -320,8 +320,8 @@ private:
     // current value ordinal
     ordinal_t _current_ordinal = 0;
 
-    uint32_t* _dict_start_offset_array = nullptr;
-    uint32_t* _dict_len_array = nullptr;
+    std::unique_ptr<uint32_t[]> _dict_start_offset_array;
+    std::unique_ptr<uint32_t[]> _dict_len_array;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
