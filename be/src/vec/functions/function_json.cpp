@@ -18,10 +18,11 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+
 #include <boost/token_functions.hpp>
-#include <boost/tokenizer.hpp>
 
 #include "exprs/json_functions.h"
+#include "util/string_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -185,8 +186,7 @@ rapidjson::Value* get_json_object(const std::string_view& json_string,
     std::vector<JsonPath>* parsed_paths;
     std::vector<JsonPath> tmp_parsed_paths;
 
-    boost::tokenizer<boost::escaped_list_separator<char>> tok(
-            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    auto tok = get_json_token(path_string);
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
     parsed_paths = &tmp_parsed_paths;

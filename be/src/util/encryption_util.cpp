@@ -17,14 +17,11 @@
 
 #include "util/encryption_util.h"
 
-#include <openssl/aes.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
-
+#include <openssl/ossl_typ.h>
+#include <sys/types.h>
 #include <cstring>
-#include <iostream>
-#include <memory>
-#include <string>
 
 namespace doris {
 

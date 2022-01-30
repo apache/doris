@@ -20,6 +20,7 @@
 #include <strings.h>
 
 #include <algorithm>
+#include <boost/tokenizer.hpp>
 #include <map>
 #include <set>
 #include <sstream>
@@ -128,5 +129,15 @@ using StringCaseMap = std::map<std::string, T, StringCaseLess>;
 template <class T>
 using StringCaseUnorderedMap =
         std::unordered_map<std::string, T, StringCaseHasher, StringCaseEqual>;
+
+inline auto get_json_token(const std::string_view& path_string) {
+#ifdef USE_LIBCPP
+    return boost::tokenizer<boost::escaped_list_separator<char>>(
+            std::string(path_string), boost::escaped_list_separator<char>("\\", ".", "\""));
+#else
+    return boost::tokenizer<boost::escaped_list_separator<char>>(
+            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+#endif
+}
 
 } // namespace doris
