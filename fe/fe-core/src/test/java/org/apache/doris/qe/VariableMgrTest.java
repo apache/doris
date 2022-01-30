@@ -146,6 +146,11 @@ public class VariableMgrTest {
         executor.execute();
         Assert.assertEquals(2L, ctx.getSessionVariable().getRuntimeFilterType());
 
+        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set runtime_filter_type ='IN_OR_BLOOM_FILTER'", ctx);
+        executor = new SetExecutor(ctx, stmt);
+        executor.execute();
+        Assert.assertEquals(8L, ctx.getSessionVariable().getRuntimeFilterType());
+
         // Get from name
         SysVariableDesc desc = new SysVariableDesc("exec_mem_limit");
         Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
