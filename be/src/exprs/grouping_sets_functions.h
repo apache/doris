@@ -21,8 +21,6 @@
 
 namespace doris {
 
-class Expr;
-
 class GroupingSetsFunctions {
 public:
     static void init();
