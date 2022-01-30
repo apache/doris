@@ -29,12 +29,9 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request, const st
     auto row_batch = brpc_request->mutable_row_batch();
     row_batch->set_tuple_data("");
     brpc_request->set_transfer_by_attachment(true);
-
-    if (tuple_data.size() == 0) {
-        LOG(FATAL) << "cmy get empty tuple data. row num: " << row_batch->num_rows() << ", " << get_stack_trace();
-    }
     butil::IOBuf attachment;
     attachment.append(tuple_data);
+    // LOG(INFO) << "cmy request_row_batch_transfer_attachment data size: " << tuple_data.size() << ", rows: " << row_batch->num_rows();
     closure->cntl.request_attachment().swap(attachment);
 }
 

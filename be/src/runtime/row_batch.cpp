@@ -118,16 +118,35 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
 
     // convert input_batch.tuple_offsets into pointers
     int tuple_idx = 0;
-    for (auto offset : input_batch.tuple_offsets()) {
-        if (offset == -1) {
-            _tuple_ptrs[tuple_idx++] = nullptr;
-        } else {
-            _tuple_ptrs[tuple_idx++] = convert_to<Tuple*>(tuple_data + offset);
+    // For historical reasons, the original offset was stored using int32,
+    // so taht if a rowbatch is larger than 2GB, the passed offset may generate an error due to value overflow.
+    // So in the new version, a new_tuple_offsets structure is added to store offsets using int64.
+    // Here, to maintain compatibility, both versions of offsets are used, with preference given to new_tuple_offsets.
+    // TODO(cmy): in the next version, the original tuple_offsets should be removed.
+    // LOG(INFO) << "cmy deser new tuple offset size: " << input_batch.new_tuple_offsets_size() << ", old: " << input_batch.tuple_offsets_size();
+    if (input_batch.new_tuple_offsets_size() > 0) {
+        for (int64_t offset : input_batch.new_tuple_offsets()) {
+            // LOG(INFO) << "cmy new offset: " << offset;
+            if (offset == -1) {
+                _tuple_ptrs[tuple_idx++] = nullptr;
+            } else {
+                _tuple_ptrs[tuple_idx++] = convert_to<Tuple*>(tuple_data + offset);
+            }
+        }
+    } else {
+        for (int32_t offset : input_batch.tuple_offsets()) {
+            // LOG(INFO) << "cmy old offset: " << offset;
+            if (offset == -1) {
+                _tuple_ptrs[tuple_idx++] = nullptr;
+            } else {
+                _tuple_ptrs[tuple_idx++] = convert_to<Tuple*>(tuple_data + offset);
+            }
         }
     }
 
     // Check whether we have slots that require offset-to-pointer conversion.
     if (!_row_desc.has_varlen_slots()) {
+        // LOG(INFO) << "cmy no varlen slots: " << to_string();
         return;
     }
 
@@ -150,6 +169,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
                 continue;
             }
 
+            // LOG(INFO) << "cmy string slots num: " << desc->string_slots().size();
             for (auto slot : desc->string_slots()) {
                 DCHECK(slot->type().is_string_type());
                 StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
@@ -198,6 +218,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
             }
         }
     }
+    // LOG(INFO) << "cmy after deser: " << to_string();
 }
 
 void RowBatch::clear() {
@@ -233,14 +254,15 @@ RowBatch::~RowBatch() {
 }
 
 Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
-                         std::string* allocated_buf) {
+                           std::string* allocated_buf) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
     _row_desc.to_protobuf(output_batch->mutable_row_tuples());
     // tuple_offsets: must clear before reserve
     output_batch->clear_tuple_offsets();
-    output_batch->mutable_tuple_offsets()->Reserve(_num_rows * _num_tuples_per_row);
+    output_batch->clear_new_tuple_offsets();
+    output_batch->mutable_new_tuple_offsets()->Reserve(_num_rows * _num_tuples_per_row);
     // is_compressed
     output_batch->set_is_compressed(false);
     // tuple data
@@ -263,8 +285,9 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
     int64_t offset = 0; // current offset into output_batch->tuple_data
     char* tuple_data = mutable_tuple_data->data();
     const auto& tuple_descs = _row_desc.tuple_descriptors();
-    const auto& mutable_tuple_offsets = output_batch->mutable_tuple_offsets();
+    const auto& mutable_tuple_offsets = output_batch->mutable_new_tuple_offsets();
 
+    // LOG(INFO) << "cmy before calc offset " << to_string();
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
         for (size_t j = 0; j < tuple_descs.size(); ++j) {
@@ -272,24 +295,17 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
             if (row->get_tuple(j) == nullptr) {
                 // NULLs are encoded as -1
                 mutable_tuple_offsets->Add(-1);
+                // LOG(INFO) << "cmy add offset -1, " << ", size: " << size << ", row: " << i << ", tuple: " << j << ", numrows: " << _num_rows;
                 continue;
             }
             // Record offset before creating copy (which increments offset and tuple_data)
-            // In fact, the value of offset will not exceed the maximum value of int32, 
-            // as it has been determined after. The forced conversion here is just to pass compilation.
-            mutable_tuple_offsets->Add((int32_t) offset);
+            mutable_tuple_offsets->Add(offset);
+            // LOG(INFO) << "cmy add offset: " << offset << ", size: " << size << ", row: " << i << ", tuple: " << j << ", numrows: " << _num_rows;
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
             CHECK_LE(offset, size);
-            if (offset >= std::numeric_limits<int32_t>::max()) {
-                // For historical reasons, the tuple offset field in PRowBatch is of type int32,
-                // so when the offset is larger than 2GB, it may cause the value to overflow.
-                // For compatibility reasons, we cannot modify the field type in PRowBatch directly.
-                // So when we encounter this situation, we need to use attachment to transmit the network data.
-                return Status::InternalError(fmt::format("The rowbatch is large than 2GB($0), "
-                            "please set BE config 'transfer_data_by_brpc_attachment' to true and restart BE.", size));
-            }
         }
     }
+    // LOG(INFO) << "cmy after calc offset: " << offset << ", size: " << size;
     CHECK_EQ(offset, size) << "offset: " << offset << " vs. size: " << size;
 
     if (config::compress_rowbatches && size > 0) {
@@ -319,6 +335,11 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
     if (allocated_buf == nullptr) {
         *uncompressed_size = pb_size - mutable_tuple_data->size() + size;
         *compressed_size = pb_size;
+        if (pb_size > std::numeric_limits<int32_t>::max()) {
+            // the protobuf has a hard limit of 2GB for serialized data.
+            return Status::InternalError(fmt::format("The rowbatch is large than 2GB({}), "
+                        "please set BE config 'transfer_data_by_brpc_attachment' to true and restart BE.", pb_size));
+        }
     } else {
         *uncompressed_size = pb_size + size;
         *compressed_size = pb_size + mutable_tuple_data->size();
