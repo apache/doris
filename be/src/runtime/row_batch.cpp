@@ -123,10 +123,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     // So in the new version, a new_tuple_offsets structure is added to store offsets using int64.
     // Here, to maintain compatibility, both versions of offsets are used, with preference given to new_tuple_offsets.
     // TODO(cmy): in the next version, the original tuple_offsets should be removed.
-    // LOG(INFO) << "cmy deser new tuple offset size: " << input_batch.new_tuple_offsets_size() << ", old: " << input_batch.tuple_offsets_size();
     if (input_batch.new_tuple_offsets_size() > 0) {
         for (int64_t offset : input_batch.new_tuple_offsets()) {
-            // LOG(INFO) << "cmy new offset: " << offset;
             if (offset == -1) {
                 _tuple_ptrs[tuple_idx++] = nullptr;
             } else {
@@ -135,7 +133,6 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
         }
     } else {
         for (int32_t offset : input_batch.tuple_offsets()) {
-            // LOG(INFO) << "cmy old offset: " << offset;
             if (offset == -1) {
                 _tuple_ptrs[tuple_idx++] = nullptr;
             } else {
@@ -146,7 +143,6 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
 
     // Check whether we have slots that require offset-to-pointer conversion.
     if (!_row_desc.has_varlen_slots()) {
-        // LOG(INFO) << "cmy no varlen slots: " << to_string();
         return;
     }
 
@@ -169,7 +165,6 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
                 continue;
             }
 
-            // LOG(INFO) << "cmy string slots num: " << desc->string_slots().size();
             for (auto slot : desc->string_slots()) {
                 DCHECK(slot->type().is_string_type());
                 StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
@@ -218,7 +213,6 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
             }
         }
     }
-    // LOG(INFO) << "cmy after deser: " << to_string();
 }
 
 void RowBatch::clear() {
@@ -287,7 +281,6 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
     const auto& tuple_descs = _row_desc.tuple_descriptors();
     const auto& mutable_tuple_offsets = output_batch->mutable_new_tuple_offsets();
 
-    // LOG(INFO) << "cmy before calc offset " << to_string();
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
         for (size_t j = 0; j < tuple_descs.size(); ++j) {
@@ -295,17 +288,14 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
             if (row->get_tuple(j) == nullptr) {
                 // NULLs are encoded as -1
                 mutable_tuple_offsets->Add(-1);
-                // LOG(INFO) << "cmy add offset -1, " << ", size: " << size << ", row: " << i << ", tuple: " << j << ", numrows: " << _num_rows;
                 continue;
             }
             // Record offset before creating copy (which increments offset and tuple_data)
             mutable_tuple_offsets->Add(offset);
-            // LOG(INFO) << "cmy add offset: " << offset << ", size: " << size << ", row: " << i << ", tuple: " << j << ", numrows: " << _num_rows;
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
             CHECK_LE(offset, size);
         }
     }
-    // LOG(INFO) << "cmy after calc offset: " << offset << ", size: " << size;
     CHECK_EQ(offset, size) << "offset: " << offset << " vs. size: " << size;
 
     if (config::compress_rowbatches && size > 0) {

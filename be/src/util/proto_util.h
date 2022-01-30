@@ -31,7 +31,6 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request, const st
     brpc_request->set_transfer_by_attachment(true);
     butil::IOBuf attachment;
     attachment.append(tuple_data);
-    // LOG(INFO) << "cmy request_row_batch_transfer_attachment data size: " << tuple_data.size() << ", rows: " << row_batch->num_rows();
     closure->cntl.request_attachment().swap(attachment);
 }
 
