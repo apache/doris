@@ -60,6 +60,7 @@ build
 ui/dist
 ui/node_modules
 ui/package-lock.json
+ui/yarn.lock
 docs/package-lock.json
 fe/fe-common/.classpath
 fe/.flattened-pom.xml
