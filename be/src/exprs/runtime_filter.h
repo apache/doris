@@ -50,7 +50,8 @@ enum class RuntimeFilterType {
     UNKNOWN_FILTER = -1,
     IN_FILTER = 0,
     MINMAX_FILTER = 1,
-    BLOOM_FILTER = 2
+    BLOOM_FILTER = 2,
+    IN_OR_BLOOM_FILTER = 3
 };
 
 inline std::string to_string(RuntimeFilterType type) {
@@ -63,6 +64,9 @@ inline std::string to_string(RuntimeFilterType type) {
     }
     case RuntimeFilterType::MINMAX_FILTER: {
         return std::string("minmax");
+    }
+    case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
+        return std::string("in_or_bloomfilter");
     }
     default:
         return std::string("UNKNOWN");
@@ -193,6 +197,7 @@ public:
     static Status create_wrapper(const UpdateRuntimeFilterParams* param, MemTracker* tracker,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+    void change_to_bloom_filter();
     Status update_filter(const UpdateRuntimeFilterParams* param);
 
     void set_ignored() { _is_ignored = true; }
@@ -202,6 +207,9 @@ public:
 
     void set_ignored_msg(std::string &msg) { _ignored_msg = msg; }
 
+    // for ut
+    bool is_bloomfilter();
+
     // consumer should call before released
     Status consumer_close();
 
@@ -210,6 +218,8 @@ public:
     Status join_rpc();
 
     void init_profile(RuntimeProfile* parent_profile);
+
+    void update_runtime_filter_type_to_profile();
 
     void set_push_down_profile();
 
