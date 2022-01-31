@@ -181,7 +181,7 @@ struct HexIntImpl {
         // uint64_t max value 0xFFFFFFFFFFFFFFFF , 16 'F'
         if (num == 0) { return {hex_table, 1};}
 
-        size_t i = 0;
+        int i = 0;
         while (num) {
             ans[i++] = hex_table[num & 15];
             num = num >> 4;
@@ -189,13 +189,13 @@ struct HexIntImpl {
         ans[i] = '\0';
 
         // reverse
-        for (int k = 0, j = i - 1; k <= j; k++, j--) {
+        for (int k = 0, j = i - 1; k <= j && k <= 16; k++, j--) {
             char tmp = ans[j];
             ans[j] = ans[k];
             ans[k] = tmp;
         }
 
-        return {ans, i};
+        return {ans, static_cast<size_t>(i)};
     }
     
     static Status vector(const ColumnInt64::Container& data, ColumnString::Chars& res_data,
