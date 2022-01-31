@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
@@ -36,10 +37,9 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
-
-import org.apache.doris.qe.SessionVariable;
 
 import org.apache.commons.lang.StringUtils;
 import org.junit.Assert;
@@ -56,6 +56,10 @@ public class DorisAssert {
 
     public DorisAssert() throws IOException {
         this.ctx = UtFrameUtils.createDefaultCtx();
+    }
+
+    public DorisAssert(ConnectContext ctx) {
+        this.ctx = ctx;
     }
 
     public DorisAssert withEnableMV() {
@@ -108,6 +112,12 @@ public class DorisAssert {
         DropTableStmt dropTableStmt =
                 (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop view " + tableName + ";", ctx);
         Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        return this;
+    }
+
+    public DorisAssert dropDB(String dbName) throws Exception {
+        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + dbName + ";", ctx);
+        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
         return this;
     }
 
