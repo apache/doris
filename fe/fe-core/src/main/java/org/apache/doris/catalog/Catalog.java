@@ -3933,7 +3933,7 @@ public class Catalog {
                 long totalReplicaNum = 0;
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
                     long indexNum = olapTable.getIndexIdToMeta().size();
-                    long bucketNum = distributionInfo.getBucketNum();
+                    long bucketNum = defaultDistributionInfo.getBucketNum();
                     long replicaNum = partitionInfo.getReplicaAllocation(entry.getValue()).getTotalReplicaNum();
                     totalReplicaNum += indexNum * bucketNum * replicaNum;
                 }
