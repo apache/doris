@@ -25,16 +25,26 @@ public class Field {
     private String comment;
     private int precision;
     private int scale;
+    private String aggregation_type;
 
     public Field() {
     }
 
-    public Field(String name, String type, String comment, int precision, int scale) {
+    public Field(String name, String type, String comment, int precision, int scale, String aggregation_type) {
         this.name = name;
         this.type = type;
         this.comment = comment;
         this.precision = precision;
         this.scale = scale;
+        this.aggregation_type = aggregation_type;
+    }
+
+    public String getAggregation_type() {
+        return aggregation_type;
+    }
+
+    public void setAggregation_type(String aggregation_type) {
+        this.aggregation_type = aggregation_type;
     }
 
     public String getName() {
