@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.ExplainTest;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LoadStmt;
@@ -44,6 +45,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -1874,7 +1876,7 @@ public class QueryPlanTest {
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
-
+    
     // Fix: issue-#7929
     @Test
     public void testEmptyNodeWithOuterJoinAndAnalyticFunction() throws Exception {
@@ -1912,5 +1914,32 @@ public class QueryPlanTest {
         Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
 
     }
+
+    // --begin-- implicit cast in explain verbose
+    @Test
+    public void testExplainInsertInto() throws Exception {
+        ExplainTest explainTest = new ExplainTest();
+        explainTest.before(connectContext);
+        explainTest.testExplainInsertInto();
+        explainTest.testExplainSelect();
+        explainTest.testExplainVerboseSelect();
+        explainTest.testExplainConcatSelect();
+        explainTest.testExplainVerboseConcatSelect();
+        explainTest.after();
+    }
+    // --end--
+
+    // --begin-- rewrite date literal rule
+    @Test
+    public void testRewriteDateLiteralRule() throws Exception {
+        RewriteDateLiteralRuleTest rewriteDateLiteralRuleTest = new RewriteDateLiteralRuleTest();
+        rewriteDateLiteralRuleTest.before(connectContext);
+        rewriteDateLiteralRuleTest.testWithDoubleFormatDate();
+        rewriteDateLiteralRuleTest.testWithIntFormatDate();
+        rewriteDateLiteralRuleTest.testWithInvalidFormatDate();
+        rewriteDateLiteralRuleTest.testWithStringFormatDate();
+        rewriteDateLiteralRuleTest.after();
+    }
+    // --end--
 
 }

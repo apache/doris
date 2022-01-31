@@ -17,13 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -45,6 +38,13 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 
 public class CastExpr extends Expr {
@@ -178,22 +178,12 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (ConnectContext.get() != null &&
+        boolean isVerbose = ConnectContext.get() != null &&
                 ConnectContext.get().getExecutor() != null &&
                 ConnectContext.get().getExecutor().getParsedStmt() != null &&
                 ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null &&
-                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose()) {
-            if (isAnalyzed) {
-                if (type.isStringType()) {
-                    return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
-                } else {
-                    return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
-                }
-            } else {
-                return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
-            }
-        }
-        if (isImplicit) {
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
+        if (isImplicit && !isVerbose) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
