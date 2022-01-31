@@ -57,10 +57,8 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(LZ4F);
     meta->set_is_nullable(column.is_nullable());
-    if (column.get_subtype_count() > 0) {
-        for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-            init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
-        }
+    for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
+        init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
 }
 
