@@ -238,6 +238,8 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
+static const int GENERAL_DEBUG_COUNT = 4;
+
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -285,6 +287,17 @@ struct OlapReaderStatistics {
     int64_t filtered_segment_number = 0;
     // total number of segment
     int64_t total_segment_number = 0;
+    // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
+    // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
+    // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
+    // so general_debug_ns' values will update to _general_debug_timer automaticly, 
+    // the timer result can be checked through QueryProfile web page easily.
+    // when search general_debug_ns, you can find that general_debug_ns has not been used, 
+    // this is because such codes added for debug purpose should not commit, it's just for debuging.
+    // so, please do not delete general_debug_ns defined here
+    // usage example: 
+    //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
+    int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 };
 
 typedef uint32_t ColumnId;
