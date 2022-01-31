@@ -492,7 +492,7 @@ module.exports = [
         ],
       },
       {
-        title: "DDL Statements",
+        title: "SQL Statements",
         directoryPath: "sql-statements/",
         children: [
           {
