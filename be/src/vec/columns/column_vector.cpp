@@ -325,6 +325,20 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
+void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    size_t size = data.size();
+    if (size == 0) return;
+
+    auto& res = reinterpret_cast<ColumnVector<T>&>(column);
+    typename Self::Container& res_data = res.get_data();
+    res_data.reserve(target_size);
+
+    for (size_t i = 0; i < size; ++i) {
+        res_data.add_num_element_without_reserve(data[i], counts[i]);
+    }
+}
+
+template <typename T>
 void ColumnVector<T>::get_extremes(Field& min, Field& max) const {
     size_t size = data.size();
 
