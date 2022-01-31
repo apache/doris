@@ -200,6 +200,10 @@ protected:
         // TODO(zc): initused for brpc
         PUniqueId _finst_id;
 
+        // serialized batches for broadcasting; we need two so we can write
+        // one while the other one is still being sent.
+        // Which is for same reason as `_cur_pb_batch`, `_pb_batch1` and `_pb_batch2`
+        // in DataStreamSender.
         PRowBatch* _ch_cur_pb_batch;
         PRowBatch _ch_pb_batch1;
         PRowBatch _ch_pb_batch2;
