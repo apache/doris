@@ -2717,7 +2717,7 @@ show_param ::=
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
     :}
-    | KW_SHOW KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
+    | KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
     {:
         RESULT = new ShowDataSkewStmt(table_ref);
     :}

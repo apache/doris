@@ -54,7 +54,7 @@ public:
         int row_idx = 0;
         while (_rows_returned < _num_rows) {
             for (int j = 0; j < _schema.num_columns(); ++j) {
-                vectorized::ColumnWithTypeAndName vc = block->get_by_position(j);
+                vectorized::ColumnWithTypeAndName& vc = block->get_by_position(j);
                 vectorized::IColumn& vi = (vectorized::IColumn&)(*vc.column);
 
                 char data[16] = {};
@@ -121,7 +121,7 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter, std::shared_ptr<MemTracker> parent) : _iter(iter) {}
+    VMergeIteratorContext(RowwiseIterator* iter) : _iter(iter) {}
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
@@ -323,7 +323,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
 
     for (auto iter : _origin_iters) {
-        std::unique_ptr<VMergeIteratorContext> ctx(new VMergeIteratorContext(iter, _mem_tracker));
+        std::unique_ptr<VMergeIteratorContext> ctx(new VMergeIteratorContext(iter));
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

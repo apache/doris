@@ -295,7 +295,7 @@ FileReadableBlock::FileReadableBlock(
         std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle)
         : _block_manager(block_manager),
           _path_desc(path_desc),
-          _file_handle(file_handle),
+          _file_handle(std::move(file_handle)),
           _closed(false) {
     if (_block_manager->_metrics) {
         _block_manager->_metrics->blocks_open_reading->increment(1);

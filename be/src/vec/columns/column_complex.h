@@ -315,8 +315,6 @@ void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size,
             res_data.push_back(data[i]);
         }
     }
-
-    return res;
 }
 
 using ColumnBitmap = ColumnComplexType<BitmapValue>;
