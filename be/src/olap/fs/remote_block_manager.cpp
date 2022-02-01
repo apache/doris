@@ -111,8 +111,10 @@ private:
 };
 
 RemoteWritableBlock::RemoteWritableBlock(RemoteBlockManager* block_manager, const FilePathDesc& path_desc,
-                                         shared_ptr<WritableFile> local_writer) : _block_manager(block_manager),
-                                                                                  _path_desc(path_desc), _local_writer(local_writer) {
+                                         shared_ptr<WritableFile> local_writer)
+        : _block_manager(block_manager),
+          _path_desc(path_desc),
+          _local_writer(std::move(local_writer)) {
 }
 
 RemoteWritableBlock::~RemoteWritableBlock() {
@@ -209,7 +211,7 @@ private:
     // The underlying opened file backing this block.
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> _file_handle;
     // the backing file of OpenedFileHandle, not owned.
-    RandomAccessFile* _file;
+    RandomAccessFile* _file = nullptr;
 
     // Whether or not this block has been closed. Close() is thread-safe, so
     // this must be an atomic primitive.

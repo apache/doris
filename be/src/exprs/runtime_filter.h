@@ -77,7 +77,7 @@ enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
     RuntimeFilterParams() : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              bloom_filter_size(-1), filter_id(0), fragment_instance_id(0, 0) {}
+              bloom_filter_size(-1), max_in_num(0), filter_id(0), fragment_instance_id(0, 0) {}
 
     RuntimeFilterType filter_type;
     PrimitiveType column_return_type;
@@ -240,10 +240,9 @@ protected:
     RuntimeState* _state;
     MemTracker* _mem_tracker;
     ObjectPool* _pool;
-    int32_t _fragment_id;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper;
+    RuntimePredicateWrapper* _wrapper = nullptr;
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;
     // runtime filter id

@@ -900,7 +900,7 @@ private:
     std::unique_ptr<IBloomFilterFuncBase> _bloomfilter_func;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
-    std::string *_ignored_in_filter_msg;
+    std::string* _ignored_in_filter_msg = nullptr;
     UniqueId _fragment_instance_id;
     uint32_t _filter_id;
 };

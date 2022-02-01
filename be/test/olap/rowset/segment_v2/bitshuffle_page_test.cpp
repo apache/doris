@@ -29,6 +29,7 @@
 #include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
+using doris::OlapReaderStatistics;
 
 namespace doris {
 

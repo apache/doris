@@ -159,7 +159,7 @@ private:
     std::mutex _status_lock;
     Status _exec_status;
 
-    bool _set_rsc_info;
+    bool _set_rsc_info = false;
     std::string _user;
     std::string _group;
 
@@ -525,7 +525,7 @@ void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
-            _fragment_map[fragment_instance_id]->set_pipe(pipe);
+            _fragment_map[fragment_instance_id]->set_pipe(std::move(pipe));
         }
     }
 }

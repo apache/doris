@@ -32,10 +32,7 @@ struct PageBuilderOptions {
     size_t dict_page_size = DEFAULT_PAGE_SIZE;
 };
 
-struct PageDecoderOptions {
-    struct OlapReaderStatistics* stats;
-    PageDecoderOptions(struct OlapReaderStatistics* stats) : stats(stats) {}
-};
+struct PageDecoderOptions { };
 
 } // namespace segment_v2
 } // namespace doris

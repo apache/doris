@@ -152,7 +152,7 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
     if (_is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer->get_written_rows());
+            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
             _sender->close(final_status);
         }
         state->exec_env()->result_mgr()->cancel_at_time(

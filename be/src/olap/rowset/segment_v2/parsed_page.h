@@ -36,7 +36,6 @@ namespace segment_v2 {
 // this object
 struct ParsedPage {
     static Status create(PageHandle handle, const Slice& body, const DataPageFooterPB& footer,
-                         struct OlapReaderStatistics* stats,
                          const EncodingInfo* encoding, const PagePointer& page_pointer,
                          uint32_t page_index, std::unique_ptr<ParsedPage>* result) {
         std::unique_ptr<ParsedPage> page(new ParsedPage);
@@ -52,7 +51,7 @@ struct ParsedPage {
         }
 
         Slice data_slice(body.data, body.size - null_size);
-        PageDecoderOptions opts(stats);
+        PageDecoderOptions opts;
         RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
         RETURN_IF_ERROR(page->data_decoder->init());
 
