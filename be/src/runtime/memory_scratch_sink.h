@@ -48,9 +48,6 @@ class TupleRow;
 // used to push data to blocking queue
 class MemoryScratchSink : public DataSink {
 public:
-    // construct a buffer for the result need send to blocking queue.
-    // row_desc used for convert RowBatch to TRowBatch
-    // buffer_size is the buffer size allocated to each scan
     MemoryScratchSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
                       const TMemoryScratchSink& sink);
 
