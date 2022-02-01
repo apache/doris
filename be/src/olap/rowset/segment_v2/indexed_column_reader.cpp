@@ -102,7 +102,7 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
     return ParsedPage::create(std::move(handle), body, footer.data_page_footer(),
-                              nullptr, _reader->encoding_info(), pp, 0, &_data_page);
+                              _reader->encoding_info(), pp, 0, &_data_page);
 }
 
 Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {

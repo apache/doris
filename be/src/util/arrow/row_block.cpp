@@ -190,7 +190,7 @@ private:
     std::shared_ptr<arrow::Schema> _schema;
     arrow::MemoryPool* _pool;
 
-    size_t _cur_field_idx;
+    size_t _cur_field_idx = 0;
     std::vector<std::shared_ptr<arrow::Array>> _arrays;
 };
 

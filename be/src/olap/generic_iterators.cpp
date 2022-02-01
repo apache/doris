@@ -210,7 +210,7 @@ public:
     MergeIterator(std::vector<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent, int sequence_id_idx)
         : _origin_iters(std::move(iters)), _sequence_id_idx(sequence_id_idx), _merge_heap(MergeContextComparator(_sequence_id_idx)) {
         // use for count the mem use of Block use in Merge
-        _mem_tracker = MemTracker::CreateTracker(-1, "MergeIterator", parent, false);
+        _mem_tracker = MemTracker::CreateTracker(-1, "MergeIterator", std::move(parent), false);
     }
 
     ~MergeIterator() override {
