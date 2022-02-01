@@ -133,6 +133,7 @@ public class CatalogOperationTest {
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
 
+        Thread.sleep(1000);
         renameTblStmt = "alter table test.newNewTest rename r1";
         alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
         try {
