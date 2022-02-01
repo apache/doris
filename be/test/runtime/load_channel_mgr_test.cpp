@@ -121,6 +121,9 @@ public:
     }
 
 private:
+
+    size_t uncompressed_size = 0;
+    size_t compressed_size = 0;
 };
 
 TEST_F(LoadChannelMgrTest, check_builder) {
@@ -256,8 +259,7 @@ TEST_F(LoadChannelMgrTest, normal) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
-        // google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();
@@ -423,7 +425,7 @@ TEST_F(LoadChannelMgrTest, add_failed) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         // DeltaWriter's write will return -215
         add_status = OLAP_ERR_TABLE_NOT_FOUND;
         PTabletWriterAddBatchResult response;
@@ -516,7 +518,7 @@ TEST_F(LoadChannelMgrTest, close_failed) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         close_status = OLAP_ERR_TABLE_NOT_FOUND;
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
@@ -605,7 +607,7 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();
@@ -691,7 +693,7 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         ASSERT_TRUE(st.ok());

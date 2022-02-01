@@ -246,7 +246,7 @@ private:
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}
-    int byte_size() const { return _byte_size; }
+    int64_t byte_size() const { return _byte_size; }
     int num_materialized_slots() const { return _num_materialized_slots; }
     int num_null_slots() const { return _num_null_slots; }
     int num_null_bytes() const { return _num_null_bytes; }
@@ -289,7 +289,7 @@ private:
 
     const TupleId _id;
     TableDescriptor* _table_desc;
-    int _byte_size;
+    int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;
     int _num_materialized_slots;
