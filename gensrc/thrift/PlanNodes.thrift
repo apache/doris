@@ -52,6 +52,7 @@ enum TPlanNodeType {
   EXCEPT_NODE,
   ODBC_SCAN_NODE,
   TABLE_FUNCTION_NODE,
+  TABLE_VALUED_FUNCTION_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -222,6 +223,16 @@ struct TExternalScanRange {
     // TODO: add more scan range type?
 }
 
+enum TTVFunctionName {
+    NUMBERS = 0,
+}
+
+// Every table function should have a scan range definition to save its running 
+// parameters
+struct TNumbersTVFScanRange {
+	1: optional i64 totalNumbers
+}
+
 // Specification of an individual data range which is held in its entirety
 // by a storage server
 struct TScanRange {
@@ -231,6 +242,7 @@ struct TScanRange {
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
   8: optional TExternalScanRange ext_scan_range
+  9: optional TNumbersTVFScanRange numbers_tvf_scan_range
 }
 
 struct TMySQLScanNode {
@@ -757,6 +769,11 @@ struct TRuntimeFilterDesc {
   9: optional i64 bloom_filter_size_bytes
 }
 
+struct TTableValuedFunctionScanNode {
+	1: optional Types.TTupleId tuple_id
+  	2: optional TTVFunctionName func_name
+}
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -808,6 +825,7 @@ struct TPlanNode {
 
   // output column
   42: optional list<Types.TSlotId> output_slot_ids
+  43: optional TTableValuedFunctionScanNode table_valued_func_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first
