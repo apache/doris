@@ -4160,6 +4160,17 @@ table_ref ::=
     s.setLateralViewRefs(lateralViewRefList);
     RESULT = s;
   :}
+  | table_function_ref:f
+  {:
+  	RESULT = f;
+  :}
+  ;
+
+table_function_ref ::=
+  ident:func_name LPAREN ident_list:param_list RPAREN opt_table_alias:alias
+  {:
+    RESULT = new TableFunctionRef(func_name, alias, param_list);
+  :}
   ;
 
 inline_view_ref ::=

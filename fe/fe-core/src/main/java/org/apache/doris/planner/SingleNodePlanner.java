@@ -44,6 +44,7 @@ import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableFunctionRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -1702,6 +1703,9 @@ public class SingleNodePlanner {
                 scanNode = new IcebergScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
                         null, -1);
                 break;
+            case TABLE_FUNCTION:
+            	scanNode = ((TableFunctionRef)tblRef).getTableFunction().getScanNode();
+            	break;
             default:
                 break;
         }

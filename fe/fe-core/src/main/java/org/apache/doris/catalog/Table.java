@@ -68,7 +68,8 @@ public class Table extends MetaObject implements Writable {
         BROKER,
         ELASTICSEARCH,
         HIVE,
-        ICEBERG
+        ICEBERG,
+        TABLE_FUNCTION
     }
 
     protected long id;

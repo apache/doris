@@ -1,0 +1,55 @@
+package org.apache.doris.analysis;
+
+import java.util.List;
+
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.UserException;
+import org.apache.doris.tablefunction.TableFunction;
+
+public class TableFunctionRef extends TableRef {
+    private static final Logger LOG = LogManager.getLogger(TableFunctionRef.class);
+
+    private Table table;
+    private TableFunction tableFunction;
+    
+	public TableFunctionRef(String funcName, String alias, List<String> params) {
+        super(null, alias);
+        this.tableFunction = TableFunction.getTableFunction(funcName, params);
+    }
+    
+    public TableFunctionRef(TableFunctionRef other) {
+        super(other);
+        this.tableFunction = other.tableFunction;
+    }
+
+    @Override
+    public TableRef clone() {
+        return new TableFunctionRef(this);
+    }
+
+    @Override
+    public TupleDescriptor createTupleDescriptor(Analyzer analyzer) {
+        TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
+        result.setTable(table);
+        return result;
+    }
+
+    /**
+     * Register this table ref and then analyze the Join clause.
+     */
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+    	if (isAnalyzed) return;
+    	// Table function could generate a table which will has columns
+    	// Maybe will call be during this process
+    	this.table = tableFunction.getTable();
+        desc = analyzer.registerTableRef(this);
+        isAnalyzed = true;  // true that we have assigned desc
+        analyzeJoin(analyzer);
+    }
+
+    public TableFunction getTableFunction() {
+		return tableFunction;
+	}
+
+}
