@@ -131,20 +131,23 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(schema, 1024, _parent_tracker));
+    _input_block.reset(new RowBlockV2(schema,
+            std::min(1024, read_context->batch_size), _parent_tracker));
 
-    // init input/output block and row
-    _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
+    if (!read_context->is_vec) {
+        // init input/output block and row
+        _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
 
-    RowBlockInfo output_block_info;
-    output_block_info.row_num = 1024;
-    output_block_info.null_supported = true;
-    // the output block's schema should be seek_columns to conform to v1
-    // TODO(hkp): this should be optimized to use return_columns
-    output_block_info.column_ids = *(_context->seek_columns);
-    _output_block->init(output_block_info);
-    _row.reset(new RowCursor());
-    RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
+        RowBlockInfo output_block_info;
+        output_block_info.row_num = std::min(1024, read_context->batch_size);
+        output_block_info.null_supported = true;
+        // the output block's schema should be seek_columns to conform to v1
+        // TODO(hkp): this should be optimized to use return_columns
+        output_block_info.column_ids = *(_context->seek_columns);
+        _output_block->init(output_block_info);
+        _row.reset(new RowCursor());
+        RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
+    }
 
     return OLAP_SUCCESS;
 }
@@ -211,7 +214,7 @@ OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
             }
         }
         is_first = false;
-    } while (block->rows() < _context->runtime_state->batch_size()); // here we should keep block.rows() < batch_size
+    } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
 
     return OLAP_SUCCESS;
 }

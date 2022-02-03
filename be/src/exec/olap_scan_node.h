@@ -160,7 +160,7 @@ protected:
                             RuntimeProfile* profile);
 
     friend class OlapScanner;
-    friend class doris::vectorized::VOlapScanner;
+    friend class vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
@@ -239,6 +239,7 @@ protected:
     SpinLock _status_mutex;
     Status _status;
     RuntimeState* _runtime_state;
+
     RuntimeProfile::Counter* _scan_timer;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
