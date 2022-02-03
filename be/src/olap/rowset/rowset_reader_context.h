@@ -61,6 +61,8 @@ struct RowsetReaderContext {
     RuntimeState* runtime_state = nullptr;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
+    int batch_size = 1024;
+    bool is_vec = false;
 };
 
 } // namespace doris

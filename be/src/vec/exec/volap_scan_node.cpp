@@ -62,12 +62,19 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     _total_assign_num = 0;
     _nice = 18 + std::max(0, 2 - (int)_volap_scanners.size() / 5);
 
-    auto block_per_scanner = (config::doris_scanner_row_num + (state->batch_size() - 1)) / state->batch_size();
-    for (int i = 0; i < _volap_scanners.size() * block_per_scanner; ++i) {
+    auto doris_scanner_row_num = _limit == -1 ? config::doris_scanner_row_num :
+            std::min(static_cast<int64_t>(config::doris_scanner_row_num), _limit);
+    auto block_size = _limit == -1 ? state->batch_size() :
+            std::min(static_cast<int64_t>(state->batch_size()), _limit);
+    auto block_per_scanner = (doris_scanner_row_num + (block_size - 1)) / block_size;
+    auto pre_block_count =
+            std::min(_volap_scanners.size(), static_cast<size_t>(config::doris_scanner_thread_pool_thread_num)) * block_per_scanner;
+
+    for (int i = 0; i < pre_block_count; ++i) {
         auto block = new Block;
         for (const auto slot_desc : _tuple_desc->slots()) {
             auto column_ptr = slot_desc->get_empty_mutable_column();
-            column_ptr->reserve(state->batch_size());
+            column_ptr->reserve(block_size);
             block->insert(ColumnWithTypeAndName(std::move(column_ptr),
                                                     slot_desc->get_data_type_ptr(),
                                                     slot_desc->col_name()));
@@ -240,16 +247,11 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             _scan_blocks.insert(_scan_blocks.end(), blocks.begin(), blocks.end());
         }
         // If eos is true, we will process out of this lock block.
-        if (!eos) {
-            std::lock_guard<std::mutex> l(_volap_scanners_lock);
-            _volap_scanners.push_front(scanner);
-        }
+        if (eos) { scanner->mark_to_need_to_close(); }
+        std::lock_guard<std::mutex> l(_volap_scanners_lock);
+        _volap_scanners.push_front(scanner);
     }
     if (eos) {
-        // close out of blocks lock. we do this before _progress update
-        // that can assure this object can keep live before we finish.
-        scanner->close(_runtime_state);
-
         std::lock_guard<std::mutex> l(_scan_blocks_lock);
         _progress.update(1);
         if (_progress.done()) {
@@ -520,18 +522,26 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         size_t thread_slot_num = 0;
         {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
-            thread_slot_num = (_free_blocks.size() - (assigned_thread_num * block_per_scanner)) / block_per_scanner;
+            thread_slot_num = _free_blocks.size() / block_per_scanner;
+            thread_slot_num += (_free_blocks.size() % block_per_scanner != 0);
             if (thread_slot_num == 0) thread_slot_num++;
         }
 
         {
             std::lock_guard<std::mutex> l(_volap_scanners_lock);
             thread_slot_num = std::min(thread_slot_num, _volap_scanners.size());
-            for (int i = 0; i < thread_slot_num; ++i) {
-                olap_scanners.push_back(_volap_scanners.front());
+            for (int i = 0; i < thread_slot_num && !_volap_scanners.empty();) {
+                auto scanner = _volap_scanners.front();
                 _volap_scanners.pop_front();
-                _running_thread++;
-                assigned_thread_num++;
+
+                if (scanner->need_to_close())
+                    scanner->close(state);
+                else {
+                    olap_scanners.push_back(scanner);
+                    _running_thread++;
+                    assigned_thread_num++;
+                    i++;
+                }
             }
         }
     }
