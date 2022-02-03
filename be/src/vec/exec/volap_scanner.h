@@ -36,19 +36,25 @@ public:
                  bool need_agg_finalize, const TPaloScanRange& scan_range);
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eof);
-    Status get_batch(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+
+    Status get_batch(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
         return Status::NotSupported("Not Implemented VOlapScanNode Node::get_next scalar");
     }
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
 
+    void mark_to_need_to_close() { _need_to_close = true; }
+
+    bool need_to_close() { return _need_to_close; }
+
 protected:
-    virtual void set_tablet_reader() { _tablet_reader = std::make_unique<BlockReader>(); }
+    virtual void set_tablet_reader() override;
 
 private:
     // TODO: Remove this function after we finish reader vec
     void _convert_row_to_block(std::vector<vectorized::MutableColumnPtr>* columns);
     VExprContext* _vconjunct_ctx = nullptr;
+    bool _need_to_close = false;
 };
 
 } // namespace vectorized

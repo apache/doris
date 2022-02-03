@@ -323,6 +323,7 @@ void ColumnString::replicate(const uint32_t* counts, size_t target_size, IColumn
 
 void ColumnString::reserve(size_t n) {
     offsets.reserve(n);
+    chars.reserve(n);
 }
 
 void ColumnString::resize(size_t n) {

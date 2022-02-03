@@ -19,6 +19,8 @@
 
 #include <memory>
 
+#include "runtime/runtime_state.h"
+
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -67,6 +69,10 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
 
     return Status::OK();
+}
+
+void VOlapScanner::set_tablet_reader() {
+    _tablet_reader = std::make_unique<BlockReader>();
 }
 
 void VOlapScanner::_convert_row_to_block(std::vector<vectorized::MutableColumnPtr>* columns) {

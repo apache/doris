@@ -50,6 +50,8 @@ OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
         return res;
     }
 
+    _reader_context.batch_size = _batch_size;
+    _reader_context.is_vec = true;
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         OLAPStatus res = _vcollect_iter.add_child(rs_reader);
@@ -76,8 +78,8 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         return;
     }
 
-    _stored_data_block = _next_row.block->create_same_struct_block(_batch_size);
-    _stored_data_columns = _stored_data_block->mutate_columns();
+    _stored_data_columns =
+            _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
@@ -102,7 +104,6 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
                 _next_row.block->get_data_type(idx)->is_nullable());
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
-
         // create aggregate data
         AggregateDataPtr place = new char[function->size_of_data()];
         function->create(place);
@@ -120,7 +121,6 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
 OLAPStatus BlockReader::init(const ReaderParams& read_params) {
     TabletReader::init(read_params);
-    _batch_size = read_params.runtime_state->batch_size();
 
     auto return_column_size =
             read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);
@@ -231,6 +231,7 @@ OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, Obj
     _merged_rows += target_block_row;
     return OLAP_SUCCESS;
 }
+
 OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
                                                ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_eof)) {
