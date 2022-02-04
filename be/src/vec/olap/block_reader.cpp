@@ -314,7 +314,7 @@ size_t BlockReader::_copy_agg_data() {
 
     for (size_t i = 0; i < copy_size; i++) {
         auto& ref = _stored_row_ref[i];
-        _temp_ref_map[ref.block].emplace_back(ref.row_pos, i);
+        _temp_ref_map[ref.block.get()].emplace_back(ref.row_pos, i);
     }
 
     for (auto idx : _agg_columns_idx) {
