@@ -17,8 +17,6 @@
 
 package org.apache.doris.tablefunction;
 
-import java.util.List;
-
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
@@ -27,24 +25,26 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
+import java.util.List;
+
 public abstract class TableFunction {
 
-	public abstract String getTableName();
+    public abstract String getTableName();
+
+    public abstract List<Column> getTableColumns();
 	
-	public abstract List<Column> getTableColumns();
-	
-	public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
-	
-	public Table getTable() {
-		Table table = new Table(-1, getTableName(), TableType.TABLE_FUNCTION, getTableColumns());
-		return table;
-	}
-	
-	// All table functions should be registered here
-	public static TableFunction getTableFunction(String funcName, List<String> params) throws UserException {
-		if (funcName.equalsIgnoreCase(TableFunctionNumbers.NAME)) {
-			return new TableFunctionNumbers(params);
-		}
-		throw new UserException("Could not find table function " + funcName);
+    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
+
+    public Table getTable() {
+        Table table = new Table(-1, getTableName(), TableType.TABLE_FUNCTION, getTableColumns());
+        return table;
+    }
+
+    // All table functions should be registered here
+    public static TableFunction getTableFunction(String funcName, List<String> params) throws UserException {
+        if (funcName.equalsIgnoreCase(TableFunctionNumbers.NAME)) {
+            return new TableFunctionNumbers(params);
+        }
+        throw new UserException("Could not find table function " + funcName);
 	}
 }

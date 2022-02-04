@@ -17,24 +17,25 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
-
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
 import org.apache.doris.tablefunction.TableFunction;
+
+import java.util.List;
 
 public class TableFunctionRef extends TableRef {
 
     private Table table;
     private TableFunction tableFunction;
-    
-	public TableFunctionRef(String funcName, String alias, List<String> params) throws UserException {
+
+    public TableFunctionRef(String funcName, String alias, List<String> params) throws UserException {
         super(new TableName(null, "#table_function#" + funcName), alias);
         this.tableFunction = TableFunction.getTableFunction(funcName, params);
-        if (hasExplicitAlias()) return;
+        if (hasExplicitAlias())
+            return;
         aliases_ = new String[] { "#table_function#" + funcName };
     }
-    
+
     public TableFunctionRef(TableFunctionRef other) {
         super(other);
         this.tableFunction = other.tableFunction;
@@ -57,17 +58,18 @@ public class TableFunctionRef extends TableRef {
      */
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-    	if (isAnalyzed) return;
-    	// Table function could generate a table which will has columns
-    	// Maybe will call be during this process
-    	this.table = tableFunction.getTable();
+        if (isAnalyzed)
+            return;
+        // Table function could generate a table which will has columns
+        // Maybe will call be during this process
+        this.table = tableFunction.getTable();
         desc = analyzer.registerTableRef(this);
-        isAnalyzed = true;  // true that we have assigned desc
+        isAnalyzed = true; // true that we have assigned desc
         analyzeJoin(analyzer);
     }
 
     public TableFunction getTableFunction() {
-		return tableFunction;
-	}
+        return tableFunction;
+    }
 
 }

@@ -17,9 +17,6 @@
 
 package org.apache.doris.tablefunction;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
@@ -27,42 +24,46 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
+import java.util.ArrayList;
+import java.util.List;
+
 // Table function that generate int64 numbers
 // have a single column number
 public class TableFunctionNumbers extends TableFunction {
 
-	public static final String NAME = "numbers";
-	
-	private static final String SCANNODE_NAME = "NUMBERS";
-	
-	private long totalNumbers;
-	private int tabletsNum = 1;
-	
-	public TableFunctionNumbers(List<String> params) throws UserException {
-		if (params.size() < 1 || params.size() > 2) {
-			throw new UserException("numbers table function only support numbers(10000 /*total numbers*/) or numbers(10000, 2 /*number of tablets to run*/)");
-		}
-		totalNumbers = Long.parseLong(params.get(0));
-		if (params.size() == 2) {
-			tabletsNum = Integer.parseInt(params.get(1));
-		}
-	}
+    public static final String NAME = "numbers";
 
-	@Override
-	public String getTableName() {
-		return "TableFunctionNumbers";
-	}
+    private static final String SCANNODE_NAME = "NUMBERS";
 
-	@Override
-	public List<Column> getTableColumns() {
-		List<Column> resColumns = new ArrayList<>();
-		resColumns.add(new Column("number", PrimitiveType.BIGINT, false));
-		return resColumns;
-	}
+    private long totalNumbers;
+    private int tabletsNum = 1;
 
-	@Override
-	public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-		return new TableFunctionNumbersScanNode(id, desc, SCANNODE_NAME, totalNumbers, tabletsNum);
-	}
+    public TableFunctionNumbers(List<String> params) throws UserException {
+        if (params.size() < 1 || params.size() > 2) {
+            throw new UserException(
+                    "numbers table function only support numbers(10000 /*total numbers*/) or numbers(10000, 2 /*number of tablets to run*/)");
+        }
+        totalNumbers = Long.parseLong(params.get(0));
+        if (params.size() == 2) {
+            tabletsNum = Integer.parseInt(params.get(1));
+        }
+    }
+
+    @Override
+    public String getTableName() {
+        return "TableFunctionNumbers";
+    }
+
+    @Override
+    public List<Column> getTableColumns() {
+        List<Column> resColumns = new ArrayList<>();
+        resColumns.add(new Column("number", PrimitiveType.BIGINT, false));
+        return resColumns;
+    }
+
+    @Override
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+        return new TableFunctionNumbersScanNode(id, desc, SCANNODE_NAME, totalNumbers, tabletsNum);
+    }
 
 }
