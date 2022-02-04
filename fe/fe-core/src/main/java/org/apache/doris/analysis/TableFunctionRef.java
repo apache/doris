@@ -24,14 +24,15 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.tablefunction.TableFunction;
 
 public class TableFunctionRef extends TableRef {
-    private static final Logger LOG = LogManager.getLogger(TableFunctionRef.class);
 
     private Table table;
     private TableFunction tableFunction;
     
-	public TableFunctionRef(String funcName, String alias, List<String> params) {
-        super(null, alias);
+	public TableFunctionRef(String funcName, String alias, List<String> params) throws UserException {
+        super(new TableName(null, "#table_function#" + funcName), alias);
         this.tableFunction = TableFunction.getTableFunction(funcName, params);
+        if (hasExplicitAlias()) return;
+        aliases_ = new String[] { "#table_function#" + funcName };
     }
     
     public TableFunctionRef(TableFunctionRef other) {

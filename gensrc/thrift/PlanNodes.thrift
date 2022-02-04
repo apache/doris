@@ -52,6 +52,7 @@ enum TPlanNodeType {
   EXCEPT_NODE,
   ODBC_SCAN_NODE,
   TABLE_FUNCTION_NODE,
+  NUMBERS_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -741,6 +742,11 @@ struct TRuntimeFilterDesc {
   9: optional i64 bloom_filter_size_bytes
 }
 
+struct TNumbersScanNode {
+  	1: optional Types.TTupleId tuple_id
+	2: optional i64 totalNumbers
+}
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -789,6 +795,7 @@ struct TPlanNode {
   40: optional Exprs.TExpr vconjunct
 
   41: optional TTableFunctionNode table_function_node
+  42: optional TNumbersScanNode numbers_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -396,6 +396,7 @@ nonterminal WithClause opt_with_clause;
 nonterminal ArrayList<View> with_view_def_list;
 nonterminal View with_view_def;
 nonterminal Subquery subquery;
+nonterminal TableFunctionRef table_function_ref;
 nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
@@ -4167,7 +4168,7 @@ table_ref ::=
   ;
 
 table_function_ref ::=
-  ident:func_name LPAREN ident_list:param_list RPAREN opt_table_alias:alias
+  ident:func_name LPAREN string_list:param_list RPAREN opt_table_alias:alias
   {:
     RESULT = new TableFunctionRef(func_name, alias, param_list);
   :}

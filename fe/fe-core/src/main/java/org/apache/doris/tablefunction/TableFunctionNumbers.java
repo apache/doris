@@ -20,8 +20,11 @@ package org.apache.doris.tablefunction;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.UserException;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
 // Table function that generate int64 numbers
@@ -30,8 +33,19 @@ public class TableFunctionNumbers extends TableFunction {
 
 	public static final String NAME = "numbers";
 	
-	public TableFunctionNumbers(List<String> params) {
-		// Only have a single parameter Number of rows to generate
+	private static final String SCANNODE_NAME = "NUMBERS";
+	
+	private long totalNumbers;
+	private int tabletsNum = 1;
+	
+	public TableFunctionNumbers(List<String> params) throws UserException {
+		if (params.size() < 1 || params.size() > 2) {
+			throw new UserException("numbers table function only support numbers(10000 /*total numbers*/) or numbers(10000, 2 /*number of tablets to run*/)");
+		}
+		totalNumbers = Long.parseLong(params.get(0));
+		if (params.size() == 2) {
+			tabletsNum = Integer.parseInt(params.get(1));
+		}
 	}
 
 	@Override
@@ -47,9 +61,8 @@ public class TableFunctionNumbers extends TableFunction {
 	}
 
 	@Override
-	public ScanNode getScanNode() {
-		// TODO Auto-generated method stub
-		return null;
+	public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+		return new TableFunctionNumbersScanNode(id, desc, SCANNODE_NAME, totalNumbers, tabletsNum);
 	}
 
 }

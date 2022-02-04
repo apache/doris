@@ -1704,7 +1704,7 @@ public class SingleNodePlanner {
                         null, -1);
                 break;
             case TABLE_FUNCTION:
-            	scanNode = ((TableFunctionRef)tblRef).getTableFunction().getScanNode();
+            	scanNode = ((TableFunctionRef)tblRef).getTableFunction().getScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
             	break;
             default:
                 break;
@@ -1873,9 +1873,10 @@ public class SingleNodePlanner {
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException {
         PlanNode scanNode = null;
-        if (tblRef instanceof BaseTableRef) {
+        if (tblRef instanceof BaseTableRef || tblRef instanceof TableFunctionRef) {
             scanNode = createScanNode(analyzer, tblRef, selectStmt);
         }
+        
         if (tblRef instanceof InlineViewRef) {
             scanNode = createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
         }
@@ -2156,8 +2157,8 @@ public class SingleNodePlanner {
      * @param analyzer
      */
     private void materializeTableResultForCrossJoinOrCountStar(TableRef tblRef, Analyzer analyzer) {
-        if (tblRef instanceof BaseTableRef) {
-            materializeSlotForEmptyMaterializedTableRef((BaseTableRef) tblRef, analyzer);
+        if (tblRef instanceof BaseTableRef || tblRef instanceof TableFunctionRef) {
+            materializeSlotForEmptyMaterializedTableRef(tblRef, analyzer);
         } else if (tblRef instanceof InlineViewRef) {
             materializeInlineViewResultExprForCrossJoinOrCountStar((InlineViewRef) tblRef, analyzer);
         } else {
@@ -2183,7 +2184,7 @@ public class SingleNodePlanner {
      * @param tblRef
      * @param analyzer
      */
-    private void materializeSlotForEmptyMaterializedTableRef(BaseTableRef tblRef, Analyzer analyzer) {
+    private void materializeSlotForEmptyMaterializedTableRef(TableRef tblRef, Analyzer analyzer) {
         if (tblRef.getDesc().getMaterializedSlots().isEmpty()) {
             Column minimuColumn = null;
             for (Column col : tblRef.getTable().getBaseSchema()) {
