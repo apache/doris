@@ -86,7 +86,7 @@ private:
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
     VCollectIterator _vcollect_iter;
-    IteratorRowRef _next_row {nullptr, -1, false};
+    IteratorRowRef _next_row {{}, -1, false};
 
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;

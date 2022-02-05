@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/olap/vcollect_iterator.h"
+#include <memory>
 
 #include "olap/rowset/beta_rowset_reader.h"
 
@@ -163,8 +164,8 @@ OLAPStatus VCollectIterator::next(Block* block) {
 VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
-    _block = _schema.create_block(_reader->_return_columns);
-    _ref.block = &_block;
+    _block = std::make_shared<Block>(_schema.create_block(_reader->_return_columns));
+    _ref.block = _block;
     _ref.row_pos = 0;
     _ref.is_same = false;
 }
@@ -179,18 +180,18 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 
 OLAPStatus VCollectIterator::Level0Iterator::_refresh_current_row() {
     do {
-        if (_block.rows() != 0 && _ref.row_pos < _block.rows()) {
+        if (_block->rows() != 0 && _ref.row_pos < _block->rows()) {
             return OLAP_SUCCESS;
         } else {
             _ref.is_same = false;
             _ref.row_pos = 0;
-            _block.clear_column_data();
-            auto res = _rs_reader->next_block(&_block);
+            _block->clear_column_data();
+            auto res = _rs_reader->next_block(_block.get());
             if (res != OLAP_SUCCESS) {
                 return res;
             }
         }
-    } while (_block.rows() != 0);
+    } while (_block->rows() != 0);
     _ref.row_pos = -1;
     return OLAP_ERR_DATA_EOF;
 }
@@ -323,7 +324,8 @@ OLAPStatus VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
         return _merge_next(ref);
     }
 
-    *ref = _ref = *_cur_child->current_row_ref();
+    _ref = *_cur_child->current_row_ref();
+    *ref = _ref;
 
     _cur_child->set_same(false);
 
@@ -341,9 +343,7 @@ OLAPStatus VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
         _children.pop_front();
         if (!_children.empty()) {
             _cur_child = *(_children.begin());
-            auto result = _cur_child->next(ref);
-            _ref = *ref;
-            return result;
+            return _normal_next(ref);
         } else {
             _cur_child = nullptr;
             return OLAP_ERR_DATA_EOF;

@@ -35,7 +35,7 @@ class TabletSchema;
 namespace vectorized {
 
 struct IteratorRowRef {
-    const Block* block;
+    std::shared_ptr<Block> block;
     int16_t row_pos;
     bool is_same;
 };
@@ -137,7 +137,7 @@ private:
 
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
-        Block _block;
+        std::shared_ptr<Block> _block;
     };
 
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
