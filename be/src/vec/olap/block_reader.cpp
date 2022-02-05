@@ -266,7 +266,7 @@ OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
 }
 
 void BlockReader::_insert_data_normal(MutableColumns& columns) {
-    auto block = _next_row.block;
+    auto block = _next_row.block.get();
     for (auto idx : _normal_columns_idx) {
         columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column,
                                                        _next_row.row_pos);
@@ -328,9 +328,11 @@ size_t BlockReader::_copy_agg_data() {
             }
         } else {
             for (auto& it : _temp_ref_map) {
-                auto& src_column = *it.first->get_by_position(idx).column;
-                for (auto& pos : it.second) {
-                    dst_column->replace_column_data(src_column, pos.first, pos.second);
+                if (!it.second.empty()) {
+                    auto& src_column = *it.first->get_by_position(idx).column;
+                    for (auto &pos : it.second) {
+                        dst_column->replace_column_data(src_column, pos.first, pos.second);
+                    }
                 }
             }
         }
