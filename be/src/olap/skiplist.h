@@ -75,6 +75,7 @@ public:
     void InsertWithHint(const Key& key, bool is_exist, Hint* hint);
 
     // Returns true iff an entry that compares equal to key is in the list.
+    // Contains only used by skiplist_test.cpp
     bool Contains(const Key& key) const;
     // Like Contains(), but it will return the position info as a hint. We can use this
     // position info to insert directly using InsertWithHint().
