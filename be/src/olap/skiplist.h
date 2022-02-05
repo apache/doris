@@ -134,9 +134,6 @@ private:
 
     inline int GetMaxHeight() const { return max_height_.load(std::memory_order_relaxed); }
 
-    // Read/written only by Insert().
-    Random rnd_;
-
     Node* NewNode(const Key& key, int height);
     int RandomHeight();
     bool Equal(const Key& a, const Key& b) const { return ((*compare_)(a, b) == 0); }
@@ -263,10 +260,15 @@ inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
 
 template <typename Key, class Comparator>
 int SkipList<Key, Comparator>::RandomHeight() {
+    auto rnd = Random::GetTLSInstance();
+    
     // Increase height with probability 1 in kBranching
-    static const unsigned int kBranching = 4;
+    static const uint16_t kBranching = 4;
+    static const uint32_t kScaledInverseBranching = (Random::kMaxNext + 1) / kBranching;
+    DCHECK(kScaledInverseBranching > 0);
+    
     int height = 1;
-    while (height < kMaxHeight && ((rnd_.Next() % kBranching) == 0)) {
+    while (height < kMaxHeight && rnd->Next() < kScaledInverseBranching) {
         height++;
     }
     DCHECK(height > 0);
@@ -348,8 +350,7 @@ SkipList<Key, Comparator>::SkipList(Comparator* cmp, MemPool* mem_pool, bool can
           _can_dup(can_dup),
           _mem_pool(mem_pool),
           head_(NewNode(0 /* any key will do */, kMaxHeight)),
-          max_height_(1),
-          rnd_(0xdeadbeef) {
+          max_height_(1) {
     for (int i = 0; i < kMaxHeight; i++) {
         head_->SetNext(i, nullptr);
     }
