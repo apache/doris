@@ -68,6 +68,10 @@ public:
     // NOTE: Objects allocated in the mem_pool must remain allocated for
     // the lifetime of the skiplist object.
     explicit SkipList(Comparator* cmp, MemPool* mem_pool, bool can_dup);
+    
+    // No copying allowed
+    SkipList(const SkipList&) = delete;
+    void operator=(const SkipList&) = delete;
 
     // Insert key into the list.
     void Insert(const Key& key, bool* overwritten);
@@ -156,10 +160,6 @@ private:
     // Return the last node in the list.
     // Return head_ if list is empty.
     Node* FindLast() const;
-
-    // No copying allowed
-    SkipList(const SkipList&);
-    void operator=(const SkipList&);
 };
 
 // Implementation details follow
