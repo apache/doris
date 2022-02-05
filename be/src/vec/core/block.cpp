@@ -780,7 +780,7 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
         auto column_ptr = get_by_position(column_offset + i).column;
         auto data_ref = column_ptr->get_data_at(row);
 
-        if (data_ref.size == 0) {
+        if (data_ref.data == nullptr) {
             dst->set_null(slot_desc->null_indicator_offset());
             continue;
         } else {
