@@ -28,14 +28,9 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。
+Flink Doris Connector 可以支持通过 Flink 读写 Doris 中存储的数据。
 
 * 可以将`Doris`表映射为`DataStream`或者`Table`。
-
->**注意：**
->
->1. 修改和删除只支持在Unique Key模型上
->2. 目前的删除是支持Flink CDC的方式接入数据实现自动删除，如果是其他数据接入的方式删除需要自己实现。Flink CDC的数据删除使用方式参照本文档最后一节
 
 ## 版本兼容
 
