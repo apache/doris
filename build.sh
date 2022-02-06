@@ -222,9 +222,12 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     if [ ${CLEAN} -eq 1 ]; then
         clean_be
     fi
+    MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+    echo "-- Make program: ${MAKE_PROGRAM}"
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
     ${CMAKE_CMD} -G "${GENERATOR}"  \
+            -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
             -DMAKE_TEST=OFF \
