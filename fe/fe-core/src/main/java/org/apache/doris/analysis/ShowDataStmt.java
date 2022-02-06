@@ -225,7 +225,7 @@ public class ShowDataStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(),
-                        tableName);
+                        dbName + ": " + tableName);
             }
 
             OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);

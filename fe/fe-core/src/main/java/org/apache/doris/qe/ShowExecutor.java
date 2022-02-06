@@ -1133,7 +1133,7 @@ public class ShowExecutor {
                                                         "SHOW LOAD WARNING",
                                                         ConnectContext.get().getQualifiedUser(),
                                                         ConnectContext.get().getRemoteIP(),
-                                                        tblName);
+                                                        db.getFullName() + ": " + tblName);
                 }
             }
         }
@@ -1290,7 +1290,7 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                tableName);
+                                                dbFullName + ": " + tableName);
         }
 
         // get routine load task info

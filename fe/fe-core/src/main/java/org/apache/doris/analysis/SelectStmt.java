@@ -322,7 +322,7 @@ public class SelectStmt extends QueryStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                             ConnectContext.get().getQualifiedUser(),
                             ConnectContext.get().getRemoteIP(),
-                            tblRef.getName().getTbl());
+                            dbName + ": " + tableName);
                 }
                 tableMap.put(table.getId(), table);
             }
