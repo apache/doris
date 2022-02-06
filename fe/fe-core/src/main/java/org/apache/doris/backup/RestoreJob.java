@@ -790,6 +790,7 @@ public class RestoreJob extends AbstractJob {
                             + " has been dropped");
                     return;
                 }
+                tbl.writeLock();
                 try {
                     if (!db.createTable(tbl)) {
                         status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
@@ -797,6 +798,7 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 } finally {
+                    tbl.writeUnlock();
                     db.writeUnlock();
                 }
             }
@@ -1115,9 +1117,11 @@ public class RestoreJob extends AbstractJob {
         // restored tables
         for (Table restoreTbl : restoredTbls) {
             db.writeLock();
+            restoreTbl.writeLock();
             try {
                 db.createTable(restoreTbl);
             } finally {
+                restoreTbl.writeUnlock();
                 db.writeUnlock();
             }
             if (restoreTbl.getType() != TableType.OLAP) {
@@ -1572,7 +1576,6 @@ public class RestoreJob extends AbstractJob {
                                     }
                                 }
                                 db.dropTable(restoreTbl.getName());
-                                restoreTbl.markDropped();
                             } finally {
                                 restoreTbl.writeUnlock();
                             }
@@ -1590,11 +1593,11 @@ public class RestoreJob extends AbstractJob {
                 if (restoreTbl == null) {
                     continue;
                 }
-                LOG.info("remove restored partition in table {} when cancelled: {}",
-                        restoreTbl.getName(), entry.second.getName());
                 if (!restoreTbl.writeLockIfExist()) {
                     continue;
                 }
+                LOG.info("remove restored partition in table {} when cancelled: {}",
+                        restoreTbl.getName(), entry.second.getName());
                 try {
                     restoreTbl.dropPartition(dbId, entry.second.getName(), true /* force drop */);
                 } finally {

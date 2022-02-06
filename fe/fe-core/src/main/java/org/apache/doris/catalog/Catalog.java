@@ -2760,7 +2760,7 @@ public class Catalog {
 
                 // save table names for recycling
                 Set<String> tableNames = db.getTableNamesWithLock();
-                List<Table> tableList = db.getTables();
+                List<Table> tableList = db.getTablesOnIdOrder();
                 MetaLockUtils.writeLockTables(tableList);
                 try {
                     if (!stmt.isForceDrop()) {
@@ -2837,7 +2837,7 @@ public class Catalog {
             db.writeLock();
             try {
                 Set<String> tableNames = db.getTableNamesWithLock();
-                List<Table> tableList = db.getTables();
+                List<Table> tableList = db.getTablesOnIdOrder();
                 MetaLockUtils.writeLockTables(tableList);
                 try {
                     unprotectDropDb(db, isForceDrop, true);
@@ -2874,6 +2874,9 @@ public class Catalog {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
+        db.writeLock();
+        List<Table> tableList = db.getTablesOnIdOrder();
+        MetaLockUtils.writeLockTables(tableList);
         try {
             if (fullNameToDb.containsKey(db.getFullName())) {
                 throw new DdlException("Database[" + db.getFullName() + "] already exist.");
@@ -2890,10 +2893,9 @@ public class Catalog {
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L);
             editLog.logRecoverDb(recoverInfo);
             db.unmarkDropped();
-            for (Table table : db.getTables()) {
-                table.unmarkDropped();
-            }
         } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+            db.writeUnlock();
             unlock();
         }
 
@@ -4697,7 +4699,6 @@ public class Catalog {
         }
 
         db.dropTable(table.getName());
-        table.markDropped();
         if (!isForceDrop) {
             Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
         } else {
@@ -5452,16 +5453,16 @@ public class Catalog {
         db.writeLock();
         try {
             Table table = db.getTableOrMetaException(tableId);
-            String tableName = table.getName();
-            db.dropTable(tableName);
             table.writeLock();
             try {
+                String tableName = table.getName();
+                db.dropTable(tableName);
                 table.setName(newTableName);
+                db.createTable(table);
+                LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();
             }
-            db.createTable(table);
-            LOG.info("replay rename table[{}] to {}", tableName, newTableName);
         } finally {
             db.writeUnlock();
         }

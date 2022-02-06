@@ -369,6 +369,7 @@ public class Database extends MetaObject implements Writable {
             nameToTable.put(table.getName(), table);
             lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
         }
+        table.unmarkDropped();
         return result;
     }
 
@@ -381,6 +382,7 @@ public class Database extends MetaObject implements Writable {
             this.nameToTable.remove(tableName);
             this.idToTable.remove(table.getId());
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            table.markDropped();
         }
     }
 

@@ -74,7 +74,7 @@ public class TableRowCountAction extends RestBaseController {
                 resultMap.put("status", 200);
                 resultMap.put("size", olapTable.proximateRowCount());
             } finally {
-                olapTable.readLock();
+                olapTable.readUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

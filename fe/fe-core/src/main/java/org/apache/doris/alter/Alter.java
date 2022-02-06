@@ -306,14 +306,15 @@ public class Alter {
     }
 
     public void processModifyEngine(Database db, Table externalTable, ModifyEngineClause clause) throws DdlException {
-        if (externalTable.getType() != TableType.MYSQL) {
-            throw new DdlException("Only support modify table engine from MySQL to ODBC");
+        externalTable.writeLockOrDdlException();
+        try {
+            if (externalTable.getType() != TableType.MYSQL) {
+                throw new DdlException("Only support modify table engine from MySQL to ODBC");
+            }
+            processModifyEngineInternal(db, externalTable, clause.getProperties(), false);
+        } finally {
+            externalTable.writeUnlock();
         }
-
-        processModifyEngineInternal(db, externalTable, clause.getProperties());
-        ModifyTableEngineOperationLog log = new ModifyTableEngineOperationLog(db.getId(),
-                externalTable.getId(), clause.getProperties());
-        Catalog.getCurrentCatalog().getEditLog().logModifyTableEngine(log);
         LOG.info("modify table {}'s engine from MySQL to ODBC", externalTable.getName());
     }
 
@@ -326,10 +327,15 @@ public class Alter {
         if (mysqlTable == null) {
             return;
         }
-        processModifyEngineInternal(db, mysqlTable, log.getProperties());
+        mysqlTable.writeLock();
+        try {
+            processModifyEngineInternal(db, mysqlTable, log.getProperties(), true);
+        } finally {
+            mysqlTable.writeUnlock();
+        }
     }
 
-    private void processModifyEngineInternal(Database db, Table externalTable, Map<String, String> prop) {
+    private void processModifyEngineInternal(Database db, Table externalTable, Map<String, String> prop, boolean isReplay) {
         MysqlTable mysqlTable = (MysqlTable) externalTable;
         Map<String, String> newProp = Maps.newHashMap(prop);
         newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
@@ -348,8 +354,18 @@ public class Alter {
             LOG.warn("Should not happen", e);
             return;
         }
-        db.dropTable(mysqlTable.getName());
-        db.createTable(odbcTable);
+        odbcTable.writeLock();
+        try {
+            db.dropTable(mysqlTable.getName());
+            db.createTable(odbcTable);
+            if (!isReplay) {
+                ModifyTableEngineOperationLog log = new ModifyTableEngineOperationLog(db.getId(),
+                        externalTable.getId(), prop);
+                Catalog.getCurrentCatalog().getEditLog().logModifyTableEngine(log);
+            }
+        } finally {
+            odbcTable.writeUnlock();
+        }
     }
 
     public void processAlterTable(AlterTableStmt stmt) throws UserException {
@@ -423,7 +439,7 @@ public class Alter {
             OlapTable olapNewTbl = (OlapTable) newTbl;
             List<Table> tableList = Lists.newArrayList(origTable, newTbl);
             tableList.sort((Comparator.comparing(Table::getId)));
-            MetaLockUtils.writeLockTables(tableList);
+            MetaLockUtils.writeLockTablesOrMetaException(tableList);
             try {
                 String oldTblName = origTable.getName();
                 // First, we need to check whether the table to be operated on can be renamed
@@ -452,11 +468,15 @@ public class Alter {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
         OlapTable origTable = db.getTableOrMetaException(origTblId, TableType.OLAP);
         OlapTable newTbl = db.getTableOrMetaException(newTblId, TableType.OLAP);
-
+        List<Table> tableList = Lists.newArrayList(origTable, newTbl);
+        tableList.sort((Comparator.comparing(Table::getId)));
+        MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
             replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true);
         } catch (DdlException e) {
             LOG.warn("should not happen", e);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
         }
         LOG.info("finish replay replacing table {} with table {}, is swap: {}", origTblId, newTblId, log.isSwapTable());
     }
@@ -496,7 +516,6 @@ public class Alter {
         } else {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             Catalog.getCurrentCatalog().onEraseOlapTable(origTable, isReplay);
-            origTable.markDropped();
         }
     }
 
