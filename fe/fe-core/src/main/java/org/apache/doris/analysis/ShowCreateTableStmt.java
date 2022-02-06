@@ -83,7 +83,7 @@ public class ShowCreateTableStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                tbl.getTbl());
+                                                tbl.getDb() + ": " + tbl.getTbl());
         }
     }
 

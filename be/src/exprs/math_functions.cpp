@@ -27,8 +27,8 @@
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
 #include "runtime/decimalv2_value.h"
-#include "util/string_parser.hpp"
 #include "util/simd/vstring_function.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -106,6 +106,11 @@ DoubleVal MathFunctions::e(FunctionContext* ctx) {
     return DoubleVal(M_E);
 }
 
+// libc++ did not have std::abs for int128
+__int128_t largeint_abs(__int128_t x) {
+    return x > 0 ? x : -x;
+}
+
 DecimalV2Val MathFunctions::abs(FunctionContext* ctx, const doris_udf::DecimalV2Val& val) {
     if (val.is_null) {
         return DecimalV2Val::null();
@@ -113,7 +118,7 @@ DecimalV2Val MathFunctions::abs(FunctionContext* ctx, const doris_udf::DecimalV2
     if (UNLIKELY(val.val == MIN_INT128)) {
         return DecimalV2Val::null();
     } else {
-        return DecimalV2Val(::abs(val.val));
+        return DecimalV2Val(largeint_abs(val.val));
     }
 }
 
@@ -124,7 +129,7 @@ LargeIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::LargeIntVa
     if (UNLIKELY(val.val == MIN_INT128)) {
         return LargeIntVal::null();
     } else {
-        return LargeIntVal(::abs(val.val));
+        return LargeIntVal(largeint_abs(val.val));
     }
 }
 
@@ -132,28 +137,28 @@ LargeIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::BigIntVal&
     if (val.is_null) {
         return LargeIntVal::null();
     }
-    return LargeIntVal(::abs(__int128(val.val)));
+    return LargeIntVal(largeint_abs(__int128(val.val)));
 }
 
 BigIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::IntVal& val) {
     if (val.is_null) {
         return BigIntVal::null();
     }
-    return BigIntVal(::abs(int64_t(val.val)));
+    return BigIntVal(std::abs(int64_t(val.val)));
 }
 
 IntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::SmallIntVal& val) {
     if (val.is_null) {
         return IntVal::null();
     }
-    return IntVal(::abs(int32_t(val.val)));
+    return IntVal(std::abs(int32_t(val.val)));
 }
 
 SmallIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::TinyIntVal& val) {
     if (val.is_null) {
         return SmallIntVal::null();
     }
-    return SmallIntVal(::abs(int16_t(val.val)));
+    return SmallIntVal(std::abs(int16_t(val.val)));
 }
 
 // Generates a UDF that always calls FN() on the input val and returns it.
@@ -352,7 +357,7 @@ StringVal MathFunctions::hex_string(FunctionContext* ctx, const StringVal& s) {
     }
 
     StringVal result = StringVal::create_temp_string_val(ctx, s.len * 2);
-    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char *>(result.ptr));
+    simd::VStringFunctions::hex_encode(s.ptr, s.len, reinterpret_cast<char*>(result.ptr));
     return result;
 }
 

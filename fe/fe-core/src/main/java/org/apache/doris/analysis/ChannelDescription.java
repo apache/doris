@@ -106,7 +106,7 @@ public class ChannelDescription implements Writable {
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), targetTable);
+                    ConnectContext.get().getRemoteIP(), fullDbName + ": " + targetTable);
         }
     }
 

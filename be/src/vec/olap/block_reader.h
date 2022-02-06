@@ -86,7 +86,7 @@ private:
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
     VCollectIterator _vcollect_iter;
-    IteratorRowRef _next_row {nullptr, -1, false};
+    IteratorRowRef _next_row {{}, -1, false};
 
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
@@ -95,12 +95,9 @@ private:
     std::vector<int> _agg_columns_idx;
     std::vector<int> _return_columns_loc;
 
-    int _batch_size = 0;
-
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
 
-    std::unique_ptr<Block> _stored_data_block;
     MutableColumns _stored_data_columns;
     std::vector<IteratorRowRef> _stored_row_ref;
 

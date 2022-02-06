@@ -35,6 +35,9 @@ TEST(function_bitmap_test, function_bitmap_min_test) {
                         {{Null()}, Null()}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    delete bitmap1;
+    delete bitmap2;
+    delete empty_bitmap;
 }
 TEST(function_bitmap_test, function_bitmap_max_test) {
     std::string func_name = "bitmap_max";
@@ -49,6 +52,9 @@ TEST(function_bitmap_test, function_bitmap_max_test) {
                         {{Null()}, Null()}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    delete bitmap1;
+    delete bitmap2;
+    delete empty_bitmap;
 }
 
 TEST(function_bitmap_test, function_bitmap_to_string_test) {
@@ -64,6 +70,9 @@ TEST(function_bitmap_test, function_bitmap_to_string_test) {
                         {{Null()}, Null()}};
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
+    delete bitmap1;
+    delete bitmap2;
+    delete empty_bitmap;
 }
 
 TEST(function_bitmap_test, function_bitmap_and_count) {
@@ -77,6 +86,9 @@ TEST(function_bitmap_test, function_bitmap_and_count) {
                         {{bitmap1, bitmap2}, (int64_t)1}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    delete bitmap1;
+    delete bitmap2;
+    delete empty_bitmap;
 }
 
 TEST(function_bitmap_test, function_bitmap_or_count) {
@@ -91,6 +103,10 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
                         {{bitmap1, bitmap3}, (int64_t)3}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    delete bitmap1;
+    delete bitmap2;
+    delete bitmap3;
+    delete empty_bitmap;
 }
 
 TEST(function_bitmap_test, function_bitmap_xor_count) {
@@ -106,6 +122,11 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
                         {{bitmap1, bitmap4}, (int64_t)2}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    delete bitmap1;
+    delete bitmap2;
+    delete bitmap3;
+    delete bitmap4;
+    delete empty_bitmap;
 }
 } // namespace doris::vectorized
 

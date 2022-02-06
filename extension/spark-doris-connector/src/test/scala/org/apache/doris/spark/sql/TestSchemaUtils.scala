@@ -31,8 +31,8 @@ class TestSchemaUtils extends ExpectedExceptionTest {
   def testConvertToStruct(): Unit = {
     val schema = new Schema
     schema.setStatus(200)
-    val k1 = new Field("k1", "TINYINT", "", 0, 0)
-    val k5 = new Field("k5", "BIGINT", "", 0, 0)
+    val k1 = new Field("k1", "TINYINT", "", 0, 0, "")
+    val k5 = new Field("k5", "BIGINT", "", 0, 0, "")
     schema.put(k1)
     schema.put(k5)
 
@@ -84,8 +84,8 @@ class TestSchemaUtils extends ExpectedExceptionTest {
 
     val expected = new Schema
     expected.setStatus(0)
-    val ek1 = new Field("k1", "BOOLEAN", "", 0, 0)
-    val ek2 = new Field("k2", "DOUBLE", "", 0, 0)
+    val ek1 = new Field("k1", "BOOLEAN", "", 0, 0, "")
+    val ek2 = new Field("k2", "DOUBLE", "", 0, 0, "")
     expected.put(ek1)
     expected.put(ek2)
 

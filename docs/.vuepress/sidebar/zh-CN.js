@@ -374,6 +374,7 @@ module.exports = [
               "strleft",
               "strright",
               "substr",
+              "substring",
               "unhex",
               {
                 title: "模糊匹配",
@@ -529,7 +530,6 @@ module.exports = [
               "ADMIN SHOW CONFIG",
               "ADMIN SHOW REPLICA DISTRIBUTION",
               "ADMIN SHOW REPLICA STATUS",
-              "ADMIN-SHOW-DATA-SKEW",
               "ALTER CLUSTER",
               "ALTER SYSTEM",
               "CANCEL DECOMMISSION",
@@ -619,6 +619,7 @@ module.exports = [
               "SHOW CREATE FUNCTION",
               "SHOW CREATE ROUTINE LOAD",
               "SHOW DATA",
+              "SHOW DATA SKEW",
               "SHOW DATABASES",
               "SHOW DELETE",
               "SHOW DYNAMIC PARTITION TABLES",

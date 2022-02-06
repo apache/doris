@@ -120,12 +120,12 @@ public class TestRestService {
 
     @Test
     public void testFeResponseToSchema() throws Exception {
-        String res = "{\"properties\":[{\"type\":\"TINYINT\",\"name\":\"k1\",\"comment\":\"\"},{\"name\":\"k5\","
-                + "\"scale\":\"0\",\"comment\":\"\",\"type\":\"DECIMALV2\",\"precision\":\"9\"}],\"status\":200}";
+        String res = "{\"properties\":[{\"type\":\"TINYINT\",\"name\":\"k1\",\"comment\":\"\",\"aggregation_type\":\"\"},{\"name\":\"k5\","
+                + "\"scale\":\"0\",\"comment\":\"\",\"type\":\"DECIMALV2\",\"precision\":\"9\",\"aggregation_type\":\"\"}],\"status\":200}";
         Schema expected = new Schema();
         expected.setStatus(200);
-        Field k1 = new Field("k1", "TINYINT", "", 0, 0);
-        Field k5 = new Field("k5", "DECIMALV2", "", 9, 0);
+        Field k1 = new Field("k1", "TINYINT", "", 0, 0, "");
+        Field k5 = new Field("k5", "DECIMALV2", "", 9, 0, "");
         expected.put(k1);
         expected.put(k5);
         Assert.assertEquals(expected, RestService.parseSchema(res, logger));

@@ -360,6 +360,7 @@ enum PFilterType {
     BLOOM_FILTER = 1;
     MINMAX_FILTER = 2;
     IN_FILTER = 3;
+    IN_OR_BLOOM_FILTER = 4;
 };
 
 message PMergeFilterRequest {

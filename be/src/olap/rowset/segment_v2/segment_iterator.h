@@ -134,7 +134,7 @@ private:
     std::vector<ColumnId> _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
     vector<bool> _is_pred_column; // columns hold by segmentIter
     vectorized::MutableColumns _current_return_columns;
-    AndBlockColumnPredicate* _pre_eval_block_predicate = nullptr;
+    std::unique_ptr<AndBlockColumnPredicate> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
     // when lazy materialization is enable, segmentIter need to read data at least twice
     // first, read predicate columns by various index

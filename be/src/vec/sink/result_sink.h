@@ -34,9 +34,6 @@ class VExprContext;
 
 class VResultSink : public DataSink {
 public:
-    // construct a buffer for the result need send to coordinator.
-    // row_desc used for convert RowBatch to TRowBatch
-    // buffer_size is the buffer size allocated to each query
     VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
                 const TResultSink& sink, int buffer_size);
 

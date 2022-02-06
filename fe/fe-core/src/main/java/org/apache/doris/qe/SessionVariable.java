@@ -385,9 +385,9 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterWaitTimeMs = 1000;
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM)
     private int runtimeFiltersMaxNum = 10;
-    // Set runtimeFilterType to IN filter
+    // Set runtimeFilterType to IN_OR_BLOOM filter
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
-    private int runtimeFilterType = 1;
+    private int runtimeFilterType = 8;
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 1024;
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)

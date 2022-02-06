@@ -52,6 +52,9 @@ TEST(AggTest, basic_test) {
     }
     ASSERT_EQ(ans, *(int32_t*)place);
     agg_function->destroy(place);
+    if(place) {
+        free(place);
+    }
 }
 } // namespace doris::vectorized
 

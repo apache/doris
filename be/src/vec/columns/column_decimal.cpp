@@ -222,6 +222,20 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
+void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    size_t size = data.size();
+    if (0 == size) return;
+
+    auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
+    typename Self::Container& res_data = res.get_data();
+    res_data.reserve(target_size);
+
+    for (size_t i = 0; i < size; ++i) {
+        res_data.add_num_element_without_reserve(data[i], counts[i]);
+    }
+}
+
+template <typename T>
 void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
     if (data.size() == 0) {
         min = NearestFieldType<T>(0, scale);

@@ -17,7 +17,11 @@
 
 #pragma once
 
+#ifdef USE_LIBCPP
+#include <queue>
+#else
 #include <ext/pb_ds/priority_queue.hpp>
+#endif
 
 #include "olap/olap_define.h"
 #include "olap/reader.h"
@@ -31,7 +35,7 @@ class TabletSchema;
 namespace vectorized {
 
 struct IteratorRowRef {
-    const Block* block;
+    std::shared_ptr<Block> block;
     int16_t row_pos;
     bool is_same;
 };
@@ -106,8 +110,13 @@ private:
         int _sequence;
     };
 
+#ifdef USE_LIBCPP
+    using MergeHeap = std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
+                                          LevelIteratorComparator>;
+#else
     using MergeHeap = __gnu_pbds::priority_queue<LevelIterator*, LevelIteratorComparator,
                                                  __gnu_pbds::pairing_heap_tag>;
+#endif
 
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {
@@ -128,7 +137,7 @@ private:
 
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
-        Block _block;
+        std::shared_ptr<Block> _block;
     };
 
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)

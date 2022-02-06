@@ -40,6 +40,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -87,6 +88,8 @@ public class TableSchemaAction extends RestBaseController {
                         baseInfo.put("type", primitiveType.toString());
                         baseInfo.put("comment", column.getComment());
                         baseInfo.put("name", column.getDisplayName());
+                        Optional aggregationType = Optional.ofNullable(column.getAggregationType());
+                        baseInfo.put("aggregation_type", aggregationType.isPresent() ? column.getAggregationType().toSql() : "");
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);

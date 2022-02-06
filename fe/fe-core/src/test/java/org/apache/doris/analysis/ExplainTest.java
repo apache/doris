@@ -20,28 +20,23 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
-import org.junit.AfterClass;
+
 import org.junit.Assert;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.UUID;
 
 
 public class ExplainTest {
-    private static String runningDir = "fe/mocked/TableFunctionPlanTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
-        ctx = UtFrameUtils.createDefaultCtx();
-        String createDbStmtStr = "create database test;";
+    public void before(ConnectContext ctx) throws Exception {
+        this.ctx = ctx;
+        String createDbStmtStr = "create database test_explain;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
-        String t1 =("CREATE TABLE test.t1 (\n" +
+        String t1 = ("CREATE TABLE test_explain.explain_t1 (\n" +
                 "  `dt` int(11) COMMENT \"\",\n" +
                 "  `id` int(11) COMMENT \"\",\n" +
                 "  `value` varchar(8) COMMENT \"\"\n" +
@@ -56,7 +51,7 @@ public class ExplainTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(t1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        String t2 =("CREATE TABLE test.t2 (\n" +
+        String t2 =("CREATE TABLE test_explain.explain_t2 (\n" +
                 "  `dt` bigint(11) COMMENT \"\",\n" +
                 "  `id` bigint(11) COMMENT \"\",\n" +
                 "  `value` bigint(8) COMMENT \"\"\n" +
@@ -70,49 +65,46 @@ public class ExplainTest {
                 ");");
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(t2, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
-
     }
 
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
+    public void after() throws Exception {
+        String dropSchemaSql = "drop schema if exists test_explain";
+        String dropDbSql = "drop database if exists test_explain";
+        DropDbStmt dropSchemaStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropSchemaSql, ctx);
+        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbSql, ctx);
+        Assert.assertEquals(dropDbStmt.toSql(), dropSchemaStmt.toSql());
     }
 
-    @Test
     public void testExplainInsertInto() throws Exception {
-        String sql = "explain insert into test.t1 select * from test.t2";
+        String sql = "explain insert into test_explain.explain_t1 select * from test_explain.explain_t2";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("CAST"));
     }
 
-    @Test
     public void testExplainSelect() throws Exception {
-        String sql = "explain select * from test.t1 where dt = '1001';";
+        String sql = "explain select * from test_explain.explain_t1 where dt = '1001';";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, false);
         System.out.println(explainString);
         Assert.assertFalse(explainString.contains("CAST"));
     }
 
-    @Test
     public void testExplainVerboseSelect() throws Exception {
-        String queryStr = "explain verbose select * from test.t1 where dt = '1001';";
+        String queryStr = "explain verbose select * from test_explain.explain_t1 where dt = '1001';";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, queryStr, true);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("CAST"));
     }
 
-    @Test
     public void testExplainConcatSelect() throws Exception {
-        String sql = "explain select concat(dt, id) from test.t1;";
+        String sql = "explain select concat(dt, id) from test_explain.explain_t1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, false);
         System.out.println(explainString);
         Assert.assertFalse(explainString.contains("CAST"));
     }
 
-    @Test
     public void testExplainVerboseConcatSelect() throws Exception {
-        String sql = "explain verbose select concat(dt, id) from test.t1;";
+        String sql = "explain verbose select concat(dt, id) from test_explain.explain_t1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("CAST"));

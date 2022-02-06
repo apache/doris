@@ -704,6 +704,7 @@ enum TRuntimeFilterType {
   IN = 1
   BLOOM = 2
   MIN_MAX = 4
+  IN_OR_BLOOM = 8
 }
 
 // Specification of a runtime filter.

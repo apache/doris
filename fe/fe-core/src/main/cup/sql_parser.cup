@@ -2717,6 +2717,10 @@ show_param ::=
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
     :}
+    | KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
+    {:
+        RESULT = new ShowDataSkewStmt(table_ref);
+    :}
     /* Show data statement: used to show data size of specified range */
      | KW_DATA order_by_clause:orderByClause
     {:
@@ -5252,10 +5256,6 @@ admin_stmt ::=
     | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
     {:
         RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
-    :}
-    | KW_ADMIN KW_SHOW KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
-    {:
-        RESULT = new AdminShowDataSkewStmt(table_ref);
     :}
     | KW_ADMIN KW_CLEAN KW_TRASH KW_ON LPAREN string_list:backends RPAREN
     {:

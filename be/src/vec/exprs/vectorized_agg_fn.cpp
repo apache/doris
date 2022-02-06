@@ -114,7 +114,7 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 void AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
     _calc_argment_columns(block);
     SCOPED_TIMER(_exec_timer);
-    _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), nullptr);
+    _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
 }
 
 void AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,

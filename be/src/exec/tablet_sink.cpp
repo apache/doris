@@ -44,7 +44,12 @@ namespace stream_load {
 
 NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id,
                          int32_t schema_hash)
-        : _parent(parent), _index_channel(index_channel), _node_id(node_id), _schema_hash(schema_hash) {}
+        : _parent(parent), _index_channel(index_channel), _node_id(node_id), _schema_hash(schema_hash) {
+
+    if (_parent->_transfer_data_by_brpc_attachment) {
+        _tuple_data_buffer_ptr = &_tuple_data_buffer;
+    }
+}
 
 NodeChannel::~NodeChannel() {
     if (_open_closure != nullptr) {
@@ -447,10 +452,16 @@ void NodeChannel::try_send_batch() {
     request.set_packet_seq(_next_packet_seq);
     if (row_batch->num_rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
-        row_batch->serialize(request.mutable_row_batch());
-        if (request.row_batch().ByteSizeLong() >= double(config::brpc_max_body_size) * 0.95f) {
+        size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
+        if (!st.ok()) {
+            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg())); 
+            return;
+        }
+        if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
             LOG(WARNING) << "send batch too large, this rpc may failed. send size: "
-                         << request.row_batch().ByteSizeLong() << ", " << channel_info();
+                         << compressed_bytes << ", threshold: " << config::brpc_max_body_size
+                         << ", " << channel_info();
         }
     }
 
@@ -459,6 +470,7 @@ void NodeChannel::try_send_batch() {
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
+            return;
         } else {
             remain_ms = config::min_load_rpc_timeout_ms;
         }
@@ -479,9 +491,11 @@ void NodeChannel::try_send_batch() {
         DCHECK(_pending_batches_num == 0);
     }
 
-    request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
-                                          ReusableClosure<PTabletWriterAddBatchResult>>(
-            &request, _add_batch_closure);
+    if (_parent->_transfer_data_by_brpc_attachment && request.has_row_batch()) {
+        request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
+            ReusableClosure<PTabletWriterAddBatchResult>>(
+                    &request, _tuple_data_buffer, _add_batch_closure);
+    }
     _add_batch_closure->set_in_flight();
     _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
                                    _add_batch_closure);
@@ -625,6 +639,7 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
     _name = "OlapTableSink";
+    _transfer_data_by_brpc_attachment = config::transfer_data_by_brpc_attachment;
 }
 
 OlapTableSink::~OlapTableSink() {
