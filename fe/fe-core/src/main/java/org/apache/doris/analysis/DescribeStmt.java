@@ -106,7 +106,7 @@ public class DescribeStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getTbl());
+                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
         }
 
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbTableName.getDb());
