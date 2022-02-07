@@ -53,7 +53,7 @@ None
 None
 
 ## Response
-
+* The http interface returns as follows:
 ```
 {
 	"msg": "success",
@@ -76,10 +76,60 @@ None
 	"count": 0
 }
 ```
-    
+
+* The http v2 interface returns as follows: 
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"properties": [{
+			"type": "INT",
+			"name": "k1",
+			"comment": ""
+		}, {
+			"type": "INT",
+			"name": "k2",
+			"comment": ""
+		}],
+		"keysType":UNIQUE_KEYS,
+		"status": 200
+	},
+	"count": 0
+}
+```
+Note: The difference is that the `http` method returns more `aggregation_type` fields than the `http v2` method. The `http v2` is enabled by setting `enable_http_server_v2`. For detailed parameter descriptions, see [fe parameter settings](https://doris.apache.org/administrator-guide/config/fe_config.html)
+
 ## Examples
 
-1. Get the table structure information of the specified table.
+1. Get the table structure information of the specified table via http interface.
+
+    ```
+    GET /api/db1/tbl1/_schema
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"properties": [{
+    			"type": "INT",
+    			"name": "k1",
+    			"comment": "",
+    			"aggregation_type":""
+    		}, {
+    			"type": "INT",
+    			"name": "k2",
+    			"comment": "",
+    			"aggregation_type":"MAX"
+    		}],
+    		"keysType":UNIQUE_KEYS,
+    		"status": 200
+    	},
+    	"count": 0
+    }
+    ```
+2. Get the table structure information of the specified table via http v2 interface.
 
     ```
     GET /api/db1/tbl1/_schema
