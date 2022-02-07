@@ -273,7 +273,7 @@ public:
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, BlockRow* part_key);
 
-    Status _create_partition_key(const TExprNode& t_expr, vectorized::Block* block, uint16_t pos);
+    Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos);
 
     uint32_t _compute_dist_hash(BlockRow* key) const;
 
