@@ -92,7 +92,7 @@ public class DeleteStmt extends DdlStmt {
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tbl.getTbl());
+                                                ConnectContext.get().getRemoteIP(), tbl.getDb() + ": " + tbl.getTbl());
         }
     }
 

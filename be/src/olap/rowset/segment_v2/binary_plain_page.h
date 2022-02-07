@@ -154,6 +154,7 @@ private:
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
+
     BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) {}
 
     BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options)

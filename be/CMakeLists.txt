@@ -342,6 +342,15 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
+if (USE_LDD)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
+endif ()
+
+if (USE_LIBCPP AND COMPILER_CLANG)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    add_definitions(-DUSE_LIBCPP)
+endif()
+
 if (COMPILER_GCC)
     # Avoid GCC 11 false alarm
     # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
@@ -507,7 +516,7 @@ SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANIT
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
     SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG})
-elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
+elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
@@ -692,12 +701,6 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -lstdc++fs
 )
 
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-        -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2
-    )
-endif()
-
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ASAN_LIBS -static-libasan)
     set(LSAN_LIBS -static-liblsan)
@@ -708,7 +711,7 @@ else ()
 endif ()
 
 # Add sanitize static link flags or tcmalloc
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
@@ -766,7 +769,7 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
-if (${MAKE_TEST} STREQUAL "OFF")
+if (${BUILD_META_TOOL} STREQUAL "ON")
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 

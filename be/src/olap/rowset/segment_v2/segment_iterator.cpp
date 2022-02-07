@@ -618,7 +618,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 vec_pred_col_id_set.insert(predicate->column_id());
                 if (_pre_eval_block_predicate == nullptr) {
-                    _pre_eval_block_predicate = new AndBlockColumnPredicate();
+                    _pre_eval_block_predicate.reset(new AndBlockColumnPredicate());
                 }
                 _pre_eval_block_predicate->add_column_predicate(new SingleColumnBlockPredicate(predicate));
             }

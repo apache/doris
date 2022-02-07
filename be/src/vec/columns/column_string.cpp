@@ -290,8 +290,40 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
     return res;
 }
 
+void ColumnString::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    size_t col_size = size();
+    if (0 == col_size) return;
+
+    auto& res = reinterpret_cast<ColumnString&>(column);
+
+    Chars& res_chars = res.chars;
+    Offsets& res_offsets = res.offsets;
+    res_chars.reserve(chars.size() / col_size * target_size);
+    res_offsets.reserve(target_size);
+
+    Offset prev_string_offset = 0;
+    Offset current_new_offset = 0;
+
+    for (size_t i = 0; i < col_size; ++i) {
+        size_t size_to_replicate = counts[i];
+        size_t string_size = offsets[i] - prev_string_offset;
+
+        for (size_t j = 0; j < size_to_replicate; ++j) {
+            current_new_offset += string_size;
+            res_offsets.push_back(current_new_offset);
+
+            res_chars.resize(res_chars.size() + string_size);
+            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
+                                                     &chars[prev_string_offset], string_size);
+        }
+
+        prev_string_offset = offsets[i];
+    }
+}
+
 void ColumnString::reserve(size_t n) {
     offsets.reserve(n);
+    chars.reserve(n);
 }
 
 void ColumnString::resize(size_t n) {

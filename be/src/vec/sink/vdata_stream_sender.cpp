@@ -20,6 +20,8 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
+#include <random>
+
 #include "runtime/client_cache.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/exec_env.h"
@@ -69,11 +71,11 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
 }
 
 Status VDataStreamSender::Channel::send_current_block(bool eos) {
-// TODO: Now, local exchange will cause the performance problem is in a multi-threaded scenario
-//  so this feature is turned off here. We need to re-examine this logic
-//    if (is_local()) {
-//        return send_local_block(eos);
-//    }
+    // TODO: Now, local exchange will cause the performance problem is in a multi-threaded scenario
+    //  so this feature is turned off here. We need to re-examine this logic
+    //    if (is_local()) {
+    //        return send_local_block(eos);
+    //    }
     {
         SCOPED_TIMER(_parent->_serialize_batch_timer);
         _pb_block.Clear();
@@ -184,8 +186,9 @@ Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>
     const int* begin = &rows[0];
 
     while (row_wait_add > 0) {
-        int row_add, max_add = batch_size - _mutable_block->rows();
-        if (row_wait_add >= max_add)  {
+        int row_add = 0;
+        int max_add = batch_size - _mutable_block->rows();
+        if (row_wait_add >= max_add) {
             row_add = max_add;
         } else {
             row_add = row_wait_add;
@@ -343,9 +346,9 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
             state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
-        // Randomize the order we open/transmit to channels to avoid thundering herd problems.
-        srand(reinterpret_cast<uint64_t>(this));
-        random_shuffle(_channels.begin(), _channels.end());
+        std::random_device rd;
+        std::mt19937 g(rd());
+        shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
@@ -446,7 +449,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
             }
         }
 
-        // channel2rows' subscript means channel id 
+        // channel2rows' subscript means channel id
         std::vector<vectorized::UInt64> hash_vals(rows);
         for (int i = 0; i < rows; i++) {
             hash_vals[i] = siphashs[i].get64();
@@ -479,12 +482,14 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                     hash_vals[i] = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_vals[i]);
                 } else {
                     hash_vals[i] = RawValue::zlib_crc32(val.data, val.size,
-                                                _partition_expr_ctxs[j]->root()->type(), hash_vals[i]);
+                                                        _partition_expr_ctxs[j]->root()->type(),
+                                                        hash_vals[i]);
                 }
             }
         }
 
-        RETURN_IF_ERROR(channel_add_rows(_channel_shared_ptrs, num_channels, hash_vals, rows, block));
+        RETURN_IF_ERROR(
+                channel_add_rows(_channel_shared_ptrs, num_channels, hash_vals, rows, block));
     } else {
         // Range partition
         // 1. caculate range

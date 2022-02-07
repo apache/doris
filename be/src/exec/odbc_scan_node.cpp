@@ -33,7 +33,7 @@ OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
                            std::string scan_node_type)
         : ScanNode(pool, tnode, descs),
           _is_init(false),
-          _scan_node_type(scan_node_type),
+          _scan_node_type(std::move(scan_node_type)),
           _table_name(tnode.odbc_scan_node.table_name),
           _connect_string(std::move(tnode.odbc_scan_node.connect_string)),
           _query_string(std::move(tnode.odbc_scan_node.query_string)),

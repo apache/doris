@@ -1710,7 +1710,7 @@ public class Load {
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
                             ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }
@@ -1774,7 +1774,7 @@ public class Load {
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
                             ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }

@@ -20,30 +20,20 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.DorisAssert;
-import org.apache.doris.utframe.UtFrameUtils;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
-import java.util.UUID;
+import org.junit.Assert;
 
 public class RewriteDateLiteralRuleTest {
-    private static String baseDir = "fe";
-    private static String runningDir = baseDir + "/mocked/RewriteDateLiteralRuleTest/"
-            + UUID.randomUUID() + "/";
-    private static DorisAssert dorisAssert;
-    private static final String DB_NAME = "db1";
+    private DorisAssert dorisAssert;
+    private static final String DB_NAME = "rewritedaterule";
     private static final String TABLE_NAME_1 = "tb1";
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    public void before(ConnectContext ctx) throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createDorisCluster(runningDir);
-        dorisAssert = new DorisAssert();
+        dorisAssert = new DorisAssert(ctx);
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_1
                 + " (k1 datetime, k2 int) "
@@ -51,85 +41,81 @@ public class RewriteDateLiteralRuleTest {
         dorisAssert.withTable(createTableSQL);
     }
 
-    @AfterClass
-    public static void afterClass() throws Exception {
-        UtFrameUtils.cleanDorisFeDir(baseDir);
+    public void after() throws Exception {
+        String dropDbSql = "drop database if exists " + DB_NAME;
+        dorisAssert.dropDB(DB_NAME);
     }
 
-    @Test
     public void testWithIntFormatDate() throws Exception {
-        String query = "select * from db1.tb1 where k1 > 20210301";
+        String query = "select * from " + DB_NAME + ".tb1 where k1 > 20210301";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
-        query = "select k1 > 20210301 from db1.tb1";
+        query = "select k1 > 20210301 from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
-        query = "select k1 > 20210301223344 from db1.tb1";
+        query = "select k1 > 20210301223344 from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:33:44'"));
     }
 
-    @Test
     public void testWithStringFormatDate() throws Exception {
-        String query = "select * from db1.tb1 where k1 > '2021030112334455'";
+        String query = "select * from " + DB_NAME + ".tb1 where k1 > '2021030112334455'";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44'"));
 
-        query = "select k1 > '20210301' from db1.tb1";
+        query = "select k1 > '20210301' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
 
-        query = "select k1 > '20210301233234.34' from db1.tb1";
+        query = "select k1 > '20210301233234.34' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34'"));
 
-        query = "select * from db1.tb1 where k1 > '2021-03-01'";
+        query = "select * from " + DB_NAME + ".tb1 where k1 > '2021-03-01'";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
 
-        query = "select k1 > '2021-03-01 11:22:33' from db1.tb1";
+        query = "select k1 > '2021-03-01 11:22:33' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:33'"));
 
-        query = "select k1 > '2021-03-01  16:22:33' from db1.tb1";
+        query = "select k1 > '2021-03-01  16:22:33' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 16:22:33'"));
 
-        query = "select k1 > '2021-03-01 11:22' from db1.tb1";
+        query = "select k1 > '2021-03-01 11:22' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:00'"));
 
-        query = "select k1 > '20210301T221133' from db1.tb1";
+        query = "select k1 > '20210301T221133' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:11:33'"));
 
-        query = "select k1 > '2021-03-01dd 11:22' from db1.tb1";
+        query = "select k1 > '2021-03-01dd 11:22' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
 
-        query = "select k1 > '80-03-01 11:22' from db1.tb1";
+        query = "select k1 > '80-03-01 11:22' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '1980-03-01 11:22:00'"));
 
-        query = "select k1 > '12-03-01 11:22' from db1.tb1";
+        query = "select k1 > '12-03-01 11:22' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2012-03-01 11:22:00'"));
     }
 
-    @Test
     public void testWithDoubleFormatDate() throws Exception {
-        String query = "select * from db1.tb1 where k1 > 20210301.22";
+        String query = "select * from " + DB_NAME + ".tb1 where k1 > 20210301.22";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > 2.021030122E7"));
 
-        query = "select k1 > 20210331.22 from db1.tb1";
+        query = "select k1 > 20210331.22 from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > 2.021033122E7"));
     }
 
-    @Test
     public void testWithInvalidFormatDate() throws Exception {
-        String query = "select * from db1.tb1 where k1 > '2021030125334455'";
+        String query = "select * from " + DB_NAME + ".tb1 where k1 > '2021030125334455'";
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
@@ -137,11 +123,11 @@ public class RewriteDateLiteralRuleTest {
                     "Incorrect datetime value: '2021030125334455' in expression: `k1` > '2021030125334455'"));
         }
 
-        query = "select k1 > '2021030125334455' from db1.tb1";
+        query = "select k1 > '2021030125334455' from " + DB_NAME + ".tb1";
         String plainString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(plainString.contains("NULL"));
 
-        query = "select * from db1.tb1 where k1 > '2021-03-32 23:33:55'";
+        query = "select * from " + DB_NAME + ".tb1 where k1 > '2021-03-32 23:33:55'";
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
@@ -149,7 +135,7 @@ public class RewriteDateLiteralRuleTest {
                     "Incorrect datetime value: '2021-03-32 23:33:55' in expression: `k1` > '2021-03-32 23:33:55'"));
         }
 
-        query = "select * from db1.tb1 where k1 > '2021-03- 03 23:33:55'";
+        query = "select * from " + DB_NAME + ".tb1 where k1 > '2021-03- 03 23:33:55'";
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
@@ -157,7 +143,7 @@ public class RewriteDateLiteralRuleTest {
                     "Incorrect datetime value: '2021-03- 03 23:33:55' in expression: `k1` > '2021-03- 03 23:33:55'"));
         }
 
-        query = "select k1 > '2021-03- 03 23:33:55' from db1.tb1";
+        query = "select k1 > '2021-03- 03 23:33:55' from " + DB_NAME + ".tb1";
         plainString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(plainString.contains("NULL"));
     }

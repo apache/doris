@@ -39,9 +39,6 @@ class ResultFileOptions;
 
 class ResultFileSink : public DataStreamSender {
 public:
-    // construct a buffer for the result need send to coordinator.
-    // row_desc used for convert RowBatch to TRowBatch
-    // buffer_size is the buffer size allocated to each query
     ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
                    const TResultFileSink& sink);
     ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
@@ -49,6 +46,7 @@ public:
                    const std::vector<TPlanFragmentDestination>& destinations, ObjectPool* pool,
                    int sender_id, DescriptorTbl& descs);
     virtual ~ResultFileSink();
+    virtual Status init(const TDataSink& thrift_sink);
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     // send data in 'batch' to this backend stream mgr

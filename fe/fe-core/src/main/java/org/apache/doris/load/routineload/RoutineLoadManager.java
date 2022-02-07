@@ -130,7 +130,7 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
                                                 createRoutineLoadStmt.getDBName(),
-                                                createRoutineLoadStmt.getTableName());
+                                                createRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
         }
 
         RoutineLoadJob routineLoadJob = null;
@@ -226,7 +226,7 @@ public class RoutineLoadManager implements Writable {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                tableName);
+                                                dbFullName + ": " + tableName);
         }
         return routineLoadJob;
     }

@@ -37,9 +37,12 @@ message PQueryStatistics {
 message PRowBatch {
     required int32 num_rows = 1;
     repeated int32 row_tuples = 2;
+    // Should be deprecated after v1.2.0
     repeated int32 tuple_offsets = 3;
     required bytes tuple_data = 4;
     required bool is_compressed = 5;
+    // This is used to replace "tuple_offsets"
+    repeated int64 new_tuple_offsets = 6;
 }
 
 message PColumn {

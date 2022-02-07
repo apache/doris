@@ -191,6 +191,8 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not implemented";
@@ -296,6 +298,23 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
     }
 
     return res;
+}
+
+template <typename T>
+void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    size_t size = data.size();
+    if (0 == size) return;
+
+    auto& res = reinterpret_cast<ColumnComplexType<T>&>(column);
+    typename Self::Container& res_data = res.get_data();
+    res_data.reserve(target_size);
+
+    for (size_t i = 0; i < size; ++i) {
+        size_t size_to_replicate = counts[i];
+        for (size_t j = 0; j < size_to_replicate; ++j) {
+            res_data.push_back(data[i]);
+        }
+    }
 }
 
 using ColumnBitmap = ColumnComplexType<BitmapValue>;

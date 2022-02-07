@@ -99,8 +99,8 @@ public:
     // If 'convert_ptrs' is true, converts pointers that are part of the tuple
     // into offsets in data, based on the provided offset. Otherwise they will be
     // pointers directly into data.
-    void deep_copy(const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs);
-    void deep_copy(const TupleDescriptor& desc, char** data, int* offset) {
+    void deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset, bool convert_ptrs);
+    void deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset) {
         deep_copy(desc, data, offset, false);
     }
 

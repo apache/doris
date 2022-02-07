@@ -492,7 +492,7 @@ module.exports = [
         ],
       },
       {
-        title: "DDL Statements",
+        title: "SQL Statements",
         directoryPath: "sql-statements/",
         children: [
           {
@@ -525,7 +525,6 @@ module.exports = [
               "ADMIN SHOW CONFIG",
               "ADMIN SHOW REPLICA DISTRIBUTION",
               "ADMIN SHOW REPLICA STATUS",
-              "ADMIN-SHOW-DATA-SKEW",
               "ALTER CLUSTER",
               "ALTER SYSTEM",
               "CANCEL DECOMMISSION",
@@ -617,6 +616,7 @@ module.exports = [
               "SHOW CREATE FUNCTION",
               "SHOW CREATE ROUTINE LOAD",
               "SHOW DATA",
+              "SHOW DATA SKEW",
               "SHOW DATABASES",
               "SHOW DELETE",
               "SHOW DYNAMIC PARTITION TABLES",

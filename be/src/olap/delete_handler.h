@@ -26,7 +26,6 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_define.h"
-#include "olap/tablet_schema.h"
 
 namespace doris {
 

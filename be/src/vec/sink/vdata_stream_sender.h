@@ -249,7 +249,7 @@ private:
     TUniqueId _fragment_instance_id;
     PlanNodeId _dest_node_id;
 
-    // the number of TRowBatch.data bytes sent successfully
+    // the number of RowBatch.data bytes sent successfully
     int64_t _num_data_bytes_sent;
     int64_t _packet_seq;
 

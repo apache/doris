@@ -160,7 +160,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                   << ", job id: " << task.job_id
                   << ", queue size: " << _thread_pool.get_queue_size()
                   << ", current tasks num: " << _task_map.size();
-        return Status::TooManyTasks(UniqueId(task.id).to_string());
+        return Status::TooManyTasks(UniqueId(task.id).to_string() + "_" + BackendOptions::get_localhost());
     }
 
     // create the context
