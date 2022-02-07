@@ -318,6 +318,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("read", new Integer(SqlParserSymbols.KW_READ));
         keywordMap.put("real", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("recover", new Integer(SqlParserSymbols.KW_RECOVER));
+        keywordMap.put("refresh", new Integer(SqlParserSymbols.KW_REFRESH));
         keywordMap.put("regexp", new Integer(SqlParserSymbols.KW_REGEXP));
         keywordMap.put("release", new Integer(SqlParserSymbols.KW_RELEASE));
         keywordMap.put("rename", new Integer(SqlParserSymbols.KW_RENAME));

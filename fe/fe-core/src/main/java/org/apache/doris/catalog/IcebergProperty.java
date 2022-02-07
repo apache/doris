@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -73,5 +74,15 @@ public class IcebergProperty {
 
     public void setTable(String table) {
         this.table = table;
+    }
+
+    public Map<String, String> toProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(ICEBERG_DATABASE, database);
+        properties.put(ICEBERG_TABLE, table);
+        properties.put(ICEBERG_HIVE_METASTORE_URIS, hiveMetastoreUris);
+        properties.put(ICEBERG_CATALOG_TYPE, catalogType);
+
+        return properties;
     }
 }

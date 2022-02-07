@@ -188,8 +188,18 @@ public class IcebergCatalogMgr {
         String icebergDb = icebergProperty.getDatabase();
         String icebergTbl = icebergProperty.getTable();
 
-        IcebergTable table = getTableFromIceberg(tableName, icebergProperty,
-                TableIdentifier.of(icebergDb, icebergTbl), true);
+        // create iceberg table struct
+        // 1. Already set column def in Create Stmt, just create table
+        // 2. No column def in Create Stmt, get it from remote Iceberg schema.
+        IcebergTable table;
+        if (stmt.getColumns().size() > 0) {
+            // set column def in CREATE TABLE
+            table = new IcebergTable(getNextId(), tableName, stmt.getColumns(), icebergProperty, null);
+        } else {
+            // get column def from remote Iceberg
+            table = getTableFromIceberg(tableName, icebergProperty,
+                    TableIdentifier.of(icebergDb, icebergTbl), true);
+        }
 
         // check iceberg table if exists in doris database
         if (!db.createTableWithLock(table, false, stmt.isSetIfNotExists()).first) {
