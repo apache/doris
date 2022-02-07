@@ -769,9 +769,9 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
-#if (${BUILD_META_TOOL} STREQUAL "ON")
+if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
     add_subdirectory(${SRC_DIR}/tools)
-#endif()
+endif()
 
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
