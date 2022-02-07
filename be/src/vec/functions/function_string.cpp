@@ -23,9 +23,9 @@
 #include <cstdlib>
 #include <string_view>
 
-#include "exprs/v_string_functions.h"
 #include "runtime/string_search.hpp"
 #include "util/encryption_util.h"
+#include "util/simd/vstring_function.h"
 #include "util/url_coding.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/functions/function_string_to_string.h"
@@ -258,8 +258,8 @@ struct ReverseImpl {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1] - 1;
             char dst[src_len];
-            VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                      StringVal((uint8_t*)dst, src_len));
+            simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
+                                            StringVal((uint8_t*)dst, src_len));
             StringOP::push_value_string(std::string_view(dst, src_len), i, res_data, res_offsets);
         }
         return Status::OK();
@@ -271,9 +271,7 @@ struct HexStringName {
 };
 
 struct HexStringImpl {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeString>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
@@ -293,7 +291,8 @@ struct HexStringImpl {
                 dst_data_ptr++;
                 offset++;
             } else {
-                VStringFunctions::hex_encode(source, srclen, reinterpret_cast<char*>(dst_data_ptr));
+                simd::VStringFunctions::hex_encode(source, srclen,
+                                                   reinterpret_cast<char*>(dst_data_ptr));
                 dst_data_ptr[srclen * 2] = '\0';
                 dst_data_ptr += (srclen * 2 + 1);
                 offset += (srclen * 2 + 1);
@@ -355,10 +354,10 @@ struct TrimImpl {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             StringVal str(raw_str);
             if constexpr (is_ltrim) {
-                str = VStringFunctions::ltrim(str);
+                str = simd::VStringFunctions::ltrim(str);
             }
             if constexpr (is_rtrim) {
-                str = VStringFunctions::rtrim(str);
+                str = simd::VStringFunctions::rtrim(str);
             }
             StringOP::push_value_string(std::string_view((char*)str.ptr, str.len), i, res_data,
                                         res_offsets);
