@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 public final class HttpAuthManager {
     private static final Logger LOG = LogManager.getLogger(HttpAuthManager.class);
 
-    private static long SESSION_EXPIRE_TIME = Config.jetty_session_timeout; // minute
+    private static long SESSION_EXPIRE_TIME = Config.jetty_session_timeout_minute; // minute
     private static long SESSION_MAX_SIZE = 100; // avoid to store too many
 
     private static HttpAuthManager instance = new HttpAuthManager();
