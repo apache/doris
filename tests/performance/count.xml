@@ -1,0 +1,15 @@
+<test>
+    <create_query>CREATE TABLE data(k BIGINT, v BIGINT) ENGINE = olap DUPLICATE KEY(k) DISTRIBUTED BY HASH(k)
+            PROPERTIES (
+                "storage_medium" = "HDD",
+                "replication_num" = "1"
+            )
+    </create_query>
+
+    <fill_query>INSERT INTO data SELECT number, 1 from numbers_10000000</fill_query>
+
+    <query tag='count_10M' short='1'>SELECT count() FROM data</query>
+    <query>SELECT count(k) FROM (SELECT k FROM data, numbers_20 _a) as _b</query>
+
+    <drop_query>DROP TABLE IF EXISTS data</drop_query>
+</test>

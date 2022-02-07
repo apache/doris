@@ -1,0 +1,22 @@
+<test>
+    <query>SELECT sum(number) FROM numbers_10000000</query>
+    <query>SELECT sum(CAST(number AS INT)) FROM numbers_10000000</query>
+    <query>SELECT sum(CAST(number AS SMALLINT)) FROM numbers_10000000</query>
+    <query>SELECT sum(CAST(number AS TINYINT)) FROM numbers_10000000</query>
+    <query>SELECT sum(CAST(number AS FLOAT)) FROM numbers_10000000</query>
+    <query>SELECT sum(CAST(number AS DOUBLE)) FROM numbers_10000000</query>
+
+    <!-- Create a table with ~20% null values. Make it random so the branch predictor doesn't do all the work -->
+    <create_query>CREATE TABLE nullfloat32 (y BIGINT, x FLOAT NULL) ENGINE = olap DISTRIBUTED BY HASH(y)
+            PROPERTIES (
+                "storage_medium" = "HDD",
+                "replication_num" = "1"
+            )
+    </create_query>
+    <fill_query>INSERT INTO nullfloat32
+                SELECT IF(rand() % 5 = 0, null, CAST(number AS FLOAT)) as x, number as y
+                FROM numbers_10000000
+    </fill_query>
+    <query short="1">SELECT sum(x) FROM nullfloat32</query>
+    <drop_query>DROP TABLE IF EXISTS nullfloat32</drop_query>
+</test>
