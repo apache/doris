@@ -211,7 +211,7 @@ public class GlobalTransactionMgr implements Writable {
             throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-        if (!MetaLockUtils.tryWriteLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=(" + StringUtils.join(tableList, ",") + ")");
         }
         try {

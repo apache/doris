@@ -420,7 +420,7 @@ public abstract class AlterHandler extends MasterDaemon {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
 
         OlapTable tbl = db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
-        tbl.writeLock();
+        tbl.writeLockOrMetaException();
         try {
             Partition partition = tbl.getPartition(task.getPartitionId());
             if (partition == null) {

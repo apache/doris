@@ -445,7 +445,9 @@ public class RestoreJob extends AbstractJob {
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
-            olapTbl.writeLock();
+            if (!olapTbl.writeLockIfExist()) {
+                continue;
+            }
             try {
                 if (olapTbl.getState() != OlapTableState.NORMAL) {
                     status = new Status(ErrCode.COMMON_ERROR,
@@ -783,7 +785,12 @@ public class RestoreJob extends AbstractJob {
 
             // add restored tables
             for (Table tbl : restoredTbls) {
-                db.writeLock();
+                if (!db.writeLockIfExist()) {
+                    status = new Status(ErrCode.COMMON_ERROR, "Database " + db.getFullName()
+                            + " has been dropped");
+                    return;
+                }
+                tbl.writeLock();
                 try {
                     if (!db.createTable(tbl)) {
                         status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
@@ -791,6 +798,7 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 } finally {
+                    tbl.writeUnlock();
                     db.writeUnlock();
                 }
             }
@@ -1109,9 +1117,11 @@ public class RestoreJob extends AbstractJob {
         // restored tables
         for (Table restoreTbl : restoredTbls) {
             db.writeLock();
+            restoreTbl.writeLock();
             try {
                 db.createTable(restoreTbl);
             } finally {
+                restoreTbl.writeUnlock();
                 db.writeUnlock();
             }
             if (restoreTbl.getType() != TableType.OLAP) {
@@ -1387,7 +1397,9 @@ public class RestoreJob extends AbstractJob {
                 continue;
             }
             OlapTable olapTbl = (OlapTable) tbl;
-            tbl.writeLock();
+            if (!tbl.writeLockIfExist()) {
+                continue;
+            }
             try {
                 Map<Long, Pair<Long, Long>> map = restoredVersionInfo.rowMap().get(tblId);
                 for (Map.Entry<Long, Pair<Long, Long>> entry : map.entrySet()) {
@@ -1550,22 +1562,29 @@ public class RestoreJob extends AbstractJob {
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
-                if (restoreTbl.getType() == TableType.OLAP) {
-                    OlapTable restoreOlapTable = (OlapTable) restoreTbl;
-                    restoreOlapTable.writeLock();
+                if (db.writeLockIfExist()) {
                     try {
-                        for (Partition part : restoreOlapTable.getPartitions()) {
-                            for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                                for (Tablet tablet : idx.getTablets()) {
-                                    Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                        if (restoreTbl.getType() == TableType.OLAP) {
+                            OlapTable restoreOlapTable = (OlapTable) restoreTbl;
+                            restoreOlapTable.writeLock();
+                            try {
+                                for (Partition part : restoreOlapTable.getPartitions()) {
+                                    for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                                        for (Tablet tablet : idx.getTablets()) {
+                                            Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                                        }
+                                    }
                                 }
+                                db.dropTable(restoreTbl.getName());
+                            } finally {
+                                restoreTbl.writeUnlock();
                             }
                         }
                     } finally {
-                        restoreTbl.writeUnlock();
+                        db.writeUnlock();
                     }
                 }
-                db.dropTableWithLock(restoreTbl.getName());
+
             }
 
             // remove restored partitions
@@ -1574,9 +1593,11 @@ public class RestoreJob extends AbstractJob {
                 if (restoreTbl == null) {
                     continue;
                 }
+                if (!restoreTbl.writeLockIfExist()) {
+                    continue;
+                }
                 LOG.info("remove restored partition in table {} when cancelled: {}",
                         restoreTbl.getName(), entry.second.getName());
-                restoreTbl.writeLock();
                 try {
                     restoreTbl.dropPartition(dbId, entry.second.getName(), true /* force drop */);
                 } finally {
@@ -1625,7 +1646,9 @@ public class RestoreJob extends AbstractJob {
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
-            tbl.writeLock();
+            if (!tbl.writeLockIfExist()) {
+                continue;
+            }
             try {
                 if (olapTbl.getState() == OlapTableState.RESTORE
                         || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {

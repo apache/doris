@@ -215,7 +215,10 @@ public class CheckConsistencyJob {
 
         if (state != JobState.RUNNING) {
             // failed to send task. set tablet's checked version and version hash to avoid choosing it again
-            table.writeLock();
+            if (!table.writeLockIfExist()) {
+                LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
+                return false;
+            }
             try {
                 tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
             } finally {
@@ -261,11 +264,10 @@ public class CheckConsistencyJob {
 
         boolean isConsistent = true;
         Table table = db.getTableNullable(tabletMeta.getTableId());
-        if (table == null) {
+        if (table == null || !table.writeLockIfExist()) {
             LOG.warn("table[{}] does not exist", tabletMeta.getTableId());
             return -1;
         }
-        table.writeLock();
         try {
             OlapTable olapTable = (OlapTable) table;
 
