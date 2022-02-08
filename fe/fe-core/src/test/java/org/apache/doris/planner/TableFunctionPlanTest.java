@@ -480,7 +480,7 @@ public class TableFunctionPlanTest {
     }
 
     @Test
-    public void testLaterViewWithView() throws Exception {
+    public void testLateralViewWithView() throws Exception {
         // test 1
         String createViewStr = "create view db1.v1 (k1,e1) as select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1;";
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
@@ -495,7 +495,7 @@ public class TableFunctionPlanTest {
     }
 
     @Test
-    public void testLaterViewWithWhere() throws Exception {
+    public void testLateralViewWithWhere() throws Exception {
         String sql = "select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp as e1 where k1 in (select k2 from db1.table_for_view);";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("join op: LEFT SEMI JOIN (BROADCAST)"));
@@ -504,21 +504,21 @@ public class TableFunctionPlanTest {
     }
 
     @Test
-    public void testLaterViewWithCTE() throws Exception {
+    public void testLateralViewWithCTE() throws Exception {
         String sql = "with tmp as (select k1,e1 from db1.table_for_view lateral view explode_split(k3,',') tmp2 as e1) select * from tmp;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`table_for_view`.`k3`, ',') "));
     }
 
     @Test
-    public void testLaterViewWithCTEBug() throws Exception {
+    public void testLateralViewWithCTEBug() throws Exception {
         String sql = "with tmp as (select * from db1.table_for_view where k2=1) select k1,e1 from tmp lateral view explode_split(k3,',') tmp2 as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(!explainString.contains("Unknown column 'e1' in 'table list'"));
     }
 
     @Test
-    public void testLaterViewUnknownColumnBug() throws Exception {
+    public void testLateralViewUnknownColumnBug() throws Exception {
         // test2
         String createViewStr = "create view db1.v2 (k1,k3) as select k1,k3 from db1.table_for_view;";
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
