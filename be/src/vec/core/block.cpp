@@ -52,69 +52,69 @@ namespace doris::vectorized {
 
 inline DataTypePtr create_data_type(const PColumnMeta& pcolumn_meta) {
     switch (pcolumn_meta.type()) {
-    case PDataType::UINT8: {
+    case PGenericType::UINT8: {
         return std::make_shared<DataTypeUInt8>();
     }
-    case PDataType::UINT16: {
+    case PGenericType::UINT16: {
         return std::make_shared<DataTypeUInt16>();
     }
-    case PDataType::UINT32: {
+    case PGenericType::UINT32: {
         return std::make_shared<DataTypeUInt32>();
     }
-    case PDataType::UINT64: {
+    case PGenericType::UINT64: {
         return std::make_shared<DataTypeUInt64>();
     }
-    case PDataType::UINT128: {
+    case PGenericType::UINT128: {
         return std::make_shared<DataTypeUInt128>();
     }
-    case PDataType::INT8: {
+    case PGenericType::INT8: {
         return std::make_shared<DataTypeInt8>();
     }
-    case PDataType::INT16: {
+    case PGenericType::INT16: {
         return std::make_shared<DataTypeInt16>();
     }
-    case PDataType::INT32: {
+    case PGenericType::INT32: {
         return std::make_shared<DataTypeInt32>();
     }
-    case PDataType::INT64: {
+    case PGenericType::INT64: {
         return std::make_shared<DataTypeInt64>();
     }
-    case PDataType::INT128: {
+    case PGenericType::INT128: {
         return std::make_shared<DataTypeInt128>();
     }
-    case PDataType::FLOAT32: {
+    case PGenericType::FLOAT: {
         return std::make_shared<DataTypeFloat32>();
     }
-    case PDataType::FLOAT64: {
+    case PGenericType::DOUBLE: {
         return std::make_shared<DataTypeFloat64>();
     }
-    case PDataType::STRING: {
+    case PGenericType::STRING: {
         return std::make_shared<DataTypeString>();
     }
-    case PDataType::DATE: {
+    case PGenericType::DATE: {
         return std::make_shared<DataTypeDate>();
     }
-    case PDataType::DATETIME: {
+    case PGenericType::DATETIME: {
         return std::make_shared<DataTypeDateTime>();
     }
-    case PDataType::DECIMAL32: {
+    case PGenericType::DECIMAL32: {
         return std::make_shared<DataTypeDecimal<Decimal32>>(pcolumn_meta.decimal_param().precision(),
                                                             pcolumn_meta.decimal_param().scale());
     }
-    case PDataType::DECIMAL64: {
+    case PGenericType::DECIMAL64: {
         return std::make_shared<DataTypeDecimal<Decimal64>>(pcolumn_meta.decimal_param().precision(),
                                                             pcolumn_meta.decimal_param().scale());
     }
-    case PDataType::DECIMAL128: {
+    case PGenericType::DECIMAL128: {
         return std::make_shared<DataTypeDecimal<Decimal128>>(pcolumn_meta.decimal_param().precision(),
                                                              pcolumn_meta.decimal_param().scale());
     }
-    case PDataType::BITMAP: {
+    case PGenericType::BITMAP: {
         return std::make_shared<DataTypeBitMap>();
     }
     default: {
         LOG(FATAL) << fmt::format("Unknown data type: {}, data type name: {}", pcolumn_meta.type(),
-                                  PDataType_Type_Name(pcolumn_meta.type()));
+                                  PGenericType_TypeId_Name(pcolumn_meta.type()));
         return nullptr;
     }
     }

@@ -100,48 +100,48 @@ void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_type(get_pdata_type(this));
 }
 
-PDataType_Type IDataType::get_pdata_type(const IDataType* data_type) {
+PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
     switch (data_type->get_type_id()) {
     case TypeIndex::UInt8:
-        return PDataType::UINT8;
+        return PGenericType::UINT8;
     case TypeIndex::UInt16:
-        return PDataType::UINT16;
+        return PGenericType::UINT16;
     case TypeIndex::UInt32:
-        return PDataType::UINT32;
+        return PGenericType::UINT32;
     case TypeIndex::UInt64:
-        return PDataType::UINT64;
+        return PGenericType::UINT64;
     case TypeIndex::UInt128:
-        return PDataType::UINT128;
+        return PGenericType::UINT128;
     case TypeIndex::Int8:
-        return PDataType::INT8;
+        return PGenericType::INT8;
     case TypeIndex::Int16:
-        return PDataType::INT16;
+        return PGenericType::INT16;
     case TypeIndex::Int32:
-        return PDataType::INT32;
+        return PGenericType::INT32;
     case TypeIndex::Int64:
-        return PDataType::INT64;
+        return PGenericType::INT64;
     case TypeIndex::Int128:
-        return PDataType::INT128;
+        return PGenericType::INT128;
     case TypeIndex::Float32:
-        return PDataType::FLOAT32;
+        return PGenericType::FLOAT;
     case TypeIndex::Float64:
-        return PDataType::FLOAT64;
+        return PGenericType::DOUBLE;
     case TypeIndex::Decimal32:
-        return PDataType::DECIMAL32;
+        return PGenericType::DECIMAL32;
     case TypeIndex::Decimal64:
-        return PDataType::DECIMAL64;
+        return PGenericType::DECIMAL64;
     case TypeIndex::Decimal128:
-        return PDataType::DECIMAL128;
+        return PGenericType::DECIMAL128;
     case TypeIndex::String:
-        return PDataType::STRING;
+        return PGenericType::STRING;
     case TypeIndex::Date:
-        return PDataType::DATE;
+        return PGenericType::DATE;
     case TypeIndex::DateTime:
-        return PDataType::DATETIME;
+        return PGenericType::DATETIME;
     case TypeIndex::BitMap:
-        return PDataType::BITMAP;
+        return PGenericType::BITMAP;
     default:
-        return PDataType::UNKNOWN;
+        return PGenericType::UNKNOWN;
     }
 }
 
