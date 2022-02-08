@@ -310,7 +310,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
             _executor.pre_agg =
                     std::bind<Status>(&AggregationNode::_pre_agg_with_serialized_key, this,
                                       std::placeholders::_1, std::placeholders::_2);
-            _max_size_of_stream_pre_agg_buffer = state->batch_size();
         }
 
         if (_needs_finalize) {
@@ -406,7 +405,6 @@ Status AggregationNode::close(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::close(state));
     VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
-    delete [] _streaming_pre_agg_buffer;
     return Status::OK();
 }
 
@@ -665,32 +663,21 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                     // do not try to do agg, just init and serialize directly return the out_block
                     if (!_should_expand_preagg_hash_tables()) {
                         ret_flag = true;
-                        if (_streaming_pre_agg_buffer == nullptr) {
-                            _streaming_pre_agg_buffer =
-                                    new char[((_total_size_of_aggregate_states *
-                                               _max_size_of_stream_pre_agg_buffer) /
-                                                      _align_aggregate_states +
-                                              1) *
-                                             _align_aggregate_states];
+                        if (_streaming_pre_places.size() < rows) {
+                            _streaming_pre_places.reserve(rows);
+                            for (size_t i = _streaming_pre_places.size(); i < rows; ++i) {
+                                _streaming_pre_places.emplace_back(_agg_arena_pool.aligned_alloc(
+                                        _total_size_of_aggregate_states, _align_aggregate_states));
+                            }
                         }
 
-                        if (UNLIKELY(_max_size_of_stream_pre_agg_buffer < rows)) {
-                            delete[] _streaming_pre_agg_buffer;
-                            _streaming_pre_agg_buffer = new char[((_total_size_of_aggregate_states *
-                                                                   rows) / _align_aggregate_states +
-                                                                  1) *
-                                                                 _align_aggregate_states];
-                        }
-
-                        auto aggregate_data = _streaming_pre_agg_buffer;
                         for (size_t i = 0; i < rows; ++i) {
-                            _create_agg_status(aggregate_data);
-                            places[i] = aggregate_data;
-                            aggregate_data += _total_size_of_aggregate_states;
+                            _create_agg_status(_streaming_pre_places[i]);
                         }
+
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                             _aggregate_evaluators[i]->execute_batch_add(
-                                    in_block, _offsets_of_aggregate_states[i], places.data(),
+                                    in_block, _offsets_of_aggregate_states[i], _streaming_pre_places.data(),
                                     &_agg_arena_pool);
                         }
 
@@ -712,15 +699,13 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                                     *reinterpret_cast<ColumnString*>(value_columns[i].get()));
                         }
 
-                        aggregate_data = _streaming_pre_agg_buffer;
                         for (size_t j = 0; j < rows; ++j) {
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
                                 _aggregate_evaluators[i]->function()->serialize(
-                                        aggregate_data + _offsets_of_aggregate_states[i],
+                                        _streaming_pre_places[j] + _offsets_of_aggregate_states[i],
                                         value_buffer_writers[i]);
                                 value_buffer_writers[i].commit();
                             }
-                            aggregate_data += _total_size_of_aggregate_states;
                         }
 
                         if (!mem_reuse) {
