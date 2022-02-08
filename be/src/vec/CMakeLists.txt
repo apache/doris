@@ -141,6 +141,7 @@ set(VEC_FILES
   functions/function_date_or_datetime_to_string.cpp
   functions/function_datetime_string_to_string.cpp
   functions/function_grouping.cpp
+  functions/function_rpc.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

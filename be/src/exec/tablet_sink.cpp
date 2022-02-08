@@ -18,6 +18,7 @@
 #include "exec/tablet_sink.h"
 
 #include <fmt/format.h>
+
 #include <sstream>
 #include <string>
 
@@ -31,7 +32,7 @@
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
 #include "util/proto_util.h"
@@ -85,7 +86,8 @@ Status NodeChannel::init(RuntimeState* state) {
     _batch_size = state->batch_size();
     _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
 
-    _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info.host, _node_info.brpc_port);
+    _stub = state->exec_env()->brpc_internal_client_cache()->get_client(_node_info.host,
+                                                                        _node_info.brpc_port);
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info.host
                      << ", port=" << _node_info.brpc_port;
@@ -156,9 +158,10 @@ void NodeChannel::_cancel_with_msg(const std::string& msg) {
 Status NodeChannel::open_wait() {
     _open_closure->join();
     if (_open_closure->cntl.Failed()) {
-        if (!ExecEnv::GetInstance()->brpc_stub_cache()->available(_stub, _node_info.host,
-                                                                  _node_info.brpc_port)) {
-            ExecEnv::GetInstance()->brpc_stub_cache()->erase(_open_closure->cntl.remote_side());
+        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
+                    _stub, _node_info.host, _node_info.brpc_port)) {
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    _open_closure->cntl.remote_side());
         }
         std::stringstream ss;
         ss << "failed to open tablet writer, error=" << berror(_open_closure->cntl.ErrorCode())
@@ -193,7 +196,7 @@ Status NodeChannel::open_wait() {
                                                  bool is_last_rpc) {
         Status status(result.status());
         if (status.ok()) {
-            // if has error tablet, handle them first 
+            // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {
                 _index_channel->mark_as_failed(this, error.msg(), error.tablet_id());
             }
@@ -313,8 +316,9 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     }
     DCHECK_NE(row_no, RowBatch::INVALID_ROW_INDEX);
 
-    _cur_batch->get_row(row_no)->set_tuple(0,
-            block_row.first->deep_copy_tuple(*_tuple_desc, _cur_batch->tuple_data_pool(), block_row.second, 0, true));
+    _cur_batch->get_row(row_no)->set_tuple(
+            0, block_row.first->deep_copy_tuple(*_tuple_desc, _cur_batch->tuple_data_pool(),
+                                                block_row.second, 0, true));
     _cur_batch->commit_last_row();
     _cur_add_batch_request.add_tablet_ids(tablet_id);
     return Status::OK();
@@ -338,7 +342,8 @@ Status NodeChannel::mark_close() {
         _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
         _pending_batches_num++;
         DCHECK(_pending_batches.back().second.eos());
-        LOG(INFO) << channel_info() << " mark closed, left pending batch size: " << _pending_batches.size();
+        LOG(INFO) << channel_info()
+                  << " mark closed, left pending batch size: " << _pending_batches.size();
     }
 
     _eos_is_produced = true;
@@ -377,7 +382,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
                                             std::make_move_iterator(_tablet_commit_infos.begin()),
                                             std::make_move_iterator(_tablet_commit_infos.end()));
 
-        _index_channel->set_error_tablet_in_state(state);    
+        _index_channel->set_error_tablet_in_state(state);
         return Status::OK();
     }
 
@@ -455,7 +460,7 @@ void NodeChannel::try_send_batch() {
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
         if (!st.ok()) {
-            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg())); 
+            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             return;
         }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
@@ -541,8 +546,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             NodeChannel* channel = nullptr;
             auto it = _node_channels.find(node_id);
             if (it == _node_channels.end()) {
-                channel = _parent->_pool->add(
-                        new NodeChannel(_parent, this, node_id, _schema_hash));
+                channel =
+                        _parent->_pool->add(new NodeChannel(_parent, this, node_id, _schema_hash));
                 _node_channels.emplace(node_id, channel);
             } else {
                 channel = it->second;
@@ -586,41 +591,44 @@ void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     }
 }
 
-void IndexChannel::mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id) {
+void IndexChannel::mark_as_failed(const NodeChannel* ch, const std::string& err,
+                                  int64_t tablet_id) {
     const auto& it = _tablets_by_channel.find(ch->node_id());
     if (it == _tablets_by_channel.end()) {
         return;
     }
 
     {
-        std::lock_guard<SpinLock> l(_fail_lock); 
+        std::lock_guard<SpinLock> l(_fail_lock);
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(ch->node_id());
                 _failed_channels_msgs.emplace(the_tablet_id, err + ", host: " + ch->host());
                 if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                    _intolerable_failure_status = Status::InternalError(_failed_channels_msgs[the_tablet_id]);
+                    _intolerable_failure_status =
+                            Status::InternalError(_failed_channels_msgs[the_tablet_id]);
                 }
             }
         } else {
             _failed_channels[tablet_id].insert(ch->node_id());
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + ch->host());
             if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                _intolerable_failure_status = Status::InternalError(_failed_channels_msgs[tablet_id]);
+                _intolerable_failure_status =
+                        Status::InternalError(_failed_channels_msgs[tablet_id]);
             }
         }
     }
 }
 
 Status IndexChannel::check_intolerable_failure() {
-    std::lock_guard<SpinLock> l(_fail_lock); 
+    std::lock_guard<SpinLock> l(_fail_lock);
     return _intolerable_failure_status;
 }
 
 void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
     std::vector<TErrorTabletInfo>& error_tablet_infos = state->error_tablet_infos();
 
-    std::lock_guard<SpinLock> l(_fail_lock); 
+    std::lock_guard<SpinLock> l(_fail_lock);
     for (const auto& it : _failed_channels_msgs) {
         TErrorTabletInfo error_info;
         error_info.__set_tabletId(it.first);
@@ -684,7 +692,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
-    _is_high_priority = (state->query_options().query_timeout <= config::load_task_high_priority_threshold_second);
+    _is_high_priority = (state->query_options().query_timeout <=
+                         config::load_task_high_priority_threshold_second);
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
@@ -810,7 +819,10 @@ Status OlapTableSink::open(RuntimeState* state) {
                 // The open() phase is mainly to generate DeltaWriter instances on the nodes corresponding to each node channel.
                 // This phase will not fail due to a single tablet.
                 // Therefore, if the open() phase fails, all tablets corresponding to the node need to be marked as failed.
-                index_channel->mark_as_failed(ch, fmt::format("{}, open failed, err: {}", ch->channel_info(), st.get_error_msg()), -1);
+                index_channel->mark_as_failed(ch,
+                                              fmt::format("{}, open failed, err: {}",
+                                                          ch->channel_info(), st.get_error_msg()),
+                                              -1);
             }
         });
 
@@ -851,7 +863,8 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
         SCOPED_RAW_TIMER(&_validate_data_ns);
         _filter_bitmap.Reset(batch->num_rows());
         bool stop_processing = false;
-        RETURN_IF_ERROR(_validate_data(state, batch, &_filter_bitmap, &filtered_rows, &stop_processing));
+        RETURN_IF_ERROR(
+                _validate_data(state, batch, &_filter_bitmap, &filtered_rows, &stop_processing));
         _number_filtered_rows += filtered_rows;
         if (stop_processing) {
             // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
@@ -870,12 +883,15 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
         const OlapTablePartition* partition = nullptr;
         uint32_t dist_hash = 0;
         if (!_partition->find_tablet(tuple, &partition, &dist_hash)) {
-            RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
+            RETURN_IF_ERROR(state->append_error_msg_to_file(
+                    []() -> std::string { return ""; },
                     [&]() -> std::string {
-                    fmt::memory_buffer buf;
-                    fmt::format_to(buf, "no partition for this tuple. tuple={}", Tuple::to_string(tuple, *_output_tuple_desc));
-                    return buf.data();
-                    }, &stop_processing));
+                        fmt::memory_buffer buf;
+                        fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                       Tuple::to_string(tuple, *_output_tuple_desc));
+                        return buf.data();
+                    },
+                    &stop_processing));
             _number_filtered_rows++;
             if (stop_processing) {
                 return Status::EndOfFile("Encountered unqualified data, stop processing");
@@ -892,7 +908,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     }
 
     // check intolerable failure
-    for (auto index_channel : _channels) { 
+    for (auto index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
     return Status::OK();
@@ -953,7 +969,6 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                     status = index_st;
                 }
             } // end for index channels
-            
         }
         // TODO need to be improved
         LOG(INFO) << "total mem_exceeded_block_ns=" << mem_exceeded_block_ns
@@ -1031,7 +1046,8 @@ Status OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch,
                 // Only when the expr return value is null, we will check the error message.
                 std::string expr_error = _output_expr_ctxs[j]->get_error_msg();
                 if (!expr_error.empty()) {
-                    RETURN_IF_ERROR(state->append_error_msg_to_file([&]() -> std::string { return slot_desc->col_name(); },
+                    RETURN_IF_ERROR(state->append_error_msg_to_file(
+                            [&]() -> std::string { return slot_desc->col_name(); },
                             [&]() -> std::string { return expr_error; }, &stop_processing));
                     _number_filtered_rows++;
                     ignore_this_row = true;
@@ -1040,12 +1056,15 @@ Status OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch,
                     break;
                 }
                 if (!slot_desc->is_nullable()) {
-                    RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
+                    RETURN_IF_ERROR(state->append_error_msg_to_file(
+                            []() -> std::string { return ""; },
                             [&]() -> std::string {
-                            fmt::memory_buffer buf;
-                            fmt::format_to(buf, "null value for not null column, column={}", slot_desc->col_name());
-                            return buf.data();
-                            }, &stop_processing));
+                                fmt::memory_buffer buf;
+                                fmt::format_to(buf, "null value for not null column, column={}",
+                                               slot_desc->col_name());
+                                return buf.data();
+                            },
+                            &stop_processing));
                     _number_filtered_rows++;
                     ignore_this_row = true;
                     break;
@@ -1073,8 +1092,8 @@ Status OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch,
     return Status::OK();
 }
 
-Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap, int* filtered_rows,
-                                     bool* stop_processing) {
+Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap,
+                                     int* filtered_rows, bool* stop_processing) {
     for (int row_no = 0; row_no < batch->num_rows(); ++row_no) {
         Tuple* tuple = batch->get_row(row_no)->get_tuple(0);
         bool row_valid = true;
@@ -1083,8 +1102,9 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
             SlotDescriptor* desc = _output_tuple_desc->slots()[i];
             if (desc->is_nullable() && tuple->is_null(desc->null_indicator_offset())) {
                 if (desc->type().type == TYPE_OBJECT) {
-                    fmt::format_to(error_msg, "null is not allowed for bitmap column, column_name: {}; ",
-                            desc->col_name());
+                    fmt::format_to(error_msg,
+                                   "null is not allowed for bitmap column, column_name: {}; ",
+                                   desc->col_name());
                     row_valid = false;
                 }
                 continue;
@@ -1096,9 +1116,11 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
                 // Fixed length string
                 StringValue* str_val = (StringValue*)slot;
                 if (str_val->len > desc->type().len) {
-                    fmt::format_to(error_msg, "{}", "the length of input is too long than schema. ");
+                    fmt::format_to(error_msg, "{}",
+                                   "the length of input is too long than schema. ");
                     fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                    fmt::format_to(error_msg, "input str: [{}] ", std::string(str_val->ptr, str_val->len));
+                    fmt::format_to(error_msg, "input str: [{}] ",
+                                   std::string(str_val->ptr, str_val->len));
                     fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
                     fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
                     row_valid = false;
@@ -1118,9 +1140,11 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
             case TYPE_STRING: {
                 StringValue* str_val = (StringValue*)slot;
                 if (str_val->len > OLAP_STRING_MAX_LENGTH) {
-                    fmt::format_to(error_msg, "{}", "the length of input is too long than schema. ");
+                    fmt::format_to(error_msg, "{}",
+                                   "the length of input is too long than schema. ");
                     fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                    fmt::format_to(error_msg, "first 128 bytes of input str: [{}] ", std::string(str_val->ptr, 128));
+                    fmt::format_to(error_msg, "first 128 bytes of input str: [{}] ",
+                                   std::string(str_val->ptr, 128));
                     fmt::format_to(error_msg, "schema length: {}; ", OLAP_STRING_MAX_LENGTH);
                     fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
                     row_valid = false;
@@ -1134,15 +1158,19 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
                     int code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
                     reinterpret_cast<PackedInt128*>(slot)->value = dec_val.value();
                     if (code != E_DEC_OK) {
-                        fmt::format_to(error_msg, "round one decimal failed.value={}; ", dec_val.to_string());
+                        fmt::format_to(error_msg, "round one decimal failed.value={}; ",
+                                       dec_val.to_string());
                         row_valid = false;
                         continue;
                     }
                 }
                 if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
-                    fmt::format_to(error_msg, "decimal value is not valid for definition, column={}", desc->col_name());
+                    fmt::format_to(error_msg,
+                                   "decimal value is not valid for definition, column={}",
+                                   desc->col_name());
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
-                    fmt::format_to(error_msg, ", precision={}, scale={}; ", desc->type().precision, desc->type().scale);
+                    fmt::format_to(error_msg, ", precision={}, scale={}; ", desc->type().precision,
+                                   desc->type().scale);
                     row_valid = false;
                     continue;
                 }
@@ -1151,7 +1179,9 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
             case TYPE_HLL: {
                 Slice* hll_val = (Slice*)slot;
                 if (!HyperLogLog::is_valid(*hll_val)) {
-                    fmt::format_to(error_msg, "Content of HLL type column is invalid. column name: {}; ", desc->col_name());
+                    fmt::format_to(error_msg,
+                                   "Content of HLL type column is invalid. column name: {}; ",
+                                   desc->col_name());
                     row_valid = false;
                     continue;
                 }
@@ -1165,7 +1195,8 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
         if (!row_valid) {
             (*filtered_rows)++;
             filter_bitmap->Set(row_no, true);
-            RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
+            RETURN_IF_ERROR(state->append_error_msg_to_file(
+                    []() -> std::string { return ""; },
                     [&]() -> std::string { return error_msg.data(); }, stop_processing));
         }
     }

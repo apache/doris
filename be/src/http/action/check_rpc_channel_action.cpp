@@ -24,7 +24,7 @@
 #include "http/http_request.h"
 #include "runtime/exec_env.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/md5.h"
 
 namespace doris {
@@ -71,7 +71,7 @@ void CheckRPCChannelAction::handle(HttpRequest* req) {
     digest.digest();
     request.set_md5(digest.hex());
     std::shared_ptr<PBackendService_Stub> stub(
-            _exec_env->brpc_stub_cache()->get_stub(req_ip, port));
+            _exec_env->brpc_internal_client_cache()->get_client(req_ip, port));
     if (!stub) {
         HttpChannel::send_reply(
                 req, HttpStatus::INTERNAL_SERVER_ERROR,
