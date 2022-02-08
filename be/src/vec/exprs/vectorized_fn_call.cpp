@@ -25,6 +25,7 @@
 #include "udf/udf_internal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -42,8 +43,13 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
         argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
-    _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                               argument_template, _data_type);
+    if (_fn.binary_type == TFunctionBinaryType::RPC) {
+        _function = RPCFnCall::create(_fn.name.function_name, _fn.hdfs_location, argument_template,
+                                      _data_type);
+    } else {
+        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
+                                                                   argument_template, _data_type);
+    }
     if (_function == nullptr) {
         return Status::InternalError(
                 fmt::format("Function {} is not implemented", _fn.name.function_name));

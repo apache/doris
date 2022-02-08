@@ -254,7 +254,7 @@ enum TFunctionType {
 }
 
 enum TFunctionBinaryType {
-  // Palo builtin. We can either run this interpreted or via codegen
+  // Doris builtin. We can either run this interpreted or via codegen
   // depending on the query option.
   BUILTIN,
 
@@ -266,6 +266,9 @@ enum TFunctionBinaryType {
 
   // Native-interface, precompiled to IR; loaded from *.ll
   IR,
+
+  // call udfs by rpc service
+  RPC,
 }
 
 // Represents a fully qualified function name.

@@ -42,7 +42,7 @@
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/network_util.h"
@@ -112,7 +112,7 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
     // so the empty channel not need call function close_internal()
     _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
     if (_need_close) {
-        _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
+        _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
         if (!_brpc_stub) {
             std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
                                           _brpc_dest_addr.hostname, _brpc_dest_addr.port);

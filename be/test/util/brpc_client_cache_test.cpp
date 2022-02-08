@@ -15,40 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 
 #include <gtest/gtest.h>
 
 namespace doris {
 
-class BrpcStubCacheTest : public testing::Test {
+class BrpcClientCacheTest : public testing::Test {
 public:
-    BrpcStubCacheTest() {}
-    virtual ~BrpcStubCacheTest() {}
+    BrpcClientCacheTest() {}
+    virtual ~BrpcClientCacheTest() {}
 };
 
-TEST_F(BrpcStubCacheTest, normal) {
-    BrpcStubCache cache;
+TEST_F(BrpcClientCacheTest, normal) {
+    BrpcClientCache<PBackendService_Stub> cache;
     TNetworkAddress address;
     address.hostname = "127.0.0.1";
     address.port = 123;
-    auto stub1 = cache.get_stub(address);
+    auto stub1 = cache.get_client(address);
     ASSERT_NE(nullptr, stub1);
     address.port = 124;
-    auto stub2 = cache.get_stub(address);
+    auto stub2 = cache.get_client(address);
     ASSERT_NE(nullptr, stub2);
     ASSERT_NE(stub1, stub2);
     address.port = 123;
-    auto stub3 = cache.get_stub(address);
+    auto stub3 = cache.get_client(address);
     ASSERT_EQ(stub1, stub3);
 }
 
-TEST_F(BrpcStubCacheTest, invalid) {
-    BrpcStubCache cache;
+TEST_F(BrpcClientCacheTest, invalid) {
+    BrpcClientCache<PBackendService_Stub> cache;
     TNetworkAddress address;
     address.hostname = "invalid.cm.invalid";
     address.port = 123;
-    auto stub1 = cache.get_stub(address);
+    auto stub1 = cache.get_client(address);
     ASSERT_EQ(nullptr, stub1);
 }
 

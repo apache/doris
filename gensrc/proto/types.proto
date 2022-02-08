@@ -20,6 +20,10 @@ syntax="proto2";
 package doris;
 option java_package = "org.apache.doris.proto";
 
+message PStatus {
+    required int32 status_code = 1;
+    repeated string error_msgs = 2;
+};
 message PScalarType {
     // TPrimitiveType, use int32 to avoid redefine Enum
     required int32 type = 1;
@@ -63,3 +67,150 @@ message PUniqueId {
     required int64 lo = 2;
 };
 
+message PGenericType {
+    enum TypeId {
+        UINT8 = 0;
+        UINT16 = 1;
+        UINT32 = 2;
+        UINT64 = 3;
+        UINT128 = 4;
+        UINT256 = 5;
+        INT8 = 6;
+        INT16 = 7;
+        INT32 = 8;
+        INT64 = 9;
+        INT128 = 10;
+        INT256 = 11;
+        FLOAT = 12;
+        DOUBLE = 13;
+        BOOLEAN = 14;
+        DATE = 15;
+        DATETIME = 16;
+        HLL = 17;
+        BITMAP = 18;
+        LIST = 19;
+        MAP = 20;
+        STRUCT =21;
+        STRING = 22;
+        DECIMAL32 = 23;
+        DECIMAL64 = 24;
+        DECIMAL128 = 25;
+        BYTES = 26;
+        NOTHING = 27;
+        UNKNOWN = 999;
+    }
+    required TypeId id = 2;
+    optional PList list_type = 11;
+    optional PMap map_type = 12;
+    optional PStruct struct_type = 13;
+    optional PDecimal decimal_type = 14;
+}
+
+message PList {
+  required PGenericType element_type = 1;
+}
+
+message PMap {
+  required PGenericType key_type = 1;
+  required PGenericType value_type = 2;
+}
+
+message PField {
+  required PGenericType type = 1;
+  optional string name = 2;
+  optional string comment = 3;
+}
+
+message PStruct {
+  repeated PField fields = 1;
+  required string name = 2;
+}
+
+message PDecimal {
+  required uint32 precision = 1;
+  required uint32 scale = 2;
+}
+
+message PDateTime {
+    optional int32 year = 1;
+    optional int32 month = 2;
+    optional int32 day = 3;
+    optional int32 hour = 4;
+    optional int32 minute = 5;
+    optional int32 second = 6;
+    optional int32 microsecond = 7;
+}
+
+message PValue {
+    required PGenericType type = 1;
+    optional bool is_null  = 2 [default = false];
+    optional double double_value = 3;
+    optional float float_value = 4;
+    optional int32 int32_value = 5;
+    optional int64 int64_value = 6;
+    optional uint32 uint32_value = 7;
+    optional uint64 uint64_value = 8;
+    optional bool bool_value = 9;
+    optional string string_value = 10;
+    optional bytes bytes_value = 11;
+    optional PDateTime datetime_value = 12;
+}
+
+message PValues {
+    required PGenericType type = 1;
+    optional bool has_null  = 2 [default = false];
+    repeated bool null_map = 3;
+    repeated double double_value = 4;
+    repeated float float_value = 5;
+    repeated int32 int32_value = 6;
+    repeated int64 int64_value = 7;
+    repeated uint32 uint32_value = 8;
+    repeated uint64 uint64_value = 9;
+    repeated bool bool_value = 10;
+    repeated string string_value = 11;
+    repeated bytes bytes_value = 12;
+    repeated PDateTime datetime_value = 13;
+}
+
+// this mesage may not used for now
+message PFunction {
+    enum FunctionType {
+        UDF = 0;
+        // not supported now
+        UDAF = 1; 
+        UDTF = 2; 
+    }
+    message Property {
+        required string key = 1;
+        required string val = 2;
+    };
+    required string function_name = 1;
+    repeated PGenericType inputs = 2;
+    optional PGenericType output = 3;
+    optional FunctionType type = 4 [default = UDF];
+    optional bool variadic = 5;
+    repeated Property properties = 6;
+}
+
+message PFunctionContext {
+    optional string version = 1 [default = "V2_0"];
+    repeated PValue staging_input_vals = 2;
+    repeated PValue constant_args = 3;
+    optional string error_msg = 4;
+    optional PUniqueId query_id = 5;
+    optional bytes thread_local_fn_state = 6;
+    optional bytes fragment_local_fn_state = 7;
+    optional string string_result = 8;
+    optional int64 num_updates = 9;
+    optional int64 num_removes = 10;
+    optional int64 num_warnings = 11;
+}
+
+message PHandShakeRequest {
+    optional string hello = 1;
+}
+
+message PHandShakeResponse {
+    optional PStatus status = 1;
+    optional string hello = 2;
+}

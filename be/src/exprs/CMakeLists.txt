@@ -54,6 +54,7 @@ add_library(Exprs
   math_functions.cpp
   null_literal.cpp  
   scalar_fn_call.cpp
+  rpc_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp
   array_functions.cpp

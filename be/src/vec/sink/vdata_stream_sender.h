@@ -25,7 +25,7 @@
 #include "runtime/descriptors.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/network_util.h"
 #include "util/ref_count_closure.h"
 #include "util/uid_util.h"
@@ -81,7 +81,8 @@ private:
     }
 
     template <typename Channels, typename HashVals>
-    Status channel_add_rows(Channels& channels, int num_channels, const HashVals& hash_vals, int rows, Block* block);
+    Status channel_add_rows(Channels& channels, int num_channels, const HashVals& hash_vals,
+                            int rows, Block* block);
 
     struct hash_128 {
         uint64_t high;
@@ -159,13 +160,14 @@ public:
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
               _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
-                    std::string localhost = BackendOptions::get_localhost();
-                    _is_local = (_brpc_dest_addr.hostname == localhost) && (_brpc_dest_addr.port == config::brpc_port);
-                    if (_is_local) {
-                        LOG(INFO) << "will use local Exchange, dest_node_id is : "<<_dest_node_id;
-                    }
-                }
-    
+        std::string localhost = BackendOptions::get_localhost();
+        _is_local = (_brpc_dest_addr.hostname == localhost) &&
+                    (_brpc_dest_addr.port == config::brpc_port);
+        if (_is_local) {
+            LOG(INFO) << "will use local Exchange, dest_node_id is : " << _dest_node_id;
+        }
+    }
+
     virtual ~Channel() {
         if (_closure != nullptr && _closure->unref()) {
             delete _closure;
@@ -235,7 +237,6 @@ private:
         return Status::OK();
     }
 
-
 private:
     // Serialize _batch into _thrift_batch and send via send_batch().
     // Returns send_batch() status.
@@ -276,7 +277,8 @@ private:
 };
 
 template <typename Channels, typename HashVals>
-Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels, const HashVals& hash_vals, int rows, Block* block) {
+Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
+                                           const HashVals& hash_vals, int rows, Block* block) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
