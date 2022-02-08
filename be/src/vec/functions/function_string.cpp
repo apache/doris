@@ -212,6 +212,13 @@ struct InStrOP {
         res = loc + 1;
     }
 };
+struct LocateOP {
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = PaddedPODArray<Int32>;
+    static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
+        InStrOP::execute(strr, strl, res);
+    }
+};
 
 // LeftDataType and RightDataType are DataTypeString
 template <typename LeftDataType, typename RightDataType, typename OP>
@@ -271,9 +278,7 @@ struct HexStringName {
 };
 
 struct HexStringImpl {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeString>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
@@ -707,6 +712,9 @@ template <typename LeftDataType, typename RightDataType>
 using StringInstrImpl = StringFunctionImpl<LeftDataType, RightDataType, InStrOP>;
 
 template <typename LeftDataType, typename RightDataType>
+using StringLocateImpl = StringFunctionImpl<LeftDataType, RightDataType, LocateOP>;
+
+template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
@@ -721,7 +729,7 @@ using FunctionStringEndsWith =
 using FunctionStringInstr =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameInstr>;
 using FunctionStringLocate =
-        FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameLocate>;
+        FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
 
@@ -756,7 +764,6 @@ using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 
 void register_function_string(SimpleFunctionFactory& factory) {
-    // factory.register_function<>();
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
     factory.register_function<FunctionStringUTF8Length>();
@@ -765,7 +772,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringEndsWith>();
     factory.register_function<FunctionStringInstr>();
     factory.register_function<FunctionStringFindInSet>();
-    //    factory.register_function<FunctionStringLocate>();
+    factory.register_function<FunctionStringLocate>();
+    factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionReverse>();
     factory.register_function<FunctionHexString>();
     factory.register_function<FunctionUnHex>();
