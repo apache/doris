@@ -76,6 +76,12 @@ clean_gensrc() {
 
 clean_be() {
     pushd ${DORIS_HOME}
+
+    # "build.sh --clean" just cleans and exits, however CMAKE_BUILD_DIR is set
+    # while building be.
+    CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
+    CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
+
     rm -rf $CMAKE_BUILD_DIR
     rm -rf ${DORIS_HOME}/be/output/
     popd
