@@ -643,7 +643,10 @@ public class RollupJob extends AlterJob {
             return -1;
         }
 
-        olapTable.writeLock();
+        if (!olapTable.writeLockIfExist()) {
+            LOG.warn("unknown table, tableName=" + olapTable.getName());
+            return -1;
+        }
         try {
             // if all previous transaction has finished, then check base and rollup replica num
             synchronized (this) {

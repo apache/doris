@@ -17,7 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -93,10 +95,27 @@ public class DatabaseTest {
 
         db.writeLock();
         try {
-            Assert.assertTrue(db.tryWriteLock(0, TimeUnit.SECONDS));
+            Assert.assertTrue(db.tryWriteLock(1000, TimeUnit.SECONDS));
+            db.writeUnlock();
         } finally {
             db.writeUnlock();
         }
+
+        db.markDropped();
+        Assert.assertFalse(db.writeLockIfExist());
+        Assert.assertFalse(db.isWriteLockHeldByCurrentThread());
+        db.unmarkDropped();
+        Assert.assertTrue(db.writeLockIfExist());
+        Assert.assertTrue(db.isWriteLockHeldByCurrentThread());
+        db.writeUnlock();
+    }
+
+    @Test
+    public void lockTestWithException() {
+        db.markDropped();
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = unknown db, dbName=dbTest", () -> db.writeLockOrDdlException());
+        db.unmarkDropped();
     }
 
     @Test

@@ -406,7 +406,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
 
             for (DropPartitionClause dropPartitionClause : dropPartitionClauses) {
-                olapTable.writeLock();
+                if (!olapTable.writeLockIfExist()) {
+                    continue;
+                }
                 try {
                     Catalog.getCurrentCatalog().dropPartition(db, olapTable, dropPartitionClause);
                     clearDropPartitionFailedMsg(olapTable.getId());

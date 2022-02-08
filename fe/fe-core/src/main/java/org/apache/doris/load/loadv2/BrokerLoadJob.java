@@ -277,6 +277,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         try {
             db = getDb();
             tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
+            MetaLockUtils.writeLockTablesOrMetaException(tableList);
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -285,7 +286,6 @@ public class BrokerLoadJob extends BulkLoadJob {
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
-        MetaLockUtils.writeLockTables(tableList);
         try {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("txn_id", transactionId)
