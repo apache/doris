@@ -65,8 +65,14 @@ String ColumnWithTypeAndName::dump_structure() const {
     dump_structure(out);
     return out.str();
 }
+
 std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
     return type->to_string(*column->convert_to_full_column_if_const().get(), row_num);
+}
+
+void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
+    col_meta->set_name(name);
+    type->to_pb_column_meta(col_meta);
 }
 
 } // namespace doris::vectorized

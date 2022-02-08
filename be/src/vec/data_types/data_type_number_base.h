@@ -42,8 +42,10 @@ public:
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
     Field get_default() const override;
 
-    size_t serialize(const IColumn& column, PColumn* pcolumn) const override;
-    void deserialize(const PColumn& pcolumn, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
+    char* serialize(const IColumn& column, char* buf) const override;
+    const char* deserialize(const char* buf, IColumn* column) const override;
+
     MutableColumnPtr create_column() const override;
 
     bool get_is_parametric() const override { return false; }

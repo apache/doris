@@ -78,46 +78,57 @@ bool DataTypeString::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-size_t DataTypeString::serialize(const IColumn& column, PColumn* pcolumn) const {
+// binary: <size array> | total length | <value array>
+//  <size array> : column num | offset1 |offset2 | ...
+//  <value array> : <value1> | <value2 | ...
+int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column) const {
+    auto ptr = column.convert_to_full_column_if_const();
+    const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
+    return sizeof(uint32_t) * (column.size() + 1) + sizeof(uint64_t) + data_column.get_chars().size();
+}
+
+char* DataTypeString::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    // compute the mem need to be allocate
-    auto allocate_len_size = sizeof(uint32_t) * (column.size() + 1);
-    auto allocate_content_size = data_column.get_chars().size();
-    pcolumn->mutable_binary()->resize(allocate_len_size + allocate_content_size);
-    auto* data = pcolumn->mutable_binary()->data();
+    // column num
+    *reinterpret_cast<uint32_t*>(buf) = column.size();
+    buf += sizeof(uint32_t);
+    // offsets
+    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(uint32_t));
+    buf += column.size() * sizeof(uint32_t);
+    // total length
+    uint64_t value_len = data_column.get_chars().size();
+    *reinterpret_cast<uint64_t*>(buf) = value_len;
+    buf += sizeof(uint64_t);
+    // values
+    memcpy(buf, data_column.get_chars().data(), value_len);
+    buf += value_len;
 
-    // serialize the string size array
-    *reinterpret_cast<uint32_t*>(data) = column.size();
-    data += sizeof(uint32_t);
-    memcpy(data, data_column.get_offsets().data(), column.size() * sizeof(uint32_t));
-    data += column.size() * sizeof(uint32_t);
-
-    // serialize the string content array
-    memcpy(data, data_column.get_chars().data(), data_column.get_chars().size());
-
-    return compress_binary(pcolumn);
+    return buf;
 }
 
-void DataTypeString::deserialize(const PColumn& pcolumn, IColumn* column) const {
+const char* DataTypeString::deserialize(const char* buf, IColumn* column) const {
     ColumnString* column_string = assert_cast<ColumnString*>(column);
     ColumnString::Chars& data = column_string->get_chars();
     ColumnString::Offsets& offsets = column_string->get_offsets();
-    std::string uncompressed;
-    read_binary(pcolumn, &uncompressed);
 
-    // deserialize the string size array
-    auto* origin_data = uncompressed.data();
-    uint32_t column_len = *reinterpret_cast<uint32_t*>(origin_data);
-    origin_data += sizeof(uint32_t);
-    offsets.resize(column_len);
-    memcpy(offsets.data(), origin_data, sizeof(uint32_t) * column_len);
-    origin_data += sizeof(uint32_t) * column_len;
+    // column num
+    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+    // offsets
+    offsets.resize(column_num);
+    memcpy(offsets.data(), buf, sizeof(uint32_t) * column_num);
+    buf += sizeof(uint32_t) * column_num;
+    // total length
+    uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf); 
+    buf += sizeof(uint64_t);
+    // values
+    data.resize(value_len);
+    memcpy(data.data(), buf, value_len);
+    buf += value_len;
 
-    // deserialize the string content array
-    uint32_t content_len = uncompressed.size() - sizeof(uint32_t) * (column_len + 1);
-    data.resize(content_len);
-    memcpy(data.data(), origin_data, content_len);
+    return buf;
 }
+
 } // namespace doris::vectorized

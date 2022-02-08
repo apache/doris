@@ -27,6 +27,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "util/proto_util.h"
 #include "vec/common/sip_hash.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -76,22 +77,12 @@ Status VDataStreamSender::Channel::send_current_block(bool eos) {
     //    if (is_local()) {
     //        return send_local_block(eos);
     //    }
-    {
-        SCOPED_TIMER(_parent->_serialize_batch_timer);
-        _pb_block.Clear();
-
-        // mem-reuse of the mutable_block which reduces the overhead of memory allocation
-        // and improve cache affinity
-        auto block = _mutable_block->to_block();
-        auto uncompressed_bytes = block.serialize(&_pb_block);
-        block.clear_column_data();
-        _mutable_block->set_muatable_columns(block.mutate_columns());
-
-        auto bytes = _pb_block.ByteSizeLong();
-        COUNTER_UPDATE(_parent->_bytes_sent_counter, bytes);
-        COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes);
-    }
-    RETURN_IF_ERROR(send_block(&_pb_block, eos));
+    auto block = _mutable_block->to_block();
+    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
+    block.clear_column_data();
+    _mutable_block->set_muatable_columns(block.mutate_columns());
+    RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
+    ch_roll_pb_block();
     return Status::OK();
 }
 
@@ -145,6 +136,13 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
 
     _closure->ref();
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
+
+    if (_brpc_request.has_block()) {
+        request_block_transfer_attachment<PTransmitDataParams,
+            RefCountClosure<PTransmitDataResult>>(&_brpc_request, _parent->_column_values_buffer,
+                    _closure);
+    }
+
     _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     if (block != nullptr) {
         _brpc_request.release_block();
@@ -244,6 +242,10 @@ Status VDataStreamSender::Channel::close(RuntimeState* state) {
     return st;
 }
 
+void VDataStreamSender::Channel::ch_roll_pb_block() {
+    _ch_cur_pb_block = (_ch_cur_pb_block == &_ch_pb_block1 ? &_ch_pb_block2 : &_ch_pb_block1);
+}
+
 VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                                      const TDataStreamSink& sink,
                                      const std::vector<TPlanFragmentDestination>& destinations,
@@ -255,7 +257,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
           _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
-          _current_pb_block(&_pb_block1),
+          _cur_pb_block(&_pb_block1),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
@@ -393,8 +395,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
-        // 3. switch proto
-        //return handle_unpartitioned(block);
+        // 3. rollover block
         int local_size = 0;
         for (auto channel : _channels) {
             if (channel->is_local()) local_size++;
@@ -404,29 +405,28 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else {
-            RETURN_IF_ERROR(serialize_block(block, _current_pb_block, _channels.size()));
+            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
             for (auto channel : _channels) {
                 if (channel->is_local()) {
                     RETURN_IF_ERROR(channel->send_local_block(block));
                 } else {
-                    RETURN_IF_ERROR(channel->send_block(_current_pb_block));
+                    RETURN_IF_ERROR(channel->send_block(_cur_pb_block));
                 }
             }
-            _current_pb_block = (_current_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
-            //VLOG_ROW << "send rows:" << block->rows();
+            // rollover
+            _roll_pb_block(); 
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // 1. select channel
         Channel* current_channel = _channels[_current_channel_idx];
-        // 2. serialize
+        // 2. serialize, send and rollover block
         if (current_channel->is_local()) {
             RETURN_IF_ERROR(current_channel->send_local_block(block));
         } else {
-            RETURN_IF_ERROR(serialize_block(block, current_channel->pb_block()));
-            RETURN_IF_ERROR(current_channel->send_block(current_channel->pb_block()));
+            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
+            RETURN_IF_ERROR(current_channel->send_block(current_channel->ch_cur_pb_block()));
+            current_channel->ch_roll_pb_block();
         }
-        // 3. send block
-        // 4. switch proto
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
         int num_channels = _channels.size();
@@ -523,28 +523,21 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     return final_st;
 }
 
-Status VDataStreamSender::handle_unpartitioned(Block* block) {
-    RETURN_IF_ERROR(serialize_block(block, _current_pb_block, _channels.size()));
-    for (auto channel : _channels) {
-        RETURN_IF_ERROR(channel->send_block(_current_pb_block));
-    }
-    _current_pb_block = (_current_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
-    VLOG_ROW << "send rows:" << block->rows();
-    return Status::OK();
-}
-
 Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_receivers) {
     {
         SCOPED_TIMER(_serialize_batch_timer);
         dest->Clear();
-        auto uncompressed_bytes = src->serialize(dest);
-        auto bytes = dest->ByteSizeLong();
-
-        COUNTER_UPDATE(_bytes_sent_counter, bytes * num_receivers);
+        size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes, &_column_values_buffer));
+        COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }
 
     return Status::OK();
+}
+
+void VDataStreamSender::_roll_pb_block() {
+    _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
 }
 
 } // namespace doris::vectorized

@@ -23,6 +23,7 @@
 #include <boost/noncopyable.hpp>
 #include <memory>
 
+#include "gen_cpp/data.pb.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_buffer.hpp"
@@ -233,9 +234,13 @@ public:
     /// Updates avg_value_size_hint for newly read column. Uses to optimize deserialization. Zero expected for first column.
     static void update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint);
 
-    virtual size_t serialize(const IColumn& column, PColumn* pcolumn) const = 0;
-    virtual void deserialize(const PColumn& pcolumn, IColumn* column) const = 0;
+    virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column) const = 0;
+    virtual char* serialize(const IColumn& column, char* buf) const = 0;
+    virtual const char* deserialize(const char* buf, IColumn* column) const = 0;
 
+    virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
+
+    static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
     static DataTypePtr from_thrift(const doris::PrimitiveType& type, const bool is_nullable = true);
     static DataTypePtr from_olap_engine(const doris::FieldType& type, const bool is_nullable = true);
 
