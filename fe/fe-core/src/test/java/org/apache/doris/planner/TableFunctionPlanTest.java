@@ -510,17 +510,15 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`table_for_view`.`k3`, ',') "));
     }
 
-    @Ignore
-    // errCode = 2, detailMessage = Unknown column 'e1' in 'table list'
+    @Test
     public void testLaterViewWithCTEBug() throws Exception {
         String sql = "with tmp as (select * from db1.table_for_view where k2=1) select k1,e1 from tmp lateral view explode_split(k3,',') tmp2 as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(!explainString.contains("Unknown column 'e1' in 'table list'"));
     }
 
-    @Ignore
-    // errCode = 2, detailMessage = Unknown column 'e1' in 'table list'
-    public void testLaterViewUnknowColumnBug() throws Exception {
+    @Test
+    public void testLaterViewUnknownColumnBug() throws Exception {
         // test2
         String createViewStr = "create view db1.v2 (k1,k3) as select k1,k3 from db1.table_for_view;";
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
