@@ -54,11 +54,12 @@ private:
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    int _validate_data(RuntimeState* state, vectorized::Block* block, bool* filter_map);
+    // set stop_processing is we want to stop the whole process now.
+    Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap, int* filtered_rows,
+                          bool* stop_processing);
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
-    std::vector<uint8_t> _filter_vec;
 };
 
 } // namespace stream_load
