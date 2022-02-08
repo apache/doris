@@ -420,6 +420,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
         keywordMap.put("||", new Integer(SqlParserSymbols.KW_PIPE));
         keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
+        keywordMap.put("tablets", new Integer(SqlParserSymbols.KW_TABLETS));
    }
     
   // map from token id to token description
