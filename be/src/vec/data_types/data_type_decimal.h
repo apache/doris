@@ -116,8 +116,12 @@ public:
     std::string do_get_name() const override;
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
 
-    size_t serialize(const IColumn& column, PColumn* pcolumn) const override;
-    void deserialize(const PColumn& pcolumn, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
+    char* serialize(const IColumn& column, char* buf) const override;
+    const char* deserialize(const char* buf, IColumn* column) const override;
+
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
     Field get_default() const override;
     bool can_be_promoted() const override { return true; }
     DataTypePtr promote_numeric_type() const override;

@@ -81,8 +81,8 @@ message PGenericType {
         INT64 = 9;
         INT128 = 10;
         INT256 = 11;
-        FLOAT = 12;
-        DOUBLE = 13;
+        FLOAT = 12; // map to Float32
+        DOUBLE = 13; // map to Float64
         BOOLEAN = 14;
         DATE = 15;
         DATETIME = 16;
@@ -214,3 +214,4 @@ message PHandShakeResponse {
     optional PStatus status = 1;
     optional string hello = 2;
 }
+

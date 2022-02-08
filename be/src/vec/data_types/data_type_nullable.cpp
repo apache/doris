@@ -53,33 +53,48 @@ std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) c
     }
 }
 
-size_t DataTypeNullable::serialize(const IColumn& column, PColumn* pcolumn) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
-    pcolumn->mutable_is_null()->Reserve(column.size());
-
-    for (size_t i = 0; i < column.size(); ++i) {
-        bool is_null = col.is_null_at(i);
-        pcolumn->add_is_null(is_null);
-    }
-
-    return nested_data_type->serialize(col.get_nested_column(), pcolumn) +
-           sizeof(bool) * column.size();
+// binary: column num | <null array> | <values array>
+//  <null array>: is_null1 | is_null2 | ...
+//  <values array>: value1 | value2 | ...>
+int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& column) const {
+    int64_t size = sizeof(uint32_t);
+    size += sizeof(bool) * column.size();
+    size += nested_data_type->get_uncompressed_serialized_bytes(assert_cast<const ColumnNullable&>(
+            *column.convert_to_full_column_if_const()).get_nested_column());
+    return size;
 }
 
-void DataTypeNullable::deserialize(const PColumn& pcolumn, IColumn* column) const {
-    ColumnNullable* col = assert_cast<ColumnNullable*>(column);
-    col->get_null_map_data().reserve(pcolumn.is_null_size());
+char* DataTypeNullable::serialize(const IColumn& column, char* buf) const {
+    auto ptr = column.convert_to_full_column_if_const();
+    const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
 
-    for (int i = 0; i < pcolumn.is_null_size(); ++i) {
-        if (pcolumn.is_null(i)) {
-            col->get_null_map_data().push_back(1);
-        } else {
-            col->get_null_map_data().push_back(0);
-        }
-    }
+    // column num
+    *reinterpret_cast<uint32_t*>(buf) = column.size();
+    buf += sizeof(uint32_t);
+    // null flags
+    memcpy(buf, col.get_null_map_data().data(), column.size() * sizeof(bool));
+    buf += column.size() * sizeof(bool);
+    // data values
+    return nested_data_type->serialize(col.get_nested_column(), buf);
+}
+
+const char* DataTypeNullable::deserialize(const char* buf, IColumn* column) const {
+    ColumnNullable* col = assert_cast<ColumnNullable*>(column);
+    // column num
+    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+    // null flags
+    col->get_null_map_data().resize(column_num);
+    memcpy(col->get_null_map_data().data(), buf, column_num * sizeof(bool));
+    buf += column_num * sizeof(bool);
+    // data values
     IColumn& nested = col->get_nested_column();
-    nested_data_type->deserialize(pcolumn, &nested);
+    return nested_data_type->deserialize(buf, &nested);
+}
+
+void DataTypeNullable::to_pb_column_meta(PColumnMeta* col_meta) const {
+    col_meta->set_is_nullable(true);
+    get_nested_type()->to_pb_column_meta(col_meta);
 }
 
 MutableColumnPtr DataTypeNullable::create_column() const {

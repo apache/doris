@@ -89,10 +89,60 @@ void IDataType::to_string(const IColumn& column, size_t row_num, BufferWritable&
 
 std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
     LOG(FATAL) << fmt::format("Data type {} to_string not implement.", get_name());
+    return "";
 }
 
 void IDataType::insert_default_into(IColumn& column) const {
     column.insert_default();
+}
+
+void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
+    col_meta->set_type(get_pdata_type(this));
+}
+
+PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
+    switch (data_type->get_type_id()) {
+    case TypeIndex::UInt8:
+        return PGenericType::UINT8;
+    case TypeIndex::UInt16:
+        return PGenericType::UINT16;
+    case TypeIndex::UInt32:
+        return PGenericType::UINT32;
+    case TypeIndex::UInt64:
+        return PGenericType::UINT64;
+    case TypeIndex::UInt128:
+        return PGenericType::UINT128;
+    case TypeIndex::Int8:
+        return PGenericType::INT8;
+    case TypeIndex::Int16:
+        return PGenericType::INT16;
+    case TypeIndex::Int32:
+        return PGenericType::INT32;
+    case TypeIndex::Int64:
+        return PGenericType::INT64;
+    case TypeIndex::Int128:
+        return PGenericType::INT128;
+    case TypeIndex::Float32:
+        return PGenericType::FLOAT;
+    case TypeIndex::Float64:
+        return PGenericType::DOUBLE;
+    case TypeIndex::Decimal32:
+        return PGenericType::DECIMAL32;
+    case TypeIndex::Decimal64:
+        return PGenericType::DECIMAL64;
+    case TypeIndex::Decimal128:
+        return PGenericType::DECIMAL128;
+    case TypeIndex::String:
+        return PGenericType::STRING;
+    case TypeIndex::Date:
+        return PGenericType::DATE;
+    case TypeIndex::DateTime:
+        return PGenericType::DATETIME;
+    case TypeIndex::BitMap:
+        return PGenericType::BITMAP;
+    default:
+        return PGenericType::UNKNOWN;
+    }
 }
 
 DataTypePtr IDataType::from_thrift(const doris::PrimitiveType& type, const bool is_nullable){

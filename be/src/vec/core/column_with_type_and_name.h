@@ -51,6 +51,8 @@ struct ColumnWithTypeAndName {
     void dump_structure(std::ostream& out) const;
     String dump_structure() const;
     std::string to_string(size_t row_num) const;
+
+    void to_pb_column_meta(PColumnMeta* col_meta) const;
 };
 
 } // namespace doris::vectorized

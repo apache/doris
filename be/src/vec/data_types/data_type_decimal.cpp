@@ -62,32 +62,44 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
     ostr.write(str.data(), str.size());
 }
 
+// binary: column_num | value1 | value2 | ...
 template <typename T>
-size_t DataTypeDecimal<T>::serialize(const IColumn& column, PColumn* pcolumn) const {
-    const auto column_len = column.size();
-    pcolumn->mutable_binary()->resize(column_len * sizeof(FieldType));
-    auto* data = pcolumn->mutable_binary()->data();
-
-    // copy the data
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto* origin_data = assert_cast<const ColumnType&>(*ptr.get()).get_data().data();
-    memcpy(data, origin_data, column_len * sizeof(FieldType));
-
-    // set precision and scale
-    pcolumn->mutable_decimal_param()->set_precision(precision);
-    pcolumn->mutable_decimal_param()->set_scale(scale);
-
-    return compress_binary(pcolumn);
+int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column) const {
+    return sizeof(uint32_t) + column.size() * sizeof(FieldType);
 }
 
 template <typename T>
-void DataTypeDecimal<T>::deserialize(const PColumn& pcolumn, IColumn* column) const {
-    std::string uncompressed;
-    read_binary(pcolumn, &uncompressed);
+char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf) const {
+    // column num
+    const auto column_num = column.size();
+    *reinterpret_cast<uint32_t*>(buf) = column_num;
+    buf += sizeof(uint32_t); 
+    // column values
+    auto ptr = column.convert_to_full_column_if_const();
+    const auto* origin_data = assert_cast<const ColumnType&>(*ptr.get()).get_data().data();
+    memcpy(buf, origin_data, column_num * sizeof(FieldType));
+    buf += column_num * sizeof(FieldType);
+    return buf;
+}
 
+template <typename T>
+const char* DataTypeDecimal<T>::deserialize(const char* buf, IColumn* column) const {
+    // column num
+    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
+    buf += sizeof(uint32_t);
+    // column values
     auto& container = assert_cast<ColumnType*>(column)->get_data();
-    container.resize(uncompressed.size() / sizeof(T));
-    memcpy(container.data(), uncompressed.data(), uncompressed.size());
+    container.resize(column_num);
+    memcpy(container.data(), buf, column_num * sizeof(FieldType));
+    buf += column_num * sizeof(FieldType);
+    return buf;
+}
+
+template <typename T>
+void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->mutable_decimal_param()->set_precision(precision);
+    col_meta->mutable_decimal_param()->set_scale(scale);
 }
 
 template <typename T>

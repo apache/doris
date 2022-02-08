@@ -30,11 +30,14 @@ MutableColumnPtr DataTypeNothing::create_column() const {
     return ColumnNothing::create(0);
 }
 
-size_t DataTypeNothing::serialize(const IColumn&, PColumn* pcolumn) const {
-    return 0;
+char* DataTypeNothing::serialize(const IColumn& column, char* buf) const {
+    return buf;
 }
 
-void DataTypeNothing::deserialize(const PColumn& pcolumn, IColumn* column) const {}
+const char* DataTypeNothing::deserialize(const char* buf, IColumn* column) const {
+    return buf;
+}
+
 bool DataTypeNothing::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }

@@ -874,6 +874,9 @@ public class SystemInfoService {
                 backends.addAll(list);
             } else {
                 list = list.stream().filter(beAvailablePredicate::isMatch).collect(Collectors.toList());
+                if (list.isEmpty()) {
+                    continue;
+                }
                 Collections.shuffle(list);
                 backends.add(list.get(0));
             }
