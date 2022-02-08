@@ -425,8 +425,7 @@ private:
     bool _is_streaming_preagg;
     Block _preagg_block = Block();
     bool _should_expand_hash_table = true;
-    char* _streaming_pre_agg_buffer = nullptr;
-    size_t _max_size_of_stream_pre_agg_buffer = 0;
+    std::vector<char*> _streaming_pre_places;
 
     /// Expose the minimum reduction factor to continue growing the hash tables.
     RuntimeProfile::Counter* preagg_streaming_ht_min_reduction_;

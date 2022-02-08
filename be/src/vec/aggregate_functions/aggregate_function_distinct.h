@@ -202,6 +202,8 @@ public:
 
     size_t size_of_data() const override { return prefix_size + nested_func->size_of_data(); }
 
+    size_t align_of_data() const override { return nested_func->align_of_data(); }
+
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data;
         nested_func->create(get_nested_place(place));
