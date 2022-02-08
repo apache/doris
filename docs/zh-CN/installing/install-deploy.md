@@ -206,13 +206,13 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
     
     示例2如下：
     
-    **注意：不论HHD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+    **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
     
     `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
     
     **说明**
     
-    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HHD;
+    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HDD;
     - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
 
 * BE webserver_port端口配置
