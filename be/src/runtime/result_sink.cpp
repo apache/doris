@@ -29,6 +29,8 @@
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
+#include "vec/exprs/vexpr.h"
+
 namespace doris {
 
 ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
@@ -118,7 +120,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
 
     // close sender, this is normal path end
     if (_sender) {
-        _sender->update_num_written_rows(_writer->get_written_rows());
+        _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
         _sender->update_max_peak_memory_bytes();
         _sender->close(final_status);
     }

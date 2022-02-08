@@ -18,6 +18,20 @@
 package org.apache.doris.common;
 
 public final class FeMetaVersion {
+
+    public static final int VERSION_1 = 1;
+
+    public static final int VERSION_2 = 2;
+
+    public static final int VERSION_3 = 3;
+
+    public static final int VERSION_4 = 4;
+
+    public static final int VERSION_5 = 5;
+
+    public static final int VERSION_6 = 6;
+
+    public static final int VERSION_7 = 7;
     // jira 1902
     public static final int VERSION_8 = 8;
     // jira 529
@@ -222,6 +236,8 @@ public final class FeMetaVersion {
     public static final int VERSION_104 = 104;
     // change replica to replica allocation
     public static final int VERSION_105 = 105;
+    // add ldap info
+    public static final int VERSION_106 = 106;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_105;
+    public static final int VERSION_CURRENT = VERSION_106;
 }

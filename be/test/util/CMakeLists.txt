@@ -19,7 +19,7 @@
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/util")
 
 ADD_BE_TEST(bit_util_test)
-ADD_BE_TEST(brpc_stub_cache_test)
+ADD_BE_TEST(brpc_client_cache_test)
 ADD_BE_TEST(path_trie_test)
 ADD_BE_TEST(coding_test)
 ADD_BE_TEST(crc32c_test)

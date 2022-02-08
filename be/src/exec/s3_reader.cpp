@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "gutil/strings/strcat.h"
+#include "service/backend_options.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -64,7 +65,7 @@ Status S3Reader::open() {
     } else {
         std::stringstream out;
         out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage();
+            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
         return Status::InternalError(out.str());
     }
 }
@@ -99,7 +100,7 @@ Status S3Reader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, v
         *bytes_read = 0;
         std::stringstream out;
         out << "Error: [" << response.GetError().GetExceptionName() << ":"
-            << response.GetError().GetMessage();
+            << response.GetError().GetMessage() << "] at " << BackendOptions::get_localhost();
         LOG(INFO) << out.str();
         return Status::InternalError(out.str());
     }

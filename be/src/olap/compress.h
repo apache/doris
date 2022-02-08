@@ -24,23 +24,25 @@ namespace doris {
 
 class StorageByteBuffer;
 
-// 定义压缩函数,将in中剩余的内存压缩,并保存到out中剩余的空间
+// Define a compression function to compress the remaining memory in the input buffer
+// and save it to the remaining space in the output buffer
 // Inputs:
-//     in - 输入缓冲区,压缩从position到limit位置的内存
-//     out - 输出缓冲区,从position到limit的空间可以用于存放数据
-//     smaller - 压缩后的数据大小是否小于压缩前的数据大小
+//     in - input buffer,Compress memory from position to limit
+//     out - output buffer,The space from position to limit can be used to store data
+//     smaller - Whether the compressed data size is smaller than the data size before compression
 // Returns:
-//     OLAP_ERR_BUFFER_OVERFLOW - out中的剩余空间不足
-//     OLAP_ERR_COMPRESS_ERROR - 压缩错误
+//     OLAP_ERR_BUFFER_OVERFLOW - Insufficient space left in output buffer
+//     OLAP_ERR_COMPRESS_ERROR - Compression error
 typedef OLAPStatus (*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
 
-// 定义解压缩函数,将in中剩余的内存解压缩,并保存到out中剩余的空间
+// Define a decompression function to decompress the remaining memory in the input buffer
+// and save it to the remaining space in the output buffer
 // Inputs:
-//     in - 输入缓冲区,解压缩从position到limit位置的内存
-//     out - 输出缓冲区,从position到limit的空间可以用于存放数据
+//     in - input buffer,Decompress memory from position to limit
+//     out - output buffer,The space from position to limit can be used to store data
 // Returns:
-//     OLAP_ERR_BUFFER_OVERFLOW - out中的剩余空间不足
-//     OLAP_ERR_DECOMPRESS_ERROR - 解压缩错误
+//     OLAP_ERR_BUFFER_OVERFLOW - Insufficient space left in output buffer
+//     OLAP_ERR_DECOMPRESS_ERROR - decompression error
 typedef OLAPStatus (*Decompressor)(StorageByteBuffer* in, StorageByteBuffer* out);
 
 #ifdef DORIS_WITH_LZO

@@ -91,4 +91,4 @@ lateral view explode_bitmap(x) tmp2 as e1;
 
 ## keyword
 
-    lateral view
+    LATERAL, VIEW

@@ -30,7 +30,7 @@ under the License.
 
     This statement is used to create index
     grammer:
-        CREATE INDEX index_name ON table_name (column [, ...],) [USING BITMAP] [COMMENT'balabala'];
+        CREATE INDEX [IF NOT EXISTS] index_name ON table_name (column [, ...],) [USING BITMAP] [COMMENT'balabala'];
     note:
         1. only support bitmap index in current version
         2. BITMAP index only supports apply to single column
@@ -38,7 +38,7 @@ under the License.
 ## example
 
     1. create index on table1 column siteid using bitmap 
-        CREATE INDEX index_name ON table1 (siteid) USING BITMAP COMMENT 'balabala';
+        CREATE INDEX [IF NOT EXISTS] index_name ON table1 (siteid) USING BITMAP COMMENT 'balabala';
 
 ## keyword
 

@@ -104,7 +104,7 @@ public class Backend implements Writable {
     private volatile ImmutableMap<String, DiskInfo> disksRef;
 
     private String heartbeatErrMsg = "";
-    
+
     // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
     // after init it, this variable is set to true.
     private boolean initPathInfo = false;
@@ -194,19 +194,25 @@ public class Backend implements Writable {
         return heartbeatErrMsg;
     }
 
-    public long getLastStreamLoadTime() { return this.backendStatus.lastStreamLoadTime; }
+    public long getLastStreamLoadTime() {
+        return this.backendStatus.lastStreamLoadTime;
+    }
 
     public void setLastStreamLoadTime(long lastStreamLoadTime) {
         this.backendStatus.lastStreamLoadTime = lastStreamLoadTime;
     }
 
-    public boolean isQueryDisabled() { return backendStatus.isQueryDisabled; }
+    public boolean isQueryDisabled() {
+        return backendStatus.isQueryDisabled;
+    }
 
     public void setQueryDisabled(boolean isQueryDisabled) {
         this.backendStatus.isQueryDisabled = isQueryDisabled;
     }
 
-    public boolean isLoadDisabled() {return backendStatus.isLoadDisabled; }
+    public boolean isLoadDisabled() {
+        return backendStatus.isLoadDisabled;
+    }
 
     public void setLoadDisabled(boolean isLoadDisabled) {
         this.backendStatus.isLoadDisabled = isLoadDisabled;
@@ -319,7 +325,7 @@ public class Backend implements Writable {
 
     /**
      * backend belong to some cluster
-     * 
+     *
      * @return
      */
     public boolean isUsedByCluster() {
@@ -328,7 +334,7 @@ public class Backend implements Writable {
 
     /**
      * backend is free, and it isn't belong to any cluster
-     * 
+     *
      * @return
      */
     public boolean isFreeFromCluster() {
@@ -338,7 +344,7 @@ public class Backend implements Writable {
     /**
      * backend execute discommission in cluster , and backendState will be free
      * finally
-     * 
+     *
      * @return
      */
     public boolean isOffLineFromCluster() {
@@ -557,13 +563,13 @@ public class Backend implements Writable {
         }
         isAlive.set(in.readBoolean());
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 5) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_5) {
             isDecommissioned.set(in.readBoolean());
         }
 
         lastUpdateMs = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 2) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_2) {
             lastStartTime = in.readLong();
 
             Map<String, DiskInfo> disks = Maps.newHashMap();
@@ -609,7 +615,7 @@ public class Backend implements Writable {
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + "]";
+                + ", tag: " + tag + "]";
     }
 
     public String getOwnerClusterName() {
@@ -619,7 +625,7 @@ public class Backend implements Writable {
     public void setOwnerClusterName(String name) {
         ownerClusterName = name;
     }
-    
+
     public void clearClusterName() {
         ownerClusterName = "";
     }
@@ -638,7 +644,7 @@ public class Backend implements Writable {
     public void setDecommissionType(DecommissionType type) {
         decommissionType = type.ordinal();
     }
-    
+
     public DecommissionType getDecommissionType() {
         if (decommissionType == DecommissionType.ClusterDecommission.ordinal()) {
             return DecommissionType.ClusterDecommission;

@@ -90,7 +90,6 @@ import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -157,8 +156,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_DB: {
-                data = new Database();
-                ((Database) data).readFields(in);
+                data = Database.read(in);
                 isRead = true;
                 break;
             }
@@ -377,12 +375,6 @@ public class JournalEntity implements Writable {
             case OperationType.OP_META_VERSION: {
                 data = new Text();
                 ((Text) data).readFields(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_GLOBAL_VARIABLE: {
-                data = new SessionVariable();
-                ((SessionVariable) data).readFields(in);
                 isRead = true;
                 break;
             }
@@ -612,7 +604,7 @@ public class JournalEntity implements Writable {
                 data = PluginInfo.read(in);
                 isRead = true;
                 break;
-            }              
+            }
             case OperationType.OP_REMOVE_ALTER_JOB_V2: {
                 data = RemoveAlterJobV2OperationLog.read(in);
                 isRead = true;

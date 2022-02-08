@@ -338,12 +338,11 @@ public class MasterImpl {
         LOG.debug("push report state: {}", pushState.name());
 
         OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
-        if (olapTable == null) {
+        if (olapTable == null || !olapTable.writeLockIfExist()) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
             return;
         }
-        olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
@@ -552,12 +551,11 @@ public class MasterImpl {
         LOG.debug("push report state: {}", pushState.name());
 
         OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
-        if (olapTable == null) {
+        if (olapTable == null || !olapTable.writeLockIfExist()) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
             return;
         }
-        olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {

@@ -36,13 +36,18 @@ class FoldConstantExecutor {
 public:
     // fold constant expr
     Status fold_constant_expr(const TFoldConstantParams& params, PConstantExprResult* response);
+
+    // fold constant vexpr
+    Status fold_constant_vexpr(const TFoldConstantParams& params, PConstantExprResult* response);
 private:
     // init runtime_state and mem_tracker
     Status _init(const TQueryGlobals& query_globals);
     // prepare expr
-    Status _prepare_and_open(ExprContext* ctx);
+    template <typename Context>
+    Status _prepare_and_open(Context* ctx);
 
-    std::string _get_result(void* src, PrimitiveType slot_type);
+    template <bool is_vec = false>
+    std::string _get_result(void* src, size_t size, PrimitiveType slot_type);
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<MemTracker> _mem_tracker;

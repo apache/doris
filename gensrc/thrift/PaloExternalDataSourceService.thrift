@@ -113,7 +113,7 @@ struct TExtColumnData {
 
   // Only one is set, only non-null values are set. this indicates one column data for a row batch
   2: optional list<bool> bool_vals;
-  3: optional list<byte> byte_vals;
+  3: optional binary byte_vals;
   4: optional list<i16> short_vals;
   5: optional list<i32> int_vals;
   6: optional list<i64> long_vals;

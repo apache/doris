@@ -17,10 +17,12 @@
 
 package org.apache.doris.persist;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -28,14 +30,32 @@ import java.io.IOException;
 
 public class LdapInfo implements Writable {
     @SerializedName(value = "ldapPasswd")
-    private String ldapPasswd;
+    private String ldapPasswdEncrypted;
+
+    @SerializedName(value = "secretKey")
+    private byte[] secretKey;
+
+    @SerializedName(value = "iv")
+    private byte[] iv;
+
+    public LdapInfo() {}
 
     public LdapInfo(String ldapPasswd) {
-        this.ldapPasswd = ldapPasswd;
+        secretKey = SymmetricEncryption.generateKey();
+        iv = SymmetricEncryption.generateIv();
+        ldapPasswdEncrypted = SymmetricEncryption.encrypt(ldapPasswd, secretKey, iv);
     }
 
-    public String getLdapPasswd() {
-        return ldapPasswd;
+    public String getLdapPasswdEncrypted() {
+        return ldapPasswdEncrypted;
+    }
+
+    public byte[] getSecretKey() {
+        return secretKey;
+    }
+
+    public byte[] getIv() {
+        return iv;
     }
 
     @Override

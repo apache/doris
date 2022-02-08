@@ -26,7 +26,6 @@
 #include "exec/tablet_sink.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
-#include "runtime/data_spliter.h"
 #include "runtime/data_stream_sender.h"
 #include "runtime/export_sink.h"
 #include "runtime/memory_scratch_sink.h"
@@ -35,7 +34,10 @@
 #include "runtime/result_file_sink.h"
 #include "runtime/result_sink.h"
 #include "runtime/runtime_state.h"
-#include "util/logging.h"
+
+#include "vec/sink/result_sink.h"
+#include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vtablet_sink.h"
 
 namespace doris {
 
@@ -57,6 +59,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                         : false;
         // TODO: figure out good buffer size based on size of output row
         if (is_vec) {
+            tmp_sink = new doris::vectorized::VDataStreamSender(
+                    pool, params.sender_id, row_desc, thrift_sink.stream_sink, params.destinations,
+                    16 * 1024, send_query_statistics_with_every_batch);
         } else {
             tmp_sink = new DataStreamSender(pool, params.sender_id, row_desc,
                                             thrift_sink.stream_sink, params.destinations, 16 * 1024,
@@ -73,6 +78,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
         // TODO: figure out good buffer size based on size of output row
         if (is_vec) {
+            tmp_sink = new doris::vectorized::VResultSink(row_desc, output_exprs, thrift_sink.result_sink, 4096);
         } else {
             tmp_sink = new ResultSink(row_desc, output_exprs, thrift_sink.result_sink, 1024);
         }
@@ -125,17 +131,6 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         sink->reset(odbc_tbl_sink);
         break;
     }
-    case TDataSinkType::DATA_SPLIT_SINK: {
-        if (!thrift_sink.__isset.split_sink) {
-            return Status::InternalError("Missing data split buffer sink.");
-        }
-
-        // TODO: figure out good buffer size based on size of output row
-        std::unique_ptr<DataSpliter> data_spliter(new DataSpliter(row_desc));
-        RETURN_IF_ERROR(DataSpliter::from_thrift(pool, thrift_sink.split_sink, data_spliter.get()));
-        sink->reset(data_spliter.release());
-        break;
-    }
 
     case TDataSinkType::EXPORT_SINK: {
         if (!thrift_sink.__isset.export_sink) {
@@ -149,7 +144,11 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
+        if (is_vec) {
+            sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+        } else {
+            sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
+        }
         RETURN_IF_ERROR(status);
         break;
     }

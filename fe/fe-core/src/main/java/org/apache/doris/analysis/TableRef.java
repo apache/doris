@@ -99,9 +99,9 @@ public class TableRef implements ParseNode, Writable {
     private boolean isForcePreAggOpened;
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
-    
+
     protected Expr onClause;
-    
+
     // the ref to the left of us, if we're part of a JOIN clause
     protected TableRef leftTblRef;
 
@@ -133,7 +133,7 @@ public class TableRef implements ParseNode, Writable {
 
     // END: Members that need to be reset()
     // ///////////////////////////////////////
-    
+
     public TableRef() {
         // for persist
     }
@@ -161,6 +161,7 @@ public class TableRef implements ParseNode, Writable {
         this.commonHints = commonHints;
         isAnalyzed = false;
     }
+
     // Only used to clone
     // this will reset all the 'analyzed' stuff
     protected TableRef(TableRef other) {
@@ -187,7 +188,13 @@ public class TableRef implements ParseNode, Writable {
         allMaterializedTupleIds_ = Lists.newArrayList(other.allMaterializedTupleIds_);
         correlatedTupleIds_ = Lists.newArrayList(other.correlatedTupleIds_);
         desc = other.desc;
-        lateralViewRefs = other.lateralViewRefs;
+        lateralViewRefs = null;
+        if (other.lateralViewRefs != null) {
+            lateralViewRefs = Lists.newArrayList();
+            for (LateralViewRef viewRef : other.lateralViewRefs) {
+                lateralViewRefs.add((LateralViewRef) viewRef.clone());
+            }
+        }
     }
 
     public PartitionNames getPartitionNames() {
@@ -279,13 +286,17 @@ public class TableRef implements ParseNode, Writable {
      * Returns true if this table ref has a resolved path that is rooted at a registered
      * tuple descriptor, false otherwise.
      */
-    public boolean isRelative() { return false; }
+    public boolean isRelative() {
+        return false;
+    }
 
     /**
      * Indicates if this TableRef directly or indirectly references another TableRef from
      * an outer query block.
      */
-    public boolean isCorrelated() { return !correlatedTupleIds_.isEmpty(); }
+    public boolean isCorrelated() {
+        return !correlatedTupleIds_.isEmpty();
+    }
 
     public Table getTable() {
         return desc.getTable();
@@ -417,7 +428,7 @@ public class TableRef implements ParseNode, Writable {
      * The join clause can only be analyzed after the left table has been analyzed
      * and the TupleDescriptor (desc) of this table has been created.
      */
-    public void analyzeJoin(Analyzer analyzer)  throws AnalysisException {
+    public void analyzeJoin(Analyzer analyzer) throws AnalysisException {
         Preconditions.checkState(leftTblRef == null || leftTblRef.isAnalyzed);
         Preconditions.checkState(desc != null);
         analyzeJoinHints();
@@ -477,16 +488,22 @@ public class TableRef implements ParseNode, Writable {
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(getId().asList(), this);
+            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
         if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
+            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
         }
         // register the tuple ids of a full outer join
         if (joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerFullOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
             analyzer.registerFullOuterJoinedTids(getId().asList(), this);
+
+            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
+            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
+
         // register the tuple id of the rhs of a left semi join
         TupleId semiJoinedTupleId = null;
         if (joinOp == JoinOperator.LEFT_SEMI_JOIN
@@ -534,7 +551,7 @@ public class TableRef implements ParseNode, Writable {
             // of the outer join; those can be evaluated directly when materializing tuples
             // without violating outer join semantics.
             analyzer.registerOnClauseConjuncts(conjuncts, this);
-            for (Expr e: conjuncts) {
+            for (Expr e : conjuncts) {
                 List<TupleId> tupleIds = Lists.newArrayList();
                 e.getIds(tupleIds, null);
                 onClauseTupleIds.addAll(tupleIds);
@@ -605,7 +622,16 @@ public class TableRef implements ParseNode, Writable {
         // if (resolvedPath_ != null) path = resolvedPath_.getFullyQualifiedRawPath();
         // return ToSqlUtils.getPathSql(path) + ((aliasSql != null) ? " " + aliasSql : "");
 
-        return name.toSql() + ((aliasSql != null) ? " " + aliasSql : "");
+        // tbl1
+        // tbl1 alias_tbl1
+        // tbl1 alias_tbl1 lateral view explode_split(k1, ",") tmp1 as e1
+        String tblName = name.toSql() + ((aliasSql != null) ? " " + aliasSql : "");
+        if (lateralViewRefs != null) {
+            for (LateralViewRef viewRef : lateralViewRefs) {
+                tblName += " " + viewRef.toSql();
+            }
+        }
+        return tblName;
     }
 
     @Override
@@ -646,21 +672,27 @@ public class TableRef implements ParseNode, Writable {
     /**
      * Returns all legal aliases of this table ref.
      */
-    public String[] getAliases() { return aliases_; }
+    public String[] getAliases() {
+        return aliases_;
+    }
 
     /**
      * Returns the explicit alias or the fully-qualified implicit alias. The returned alias
      * is guaranteed to be unique (i.e., column/field references against the alias cannot
      * be ambiguous).
      */
-    public String getUniqueAlias() { return aliases_[0]; }
+    public String getUniqueAlias() {
+        return aliases_[0];
+    }
 
     /**
      * Returns true if this table ref has an explicit alias.
      * Note that getAliases().length() == 1 does not imply an explicit alias because
      * nested collection refs have only a single implicit alias.
      */
-    public boolean hasExplicitAlias() { return hasExplicitAlias_; }
+    public boolean hasExplicitAlias() {
+        return hasExplicitAlias_;
+    }
 
     /**
      * Returns the explicit alias if this table ref has one, null otherwise.
@@ -670,7 +702,10 @@ public class TableRef implements ParseNode, Writable {
         return null;
     }
 
-    public boolean isAnalyzed() { return isAnalyzed; }
+    public boolean isAnalyzed() {
+        return isAnalyzed;
+    }
+
     public boolean isResolved() {
         return !getClass().equals(TableRef.class);
     }
@@ -716,6 +751,11 @@ public class TableRef implements ParseNode, Writable {
         allMaterializedTupleIds_.clear();
         correlatedTupleIds_.clear();
         desc = null;
+        if (lateralViewRefs != null) {
+            for (LateralViewRef lateralViewRef : lateralViewRefs) {
+                lateralViewRef.reset();
+            }
+        }
     }
 
     /**
@@ -749,7 +789,7 @@ public class TableRef implements ParseNode, Writable {
             out.writeBoolean(true);
             partitionNames.write(out);
         }
-        
+
         if (hasExplicitAlias()) {
             out.writeBoolean(true);
             Text.writeString(out, getExplicitAlias());
@@ -777,7 +817,8 @@ public class TableRef implements ParseNode, Writable {
 
         if (in.readBoolean()) {
             String alias = Text.readString(in);
-            aliases_ = new String[] { alias };
+            aliases_ = new String[]{alias};
         }
     }
 }
+

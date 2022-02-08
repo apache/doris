@@ -55,7 +55,6 @@ private:
     // Reader
     int _next_range;
     bool _cur_file_eof;
-    bool _scanner_eof;
 
     // orc file reader object
     orc::ReaderOptions _options;

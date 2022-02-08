@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.ExplainTest;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LoadStmt;
@@ -37,12 +38,14 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -453,13 +456,13 @@ public class QueryPlanTest {
         queryStr = "explain insert into test.bitmap_table select id, to_bitmap(id2) from test.bitmap_table_2;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | to_bitmap(`id2`)"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | to_bitmap(CAST(`id2` AS CHARACTER))"));
         Assert.assertTrue(explainString.contains("0:OlapScanNode"));
 
         queryStr = "explain insert into test.bitmap_table select id, bitmap_hash(id2) from test.bitmap_table_2;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | bitmap_hash(`id2`)"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | bitmap_hash(CAST(`id2` AS CHARACTER))"));
         Assert.assertTrue(explainString.contains("0:OlapScanNode"));
 
         queryStr = "explain insert into test.bitmap_table select id, id from test.bitmap_table_2;";
@@ -1366,23 +1369,15 @@ public class QueryPlanTest {
 
         queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 <=> t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "LOCAL");
-        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
 
         queryStr = "explain select * from jointest as a where k1 = (select count(1) from jointest as b where a.k1 = b.k1);";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
-        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
-
-        // support merge in filter, and forbidden implicit conversion to bloom filter
-        queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
-        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
-        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN.getValue());
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
-        Assert.assertFalse(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
     }
 
     @Test
@@ -1429,6 +1424,64 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[min_max] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[min_max] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 8);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 9);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 10);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 11);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
+
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 12);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 13);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 14);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[min_max] <- `t1`.`k1`, RF003[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[min_max] -> `t2`.`k1`, RF003[in_or_bloom] -> `t2`.`k1`"));
+
+        // support merge in filter, and forbidden implicit conversion to bloom filter
+        queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN.getValue());
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`"));
+        Assert.assertFalse(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
+        Assert.assertFalse(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`"));
+
+        queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN_OR_BLOOM.getValue());
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] <- `t1`.`k1`"));
     }
 
     @Test
@@ -1638,33 +1691,33 @@ public class QueryPlanTest {
         //valid date contains micro second
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01.111111'"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
         //invalid date
+
         sql = "select day from tbl_int_date where day = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `day` = '2020-10-32'"));
+
         //invalid date
         sql = "select day from tbl_int_date where day = '20201032'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: '20201032' in expression: `day` = '20201032'"));
         //invalid date
         sql = "select day from tbl_int_date where day = 20201032";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: 20201032 in expression: `day` = 20201032"));
         //invalid date
         sql = "select day from tbl_int_date where day = 'hello'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `day` = 'hello'"));
         //invalid date
         sql = "select day from tbl_int_date where day = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
-        //invalid date
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `day` = 1980"));
+       //invalid date
         sql = "select day from tbl_int_date where day = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
-
-
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `day` = -20"));
         //valid datetime
         sql = "select day from tbl_int_date where date = '2020-10-30 12:12:30'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
@@ -1692,35 +1745,35 @@ public class QueryPlanTest {
         //valid datetime contains micro second
         sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01.111111'"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `date` = '2020-10-32'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 'hello'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `date` = 'hello'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `date` = 1980"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `date` = -20"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-12 12:23:76'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
-        //invalid datetime with timestamp
+        Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-12 12:23:76' in expression: `date` = '2020-10-12 12:23:76'"));
+
         sql = "select day from tbl_int_date where date = '1604031150'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
-        //valid datetime with timestamp in micro second
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
+
         sql = "select day from tbl_int_date where date = '1604031150000'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
 
         String queryStr = "explain select count(*) from test.baseall where k11 > to_date(now())";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -1823,5 +1876,70 @@ public class QueryPlanTest {
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
+    
+    // Fix: issue-#7929
+    @Test
+    public void testEmptyNodeWithOuterJoinAndAnalyticFunction() throws Exception {
+        // create database
+        String createDbStmtStr = "create database issue7929;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createTable(" CREATE TABLE issue7929.`t1` (\n" +
+                "  `k1` int(11) NULL COMMENT \"\",\n" +
+                "  `k2` int(11) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")");
+        createTable("CREATE TABLE issue7929.`t2` (\n" +
+                "  `j1` int(11) NULL COMMENT \"\",\n" +
+                "  `j2` int(11) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`j1`, `j2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`j1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")");
+        String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2)a on t1.k1=a.x where 1=0;";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
+        Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
+        Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
+
+    }
+
+    // --begin-- implicit cast in explain verbose
+    @Test
+    public void testExplainInsertInto() throws Exception {
+        ExplainTest explainTest = new ExplainTest();
+        explainTest.before(connectContext);
+        explainTest.testExplainInsertInto();
+        explainTest.testExplainSelect();
+        explainTest.testExplainVerboseSelect();
+        explainTest.testExplainConcatSelect();
+        explainTest.testExplainVerboseConcatSelect();
+        explainTest.after();
+    }
+    // --end--
+
+    // --begin-- rewrite date literal rule
+    @Test
+    public void testRewriteDateLiteralRule() throws Exception {
+        RewriteDateLiteralRuleTest rewriteDateLiteralRuleTest = new RewriteDateLiteralRuleTest();
+        rewriteDateLiteralRuleTest.before(connectContext);
+        rewriteDateLiteralRuleTest.testWithDoubleFormatDate();
+        rewriteDateLiteralRuleTest.testWithIntFormatDate();
+        rewriteDateLiteralRuleTest.testWithInvalidFormatDate();
+        rewriteDateLiteralRuleTest.testWithStringFormatDate();
+        rewriteDateLiteralRuleTest.after();
+    }
+    // --end--
 
 }

@@ -49,6 +49,28 @@ Doris 作为一款开源的 MPP 架构 OLAP 数据库，能够运行在绝大多
 | Java | 1.8 及以上 |
 | GCC  | 4.8.2 及以上 |
 
+#### 操作系统安装要求
+
+##### 设置系统最大打开文件句柄数
+
+```
+vi /etc/security/limits.conf 
+* soft nofile 65536
+* hard nofile 65536
+```
+
+##### 时钟同步
+
+Doris 的元数据要求时间精度要小于5000ms，所以所有集群所有机器要进行时钟同步，避免因为时钟问题引发的元数据不一致导致服务出现异常。
+
+##### 关闭交换分区（swap）
+
+Linux交换分区会给Doris带来很严重的性能问题，需要在安装之前禁用交换分区
+
+##### Liunx文件系统
+
+这里我们推荐使用ext4文件系统，在安装操作系统的时候，请选择ext4文件系统。
+
 #### 开发测试环境
 
 | 模块 | CPU | 内存 | 磁盘 | 网络 | 实例数量 |
@@ -178,19 +200,19 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
     **说明**
 
-    - /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
-    - /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+    - /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
+    - /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
     - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
     
     示例2如下：
     
-    **注意：不论HHD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+    **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
     
     `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
     
     **说明**
     
-    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HHD;
+    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HDD;
     - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
 
 * BE webserver_port端口配置
@@ -223,7 +245,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 #### （可选）FS_Broker 部署
 
-Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存储系统导入数据，需要部署相应的 Broker，默认提供了读取 HDFS 和百度云 BOS 的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 Broker。
+Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存储系统导入数据，需要部署相应的 Broker，默认提供了读取 HDFS 、百度云 BOS 及 Amazon S3 的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 Broker。
 
 * 拷贝源码 fs_broker 的 output 目录下的相应 Broker 目录到需要部署的所有节点上。建议和 BE 或者 FE 目录保持同级。
 

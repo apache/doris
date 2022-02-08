@@ -92,7 +92,6 @@ private:
     JsonReader* _cur_json_reader;
     int _next_range;
     bool _cur_reader_eof;
-    bool _scanner_eof;
     bool _read_json_by_line;
 
     // When we fetch range doesn't start from 0,
@@ -124,6 +123,7 @@ class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
                bool strip_outer_array, bool num_as_string,bool fuzzy_parse,
+               bool* scanner_eof,
                FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~JsonReader();
@@ -148,13 +148,13 @@ private:
     void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                     const uint8_t* value, int32_t len);
     Status _parse_json_doc(size_t* size, bool* eof);
-    void _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
+    Status _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
                           const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
                           bool* valid);
-    void _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc,
+    Status _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc,
                               Tuple* tuple, MemPool* tuple_pool, bool* valid);
-    bool _write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool, Tuple* tuple,
-                                   const std::vector<SlotDescriptor*>& slot_descs);
+    Status _write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool, Tuple* tuple,
+                                   const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
     std::string _print_json_value(const rapidjson::Value& value);
     std::string _print_jsonpath(const std::vector<JsonPath>& path);
 
@@ -184,6 +184,9 @@ private:
     rapidjson::Document _origin_json_doc; // origin json document object from parsed json string
     rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
     std::unordered_map<std::string, int> _name_map;
+    
+    // point to the _scanner_eof of JsonScanner
+    bool* _scanner_eof;
 };
 
 } // namespace doris

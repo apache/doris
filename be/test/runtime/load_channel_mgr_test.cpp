@@ -85,7 +85,7 @@ OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken) {
     return close_status;
 }
 
@@ -121,6 +121,9 @@ public:
     }
 
 private:
+
+    size_t uncompressed_size = 0;
+    size_t compressed_size = 0;
 };
 
 TEST_F(LoadChannelMgrTest, check_builder) {
@@ -256,9 +259,9 @@ TEST_F(LoadChannelMgrTest, normal) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -422,12 +425,15 @@ TEST_F(LoadChannelMgrTest, add_failed) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
+        // DeltaWriter's write will return -215
         add_status = OLAP_ERR_TABLE_NOT_FOUND;
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
-        ASSERT_FALSE(st.ok());
+        // st is still ok.
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(2, response.tablet_errors().size());
     }
 }
 
@@ -512,14 +518,14 @@ TEST_F(LoadChannelMgrTest, close_failed) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         close_status = OLAP_ERR_TABLE_NOT_FOUND;
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         // even if delta close failed, the return status is still ok, but tablet_vec is empty
         ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(tablet_vec.empty());
+        ASSERT_TRUE(response.tablet_vec().empty());
     }
 }
 
@@ -601,9 +607,9 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -687,12 +693,12 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
             *(int64_t*)tuple->get_slot(tuple_desc->slots()[1]->tuple_offset()) = 76543234567;
             row_batch.commit_last_row();
         }
-        row_batch.serialize(request.mutable_row_batch());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec1;
-        auto st = mgr.add_batch(request, &tablet_vec1);
+        row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         ASSERT_TRUE(st.ok());
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec2;
-        st = mgr.add_batch(request, &tablet_vec2);
+        PTabletWriterAddBatchResult response2;
+        st = mgr.add_batch(request, &response2);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -704,8 +710,8 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         request.set_sender_id(0);
         request.set_eos(true);
         request.set_packet_seq(0);
-        google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        PTabletWriterAddBatchResult response;
+        auto st = mgr.add_batch(request, &response);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }

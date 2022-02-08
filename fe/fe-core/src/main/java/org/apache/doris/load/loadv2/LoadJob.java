@@ -56,8 +56,12 @@ import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashBasedTable;
@@ -66,10 +70,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -128,6 +130,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     // only for persistence param. see readFields() for usage
     private boolean isJobTypeRead = false;
+
+    protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
     public static class LoadStatistic {
         // number of rows processed on BE, this number will be updated periodically by query report.
@@ -597,7 +601,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                         ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                 command,
                                 ConnectContext.get().getQualifiedUser(),
-                                ConnectContext.get().getRemoteIP(), tblName);
+                                ConnectContext.get().getRemoteIP(), db.getFullName() + ": " + tblName);
                     }
                 }
             }
@@ -773,10 +777,21 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // tracking url
             jobInfo.add(loadingStatus.getTrackingUrl());
             jobInfo.add(loadStatistic.toJson());
+            // transaction id
+            jobInfo.add(transactionId);
+            // error tablets
+            jobInfo.add(errorTabletsToJson());
             return jobInfo;
         } finally {
             readUnlock();
         }
+    }
+
+    public String errorTabletsToJson() {
+        Map<Long, String> map = Maps.newHashMap();
+        errorTabletInfos.stream().limit(3).forEach(p -> map.put(p.getTabletId(), p.getMsg()));
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+        return gson.toJson(map);
     }
 
     protected String getResourceName() {

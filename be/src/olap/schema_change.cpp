@@ -933,16 +933,27 @@ bool RowBlockMerger::_pop_heap() {
 OLAPStatus LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
                                        RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet,
                                        TabletSharedPtr base_tablet) {
-    OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
-            rowset_reader->rowset(), _row_block_changer.get_schema_mapping());
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to convert rowset."
-                     << ", new_tablet=" << new_tablet->full_name()
-                     << ", base_tablet=" << base_tablet->full_name()
-                     << ", version=" << new_rowset_writer->version().first << "-"
-                     << new_rowset_writer->version().second;
+
+    // In some cases, there may be more than one type of rowset in a tablet,
+    // in which case the conversion cannot be done directly by linked schema change,
+    // but requires direct schema change to rewrite the data.
+    if (rowset_reader->type() != new_rowset_writer->type()) {
+        LOG(INFO) << "the type of rowset " << rowset_reader->rowset()->rowset_id() << " in base tablet " << base_tablet->tablet_id()
+                << " is not same as type " << new_rowset_writer->type() << ", use direct schema change.";
+        SchemaChangeDirectly scd(_row_block_changer, _mem_tracker);
+        return scd.process(rowset_reader, new_rowset_writer, new_tablet, base_tablet);
+    } else {
+        OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
+                rowset_reader->rowset(), _row_block_changer.get_schema_mapping());
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to convert rowset."
+                << ", new_tablet=" << new_tablet->full_name()
+                << ", base_tablet=" << base_tablet->full_name()
+                << ", version=" << new_rowset_writer->version().first << "-"
+                << new_rowset_writer->version().second;
+        }
+        return status;
     }
-    return status;
 }
 
 SchemaChangeDirectly::SchemaChangeDirectly(const RowBlockChanger& row_block_changer,

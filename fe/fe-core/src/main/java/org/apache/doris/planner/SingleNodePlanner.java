@@ -60,6 +60,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -173,9 +174,11 @@ public class SingleNodePlanner {
      * they are never unnested, and therefore the corresponding parent scan should not
      * materialize them.
      */
-    private PlanNode createEmptyNode(QueryStmt stmt, Analyzer analyzer) {
+    private PlanNode createEmptyNode(PlanNode inputPlan, QueryStmt stmt, Analyzer analyzer) {
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
-        stmt.getMaterializedTupleIds(tupleIds);
+        if (inputPlan != null) {
+            tupleIds = inputPlan.tupleIds;
+        }
         if (tupleIds.isEmpty()) {
             // Constant selects do not have materialized tuples at this stage.
             Preconditions.checkState(stmt instanceof SelectStmt,
@@ -297,14 +300,9 @@ public class SingleNodePlanner {
             // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
             Set<TupleId> scanTupleIds = new HashSet<>(root.getAllScanTupleIds());
             scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
-            PlanNode node = createEmptyNode(stmt, analyzer);
+            PlanNode node = createEmptyNode(root, stmt, analyzer);
             // Ensure result exprs will be substituted by right outputSmap
             node.setOutputSmap(root.outputSmap);
-            // Currently, getMaterializedTupleIds for AnalyticEvalNode is wrong,
-            // So we explicitly add AnalyticEvalNode tuple ids to EmptySetNode
-            if (root instanceof AnalyticEvalNode) {
-                node.getTupleIds().addAll(root.tupleIds);
-            }
             return node;
         }
 
@@ -1326,7 +1324,7 @@ public class SingleNodePlanner {
             SelectStmt selectStmt = (SelectStmt) viewStmt;
             if (selectStmt.getTableRefs().isEmpty()) {
                 if (inlineViewRef.getAnalyzer().hasEmptyResultSet()) {
-                    PlanNode emptySetNode = createEmptyNode(viewStmt, inlineViewRef.getAnalyzer());
+                    PlanNode emptySetNode = createEmptyNode(null, viewStmt, inlineViewRef.getAnalyzer());
                     // Still substitute exprs in parent nodes with the inline-view's smap to make
                     // sure no exprs reference the non-materialized inline view slots. No wrapping
                     // with TupleIsNullPredicates is necessary here because we do not migrate
@@ -1366,7 +1364,8 @@ public class SingleNodePlanner {
         // inline view's plan.
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
-        if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+        // Vec exec engine not need the function of TupleIsNull, So here just skip wrap it
+        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping

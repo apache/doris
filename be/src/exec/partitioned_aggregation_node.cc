@@ -1048,7 +1048,7 @@ Tuple* PartitionedAggregationNode::GetOutputTuple(const vector<NewAggFnEvaluator
     }
     if (needs_finalize_) {
         NewAggFnEvaluator::Finalize(agg_fn_evals, tuple, dst,
-                                    grouping_exprs_.size() == 0 && child(0)->rows_returned() == 0);
+                grouping_exprs_.size() == 0 && child(0)->rows_returned() == 0);
     } else {
         NewAggFnEvaluator::Serialize(agg_fn_evals, tuple);
     }

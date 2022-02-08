@@ -76,6 +76,7 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
     default:
         DCHECK(false) << "Unsupported Compare type";
     }
+    __builtin_unreachable();
 }
 
 static const char* NEGATIVE_INFINITY = "-oo";

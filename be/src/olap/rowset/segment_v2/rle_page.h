@@ -230,6 +230,29 @@ public:
         return Status::OK();
     }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        size_t to_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
+        size_t remaining = to_fetch;
+        bool result = false;
+        CppType value;
+        while (remaining > 0) {
+            result = _rle_decoder.Get(&value);
+            DCHECK(result);
+            dst->insert_data((char*)(&value), SIZE_OF_TYPE);
+            remaining--;
+        }
+
+        _cur_index += to_fetch;
+        *n = to_fetch;
+        return Status::OK();
+    };
+
     size_t count() const override { return _num_elements; }
 
     size_t current_index() const override { return _cur_index; }

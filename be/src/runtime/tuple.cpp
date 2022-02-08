@@ -75,7 +75,7 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
         StringValue* string_v = dst->get_string_slot(string_slot->tuple_offset());
         if (!dst->is_null(string_slot->null_indicator_offset())) {
             if (string_v->len != 0) {
-                int offset = pool->total_allocated_bytes();
+                int64_t offset = pool->total_allocated_bytes();
                 char* string_copy = (char*)(pool->allocate(string_v->len));
                 memory_copy(string_copy, string_v->ptr, string_v->len);
                 string_v->ptr = (convert_ptrs ? convert_to<char*>(offset) : string_copy);
@@ -101,7 +101,7 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
         int coll_byte_size = cv->length() * item_type.get_slot_size();
         int nulls_size = cv->length() * sizeof(bool);
 
-        int offset = pool->total_allocated_bytes();
+        int64_t offset = pool->total_allocated_bytes();
         char* coll_data = (char*)(pool->allocate(coll_byte_size + nulls_size));
 
         // copy data and null_signs
@@ -130,7 +130,7 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
             }
             StringValue* dst_item_v = convert_to<StringValue*>(coll_data + item_offset);
             if (dst_item_v->len != 0) {
-                int offset = pool->total_allocated_bytes();
+                int64_t offset = pool->total_allocated_bytes();
                 char* string_copy = (char*)(pool->allocate(dst_item_v->len));
                 memory_copy(string_copy, dst_item_v->ptr, dst_item_v->len);
                 dst_item_v->ptr = (convert_ptrs ? convert_to<char*>(offset) : string_copy);
@@ -181,7 +181,7 @@ int64_t Tuple::release_string(const TupleDescriptor& desc) {
     return bytes;
 }
 
-void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs) {
+void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset, bool convert_ptrs) {
     Tuple* dst = (Tuple*)(*data);
     memory_copy(dst, this, desc.byte_size());
     *data += desc.byte_size();
@@ -231,7 +231,7 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, boo
 
         // when item is string type, copy every item
         char* base_data = *data;
-        int base_offset = *offset;
+        int64_t base_offset = *offset;
 
         *data += coll_byte_size + nulls_size;
         *offset += coll_byte_size + nulls_size;

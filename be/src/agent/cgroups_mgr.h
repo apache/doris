@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_AGENT_CGROUPS_MGR_H
 #define DORIS_BE_SRC_AGENT_CGROUPS_MGR_H
 
-#include <sys/types.h>
-
 #include <cstdint>
 #include <map>
 #include <mutex>

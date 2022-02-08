@@ -276,8 +276,9 @@ public class UserProperty implements Writable {
                     throw new DdlException(key + " is not number");
                 }
 
-                if (limit <= 0) {
-                    throw new DdlException(key + " is not valid");
+                // -1 means unlimited
+                if (limit <= 0 && limit != -1) {
+                    throw new DdlException(key + " is not valid. Should not larger than 0 or equal to -1");
                 }
 
                 cpuResourceLimit = limit;
@@ -465,7 +466,7 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(clusterPrefix + DppConfig.getPriorityKey(),
                     String.valueOf(dppConfig.getPriority())));
         }
-        
+
         // get resolved ips if user has domain
         Map<String, Set<String>> resolvedIPs = whiteList.getResolvedIPs();
         List<String> ips = Lists.newArrayList();
@@ -526,7 +527,7 @@ public class UserProperty implements Writable {
             // consume the flag of empty user name
             in.readBoolean();
         }
-        
+
         // user name
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
             qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
@@ -542,7 +543,7 @@ public class UserProperty implements Writable {
             // boolean isAdmin
             in.readBoolean();
 
-            if (Catalog.getCurrentCatalogJournalVersion() >= 1) {
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_1) {
                 // boolean isSuperuser
                 in.readBoolean();
             }

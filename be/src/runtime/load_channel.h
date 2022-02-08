@@ -39,7 +39,8 @@ class TabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                const std::shared_ptr<MemTracker>& mem_tracker);
+                const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
+                const std::string& sender_ip);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -47,7 +48,7 @@ public:
 
     // this batch must belong to a index in one transaction
     Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+                     PTabletWriterAddBatchResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -67,6 +68,8 @@ public:
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
     int64_t timeout() const { return _timeout_s; }
+
+    bool is_high_priority() const { return _is_high_priority; }
 
 private:
     // when mem consumption exceeds limit, should call this method to find the channel
@@ -91,11 +94,18 @@ private:
     // the timeout of this load job.
     // Timed out channels will be periodically deleted by LoadChannelMgr.
     int64_t _timeout_s;
+
+    // true if this is a high priority load task
+    bool _is_high_priority = false;
+
+    // the ip where tablet sink locate
+    std::string _sender_ip = "";
 };
 
 inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
     os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
-       << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time()) << ")";
+        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
+        << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;
 }
 

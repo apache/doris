@@ -87,9 +87,7 @@ under the License.
    export DORIS_HOME=$PWD/../../
    source ${DORIS_HOME}/env.sh
    if [ -f ${DORIS_HOME}/custom_env.sh ]; then source ${DORIS_HOME}/custom_env.sh; fi
-   export FLINK_VERSION="1.11.6"
-   export SCALA_VERSION="2.12"
-   mvn deploy
+   mvn deploy -Dflink.version=1.11.6 -Dscala.version=2.12
    ```
 
 
@@ -103,9 +101,7 @@ under the License.
    export DORIS_HOME=$PWD/../../
    source ${DORIS_HOME}/env.sh
    if [ -f ${DORIS_HOME}/custom_env.sh ]; then source ${DORIS_HOME}/custom_env.sh; fi
-   export SPARK_VERSION="2.3.4"
-   export SCALA_VERSION="2.11"
-   mvn deploy
+   mvn deploy -Dscala.version=2.11 -Dspark.version=2.3.4
    ```
 
 ## 发布到 Release
@@ -127,10 +123,8 @@ under the License.
 cd extension/flink-doris-connector/
 export DORIS_HOME=$PWD/../../
 source ${DORIS_HOME}/env.sh
-export FLINK_VERSION=1.13.5
-export SCALA_VERSION=2.12
-mvn release:clean
-mvn release:prepare
+mvn release:clean -Dflink.version=1.13.5 -Dscala.version=2.12 
+mvn release:prepare -Dflink.version=1.13.5 -Dscala.version=2.12
 ```
 之后maven 需要输入三个信息 
    1. Doris Flink Connector 的版本信息， 我们默认就可以，可以直接回车或者输入自己想要的版本

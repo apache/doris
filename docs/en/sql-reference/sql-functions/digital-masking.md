@@ -36,7 +36,7 @@ digital_masking(digital_number)
 
 Alias function, the original function is `concat(left(id,3),'****',right(id,4))`.
 
-Desensitizes the input `digital_number` and returns the result after masking desensitization.
+Desensitizes the input `digital_number` and returns the result after masking desensitization. `digital_number` is `BIGINT` data type.
 
 ## example
 

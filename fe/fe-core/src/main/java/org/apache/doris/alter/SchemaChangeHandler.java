@@ -1621,7 +1621,7 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             // index id -> index schema
             Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
@@ -1702,9 +1702,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     // modify table properties
                     // do nothing, properties are already in propertyMap
                 } else if (alterClause instanceof CreateIndexClause) {
-                    processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
+                    if (processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes)) {
+                        return;
+                    }
                 } else if (alterClause instanceof DropIndexClause) {
-                    processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
+                    if (processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes)) {
+                        return;
+                    }
                 } else {
                     Preconditions.checkState(false);
                 }
@@ -1719,7 +1723,7 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
             throws UserException {
-        externalTable.writeLock();
+        externalTable.writeLockOrDdlException();
         try {
             // copy the external table schema columns
             List<Column> newSchema = Lists.newArrayList();
@@ -1800,7 +1804,7 @@ public class SchemaChangeHandler extends AlterHandler {
             updatePartitionInMemoryMeta(db, olapTable.getName(), partition.getName(), isInMemory);
         }
 
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             Catalog.getCurrentCatalog().modifyTableInMemoryMeta(db, olapTable, properties);
         } finally {
@@ -1928,7 +1932,7 @@ public class SchemaChangeHandler extends AlterHandler {
         AlterJobV2 schemaChangeJobV2 = null;
 
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE &&
                     olapTable.getState() != OlapTableState.WAITING_STABLE) {
@@ -1967,10 +1971,14 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
+    /**
+     * Returns true if the index already exists, there is no need to create the job to add the index.
+     * Otherwise return false, there is need to create a job to add the index.
+     */
+    private boolean processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
             throws UserException {
         if (alterClause.getIndex() == null) {
-            return;
+            return false;
         }
 
         List<Index> existedIndexes = olapTable.getIndexes();
@@ -1979,6 +1987,10 @@ public class SchemaChangeHandler extends AlterHandler {
         newColset.addAll(indexDef.getColumns());
         for (Index existedIdx : existedIndexes) {
             if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
+                if (indexDef.isSetIfNotExists()) {
+                    LOG.info("create index[{}] which already exists on table[{}]", indexDef.getIndexName(), olapTable.getName());
+                    return true;
+                }
                 throw new DdlException("index `" + indexDef.getIndexName() + "` already exist.");
             }
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -1999,9 +2011,14 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         newIndexes.add(alterClause.getIndex());
+        return false;
     }
 
-    private void processDropIndex(DropIndexClause alterClause, OlapTable olapTable, List<Index> indexes) throws DdlException {
+    /**
+     * Returns true if the index does not exist, there is no need to create the job to drop the index.
+     * Otherwise return false, there is need to create a job to drop the index.
+     */
+    private boolean processDropIndex(DropIndexClause alterClause, OlapTable olapTable, List<Index> indexes) throws DdlException {
         String indexName = alterClause.getIndexName();
         List<Index> existedIndexes = olapTable.getIndexes();
         Index found = null;
@@ -2012,6 +2029,10 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         if (found == null) {
+            if (alterClause.isSetIfExists()) {
+                LOG.info("drop index[{}] which does not exist on table[{}]", indexName, olapTable.getName());
+                return true;
+            }
             throw new DdlException("index " + indexName + " does not exist");
         }
 
@@ -2023,6 +2044,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 break;
             }
         }
+        return false;
     }
 
     @Override

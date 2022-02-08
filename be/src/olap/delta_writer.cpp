@@ -63,9 +63,11 @@ DeltaWriter::~DeltaWriter() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
 
-        const FlushStatistic& stat = _flush_token->get_stats();
-        _tablet->flush_bytes->increment(stat.flush_size_bytes);
-        _tablet->flush_count->increment(stat.flush_count);
+        if (_tablet != nullptr) {
+            const FlushStatistic& stat = _flush_token->get_stats();
+            _tablet->flush_bytes->increment(stat.flush_size_bytes);
+            _tablet->flush_count->increment(stat.flush_count);
+        }
     }
 
     if (_tablet != nullptr) {
@@ -148,7 +150,8 @@ OLAPStatus DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(&_flush_token, writer_context.rowset_type));
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(&_flush_token,
+            writer_context.rowset_type, _req.is_high_priority));
 
     _is_init = true;
     return OLAP_SUCCESS;
@@ -283,7 +286,7 @@ OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken) {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -332,13 +335,15 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     }
 
 #ifndef BE_TEST
-    PTabletInfo* tablet_info = tablet_vec->Add();
-    tablet_info->set_tablet_id(_tablet->tablet_id());
-    tablet_info->set_schema_hash(_tablet->schema_hash());
-    if (_new_tablet != nullptr) {
-        tablet_info = tablet_vec->Add();
-        tablet_info->set_tablet_id(_new_tablet->tablet_id());
-        tablet_info->set_schema_hash(_new_tablet->schema_hash());
+    if (!is_broken) {
+        PTabletInfo* tablet_info = tablet_vec->Add();
+        tablet_info->set_tablet_id(_tablet->tablet_id());
+        tablet_info->set_schema_hash(_tablet->schema_hash());
+        if (_new_tablet != nullptr) {
+            tablet_info = tablet_vec->Add();
+            tablet_info->set_tablet_id(_new_tablet->tablet_id());
+            tablet_info->set_schema_hash(_new_tablet->schema_hash());
+        }
     }
 #endif
 

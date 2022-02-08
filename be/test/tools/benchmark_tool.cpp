@@ -102,10 +102,10 @@ static int seg_id = 0;
 namespace doris {
 class BaseBenchmark {
 public:
-    BaseBenchmark(std::string name, int iterations) : _name(name), _iterations(iterations) {}
+    BaseBenchmark(const std::string& name, int iterations) : _name(name), _iterations(iterations) {}
     virtual ~BaseBenchmark() {}
 
-    void add_name(std::string str) { _name += str; }
+    void add_name(const std::string& str) { _name += str; }
 
     virtual void init() {}
     virtual void run() {}
@@ -135,7 +135,7 @@ private:
 
 class BinaryDictPageBenchmark : public BaseBenchmark {
 public:
-    BinaryDictPageBenchmark(std::string name, int iterations) : BaseBenchmark(name, iterations) {}
+    BinaryDictPageBenchmark(const std::string& name, int iterations) : BaseBenchmark(name, iterations) {}
     virtual ~BinaryDictPageBenchmark() override {}
 
     virtual void init() override {}
@@ -173,14 +173,24 @@ public:
                     new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
             dict_page_decoder->init();
 
+            uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
+            uint32_t dict_len_array[dict_page_decoder->_num_elems];
+            for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
+                const uint32_t start_offset = dict_page_decoder->offset(i);
+                uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
+                dict_start_offset_array[i] = start_offset;
+                dict_len_array[i] = len;
+            }
+
             // decode
             PageDecoderOptions decoder_options;
             BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
             page_decoder.init();
-            page_decoder.set_dict_decoder(dict_page_decoder.get());
+
+            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array,
+                                          dict_len_array);
 
             //check values
-
             size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
 
             auto tracker = std::make_shared<MemTracker>();
@@ -205,7 +215,7 @@ private:
 
 class BinaryDictPageEncodeBenchmark : public BinaryDictPageBenchmark {
 public:
-    BinaryDictPageEncodeBenchmark(std::string name, int iterations, int rows_number)
+    BinaryDictPageEncodeBenchmark(const std::string& name, int iterations, int rows_number)
             : BinaryDictPageBenchmark(name + "/rows_number:" + std::to_string(rows_number),
                                       iterations),
               _rows_number(rows_number) {}
@@ -232,7 +242,7 @@ private:
 
 class BinaryDictPageDecodeBenchmark : public BinaryDictPageBenchmark {
 public:
-    BinaryDictPageDecodeBenchmark(std::string name, int iterations, int rows_number)
+    BinaryDictPageDecodeBenchmark(const std::string& name, int iterations, int rows_number)
             : BinaryDictPageBenchmark(name + "/rows_number:" + std::to_string(rows_number),
                                       iterations),
               _rows_number(rows_number) {}
@@ -261,7 +271,7 @@ private:
 
 class SegmentBenchmark : public BaseBenchmark {
 public:
-    SegmentBenchmark(std::string name, int iterations, std::string column_type)
+    SegmentBenchmark(const std::string& name, int iterations, const std::string& column_type)
             : BaseBenchmark(name, iterations),
               _tracker(std::make_shared<MemTracker>()),
               _pool(_tracker.get()) {
@@ -272,7 +282,7 @@ public:
 
         init_schema(column_type);
     }
-    SegmentBenchmark(std::string name, int iterations)
+    SegmentBenchmark(const std::string& name, int iterations)
             : BaseBenchmark(name, iterations),
               _tracker(std::make_shared<MemTracker>()),
               _pool(_tracker.get()) {
@@ -292,7 +302,7 @@ public:
     virtual void init() override {}
     virtual void run() override {}
 
-    void init_schema(std::string column_type) {
+    void init_schema(const std::string& column_type) {
         std::string column_valid = "/column_type:";
 
         std::vector<std::string> tokens = strings::Split(column_type, ",");
@@ -401,7 +411,7 @@ private:
 
 class SegmentWriteBenchmark : public SegmentBenchmark {
 public:
-    SegmentWriteBenchmark(std::string name, int iterations, std::string column_type,
+    SegmentWriteBenchmark(const std::string& name, int iterations, const std::string& column_type,
                           int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
@@ -418,7 +428,7 @@ private:
 
 class SegmentWriteByFileBenchmark : public SegmentBenchmark {
 public:
-    SegmentWriteByFileBenchmark(std::string name, int iterations, std::string file_str)
+    SegmentWriteByFileBenchmark(const std::string& name, int iterations, const std::string& file_str)
             : SegmentBenchmark(name + "/file_path:" + file_str, iterations) {
         std::ifstream file(file_str);
         assert(file.is_open());
@@ -448,7 +458,7 @@ private:
 
 class SegmentScanBenchmark : public SegmentBenchmark {
 public:
-    SegmentScanBenchmark(std::string name, int iterations, std::string column_type, int rows_number)
+    SegmentScanBenchmark(const std::string& name, int iterations, const std::string& column_type, int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
               _dataset(generate_dataset(rows_number)) {}
@@ -481,7 +491,7 @@ private:
 
 class SegmentScanByFileBenchmark : public SegmentBenchmark {
 public:
-    SegmentScanByFileBenchmark(std::string name, int iterations, std::string file_str)
+    SegmentScanByFileBenchmark(const std::string& name, int iterations, const std::string& file_str)
             : SegmentBenchmark(name, iterations) {
         std::ifstream file(file_str);
         assert(file.is_open());
@@ -530,7 +540,7 @@ private:
 // Call method: ./benchmark_tool --operation=Custom
 class CustomBenchmark : public BaseBenchmark {
 public:
-    CustomBenchmark(std::string name, int iterations, std::function<void()> init_func,
+    CustomBenchmark(const std::string& name, int iterations, std::function<void()> init_func,
                     std::function<void()> run_func)
             : BaseBenchmark(name, iterations), _init_func(init_func), _run_func(run_func) {}
     virtual ~CustomBenchmark() override {}
@@ -618,7 +628,7 @@ int main(int argc, char** argv) {
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
 
     doris::MultiBenchmark multi_bm;
     multi_bm.add_bm();

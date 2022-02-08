@@ -1445,7 +1445,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 // vectorized 
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                     t,
-                    Type.BIGINT,
+                    t,
                     prefix + MULTI_DISTINCT_INIT_SYMBOL.get(t),
                     prefix + MULTI_DISTINCT_UPDATE_SYMBOL.get(t),
                     prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t),
@@ -1674,6 +1674,74 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         null,
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
                         false, false, false));
+                //vec stddev stddev_samp stddev_pop
+                addBuiltin(AggregateFunction.createBuiltin("stddev",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + STDDEV_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("stddev_pop",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));
+                
+                //vec: variance variance_samp var_samp variance_pop var_pop
+                addBuiltin(AggregateFunction.createBuiltin("variance",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("variance_pop",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("var_pop",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("variance_samp",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + VAR_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("var_samp",
+                        Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        prefix + STDDEV_INIT_SYMBOL.get(t),
+                        prefix + STDDEV_UPDATE_SYMBOL.get(t),
+                        prefix + STDDEV_MERGE_SYMBOL.get(t),
+                        null,
+                        prefix + VAR_FINALIZE_SYMBOL.get(t),
+                        false, false, false, true));                        
+
                 addBuiltin(AggregateFunction.createBuiltin("variance",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
@@ -2067,13 +2135,37 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 null,
                 prefix + "20dense_rank_get_valueEPN9doris_udf15FunctionContextERNS1_9StringValE",
                 prefix + "13rank_finalizeEPN9doris_udf15FunctionContextERNS1_9StringValE"));
+        //row_number
         addBuiltin(AggregateFunction.createAnalyticBuiltin( "row_number",
                 new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
                 prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
                 prefix + "17count_star_updateEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
                 null, null));
-
+        
+        //vec Rank
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("rank",
+                Lists.<Type>newArrayList(), Type.BIGINT, Type.VARCHAR,
+                prefix + "9rank_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "11rank_updateEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                null,
+                prefix + "14rank_get_valueEPN9doris_udf15FunctionContextERNS1_9StringValE",
+                prefix + "13rank_finalizeEPN9doris_udf15FunctionContextERNS1_9StringValE", true));
+        //vec Dense rank
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("dense_rank",
+                Lists.<Type>newArrayList(), Type.BIGINT, Type.VARCHAR,
+                prefix + "9rank_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "17dense_rank_updateEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                null,
+                prefix + "20dense_rank_get_valueEPN9doris_udf15FunctionContextERNS1_9StringValE",
+                prefix + "13rank_finalizeEPN9doris_udf15FunctionContextERNS1_9StringValE", true));
+        //vec row_number
+        addBuiltin(AggregateFunction.createAnalyticBuiltin( "row_number",
+                new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
+                prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                prefix + "17count_star_updateEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
+                prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
+                null, null, true));
 
         for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {
@@ -2089,15 +2181,6 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     null,
                     t.isStringType()  ? stringValGetValue : null,
                     t.isStringType()  ? stringValSerializeOrFinalize : null));
-            // Implements FIRST_VALUE for some windows that require rewrites during planning.
-            addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "first_value_rewrite", Lists.newArrayList(t, Type.BIGINT), t, t,
-                    t.isStringType() ? initNullString : initNull,
-                    prefix + FIRST_VALUE_REWRITE_UPDATE_SYMBOL.get(t),
-                    null,
-                    t.isStringType() ? stringValGetValue : null,
-                    t.isStringType() ? stringValSerializeOrFinalize : null,
-                    false));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "last_value", Lists.newArrayList(t), t, t,
@@ -2107,27 +2190,73 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     t.isStringType() ? stringValGetValue : null,
                     t.isStringType() ? stringValSerializeOrFinalize : null));
 
+            //vec first_value
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                    "first_value", Lists.newArrayList(t), t, t,
+                    t.isStringType() ? initNullString : initNull,
+                    prefix + FIRST_VALUE_UPDATE_SYMBOL.get(t),
+                    null,
+                    t.isStringType()  ? stringValGetValue : null,
+                    t.isStringType()  ? stringValSerializeOrFinalize : null, true));
+            // Implements FIRST_VALUE for some windows that require rewrites during planning.
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                    "first_value_rewrite", Lists.newArrayList(t, Type.BIGINT), t, t,
+                    t.isStringType() ? initNullString : initNull,
+                    prefix + FIRST_VALUE_REWRITE_UPDATE_SYMBOL.get(t),
+                    null,
+                    t.isStringType() ? stringValGetValue : null,
+                    t.isStringType() ? stringValSerializeOrFinalize : null,
+                    false, false));
+            //vec last_value
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                    "last_value", Lists.newArrayList(t), t, t,
+                    t.isStringType() ? initNullString : initNull,
+                    prefix + LAST_VALUE_UPDATE_SYMBOL.get(t),
+                    prefix + LAST_VALUE_REMOVE_SYMBOL.get(t),
+                    t.isStringType() ? stringValGetValue : null,
+                    t.isStringType() ? stringValSerializeOrFinalize : null, true));
+
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
                     null, null, null));
+                    
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lead", Lists.newArrayList(t, Type.BIGINT, t), t, t,
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
                     null, null, null));
+            //vec
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                    "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
+                    prefix + OFFSET_FN_INIT_SYMBOL.get(t),
+                    prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
+                    null, null, null, true));
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                    "lead", Lists.newArrayList(t, Type.BIGINT, t), t, t,
+                    prefix + OFFSET_FN_INIT_SYMBOL.get(t),
+                    prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
+                    null, null, null, true));
 
             // lead() and lag() the default offset and the default value should be
             // rewritten to call the overrides that take all parameters.
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "lag", Lists.newArrayList(t), t, t));
+                    "lag", Lists.newArrayList(t), t, t, false));
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "lag", Lists.newArrayList(t, Type.BIGINT), t, t));
+                    "lag", Lists.newArrayList(t, Type.BIGINT), t, t, false));
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "lead", Lists.newArrayList(t), t, t));
+                    "lead", Lists.newArrayList(t), t, t, false));
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "lead", Lists.newArrayList(t, Type.BIGINT), t, t));
+                    "lead", Lists.newArrayList(t, Type.BIGINT), t, t, false));
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                        "lag", Lists.newArrayList(t), t, t, true));
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                        "lag", Lists.newArrayList(t, Type.BIGINT), t, t, true));
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                        "lead", Lists.newArrayList(t), t, t, true));
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                        "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
 
     }

@@ -56,6 +56,9 @@ static const uint16_t OLAP_VARCHAR_MAX_LENGTH = 65535;
 // the max length supported for string type 2GB
 static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
 
+// the max length supported for vec string type 1MB
+static constexpr auto MAX_SIZE_OF_VEC_STRING = 1024l * 1024;
+
 // the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
 
@@ -384,7 +387,8 @@ enum OLAPStatus {
     OLAP_ERR_ROWSET_LOAD_FAILED = -3109,
     OLAP_ERR_ROWSET_READER_INIT = -3110,
     OLAP_ERR_ROWSET_READ_FAILED = -3111,
-    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112
+    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112,
+    OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE = -3113
 };
 
 enum ColumnFamilyIndex {

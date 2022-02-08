@@ -48,23 +48,23 @@ public class DorisDynamicTableSink implements DynamicTableSink {
     @Override
     public ChangelogMode getChangelogMode(ChangelogMode changelogMode) {
         return ChangelogMode.newBuilder()
-            .addContainedKind(RowKind.INSERT)
-            .addContainedKind(RowKind.DELETE)
-            .addContainedKind(RowKind.UPDATE_AFTER)
-            .build();
+                .addContainedKind(RowKind.INSERT)
+                .addContainedKind(RowKind.DELETE)
+                .addContainedKind(RowKind.UPDATE_AFTER)
+                .build();
     }
 
     @Override
     public SinkRuntimeProvider getSinkRuntimeProvider(Context context) {
         DorisDynamicOutputFormat.Builder builder = DorisDynamicOutputFormat.builder()
-            .setFenodes(options.getFenodes())
-            .setUsername(options.getUsername())
-            .setPassword(options.getPassword())
-            .setTableIdentifier(options.getTableIdentifier())
-            .setReadOptions(readOptions)
-            .setExecutionOptions(executionOptions)
-            .setFieldDataTypes(tableSchema.getFieldDataTypes())
-            .setFieldNames(tableSchema.getFieldNames());
+                .setFenodes(options.getFenodes())
+                .setUsername(options.getUsername())
+                .setPassword(options.getPassword())
+                .setTableIdentifier(options.getTableIdentifier())
+                .setReadOptions(readOptions)
+                .setExecutionOptions(executionOptions)
+                .setFieldDataTypes(tableSchema.getFieldDataTypes())
+                .setFieldNames(tableSchema.getFieldNames());
         return OutputFormatProvider.of(builder.build());
     }
 

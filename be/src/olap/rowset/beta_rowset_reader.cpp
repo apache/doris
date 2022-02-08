@@ -27,6 +27,8 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
 
+#include "vec/core/block.h"
+
 namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
@@ -107,7 +109,8 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         }
         seg_iterators.push_back(std::move(iter));
     }
-    std::list<RowwiseIterator*> iterators;
+
+    std::vector<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {
         // transfer ownership of segment iterator to `_iterator`
         iterators.push_back(owned_it.release());
@@ -128,20 +131,23 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(schema, 1024, _parent_tracker));
+    _input_block.reset(new RowBlockV2(schema,
+            std::min(1024, read_context->batch_size), _parent_tracker));
 
-    // init input/output block and row
-    _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
+    if (!read_context->is_vec) {
+        // init input/output block and row
+        _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
 
-    RowBlockInfo output_block_info;
-    output_block_info.row_num = 1024;
-    output_block_info.null_supported = true;
-    // the output block's schema should be seek_columns to conform to v1
-    // TODO(hkp): this should be optimized to use return_columns
-    output_block_info.column_ids = *(_context->seek_columns);
-    _output_block->init(output_block_info);
-    _row.reset(new RowCursor());
-    RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
+        RowBlockInfo output_block_info;
+        output_block_info.row_num = std::min(1024, read_context->batch_size);
+        output_block_info.null_supported = true;
+        // the output block's schema should be seek_columns to conform to v1
+        // TODO(hkp): this should be optimized to use return_columns
+        output_block_info.column_ids = *(_context->seek_columns);
+        _output_block->init(output_block_info);
+        _row.reset(new RowCursor());
+        RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
+    }
 
     return OLAP_SUCCESS;
 }
@@ -169,6 +175,47 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
         _input_block->convert_to_row_block(_row.get(), _output_block.get());
     }
     *block = _output_block.get();
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    bool is_first = true;
+
+    do {
+        // read next input block
+        {
+            _input_block->clear();
+            {
+                auto s = _iterator->next_batch(_input_block.get());
+                if (!s.ok()) {
+                    if (s.is_end_of_file()) {
+                        if (is_first) {
+                            return OLAP_ERR_DATA_EOF;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        LOG(WARNING) << "failed to read next block: " << s.to_string();
+                        return OLAP_ERR_ROWSET_READ_FAILED;
+                    }
+                } else if (_input_block->selected_size() == 0) {
+                    continue;
+                }
+            }
+        }
+
+        {
+            SCOPED_RAW_TIMER(&_stats->block_convert_ns);
+            auto s = _input_block->convert_to_vec_block(block);
+            if (UNLIKELY(!s.ok())) {
+                LOG(WARNING) << "failed to read next block: " << s.to_string();
+                return OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE;
+            }
+        }
+        is_first = false;
+    } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
+
     return OLAP_SUCCESS;
 }
 

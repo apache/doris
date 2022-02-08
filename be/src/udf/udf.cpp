@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "gen_cpp/types.pb.h"
 #include "olap/hll.h"
 #include "runtime/decimalv2_value.h"
 
@@ -50,7 +51,7 @@ public:
         return reinterpret_cast<uint8_t*>(realloc(ptr, byte_size));
     }
 
-    void free(uint8_t* ptr) { free(ptr); }
+    void free(uint8_t* ptr) { ::free(ptr); }
 };
 
 class RuntimeState {
@@ -131,6 +132,10 @@ void FunctionContextImpl::set_constant_args(const std::vector<doris_udf::AnyVal*
     _constant_args = constant_args;
 }
 
+void FunctionContextImpl::set_constant_cols(const std::vector<doris::ColumnPtrWrapper*>& constant_cols) {
+    _constant_cols = constant_cols;
+}
+
 bool FunctionContextImpl::check_allocations_empty() {
     if (_allocations.empty() && _external_bytes_tracked == 0) {
         return true;
@@ -187,9 +192,24 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
             create_context(_state, pool, _intermediate_type, _return_type, _arg_types,
                            _varargs_buffer_size, _debug);
     new_context->_impl->_constant_args = _constant_args;
+    new_context->_impl->_constant_cols = _constant_cols;
     new_context->_impl->_fragment_local_fn_state = _fragment_local_fn_state;
     return new_context;
 }
+
+// TODO: to be implemented
+void FunctionContextImpl::serialize(PFunctionContext* pcontext) const {
+    // pcontext->set_string_result(_string_result);
+    // pcontext->set_num_updates(_num_updates);
+    // pcontext->set_num_removes(_num_removes);
+    // pcontext->set_num_warnings(_num_warnings);
+    // pcontext->set_error_msg(_error_msg);
+    // PUniqueId* query_id = pcontext->mutable_query_id();
+    // query_id->set_hi(_context->query_id().hi);
+    // query_id->set_lo(_context->query_id().lo);
+}
+
+void FunctionContextImpl::derialize(const PFunctionContext& pcontext) {}
 
 } // namespace doris
 

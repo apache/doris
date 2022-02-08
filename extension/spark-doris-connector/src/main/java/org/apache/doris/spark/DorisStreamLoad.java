@@ -138,7 +138,7 @@ public class DorisStreamLoad implements Serializable{
         }
     }
 
-    public void load(List<List<Object>> rows) throws StreamLoadException {
+    public String listToString(List<List<Object>> rows){
         StringJoiner lines = new StringJoiner(LINE_DELIMITER);
         for (List<Object> row : rows) {
             StringJoiner line = new StringJoiner(FIELD_DELIMITER);
@@ -151,9 +151,14 @@ public class DorisStreamLoad implements Serializable{
             }
             lines.add(line.toString());
         }
-        load(lines.toString());
+        return lines.toString();
     }
 
+
+    public void load(List<List<Object>> rows) throws StreamLoadException {
+        String records = listToString(rows);
+        load(records);
+    }
     public void load(String value) throws StreamLoadException {
         LOG.debug("Streamload Request:{} ,Body:{}", loadUrlStr, value);
         LoadResponse loadResponse = loadBatch(value);
