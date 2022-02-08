@@ -889,6 +889,7 @@ public class DatabaseTransactionMgr {
                     runningRoutineLoadTxnNums++;
                 } else {
                     runningTxnNums++;
+                    catalog.getGlobalTransactionMgr().increaseRunningTxnNum();
                 }
             }
         } else {
@@ -897,6 +898,7 @@ public class DatabaseTransactionMgr {
                     runningRoutineLoadTxnNums--;
                 } else {
                     runningTxnNums--;
+                    catalog.getGlobalTransactionMgr().decreaseRunningTxnNum();
                 }
             }
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);

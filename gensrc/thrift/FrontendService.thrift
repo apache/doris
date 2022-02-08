@@ -720,6 +720,11 @@ struct TWaitingTxnStatusResult {
     2: optional i32 txn_status_id
 }
 
+struct TReportStatsRequest {
+    1: required string fe
+    2: required i64 query_num
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -757,6 +762,7 @@ service FrontendService {
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
+    Status.TStatus reportStats(1: TReportStatsRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 }

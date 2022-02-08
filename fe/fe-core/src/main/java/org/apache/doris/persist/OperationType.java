@@ -216,6 +216,8 @@ public class OperationType {
     public static final short OP_ALTER_SQL_BLOCK_RULE = 301;
     public static final short OP_DROP_SQL_BLOCK_RULE = 302;
 
+    public static final short OP_SET_STATS = 311;
+
     // get opcode name by op codeStri
     public static String getOpName(short opCode) {
         try {

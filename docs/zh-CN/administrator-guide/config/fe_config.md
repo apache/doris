@@ -614,6 +614,30 @@ current running txns on db xxx is xx, larger than limit xx
 
 一般来说不推荐增大这个配置值。过高的并发数可能导致系统负载过大
 
+### max_running_query_num
+
+默认值：Long.MAX_VALUE
+
+是否可以动态配置：true
+
+这个配置主要是用来控制整个系统同时运行的查询数量的。
+
+### max_running_txn_num
+
+默认值：Long.MAX_VALUE
+
+是否可以动态配置：true
+
+这个配置是用来控制系统级别同时运行的导入任务数量的。
+
+### report_stats_period
+
+默认值：10 * 1000
+
+是否可以动态配置：true
+
+这个配置应该和`max_running_query_num`配置一起使用，代表FE之间同步统计信息的周期。
+
 ### enable_metric_calculator
 
 默认值：true

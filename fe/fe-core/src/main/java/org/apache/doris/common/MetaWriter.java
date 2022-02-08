@@ -116,6 +116,7 @@ public class MetaWriter {
             checksum.setRef(writer.doWork("cluster", () -> catalog.saveCluster(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("broker", () -> catalog.saveBrokers(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("resources", () -> catalog.saveResources(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("stats", () -> catalog.saveStats(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("exportJob", () -> catalog.saveExportJob(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("syncJob", () -> catalog.saveSyncJobs(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("backupHandler", () -> catalog.saveBackupHandler(dos, checksum.getRef())));

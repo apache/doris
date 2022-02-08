@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.DppScheduler;
 import org.apache.doris.load.EtlSubmitResult;
 import org.apache.doris.load.Load;
@@ -37,7 +36,6 @@ import org.apache.doris.load.TableLoadInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
-
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.junit.Assert;
 import org.junit.Before;
@@ -104,6 +102,10 @@ public class LoadPendingTaskTest {
                 catalog.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                catalog.getGlobalTransactionMgr();
+                minTimes = 0;
+                result = globalTransactionMgr;
 
                 Catalog.getCurrentCatalog();
                 minTimes = 0;

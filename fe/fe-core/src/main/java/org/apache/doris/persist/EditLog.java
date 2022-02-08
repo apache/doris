@@ -27,6 +27,7 @@ import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.blockrule.SqlBlockRule;
+import org.apache.doris.catalog.StatsMgr;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -738,6 +739,11 @@ public class EditLog {
                     catalog.getResourceMgr().replayDropResource(operationLog);
                     break;
                 }
+                case OperationType.OP_SET_STATS: {
+                    final StatsMgr.Stats stats = (StatsMgr.Stats) journal.getData();
+                    catalog.getStatsMgr().replaySetStats(stats);
+                    break;
+                }
                 case OperationType.OP_CREATE_SMALL_FILE: {
                     SmallFile smallFile = (SmallFile) journal.getData();
                     catalog.getSmallFileMgr().replayCreateFile(smallFile);
@@ -1400,6 +1406,10 @@ public class EditLog {
 
     public void logDropResource(DropResourceOperationLog operationLog) {
         logEdit(OperationType.OP_DROP_RESOURCE, operationLog);
+    }
+
+    public void logSetStats(StatsMgr.Stats stats) {
+        logEdit(OperationType.OP_SET_STATS, stats);
     }
 
     public void logCreateSmallFile(SmallFile info) {

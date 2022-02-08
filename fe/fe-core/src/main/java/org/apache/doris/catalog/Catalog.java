@@ -237,7 +237,9 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TReportStatsRequest;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -293,6 +295,7 @@ import javax.annotation.Nullable;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+import org.apache.thrift.TException;
 import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
@@ -347,6 +350,7 @@ public class Catalog {
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
     private Daemon replayer;
     private Daemon timePrinter;
+    private Daemon statsSyncer;
     private Daemon listener;
     private EsRepository esRepository;  // it is a daemon, so add it here
 
@@ -409,6 +413,7 @@ public class Catalog {
 
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
+    private StatsMgr statsMgr;
 
     private GlobalTransactionMgr globalTransactionMgr;
 
@@ -567,6 +572,7 @@ public class Catalog {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
+        this.statsMgr = new StatsMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
 
@@ -649,6 +655,10 @@ public class Catalog {
 
     public ResourceMgr getResourceMgr() {
         return resourceMgr;
+    }
+
+    public StatsMgr getStatsMgr() {
+        return statsMgr;
     }
 
     public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
@@ -1386,6 +1396,9 @@ public class Catalog {
         esRepository.start();
         // domain resolver
         domainResolver.start();
+        // sync statistics
+        createStatsSyncer();
+        statsSyncer.start();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -1984,6 +1997,14 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadStats(DataInputStream in, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_106) {
+            statsMgr = StatsMgr.read(in);
+        }
+        LOG.info("finished replay stats from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
             smallFileMgr.readFields(in);
@@ -2261,6 +2282,11 @@ public class Catalog {
 
     public long saveResources(CountingDataOutputStream dos, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getResourceMgr().write(dos);
+        return checksum;
+    }
+
+    public long saveStats(CountingDataOutputStream dos, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getStatsMgr().write(dos);
         return checksum;
     }
 
@@ -2544,6 +2570,38 @@ public class Catalog {
             protected void runAfterCatalogReady() {
                 Timestamp stamp = new Timestamp();
                 editLog.logTimestamp(stamp);
+            }
+        };
+    }
+
+    public void createStatsSyncer() {
+        // stats syncer will send statistics to Master through RPC every certain time.
+        statsSyncer = new MasterDaemon("statsSyncer", Config.report_stats_period) {
+            @Override
+            protected void runAfterCatalogReady() {
+                String masterHost = Catalog.getCurrentCatalog().getMasterIp();
+                int masterRpcPort = Catalog.getCurrentCatalog().getMasterRpcPort();
+                TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
+
+                FrontendService.Client client = null;
+                try {
+                    client = ClientPool.frontendPool.borrowObject(thriftAddress, 300 * 1000);
+                } catch (Exception e) {
+                    LOG.warn("Send statistics to Master borrow object fail!");
+                }
+                TReportStatsRequest request = new TReportStatsRequest();
+                String feHost = Catalog.getCurrentCatalog().getSelfNode().first;
+                long queryNum = Catalog.getCurrentCatalog().getStatsMgr().getAndResetQueryNum();
+                request.setFe(feHost);
+                request.setQueryNum(queryNum);
+
+                try {
+                    client.reportStats(request);
+                } catch (TException e) {
+                    LOG.warn("Send statistics to Master meet RPC fail, detail message: " + e.getMessage());
+                } finally {
+                    ClientPool.frontendPool.returnObject(thriftAddress, client);
+                }
             }
         };
     }

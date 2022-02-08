@@ -626,6 +626,30 @@ When this error is encountered, it means that the load jobs currently running in
 
 Generally it is not recommended to increase this configuration value. An excessively high number of concurrency may cause excessive system load
 
+### max_running_query_num
+
+Default：Long.MAX_VALUE
+
+IsMutable：true
+
+This configuration is used to control the number of current query number of the system. 
+
+### max_running_txn_num
+
+Default：Long.MAX_VALUE
+
+IsMutable：true
+
+This configuration is used to control the number of current load job number of the system. 
+
+### report_stats_period
+
+Default：10 * 1000
+
+IsMutable：true
+
+This config should be used with `max_running_query_num` together. It represent the period of statistics sychronized between FE.
+
 ### enable_metric_calculator
 
 Default：true

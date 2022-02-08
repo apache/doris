@@ -90,6 +90,7 @@ public class MetaReader {
             checksum = catalog.loadCluster(dis, checksum);
             checksum = catalog.loadBrokers(dis, checksum);
             checksum = catalog.loadResources(dis, checksum);
+            checksum = catalog.loadStats(dis, checksum);
             checksum = catalog.loadExportJob(dis, checksum);
             checksum = catalog.loadSyncJobs(dis,checksum);
             checksum = catalog.loadBackupHandler(dis, checksum);

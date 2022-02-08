@@ -720,6 +720,26 @@ public class Config extends ConfigBase {
     public static int max_running_txn_num_per_db = 100;
 
     /**
+     * period for report statistics in each FE to Master.
+     */
+    @ConfField(mutable = true)
+    public static long report_stats_period = 10 * 1000;
+
+    /**
+     * maximum concurrent running query num,
+     * query processor will reject coming query.
+     */
+    @ConfField(mutable = true)
+    public static long max_running_query_num = Long.MAX_VALUE;
+
+    /**
+     * maximum concurrent running stream load num,
+     * load controller will reject coming stream load.
+     */
+    @ConfField(mutable = true)
+    public static long max_running_txn_num = Long.MAX_VALUE;
+
+    /**
      * This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size,
      * it will be removed in the future.
      */

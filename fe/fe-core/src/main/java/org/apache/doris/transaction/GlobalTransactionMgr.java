@@ -56,6 +56,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Transaction Manager
@@ -72,7 +73,21 @@ public class GlobalTransactionMgr implements Writable {
     private TransactionIdGenerator idGenerator = new TransactionIdGenerator();
     private TxnStateCallbackFactory callbackFactory = new TxnStateCallbackFactory();
 
+    private AtomicLong runningTxnNum = new AtomicLong(0);
+
     private Catalog catalog;
+
+    public long getRunningTxnNum() {
+        return runningTxnNum.get();
+    }
+
+    public long increaseRunningTxnNum() {
+        return runningTxnNum.incrementAndGet();
+    }
+
+    public long decreaseRunningTxnNum() {
+        return runningTxnNum.decrementAndGet();
+    }
 
     public GlobalTransactionMgr(Catalog catalog) {
         this.catalog = catalog;

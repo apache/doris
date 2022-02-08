@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.StatsMgr;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -94,6 +95,7 @@ import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
+import org.apache.doris.thrift.TReportStatsRequest;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
@@ -791,6 +793,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
+        // check txn num in system level
+        if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().getRunningTxnNum() > Config.max_running_txn_num) {
+            throw new UserException("Current load transaction number exceeds threshold " + Config.max_running_txn_num);
+        }
         long txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
@@ -997,6 +1003,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    @Override
+    public TStatus reportStats(TReportStatsRequest request) throws TException {
+        // run in Master only.
+        Catalog.getCurrentCatalog().getStatsMgr().setStats(new StatsMgr.Stats(request.getFe(),
+                request.getQueryNum()));
+        return new TStatus(TStatusCode.OK);
     }
 
     @Override

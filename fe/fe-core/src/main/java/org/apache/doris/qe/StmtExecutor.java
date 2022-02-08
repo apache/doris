@@ -939,6 +939,15 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
+        // check query access
+        if (!Catalog.getCurrentCatalog().getStatsMgr().checkQueryAccess()) {
+            long totalQueryNum = Catalog.getCurrentCatalog().getStatsMgr().getTotalQueryNum();
+            ErrorReport.report(ErrorCode.ERR_RUNNING_QUERY_NUM_EXCEED, totalQueryNum, Config.max_running_query_num);
+            LOG.warn("Current running query num is " + totalQueryNum +" exceeds threshold " + Config.max_running_query_num);
+            return;
+        }
+        Catalog.getCurrentCatalog().getStatsMgr().increaseQueryNum();
+
         // send result
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with

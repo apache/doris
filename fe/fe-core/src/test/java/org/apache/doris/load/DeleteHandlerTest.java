@@ -17,6 +17,12 @@
 
 package org.apache.doris.load;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -32,7 +38,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -52,24 +57,15 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class DeleteHandlerTest {
 
@@ -158,6 +154,10 @@ public class DeleteHandlerTest {
                 catalog.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                catalog.getGlobalTransactionMgr();
+                minTimes = 0;
+                result = globalTransactionMgr;
             }
         };
         globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
