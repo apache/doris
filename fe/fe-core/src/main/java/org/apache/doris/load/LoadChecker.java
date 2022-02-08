@@ -331,7 +331,12 @@ public class LoadChecker extends MasterDaemon {
         // concurrent problems
 
         // table in tables are ordered.
-        MetaLockUtils.writeLockTables(tables);
+        try {
+            MetaLockUtils.writeLockTablesOrMetaException(tables);
+        } catch (UserException e) {
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: " + job.getDbId() + ", err: " + e.getMessage());
+            return;
+        }
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Replica replica : job.getFinishedReplicas()) {

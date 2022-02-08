@@ -157,7 +157,6 @@ public class BDBJEJournal implements Journal {
                 } catch (InterruptedException e1) {
                     e1.printStackTrace();
                 }
-                continue;
             }
         }
 

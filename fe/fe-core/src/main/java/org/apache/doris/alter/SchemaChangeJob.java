@@ -584,15 +584,9 @@ public class SchemaChangeJob extends AlterJob {
         long replicaId = schemaChangeTask.getReplicaId();
 
         // update replica's info
-        OlapTable olapTable;
-        try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
-            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-        } catch (MetaNotFoundException e) {
-            LOG.warn(e.getMessage());
-            return;
-        }
-        olapTable.writeLock();
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        olapTable.writeLockOrMetaException();
         try {
             Preconditions.checkState(olapTable.getState() == OlapTableState.SCHEMA_CHANGE);
 
@@ -668,12 +662,11 @@ public class SchemaChangeJob extends AlterJob {
         OlapTable olapTable;
         try {
             olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            olapTable.writeLockOrMetaException();
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return -1;
         }
-
-        olapTable.writeLock();
         try {
             synchronized (this) {
                 boolean hasUnfinishedPartition = false;

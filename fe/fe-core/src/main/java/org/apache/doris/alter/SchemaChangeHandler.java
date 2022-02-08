@@ -1621,7 +1621,7 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             // index id -> index schema
             Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
@@ -1723,7 +1723,7 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
             throws UserException {
-        externalTable.writeLock();
+        externalTable.writeLockOrDdlException();
         try {
             // copy the external table schema columns
             List<Column> newSchema = Lists.newArrayList();
@@ -1804,7 +1804,7 @@ public class SchemaChangeHandler extends AlterHandler {
             updatePartitionInMemoryMeta(db, olapTable.getName(), partition.getName(), isInMemory);
         }
 
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             Catalog.getCurrentCatalog().modifyTableInMemoryMeta(db, olapTable, properties);
         } finally {
@@ -1932,7 +1932,7 @@ public class SchemaChangeHandler extends AlterHandler {
         AlterJobV2 schemaChangeJobV2 = null;
 
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE &&
                     olapTable.getState() != OlapTableState.WAITING_STABLE) {

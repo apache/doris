@@ -17,8 +17,11 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
@@ -53,6 +56,8 @@ public class Table extends MetaObject implements Writable {
     // empirical value.
     // assume that the time a lock is held by thread is less then 100ms
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
+
+    public volatile boolean isDropped = false;
 
     public enum TableType {
         MYSQL,
@@ -135,6 +140,14 @@ public class Table extends MetaObject implements Writable {
         this.createTime = Instant.now().getEpochSecond();
     }
 
+    public void markDropped() {
+        isDropped = true;
+    }
+
+    public void unmarkDropped() {
+        isDropped = false;
+    }
+
     public void readLock() {
         this.rwLock.readLock().lock();
     }
@@ -156,6 +169,14 @@ public class Table extends MetaObject implements Writable {
         this.rwLock.writeLock().lock();
     }
 
+    public boolean writeLockIfExist() {
+        if (!isDropped) {
+            this.rwLock.writeLock().lock();
+            return true;
+        }
+        return false;
+    }
+
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
            return this.rwLock.writeLock().tryLock(timeout, unit);
@@ -171,6 +192,52 @@ public class Table extends MetaObject implements Writable {
 
     public boolean isWriteLockHeldByCurrentThread() {
         return this.rwLock.writeLock().isHeldByCurrentThread();
+    }
+
+    public <E extends Exception> void writeLockOrException(E e) throws E {
+        writeLock();
+        if (isDropped) {
+            writeUnlock();
+            throw e;
+        }
+    }
+
+    public void writeLockOrDdlException() throws DdlException {
+        writeLockOrException(new DdlException("unknown table, tableName=" + name));
+    }
+
+    public void writeLockOrMetaException() throws MetaNotFoundException {
+        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name));
+    }
+
+    public void writeLockOrAlterCancelException() throws AlterCancelException {
+        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name));
+    }
+
+    public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
+        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name));
+    }
+
+    public <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
+        if (tryWriteLock(timeout, unit)) {
+            if (isDropped) {
+                writeUnlock();
+                throw e;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
+        if (tryWriteLock(timeout, unit)) {
+            if (isDropped) {
+                writeUnlock();
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     public boolean isTypeRead() {

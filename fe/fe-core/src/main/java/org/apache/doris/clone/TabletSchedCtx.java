@@ -678,8 +678,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db != null) {
                 Table table = db.getTableNullable(tblId);
-                if (table != null) {
-                    table.writeLock();
+                if (table != null && table.writeLockIfExist()) {
                     try {
                         List<Replica> cloneReplicas = Lists.newArrayList();
                         tablet.getReplicas().stream().filter(r -> r.getState() == ReplicaState.CLONE).forEach(r -> {
@@ -833,10 +832,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         // 1. check the tablet status first
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new SchedException(Status.UNRECOVERABLE, "db does not exist"));
-        OlapTable olapTable = (OlapTable) db.getTableOrException(tblId, s -> new SchedException(Status.UNRECOVERABLE, "tbl does not exist"));
-
-        olapTable.writeLock();
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new SchedException(Status.UNRECOVERABLE, "db " + dbId + " does not exist"));
+        OlapTable olapTable = (OlapTable) db.getTableOrException(tblId, s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletId + " does not exist"));
+        olapTable.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table " + olapTable.getName() + " does not exist"));
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
