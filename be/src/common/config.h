@@ -144,7 +144,7 @@ CONF_String(doris_cgroups, "");
 // thrashing.
 CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
-CONF_Bool(compress_rowbatches, "true");
+CONF_mBool(compress_rowbatches, "true");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
 // number of olap scanner thread pool size

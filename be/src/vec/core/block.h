@@ -26,6 +26,7 @@
 #include <vector>
 #include <parallel_hashmap/phmap.h>
 
+#include "gen_cpp/data.pb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block_info.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -215,7 +216,7 @@ public:
     }
 
     // serialize block to PBlock
-    size_t serialize(PBlock* pblock) const;
+    Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes, std::string* allocated_buf) const;
 
     // serialize block to PRowbatch
     void serialize(RowBatch*, const RowDescriptor&);
