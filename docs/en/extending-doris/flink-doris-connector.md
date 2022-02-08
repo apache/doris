@@ -26,9 +26,14 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector can support read and write data stored in Doris through Flink.
+- The Flink Doris Connector can support operations (read, insert, modify, delete) data stored in Doris through Flink.
 
-- You can map the `Doris` table to` DataStream` or `Table`.
+  * `Doris` table can be mapped to `DataStream` or `Table`.
+
+  >**Note:**
+  >
+  >1. Modification and deletion are only supported on the Unique Key model
+  >2. The current deletion is to support Flink CDC to access data to achieve automatic deletion. If it is to delete other data access methods, you need to implement it yourself. For the data deletion usage of Flink CDC, please refer to the last section of this document
 
 ## Version Compatibility
 
