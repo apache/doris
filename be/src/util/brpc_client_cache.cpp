@@ -15,17 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
 
-BrpcStubCache::BrpcStubCache() {
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_function_endpoint_stub_count, MetricUnit::NOUNIT);
+
+template <>
+BrpcClientCache<PBackendService_Stub>::BrpcClientCache() {
     REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
 }
 
-BrpcStubCache::~BrpcStubCache() {
+template <>
+BrpcClientCache<PBackendService_Stub>::~BrpcClientCache() {
     DEREGISTER_HOOK_METRIC(brpc_endpoint_stub_count);
+}
+
+template <>
+BrpcClientCache<PFunctionService_Stub>::BrpcClientCache() {
+    REGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count, [this]() { return _stub_map.size(); });
+}
+
+template <>
+BrpcClientCache<PFunctionService_Stub>::~BrpcClientCache() {
+    DEREGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count);
 }
 } // namespace doris

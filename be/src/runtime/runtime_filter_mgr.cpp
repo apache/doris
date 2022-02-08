@@ -28,7 +28,7 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/time.h"
 
 namespace doris {
@@ -251,7 +251,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             request_fragment_id->set_lo(targets[i].target_fragment_instance_id.lo);
 
             std::shared_ptr<PBackendService_Stub> stub(
-                    ExecEnv::GetInstance()->brpc_stub_cache()->get_stub(
+                    ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                             targets[i].target_fragment_instance_addr));
             VLOG_NOTICE << "send filter " << rpc_contexts[i]->request.filter_id()
                         << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"

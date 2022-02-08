@@ -28,7 +28,10 @@ class VDataStreamMgr;
 }
 class BfdParser;
 class BrokerMgr;
-class BrpcStubCache;
+
+template <class T>
+class BrpcClientCache;
+
 class BufferPool;
 class CgroupsMgr;
 class DataStreamMgr;
@@ -61,8 +64,12 @@ class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;
 class TExtDataSourceServiceClient;
+class PBackendService_Stub;
+class PFunctionService_Stub;
+
 template <class T>
 class ClientCache;
+
 class HeartbeatFlags;
 
 // Execution environment for queries/plan fragments.
@@ -126,7 +133,12 @@ public:
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
-    BrpcStubCache* brpc_stub_cache() const { return _brpc_stub_cache; }
+    BrpcClientCache<PBackendService_Stub>* brpc_internal_client_cache() const {
+        return _internal_client_cache;
+    }
+    BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
+        return _function_client_cache;
+    }
     ReservationTracker* buffer_reservation() { return _buffer_reservation; }
     BufferPool* buffer_pool() { return _buffer_pool; }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
@@ -180,7 +192,7 @@ private:
     // Scanner threads for common queries will use this thread pool,
     // and the priority of each scan task is set according to the size of the query.
 
-    // _limited_scan_thread_pool is also the thread pool used for scanner. 
+    // _limited_scan_thread_pool is also the thread pool used for scanner.
     // The difference is that it is no longer a priority queue, but according to the concurrency
     // set by the user to control the number of threads that can be used by a query.
 
@@ -203,7 +215,8 @@ private:
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
-    BrpcStubCache* _brpc_stub_cache = nullptr;
+    BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
+    BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
     ReservationTracker* _buffer_reservation = nullptr;
     BufferPool* _buffer_pool = nullptr;

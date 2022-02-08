@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "gen_cpp/types.pb.h"
 #include "olap/hll.h"
 #include "runtime/decimalv2_value.h"
 
@@ -195,6 +196,20 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
     new_context->_impl->_fragment_local_fn_state = _fragment_local_fn_state;
     return new_context;
 }
+
+// TODO: to be implemented
+void FunctionContextImpl::serialize(PFunctionContext* pcontext) const {
+    // pcontext->set_string_result(_string_result);
+    // pcontext->set_num_updates(_num_updates);
+    // pcontext->set_num_removes(_num_removes);
+    // pcontext->set_num_warnings(_num_warnings);
+    // pcontext->set_error_msg(_error_msg);
+    // PUniqueId* query_id = pcontext->mutable_query_id();
+    // query_id->set_hi(_context->query_id().hi);
+    // query_id->set_lo(_context->query_id().lo);
+}
+
+void FunctionContextImpl::derialize(const PFunctionContext& pcontext) {}
 
 } // namespace doris
 

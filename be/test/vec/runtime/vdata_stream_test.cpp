@@ -65,18 +65,19 @@ private:
     std::unique_ptr<PBackendService> _service;
 };
 
-class MockBrpcStubCache : public BrpcStubCache {
+template <class T>
+class MockBrpcClientCache : public BrpcClientCache<T> {
 public:
-    MockBrpcStubCache(google::protobuf::RpcChannel* channel) {
+    MockBrpcClientCache(google::protobuf::RpcChannel* channel) {
         _channel.reset(channel);
-        _stub.reset(new PBackendService_Stub(channel));
+        _stub.reset(new T(channel));
     }
-    virtual ~MockBrpcStubCache() = default;
-    virtual std::shared_ptr<PBackendService_Stub> get_stub(const TNetworkAddress&) { return _stub; }
+    virtual ~MockBrpcClientCache() = default;
+    virtual std::shared_ptr<T> get_client(const TNetworkAddress&) { return _stub; }
 
 private:
     std::unique_ptr<google::protobuf::RpcChannel> _channel;
-    std::shared_ptr<PBackendService_Stub> _stub;
+    std::shared_ptr<T> _stub;
 };
 
 class VDataStreamTest : public testing::Test {
@@ -107,8 +108,8 @@ TEST_F(VDataStreamTest, BasicTest) {
     mock_service->stream_mgr = &_instance;
     MockChannel* channel = new MockChannel(std::move(mock_service));
 
-    runtime_stat._exec_env->_brpc_stub_cache =
-            _object_pool.add(new MockBrpcStubCache(std::move(channel)));
+    runtime_stat._exec_env->_internal_client_cache =
+            _object_pool.add(new MockBrpcClientCache<PBackendService_Stub>(std::move(channel)));
 
     TUniqueId uid;
     PlanNodeId nid = 1;
