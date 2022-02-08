@@ -296,8 +296,14 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         if (_collect_query_statistics_with_every_batch) {
             _collect_query_statistics();
         }
-        RETURN_IF_ERROR(_sink->send(runtime_state(), block));
+
+        auto st =_sink->send(runtime_state(), block);
+        if (st.is_end_of_file()) {
+            break;
+        }
+        RETURN_IF_ERROR(st);
     }
+
     {
         SCOPED_TIMER(profile()->total_time_counter());
         _collect_query_statistics();
@@ -318,6 +324,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
     return Status::OK();
 }
+
 Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block** block) {
     if (_done) {
         *block = nullptr;

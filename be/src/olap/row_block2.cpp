@@ -96,8 +96,6 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
 }
 
 Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColumnPtr& origin_column) {
-    constexpr auto MAX_SIZE_OF_VEC_STRING = 1024l * 1024;
-
     auto* column = origin_column.get();
     bool nullable_mark_array[_selected_size];
 
