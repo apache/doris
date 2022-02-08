@@ -164,26 +164,26 @@ private:
 };
 
 typedef struct _FixedFileHeader {
-    // 整个文件的长度
+    // the length of the entire file
     uint32_t file_length;
-    // 文件除了FileHeader之外的内容的checksum
+    // Checksum of the file's contents except the FileHeader
     uint32_t checksum;
-    // Protobuf部分的长度
+    // Protobuf length of section
     uint32_t protobuf_length;
-    // Protobuf部分的checksum
+    // Checksum of Protobuf part
     uint32_t protobuf_checksum;
 } __attribute__((packed)) FixedFileHeader;
 
 typedef struct _FixedFileHeaderV2 {
     uint64_t magic_number;
     uint32_t version;
-    // 整个文件的长度
+    // the length of the entire file
     uint64_t file_length;
-    // 文件除了FileHeader之外的内容的checksum
+    // Checksum of the file's contents except the FileHeader
     uint32_t checksum;
-    // Protobuf部分的长度
+    // Protobuf length of section
     uint64_t protobuf_length;
-    // Protobuf部分的checksum
+    // Checksum of Protobuf part
     uint32_t protobuf_checksum;
 } __attribute__((packed)) FixedFileHeaderV2;
 
@@ -198,18 +198,18 @@ public:
     }
     ~FileHeader() {}
 
-    // 计算proto部分的长度, 需要在操作完proto之后调用，调用serialize之前必须先prepare
+    // To calculate the length of the proto part, it needs to be called after the proto is operated, and prepare must be called before calling serialize
     OLAPStatus prepare(FileHandlerType* file_handler);
 
     // call prepare() first, serialize() will write fixed header and protobuffer.
-    // 把Header写入传入的文件句柄的起始位置
+    // Write the header to the starting position of the incoming file handle
     OLAPStatus serialize(FileHandlerType* file_handler);
 
     // read from file, validate file length, signature and alder32 of protobuffer.
-    // 从传入的文件句柄的起始位置读出Header
+    // Read the header from the beginning of the incoming file handle
     OLAPStatus unserialize(FileHandlerType* file_handler);
 
-    // 校验Header的有效性
+    // Check the validity of Header
     // it is actually call unserialize().
     OLAPStatus validate(const std::string& filename);
 
@@ -244,7 +244,7 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    // 把文件名作为Signature, 防止一些运维误操作带来的问题
+    // Use the file name as Signature to prevent problems caused by some misoperations
     // _proto.set_signature(basename(file_handler->file_name().c_str()));
 
     try {
@@ -278,7 +278,7 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    // 写入文件
+    // write to file
     if (OLAP_SUCCESS != file_handler->pwrite(&_fixed_file_header, _fixed_file_header_size, 0)) {
         char errmsg[64];
         LOG(WARNING) << "fail to write fixed header to file. [file='" << file_handler->file_name()

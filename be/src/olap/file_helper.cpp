@@ -179,7 +179,7 @@ OLAPStatus FileHandler::close() {
             _wr_length = 0;
         }
 
-        // 在一些极端情况下(fd可用,但fsync失败)可能造成句柄泄漏
+        // In some extreme cases (fd is available, but fsync fails) can cause handle leaks
         if (::close(_fd) < 0) {
             char errmsg[64];
             LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
@@ -341,7 +341,7 @@ OLAPStatus FileHandlerWithBuf::close() {
         return OLAP_SUCCESS;
     }
 
-    // 在一些极端情况下(fd可用,但fsync失败)可能造成句柄泄漏
+    // In some cases (fd is available, but fsync fails) can cause handle leaks
     if (::fclose(_fp) != 0) {
         char errmsg[64];
         LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
