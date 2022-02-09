@@ -147,6 +147,10 @@ CONF_Int32(num_threads_per_core, "3");
 CONF_mBool(compress_rowbatches, "true");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
+// if true, each disk will have a separate thread pool for scanner
+CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
+// the timeout of a work thread to wait the blocking priority queue to get a task
+CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
 // number of olap scanner thread pool size
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
