@@ -69,13 +69,12 @@ struct AggregateFunctionDistinctGenericData {
         Set::LookupResult it;
         bool inserted;
         for (const auto& elem : rhs.set)
-            set.emplace(ArenaKeyHolder{elem.get_value(), *arena}, it, inserted);
+            set.emplace(ArenaKeyHolder {elem.get_value(), *arena}, it, inserted);
     }
 
     void serialize(BufferWritable& buf) const {
         write_var_uint(set.size(), buf);
-        for (const auto& elem : set)
-            write_string_binary(elem.get_value(), buf);
+        for (const auto& elem : set) write_string_binary(elem.get_value(), buf);
     }
 
     void deserialize(BufferReadable& buf, Arena* arena) {
@@ -121,7 +120,7 @@ struct AggregateFunctionDistinctMultipleGenericData : public AggregateFunctionDi
 
         Set::LookupResult it;
         bool inserted;
-        auto key_holder = SerializedKeyHolder{value, *arena};
+        auto key_holder = SerializedKeyHolder {value, *arena};
         set.emplace(key_holder, it, inserted);
     }
 
@@ -180,7 +179,8 @@ public:
         this->data(place).serialize(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena* arena) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena* arena) const override {
         this->data(place).deserialize(buf, arena);
     }
 
@@ -219,8 +219,6 @@ public:
     DataTypePtr get_return_type() const override { return nested_func->get_return_type(); }
 
     bool allocates_memory_in_arena() const override { return true; }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 } // namespace doris::vectorized

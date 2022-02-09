@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <istream>
-#include <ostream>
-#include <type_traits>
-
 #include "exprs/hll_function.h"
 #include "olap/hll.h"
 #include "util/slice.h"
@@ -86,7 +82,8 @@ public:
         this->data(place).add(column.get_data_at(row_num));
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -94,16 +91,16 @@ public:
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         this->data(place).read(buf);
     }
 
-    virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    virtual void insert_result_into(ConstAggregateDataPtr __restrict place,
+                                    IColumn& to) const override {
         auto& column = static_cast<ColumnVector<Int64>&>(to);
         column.get_data().push_back(this->data(place).get_cardinality());
     }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 class AggregateFunctionHLLUnion final : public AggregateFunctionHLLUnionAgg {

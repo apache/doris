@@ -20,10 +20,6 @@
 
 #pragma once
 
-#include <istream>
-#include <ostream>
-#include <type_traits>
-
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -66,7 +62,6 @@ public:
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 struct RankData {
@@ -112,7 +107,6 @@ public:
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 struct DenseRankData {
@@ -154,7 +148,6 @@ public:
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 struct Value {
@@ -233,7 +226,7 @@ public:
                 return;
             }
             if constexpr (is_string) {
-                const auto *sources = check_and_get_column<ColumnString>(
+                const auto* sources = check_and_get_column<ColumnString>(
                         nullable_column->get_nested_column_ptr().get());
                 _data_value.set_value(sources->get_data_at(pos));
             } else {
@@ -410,7 +403,6 @@ public:
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
         LOG(FATAL) << "WindowFunctionData do not support deserialize";
     }
-    const char* get_header_file_path() const override { return __FILE__; }
 
 private:
     DataTypePtr _argument_type;
