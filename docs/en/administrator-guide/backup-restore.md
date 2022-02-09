@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -94,7 +94,8 @@ The commands related to the backup recovery function are as follows. The followi
 
 1. CREATE REPOSITORY
 
-	Create a remote warehouse Path for backup or recovery.
+	Create a remote warehouse Path for backup or recovery. This command needs to access the remote storage through the Broker. Different brokers need to provide different parameters. For details, please refer to [Broker Document] (broker.md), or directly back up to the remote storage supporting AWS S3 protocol through S3 protocol. For details, please refer to [CREATE REPOSITORY DOCUMENT] (../sql-reference/sql-statements/Data%20Definition/CREATE%20REPOSITORY.md)
+
 
 1. BACKUP
 

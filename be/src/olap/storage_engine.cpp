@@ -571,7 +571,7 @@ void StorageEngine::stop() {
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)           \
-    for (const auto thread : threads) { \
+    for (const auto& thread : threads) {\
         if (thread) {                   \
             thread->join();             \
         }                               \

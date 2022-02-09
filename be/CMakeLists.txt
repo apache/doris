@@ -17,15 +17,6 @@
 
 cmake_minimum_required(VERSION 3.19.2)
 
-# set CMAKE_C_COMPILER, this must set before project command
-if (DEFINED ENV{DORIS_GCC_HOME})
-    set(CMAKE_C_COMPILER "$ENV{DORIS_GCC_HOME}/bin/gcc")
-    set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
-    set(GCC_HOME $ENV{DORIS_GCC_HOME})
-else()
-    message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
-endif()
-
 project(doris CXX C)
 
 # Write compile_commands.json
@@ -50,6 +41,12 @@ endif ()
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc64le.*|PPC64LE.*)")
     set (ARCH_PPC64LE 1)
+endif ()
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set (COMPILER_GCC 1)
+elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set (COMPILER_CLANG 1)
 endif ()
 
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
@@ -91,12 +88,9 @@ option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
-        message(FATAL_ERROR "Need GCC version at least 7.3.0")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
+        message(FATAL_ERROR "Need GCC version at least 11.0")
     endif()
-    message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
-elseif (NOT APPLE)
-    message(FATAL_ERROR "Compiler should be GNU")
 endif()
 
 set(PIC_LIB_PATH "${THIRDPARTY_DIR}")
@@ -299,6 +293,9 @@ set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(minizip STATIC IMPORTED)
 set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
+add_library(idn STATIC IMPORTED)
+set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
+
 add_library(gsasl STATIC IMPORTED)
 set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
 
@@ -336,14 +333,129 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -pthread: enable multithreaded malloc
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror=strict-aliasing")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer -Werror=return-type")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
+
+if (USE_LDD)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
+endif ()
+
+if (USE_LIBCPP AND COMPILER_CLANG)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    add_definitions(-DUSE_LIBCPP)
+endif()
+
+if (COMPILER_GCC)
+    # Avoid GCC 11 false alarm
+    # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
+    # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
+    add_compile_options(-Wno-stringop-overflow)
+endif ()
+
+if (COMPILER_CLANG)
+
+    if(MAKE_TEST STREQUAL "OFF")
+        add_compile_options(-Qunused-arguments)
+    endif()
+
+    # TODO: Fix all these warnings
+    add_compile_options(
+        -Wno-address-of-packed-member
+        -Wno-ambiguous-reversed-operator
+        -Wno-atomic-implicit-seq-cst
+        -Wno-cast-align
+        -Wno-cast-qual
+        -Wno-comma
+        -Wno-conditional-uninitialized
+        -Wno-constant-conversion
+        -Wno-covered-switch-default
+        -Wno-delete-abstract-non-virtual-dtor
+        -Wno-delete-non-abstract-non-virtual-dtor
+        -Wno-deprecated
+        -Wno-deprecated-copy-with-dtor
+        -Wno-deprecated-copy-with-user-provided-copy
+        -Wno-deprecated-copy-with-user-provided-dtor
+        -Wno-deprecated-declarations
+        -Wno-deprecated-this-capture
+        -Wno-documentation
+        -Wno-embedded-directive
+        -Wno-enum-compare-switch
+        -Wno-extra-semi
+        -Wno-extra-semi-stmt
+        -Wno-format-nonliteral
+        -Wno-frame-larger-than
+        -Wno-gnu-label-as-value
+        -Wno-gnu-redeclared-enum
+        -Wno-gnu-statement-expression
+        -Wno-gnu-zero-variadic-macro-arguments
+        -Wno-header-hygiene
+        -Wno-ignored-qualifiers
+        -Wno-implicit-const-int-float-conversion
+        -Wno-implicit-exception-spec-mismatch
+        -Wno-implicit-fallthrough
+        -Wno-inconsistent-missing-destructor-override
+        -Wno-inconsistent-missing-override
+        -Wno-instantiation-after-specialization
+        -Wno-macro-redefined
+        -Wno-mismatched-new-delete
+        -Wno-mismatched-tags
+        -Wno-missing-field-initializers
+        -Wno-missing-noreturn
+        -Wno-newline-eof
+        -Wno-non-virtual-dtor
+        -Wno-null-conversion
+        -Wno-null-dereference
+        -Wno-old-style-cast
+        -Wno-overloaded-virtual
+        -Wno-pedantic
+        -Wno-pessimizing-move
+        -Wno-pragma-once-outside-header
+        -Wno-reserved-identifier
+        -Wno-reserved-macro-identifier
+        -Wno-return-type
+        -Wno-shadow
+        -Wno-shadow-field
+        -Wno-shadow-field-in-constructor
+        -Wno-shadow-uncaptured-local
+        -Wno-shift-count-overflow
+        -Wno-sign-compare
+        -Wno-string-plus-int
+        -Wno-suggest-destructor-override
+        -Wno-suggest-override
+        -Wno-tautological-constant-out-of-range-compare
+        -Wno-tautological-unsigned-zero-compare
+        -Wno-undef
+        -Wno-uninitialized
+        -Wno-unknown-pragmas
+        -Wno-unknown-warning-option
+        -Wno-unreachable-code
+        -Wno-unreachable-code-break
+        -Wno-unreachable-code-return
+        -Wno-unused-but-set-variable
+        -Wno-unused-const-variable
+        -Wno-unused-exception-parameter
+        -Wno-unused-function
+        -Wno-unused-lambda-capture
+        -Wno-unused-local-typedef
+        -Wno-unused-macros
+        -Wno-unused-member-function
+        -Wno-unused-parameter
+        -Wno-unused-private-field
+        -Wno-unused-result
+        -Wno-unused-value
+        -Wno-unused-variable
+        -Wno-variadic-macros
+        -Wno-zero-as-null-pointer-constant
+    )
+endif ()
+
 # https://github.com/boostorg/uuid/issues/92
 # We need to avoid using SYS_getrandom system calls
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
@@ -404,7 +516,7 @@ SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANIT
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
     SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG})
-elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
+elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
@@ -436,6 +548,10 @@ add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
+)
+
+include_directories(
+    SYSTEM
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
@@ -469,6 +585,7 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     Geo
+    Vec
     Plugin
     ${WL_END_GROUP}
 )
@@ -486,8 +603,6 @@ endif()
 set(COMMON_THIRDPARTY
     rocksdb
     cyrus-sasl
-    librdkafka_cpp
-    librdkafka
     libs2
     snappy
     Boost::date_time
@@ -499,6 +614,7 @@ set(COMMON_THIRDPARTY
     lz4
     libevent
     libevent_pthreads
+    idn
     gsasl
     curl
     ${LIBZ}
@@ -525,18 +641,21 @@ set(COMMON_THIRDPARTY
     minizip
     breakpad
     ${AWS_LIBS}
+    # put this after lz4 to avoid using lz4 lib in librdkafka
+    librdkafka_cpp
+    librdkafka
 )
 
 if (${MAKE_TEST} STREQUAL "ON")
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        benchmark       
+        benchmark
     )
 endif()
 
 # thirdparties dependescies that can only run on X86 platform
 set(X86_DEPENDENCIES
-    ${COMMON_THIRDPARTY}   
+    ${COMMON_THIRDPARTY}
     hdfs3
     xml2
     lzma
@@ -555,7 +674,6 @@ else()
         ${DORIS_DEPENDENCIES}
         ${WL_START_GROUP}
         ${X86_DEPENDENCIES}
-        ${WL_END_GROUP}
     )
 endif()
 
@@ -571,6 +689,8 @@ if (WITH_MYSQL)
         )
 endif()
 
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
+
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
 # Add all external dependencies. They should come after the palo libs.
@@ -582,36 +702,40 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -lstdc++fs
 )
 
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-        -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2
-    )
-endif()
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    set(ASAN_LIBS -static-libasan)
+    set(LSAN_LIBS -static-liblsan)
+    set(UBSAN_LIBS -static-libubsan tcmalloc)
+    set(TSAN_LIBS -static-libtsan)
+else ()
+    set(UBSAN_LIBS tcmalloc)
+endif ()
 
 # Add sanitize static link flags or tcmalloc
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libasan)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-liblsan)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${LSAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libubsan tcmalloc)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${UBSAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libtsan)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${TSAN_LIBS})
     add_definitions("-DTHREAD_SANITIZER")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
+# NOTE(amos): This should come before -lc -lm to interpose symbols correctly.
+if (GLIBC_COMPATIBILITY)
+    add_subdirectory(${SRC_DIR}/glibc-compatibility)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
+endif()
+
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
 )
-
-if (GLIBC_COMPATIBILITY)
-    add_subdirectory(${SRC_DIR}/glibc-compatibility)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility)
-endif()
 
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
@@ -646,12 +770,13 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
-if (${MAKE_TEST} STREQUAL "OFF")
+if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
+add_subdirectory(${SRC_DIR}/vec)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
@@ -704,6 +829,12 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/runtime)
     add_subdirectory(${TEST_DIR}/udf)
     add_subdirectory(${TEST_DIR}/util)
+    add_subdirectory(${TEST_DIR}/vec/core)
+    add_subdirectory(${TEST_DIR}/vec/exec)
+    add_subdirectory(${TEST_DIR}/vec/exprs)
+    add_subdirectory(${TEST_DIR}/vec/function)
+    add_subdirectory(${TEST_DIR}/vec/runtime)
+    add_subdirectory(${TEST_DIR}/vec/aggregate_functions)
     add_subdirectory(${TEST_DIR}/plugin)
     add_subdirectory(${TEST_DIR}/plugin/example)
     add_subdirectory(${TEST_DIR}/tools)
@@ -727,3 +858,7 @@ install(FILES
     ${BASE_DIR}/../conf/odbcinst.ini
     DESTINATION ${OUTPUT_DIR}/conf)
 
+get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
+foreach(dir ${dirs})
+    message(STATUS "dir='${dir}'")
+endforeach()

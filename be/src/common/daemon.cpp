@@ -200,8 +200,10 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
-void sigterm_handler(int signo) {
-    k_doris_exit = true;
+void signal_handler(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        k_doris_exit = true;
+    }
 }
 
 int install_signal(int signo, void (*handler)(int)) {
@@ -219,11 +221,11 @@ int install_signal(int signo, void (*handler)(int)) {
 }
 
 void init_signals() {
-    auto ret = install_signal(SIGINT, sigterm_handler);
+    auto ret = install_signal(SIGINT, signal_handler);
     if (ret < 0) {
         exit(-1);
     }
-    ret = install_signal(SIGTERM, sigterm_handler);
+    ret = install_signal(SIGTERM, signal_handler);
     if (ret < 0) {
         exit(-1);
     }

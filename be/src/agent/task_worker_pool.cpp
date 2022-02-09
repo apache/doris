@@ -201,6 +201,10 @@ void TaskWorkerPool::start() {
         _worker_count = 1;
         cb = std::bind<void>(&TaskWorkerPool::_update_tablet_meta_worker_thread_callback, this);
         break;
+    case TaskWorkerType::SUBMIT_TABLE_COMPACTION:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback, this);
+        break;
     default:
         // pass
         break;
@@ -1648,6 +1652,56 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
 void TaskWorkerPool::_random_sleep(int second) {
     Random rnd(UnixMillis());
     sleep(rnd.Uniform(second) + 1);
+}
+
+void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        TCompactionReq compaction_req;
+
+        {
+            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait();
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            compaction_req = agent_task_req.compaction_req;
+            _tasks.pop_front();
+        }
+
+        LOG(INFO) << "get compaction task. signature:" << agent_task_req.signature
+                  << ", compaction type:" << compaction_req.type;
+
+        CompactionType compaction_type;
+        if (compaction_req.type == "base") {
+            compaction_type = CompactionType::BASE_COMPACTION;
+        } else {
+            compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+        }
+
+        TabletSharedPtr tablet_ptr = StorageEngine::instance()->tablet_manager()->get_tablet(
+                compaction_req.tablet_id, compaction_req.schema_hash);
+        if (tablet_ptr != nullptr) {
+            auto data_dir = tablet_ptr->data_dir();
+            if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
+                LOG(WARNING) << "can not do compaction: " << tablet_ptr->tablet_id()
+                             << ", compaction type: " << compaction_type;
+                _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+                continue;
+            }
+
+            Status status = StorageEngine::instance()->submit_compaction_task(
+                    tablet_ptr, compaction_type);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to submit table compaction task. " << status.to_string();
+            }
+            _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        }
+    }
 }
 
 } // namespace doris

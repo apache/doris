@@ -86,6 +86,8 @@ private:
     std::unique_ptr<TaskWorkerPool> _recover_tablet_workers;
     std::unique_ptr<TaskWorkerPool> _update_tablet_meta_info_workers;
 
+    std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
+
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };
 

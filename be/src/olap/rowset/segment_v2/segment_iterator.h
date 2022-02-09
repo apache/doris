@@ -50,14 +50,17 @@ public:
     SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema,
                     std::shared_ptr<MemTracker> parent);
     ~SegmentIterator() override;
+
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;
+    Status next_batch(vectorized::Block* block) override;
+
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const { return _segment->id(); }
 
 private:
-    Status _init();
+    Status _init(bool is_vec = false);
 
     Status _init_return_column_iterators();
     Status _init_bitmap_index_iterators();
@@ -75,6 +78,7 @@ private:
     Status _apply_bitmap_index();
 
     void _init_lazy_materialization();
+    void _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -84,12 +88,22 @@ private:
     Status _read_columns(const std::vector<ColumnId>& column_ids, RowBlockV2* block,
                          size_t row_offset, size_t nrows);
 
+    // for vectorization implementation
+    Status _read_columns(const std::vector<ColumnId>& column_ids, vectorized::MutableColumns& column_block, size_t nrows);
+    Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read, bool set_block_rowid);
+    void _init_current_block(vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
+    void _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t& selected_size);
+    void _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t* selected_size);
+    void _output_non_pred_columns(vectorized::Block* block, bool is_block_mem_reuse);
+    void _output_column_by_sel_idx(vectorized::Block* block, const std::vector<ColumnId>& columnids, uint16_t* sel_rowid_idx, uint16_t select_size, bool is_block_mem_reuse);
+    void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids, std::vector<rowid_t>& rowid_vector, 
+        uint16_t* sel_rowid_idx, size_t select_size, vectorized::MutableColumns* mutable_columns);
+
 private:
     class BitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
-    // TODO(zc): rethink if we need copy it
-    Schema _schema;
+    const Schema& _schema;
     // _column_iterators.size() == _schema.num_columns()
     // _column_iterators[cid] == nullptr if cid is not in _schema
     std::vector<ColumnIterator*> _column_iterators;
@@ -112,6 +126,21 @@ private:
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
+
+    // fields for vectorization execution 
+    bool _is_all_column_basic_type;
+    std::vector<ColumnId> _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
+    std::vector<ColumnId> _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
+    vector<bool> _is_pred_column; // columns hold by segmentIter
+    vectorized::MutableColumns _current_return_columns;
+    std::unique_ptr<AndBlockColumnPredicate> _pre_eval_block_predicate;
+    std::vector<ColumnPredicate*> _short_cir_eval_predicate;
+    // when lazy materialization is enable, segmentIter need to read data at least twice
+    // first, read predicate columns by various index
+    // second, read non-predicate columns
+    // so we need a field to stand for columns first time to read
+    vector<ColumnId> _first_read_column_ids;
+    vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;

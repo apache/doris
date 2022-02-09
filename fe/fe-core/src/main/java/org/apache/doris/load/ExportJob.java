@@ -257,12 +257,14 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    private void registerToDesc() {
+    private void registerToDesc() throws UserException {
         TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
+        analyzer.registerTableRef(tableRef);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
+        exportTupleDesc.setAliases(tableRef.getAliases(), tableRef.hasExplicitAlias());
         if (exportColumns.isEmpty()) {
             for (Column column : exportTable.getBaseSchema()) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
@@ -452,7 +454,7 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
                     id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
-                    TimeUtils.DEFAULT_TIME_ZONE);
+                    TimeUtils.DEFAULT_TIME_ZONE, true);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }

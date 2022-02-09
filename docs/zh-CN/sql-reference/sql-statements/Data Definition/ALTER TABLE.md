@@ -229,14 +229,14 @@ under the License.
     bitmap index 支持如下几种修改方式
     1. 创建bitmap 索引
         语法：
-            ADD INDEX index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+            ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
         注意：
             1. 目前仅支持bitmap 索引
             1. BITMAP 索引仅在单列上创建
 
     2. 删除索引
         语法：
-            DROP INDEX index_name；
+            DROP INDEX [IF EXISTS] index_name；
 
 ## example
 
@@ -413,9 +413,9 @@ under the License.
         ALTER TABLE example_table RENAME PARTITION p1 p2;
     [index]
     1. 在table1 上为siteid 创建bitmap 索引
-        ALTER TABLE table1 ADD INDEX index_name (siteid) [USING BITMAP] COMMENT 'balabala';
+        ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name (siteid) [USING BITMAP] COMMENT 'balabala';
     2. 删除table1 上的siteid列的bitmap 索引
-        ALTER TABLE table1 DROP INDEX index_name;
+        ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
 
 ## keyword
 

@@ -84,13 +84,13 @@ public class TableRowCountAction extends RestBaseAction {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, e.getMessage());
             }
 
-            table.writeLock();
+            table.readLock();
             try {
                 OlapTable olapTable = (OlapTable) table;
                 resultMap.put("status", 200);
                 resultMap.put("size", olapTable.proximateRowCount());
             } finally {
-                table.writeUnlock();
+                table.readUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

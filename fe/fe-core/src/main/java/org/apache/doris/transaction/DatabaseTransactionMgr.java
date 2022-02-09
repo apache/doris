@@ -690,23 +690,8 @@ public class DatabaseTransactionMgr {
             }
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        // to be compatiable with old meta version, table List may be empty
-        if (tableIdList.isEmpty()) {
-            readLock();
-            try {
-                for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                    long tableId = tableCommitInfo.getTableId();
-                    if (!tableIdList.contains(tableId)) {
-                        tableIdList.add(tableId);
-                    }
-                }
-            } finally {
-                readUnlock();
-            }
-        }
-
-        List<Table> tableList = db.getTablesOnIdOrderWithIgnoringWrongTableId(tableIdList);
-        MetaLockUtils.writeLockTables(tableList);
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
             boolean hasError = false;
             Iterator<TableCommitInfo> tableCommitInfoIterator = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1240,7 +1225,7 @@ public class DatabaseTransactionMgr {
                                     "SHOW TRANSACTION",
                                     ConnectContext.get().getQualifiedUser(),
                                     ConnectContext.get().getRemoteIP(),
-                                    tbl.getName());
+                                    db.getFullName() + ": " + tbl.getName());
                         }
                     }
                 }

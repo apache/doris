@@ -854,7 +854,7 @@ TEST_F(BitmapFunctionsTest, bitmap_not) {
     expected = BigIntVal(0);
     ASSERT_EQ(expected, result);
 
-    bitmap1 = BitmapValue({1});
+    bitmap1 = BitmapValue(1);
     bitmap2 = BitmapValue({2, 1});
 
     bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
@@ -1151,7 +1151,7 @@ TEST_F(BitmapFunctionsTest, sub_bitmap) {
     ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap5));
 
     res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-1), BigIntVal(2));
-    BitmapValue bitmap6({500});
+    BitmapValue bitmap6(500);
     ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap6));
 
     res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-7), BigIntVal(6));

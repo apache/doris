@@ -116,3 +116,4 @@ ENV MAVEN_HOME /usr/share/maven
 ENV DORIS_THIRDPARTY /var/local/thirdparty
 WORKDIR /root
 CMD ["/bin/bash"]
+

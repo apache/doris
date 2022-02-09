@@ -35,5 +35,5 @@ under the License.
         DROP RESOURCE 'spark0';
 
 ## keyword
-    DROP RESOURCE
+    DROP, RESOURCE
 

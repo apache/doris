@@ -49,7 +49,7 @@ import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteLikePredicateRule;
-import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
+import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -219,6 +219,8 @@ public class Analyzer {
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
 
+        private final Set<TupleId> outerJoinedMaterializedTupleIds = Sets.newHashSet();
+
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
         public final Map<ExprId, TableRef> fullOuterJoinedConjuncts = Maps.newHashMap();
@@ -304,7 +306,7 @@ public class Analyzer {
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
-            rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
+            rules.add(RewriteDateLiteralRule.INSTANCE);
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             rules.add(RewriteLikePredicateRule.INSTANCE);
@@ -705,7 +707,8 @@ public class Analyzer {
 
     /**
      * Register a virtual column, and it is not a real column exist in table,
-     * so it does not need to resolve.
+     * so it does not need to resolve. now virtual slot: only use in grouping set to generate grouping id,
+     * so it should always is not nullable
      */
     public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
             throws AnalysisException {
@@ -720,7 +723,7 @@ public class Analyzer {
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
         result.setColumn(col);
-        result.setIsNullable(true);
+        result.setIsNullable(col.isAllowNull());
         slotRefMap.put(key, result);
         return result;
     }
@@ -791,6 +794,7 @@ public class Analyzer {
         // result.setLabel(srcSlotDesc.getLabel());
         result.setStats(srcSlotDesc.getStats());
         result.setType(srcSlotDesc.getType());
+        result.setIsNullable(srcSlotDesc.getIsNullable());
         // result.setItemTupleDesc(srcSlotDesc.getItemTupleDesc());
         return result;
     }
@@ -835,6 +839,7 @@ public class Analyzer {
 
     /**
      * Register tids as being outer-joined by Join clause represented by rhsRef.
+     * All tuple of outer join should be null in slot desc
      */
     public void registerOuterJoinedTids(List<TupleId> tids, TableRef rhsRef) {
         for (TupleId tid: tids) {
@@ -843,6 +848,27 @@ public class Analyzer {
         if (LOG.isDebugEnabled()) {
             LOG.debug("registerOuterJoinedTids: " +
                     globalState.outerJoinedTupleIds.toString());
+        }
+    }
+
+    public void registerOuterJoinedMaterilizeTids(List<TupleId> tids) {
+        globalState.outerJoinedMaterializedTupleIds.addAll(tids);
+    }
+
+    /**
+     * All tuple of outer join tuple should be null in slot desc
+     */
+    public void changeAllOuterJoinTupleToNull() {
+        for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                slotDescriptor.setIsNullable(true);
+            }
+        }
+
+        for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                slotDescriptor.setIsNullable(true);
+            }
         }
     }
 

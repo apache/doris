@@ -301,7 +301,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return conjuncts;
     }
 
-    private void initCompoundPredicate(Expr expr) {
+    void initCompoundPredicate(Expr expr) {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             compoundPredicate.setType(Type.BOOLEAN);
@@ -318,7 +318,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-    private Expr convertConjunctsToAndCompoundPredicate() {
+    Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
@@ -357,6 +357,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     public void transferConjuncts(PlanNode recipient) {
+        recipient.vconjunct = vconjunct;
+        vconjunct = null;
+        
         recipient.conjuncts.addAll(conjuncts);
         conjuncts.clear();
     }
@@ -859,7 +862,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     void convertToVectoriezd() {
         if (!conjuncts.isEmpty()) {
-            vconjunct = convertConjunctsToAndCompoundPredicate();
+            vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
             initCompoundPredicate(vconjunct);
         }
 

@@ -88,18 +88,35 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
             .set_min_threads(min_threads)
             .set_max_threads(max_threads)
             .build(&_flush_pool);
+
+    min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
+    max_threads = data_dir_num * min_threads;
+    ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
+            .set_min_threads(min_threads)
+            .set_max_threads(max_threads)
+            .build(&_high_prio_flush_pool);
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
 OLAPStatus MemTableFlushExecutor::create_flush_token(
         std::unique_ptr<FlushToken>* flush_token,
-        RowsetTypePB rowset_type) {
-    if (rowset_type == BETA_ROWSET) {
-        // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-        flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+        RowsetTypePB rowset_type, bool is_high_priority) {
+    if (!is_high_priority) {
+        if (rowset_type == BETA_ROWSET) {
+            // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
+            flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+        } else {
+            // alpha rowset do not support flush in CONCURRENT.
+            flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+        }
     } else {
-        // alpha rowset do not support flush in CONCURRENT.
-        flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+        if (rowset_type == BETA_ROWSET) {
+            // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
+            flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+        } else {
+            // alpha rowset do not support flush in CONCURRENT.
+            flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+        }
     }
     return OLAP_SUCCESS;
 }

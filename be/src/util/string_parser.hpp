@@ -134,10 +134,9 @@ public:
         return string_to_bool_internal(s + i, len - i, result);
     }
 
-    static inline __int128 string_to_decimal(const char* s, int len,
-	    int type_precision, int type_scale, ParseResult* result);
+    static inline __int128 string_to_decimal(const char* s, int len, int type_precision,
+                                             int type_scale, ParseResult* result);
 
-   
     template <typename T>
     static Status split_string_to_map(const std::string& base, const T element_separator,
                                       const T key_value_separator, 
@@ -146,23 +145,23 @@ public:
         int key_end;
         int val_pos;
         int val_end;
-    
+
         while ((key_end = base.find(key_value_separator, key_pos)) != std::string::npos) {
-            if ((val_pos = base.find_first_not_of(key_value_separator, key_end)) 
-			          == std::string::npos) {
+            if ((val_pos = base.find_first_not_of(key_value_separator, key_end)) ==
+                std::string::npos) {
                 break;
             }
-    	    if ((val_end = base.find(element_separator, val_pos)) == std::string::npos) {
+            if ((val_end = base.find(element_separator, val_pos)) == std::string::npos) {
                 val_end = base.size();
             }
-            result->insert(std::make_pair(base.substr(key_pos, key_end - key_pos), 
-			                              base.substr(val_pos, val_end - val_pos)));
+            result->insert(std::make_pair(base.substr(key_pos, key_end - key_pos),
+                                          base.substr(val_pos, val_end - val_pos)));
             key_pos = val_end;
             if (key_pos != std::string::npos) {
-          	    ++key_pos;
+                ++key_pos;
             }
         }
-    
+
         return Status::OK();
     }
 private:
@@ -573,6 +572,26 @@ T StringParser::numeric_limits(bool negative) {
 }
 
 template<>
+inline int StringParser::StringParseTraits<uint8_t>::max_ascii_len() {
+    return 3;
+}
+
+template<>
+inline int StringParser::StringParseTraits<uint16_t>::max_ascii_len() {
+    return 5;
+}
+
+template<>
+inline int StringParser::StringParseTraits<uint32_t>::max_ascii_len() {
+    return 10;
+}
+
+template<>
+inline int StringParser::StringParseTraits<uint64_t>::max_ascii_len() {
+    return 20;
+}
+
+template<>
 inline int StringParser::StringParseTraits<int8_t>::max_ascii_len() {
     return 3;
 }
@@ -639,7 +658,9 @@ inline __int128 StringParser::get_scale_multiplier(int scale) {
         static_cast<__int128>(1000000000000000000ll) * 100000000000000000ll * 10ll,
         static_cast<__int128>(1000000000000000000ll) * 100000000000000000ll * 100ll,
         static_cast<__int128>(1000000000000000000ll) * 100000000000000000ll * 1000ll};
-    if (scale >= 0 && scale < 39) return values[scale];
+    if (scale >= 0 && scale < 39) {
+        return values[scale];
+    }
     return -1;  // Overflow
 }
 
@@ -753,7 +774,9 @@ inline __int128 StringParser::string_to_decimal(const char* s, int len,
     }
     // Ex: 0.001, at this point would have precision 1 and scale 3 since leading zeros
     //     were ignored during previous parsing.
-    if (scale > precision) precision = scale;
+    if (scale > precision) {
+        precision = scale;
+    }
 
     // Microbenchmarks show that beyond this point, returning on parse failure is slower
     // than just letting the function run out.
@@ -763,13 +786,15 @@ inline __int128 StringParser::string_to_decimal(const char* s, int len,
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
-        if (UNLIKELY(truncated_digit_count > 0)) shift -= truncated_digit_count;
+        if (UNLIKELY(truncated_digit_count > 0)) {
+            shift -= truncated_digit_count;
+        }
         if (shift > 0) {
             __int128 divisor = get_scale_multiplier(shift);
             if (LIKELY(divisor >= 0)) {
                 value /= divisor;
                 __int128 remainder = value % divisor;
-                if (abs(remainder) >= (divisor >> 1)) {
+                if ((remainder > 0 ? remainder : -remainder) >= (divisor >> 1)) {
                     value += 1;
                 }
             } else {

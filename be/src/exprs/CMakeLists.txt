@@ -54,6 +54,7 @@ add_library(Exprs
   math_functions.cpp
   null_literal.cpp  
   scalar_fn_call.cpp
+  rpc_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp
   array_functions.cpp
@@ -71,7 +72,6 @@ add_library(Exprs
   hll_function.cpp
   grouping_sets_functions.cpp
   topn_function.cpp
-
   table_function/explode_split.cpp
   table_function/explode_bitmap.cpp
   table_function/explode_json_array.cpp

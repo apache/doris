@@ -18,6 +18,7 @@ package org.apache.doris.mysql.nio;
 
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
@@ -59,4 +60,10 @@ public class NConnectContext extends ConnectContext {
     public void stopAcceptQuery() throws IOException {
         mysqlChannel.stopAcceptQuery();
     }
+
+    @Override
+    public String toString() {
+        return "[remote ip: " + mysqlChannel.getRemoteIp() + "]";
+    }
 }
+

@@ -371,6 +371,10 @@ public class TabletScheduler extends MasterDaemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletSchedCtx tabletCtx : currentBatch) {
             try {
+                if (Config.disable_tablet_scheduler) {
+                    // do not schedule more tablet is tablet scheduler is disabled.
+                    throw new SchedException(Status.FINISHED, "tablet scheduler is disabled");
+                }
                 scheduleTablet(tabletCtx, batchTask);
             } catch (SchedException e) {
                 tabletCtx.increaseFailedSchedCounter();
@@ -403,7 +407,7 @@ public class TabletScheduler extends MasterDaemon {
                         dynamicAdjustPrioAndAddBackToPendingTablets(tabletCtx, e.getMessage());
                     }
                 } else if (e.getStatus() == Status.FINISHED) {
-                    // schedule redundant tablet will throw this exception
+                    // schedule redundant tablet or scheduler disabled will throw this exception
                     stat.counterTabletScheduledSucceeded.incrementAndGet();
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getMessage());
                 } else {
@@ -465,10 +469,11 @@ public class TabletScheduler extends MasterDaemon {
         stat.counterTabletScheduled.incrementAndGet();
 
         Pair<TabletStatus, TabletSchedCtx.Priority> statusPair;
-        // check this tablet again
-        Database db = catalog.getDbOrException(tabletCtx.getDbId(), s -> new SchedException(Status.UNRECOVERABLE, "db does not exist"));
-        OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(), s -> new SchedException(Status.UNRECOVERABLE, "tbl does not exist"));
-        tbl.writeLock();
+        Database db = Catalog.getCurrentCatalog().getDbOrException(tabletCtx.getDbId(),
+                s -> new SchedException(Status.UNRECOVERABLE, "db " + tabletCtx.getDbId() + " does not exist"));
+        OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
+                s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletCtx.getTblId() + " does not exist"));
+        tbl.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table " + tbl.getName() + " does not exist"));
         try {
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
 
@@ -767,6 +772,7 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
                 || deleteReplicaOnSameHost(tabletCtx, force)
                 || deleteReplicaNotInCluster(tabletCtx, force)
+                || deleteReplicaNotInValidTag(tabletCtx, force)
                 || deleteReplicaChosenByRebalancer(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
@@ -886,6 +892,20 @@ public class TabletScheduler extends MasterDaemon {
             }
             if (!be.getOwnerClusterName().equals(tabletCtx.getCluster())) {
                 deleteReplicaInternal(tabletCtx, replica, "not in cluster", force);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean deleteReplicaNotInValidTag(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        Tablet tablet = tabletCtx.getTablet();
+        List<Replica> replicas = tablet.getReplicas();
+        Map<Tag, Short> allocMap = tabletCtx.getReplicaAlloc().getAllocMap();
+        for (Replica replica : replicas) {
+            Backend be = infoService.getBackend(replica.getBackendId());
+            if (!allocMap.containsKey(be.getTag())) {
+                deleteReplicaInternal(tabletCtx, replica, "not in valid tag", force);
                 return true;
             }
         }
@@ -1294,7 +1314,6 @@ public class TabletScheduler extends MasterDaemon {
         schedHistory.add(tabletCtx);
         LOG.info("remove the tablet {}. because: {}", tabletCtx.getTabletId(), reason);
     }
-
 
     // get next batch of tablets from queue.
     private synchronized List<TabletSchedCtx> getNextTabletCtxBatch() {

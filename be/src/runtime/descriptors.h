@@ -103,6 +103,9 @@ public:
 
     std::string debug_string() const;
 
+    doris::vectorized::MutableColumnPtr get_empty_mutable_column() const;
+
+    doris::vectorized::DataTypePtr get_data_type_ptr() const;
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -243,7 +246,7 @@ private:
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}
-    int byte_size() const { return _byte_size; }
+    int64_t byte_size() const { return _byte_size; }
     int num_materialized_slots() const { return _num_materialized_slots; }
     int num_null_slots() const { return _num_null_slots; }
     int num_null_bytes() const { return _num_null_bytes; }
@@ -286,7 +289,7 @@ private:
 
     const TupleId _id;
     TableDescriptor* _table_desc;
-    int _byte_size;
+    int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;
     int _num_materialized_slots;
@@ -378,7 +381,6 @@ public:
     int get_row_size() const;
 
     int num_materialized_slots() const {
-        DCHECK(_num_materialized_slots != 0);
         return _num_materialized_slots;
     }
 
@@ -405,7 +407,7 @@ public:
 
     // Populate row_tuple_ids with our ids.
     void to_thrift(std::vector<TTupleId>* row_tuple_ids);
-    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids);
+    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) const;
 
     // Return true if the tuple ids of this descriptor are a prefix
     // of the tuple ids of other_desc.

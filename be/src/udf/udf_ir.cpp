@@ -15,7 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <vector>
+
 #include "udf/udf_internal.h"
+#include "udf/udf.h"
+
+namespace doris {
+class ColumnPtrWrapper;
+}  // namespace doris
 
 namespace doris_udf {
 bool FunctionContext::is_arg_constant(int i) const {
@@ -25,11 +32,25 @@ bool FunctionContext::is_arg_constant(int i) const {
     return _impl->_constant_args[i] != nullptr;
 }
 
+bool FunctionContext::is_col_constant(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return false;
+    }
+    return _impl->_constant_cols[i] != nullptr;
+}
+
 AnyVal* FunctionContext::get_constant_arg(int i) const {
     if (i < 0 || i >= _impl->_constant_args.size()) {
         return nullptr;
     }
     return _impl->_constant_args[i];
+}
+
+doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return nullptr;
+    }
+    return _impl->_constant_cols[i];
 }
 
 int FunctionContext::get_num_args() const {

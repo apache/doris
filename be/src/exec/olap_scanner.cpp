@@ -19,9 +19,9 @@
 
 #include <string>
 
-#include "gen_cpp/PaloInternalService_types.h"
 #include "common/utils.h"
 #include "exprs/expr_context.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
 #include "olap/uint24.h"
@@ -59,6 +59,9 @@ Status OlapScanner::prepare(
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                 bloom_filters) {
     set_tablet_reader();
+    // set limit to reduce end of rowset and segment mem use
+    _tablet_reader->set_batch_size(_parent->limit() == -1 ? _parent->_runtime_state->batch_size() : std::min(
+            static_cast<int64_t>(_parent->_runtime_state->batch_size()), _parent->limit()));
 
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
@@ -176,8 +179,10 @@ Status OlapScanner::_init_tablet_reader_params(
              _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_tablet_reader_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
 
+    _tablet_reader_params.origin_return_columns = &_return_columns;
     if (_aggregation || single_version) {
         _tablet_reader_params.return_columns = _return_columns;
+        _tablet_reader_params.direct_mode = true;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
@@ -239,7 +244,8 @@ Status OlapScanner::_init_return_columns() {
             }
         }
         if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) == _return_columns.end()) {
+            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                                         sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);
         }
     }
@@ -537,6 +543,11 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, stats.rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, stats.index_load_ns);
+
+    size_t timer_count = sizeof(stats.general_debug_ns) / sizeof(*stats.general_debug_ns);
+    for (size_t i = 0; i < timer_count; ++i) {
+        COUNTER_UPDATE(_parent->_general_debug_timer[i], stats.general_debug_ns[i]);
+    }
 
     COUNTER_UPDATE(_parent->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, stats.cached_pages_num);

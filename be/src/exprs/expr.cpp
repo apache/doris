@@ -38,6 +38,7 @@
 #include "exprs/is_null_predicate.h"
 #include "exprs/literal.h"
 #include "exprs/null_literal.h"
+#include "exprs/rpc_fn_call.h"
 #include "exprs/scalar_fn_call.h"
 #include "exprs/slot_ref.h"
 #include "exprs/tuple_is_null_predicate.h"
@@ -357,6 +358,8 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new IfNullExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "coalesce") {
             *expr = pool->add(new CoalesceExpr(texpr_node));
+        } else if (texpr_node.fn.binary_type == TFunctionBinaryType::RPC) {
+            *expr = pool->add(new RPCFnCall(texpr_node));
         } else {
             *expr = pool->add(new ScalarFnCall(texpr_node));
         }

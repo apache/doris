@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_UTIL_ERROR_UTIL_H
 
 #include <string>
-#include <vector>
 
 // #include "gen-cpp/CatalogObjects_types.h"
 // #include "gen-cpp/ErrorCodes_types.h"

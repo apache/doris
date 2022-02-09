@@ -28,7 +28,7 @@ under the License.
 ## description
 ### Syntax
 
-`INT dayofweek(DATETIME date)`
+`INT DAYOFWEEK(DATETIME date)`
 
 
 DAYOFWEEK函数返回日期的工作日索引值，即星期日为1，星期一为2，星期六为7

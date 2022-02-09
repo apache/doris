@@ -322,7 +322,7 @@ public class SelectStmt extends QueryStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                             ConnectContext.get().getQualifiedUser(),
                             ConnectContext.get().getRemoteIP(),
-                            tblRef.getName().getTbl());
+                            dbName + ": " + tableName);
                 }
                 tableMap.put(table.getId(), table);
             }
@@ -438,7 +438,7 @@ public class SelectStmt extends QueryStmt {
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
             for (SelectListItem item : selectList.getItems()) {
                 if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
-                    for (Expr expr: groupByClause.getGroupingExprs()) {
+                    for (Expr expr : groupByClause.getGroupingExprs()) {
                         if (item.getExpr().contains(expr)) {
                             throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
                                     + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
@@ -510,6 +510,11 @@ public class SelectStmt extends QueryStmt {
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
+
+        // Change all outer join tuple to null here after analyze where and from clause
+        // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
+        // the solt desc nullable mark must be corrected to make sure BE exec query right.
+        analyzer.changeAllOuterJoinTupleToNull();
 
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
@@ -872,6 +877,12 @@ public class SelectStmt extends QueryStmt {
             expandStar(new TableName(tableRef.getAliasAsName().getDb(),
                             tableRef.getAliasAsName().getTbl()),
                     tableRef.getDesc());
+
+            if (tableRef.lateralViewRefs != null) {
+                for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
+                    expandStar(lateralViewRef.getName(), lateralViewRef.getDesc());
+                }
+            }
         }
     }
 
@@ -1044,7 +1055,7 @@ public class SelectStmt extends QueryStmt {
             groupByClause.analyze(analyzer);
             createAggInfo(groupByClause.getGroupingExprs(), aggExprs, analyzer);
         } else {
-            createAggInfo( new ArrayList<>(), aggExprs, analyzer);
+            createAggInfo(new ArrayList<>(), aggExprs, analyzer);
         }
 
         // combine avg smap with the one that produces the final agg output
@@ -1721,9 +1732,10 @@ public class SelectStmt extends QueryStmt {
                 tupleIdList.addAll(tblRef.getMaterializedTupleIds());
             }
         }
-        // Fixme(kks): get tuple id from analyticInfo is wrong, should get from AnalyticEvalNode
+        // Fixme(ml): get tuple id from analyticInfo is wrong, should get from AnalyticEvalNode
+        // Fixme(ml): The tuple id of AnalyticEvalNode actually is the physical output tuple from analytic planner
         // We materialize the agg tuple or the table refs together with the analytic tuple.
-        if (hasAnalyticInfo() && isEvaluateOrderBy()) {
+        if (hasAnalyticInfo() && !isEvaluateOrderBy()) {
             tupleIdList.add(analyticInfo.getOutputTupleId());
         }
     }
@@ -1869,3 +1881,4 @@ public class SelectStmt extends QueryStmt {
         return this.id.equals(((SelectStmt) obj).id);
     }
 }
+

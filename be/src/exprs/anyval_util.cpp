@@ -145,6 +145,7 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         break;
     case TYPE_OBJECT:
         out.type = FunctionContext::TYPE_OBJECT;
+        // FIXME(cmy): is this fallthrough meaningful?
     case TYPE_CHAR:
         out.type = FunctionContext::TYPE_CHAR;
         out.len = type.len;

@@ -58,13 +58,13 @@ Status DynamicPluginLoader::install() {
         // no, need download zip install
         PluginZip zip(_source);
 
-        RETURN_IF_ERROR(zip.extract(_install_path, _name));
+        RETURN_NOT_OK_STATUS_WITH_WARN(zip.extract(_install_path, _name), "plugin install failed");
     }
 
     // open plugin
-    RETURN_IF_ERROR(open_plugin());
+    RETURN_NOT_OK_STATUS_WITH_WARN(open_plugin(), "plugin install failed");
 
-    RETURN_IF_ERROR(open_valid());
+    RETURN_NOT_OK_STATUS_WITH_WARN(open_valid(), "plugin install failed");
 
     // plugin init
     // todo: what should be send?

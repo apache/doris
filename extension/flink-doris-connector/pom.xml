@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -18,9 +17,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xmlns="http://maven.apache.org/POM/4.0.0"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
@@ -50,7 +47,6 @@ under the License.
         <system>GitHub</system>
         <url>https://github.com/apache/incubator-doris/issues</url>
     </issueManagement>
-
     <mailingLists>
         <mailingList>
             <name>Dev Mailing List</name>
@@ -58,7 +54,6 @@ under the License.
             <subscribe>dev-subscribe@doris.apache.org</subscribe>
             <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
         </mailingList>
-
         <mailingList>
             <name>Commits Mailing List</name>
             <post>commits@doris.apache.org</post>
@@ -67,8 +62,8 @@ under the License.
         </mailingList>
     </mailingLists>
     <properties>
-        <scala.version>${env.SCALA_VERSION}</scala.version>
-        <flink.version>${env.FLINK_VERSION}</flink.version>
+        <scala.version>${env.scala.version}</scala.version>
+        <flink.version>${env.flink.version}</flink.version>
         <libthrift.version>0.13.0</libthrift.version>
         <arrow.version>5.0.0</arrow.version>
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -78,7 +73,6 @@ under the License.
         <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
         <project.scm.id>github</project.scm.id>
     </properties>
-
     <profiles>
         <profile>
             <id>thirdparty</id>
@@ -99,14 +93,12 @@ under the License.
                     <name>env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>custom-nexus</id>
                     <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </repository>
             </repositories>
-
             <pluginRepositories>
                 <pluginRepository>
                     <id>custom-nexus</id>
@@ -115,30 +107,23 @@ under the License.
             </pluginRepositories>
         </profile>
         <profile>
-            <id>fink-version</id>
+            <id>flink.version</id>
+            <properties>
+                <env.flink.version>1.11.6</env.flink.version>
+            </properties>
             <activation>
                 <activeByDefault>true</activeByDefault>
-                <property>
-                    <name>!env.FLINK_VERSION</name>
-                </property>
             </activation>
-            <properties>
-                <env.FLINK_VERSION>1.11.6</env.FLINK_VERSION>
-            </properties>
         </profile>
         <profile>
-            <id>scala-version</id>
+            <id>scala.version</id>
+            <properties>
+                <env.scala.version>2.12</env.scala.version>
+            </properties>
             <activation>
                 <activeByDefault>true</activeByDefault>
-                <property>
-                    <name>!env.SCALA_VERSION</name>
-                </property>
             </activation>
-            <properties>
-                <env.SCALA_VERSION>2.12</env.SCALA_VERSION>
-            </properties>
         </profile>
-
         <!-- for general repository -->
         <profile>
             <id>general-env</id>
@@ -147,7 +132,6 @@ under the License.
                     <name>!env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>central</id>
@@ -157,7 +141,6 @@ under the License.
             </repositories>
         </profile>
     </profiles>
-
     <dependencies>
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -275,7 +258,6 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
-
     <build>
         <plugins>
             <plugin>
@@ -447,5 +429,4 @@ under the License.
             </plugin>
         </plugins>
     </build>
-
 </project>

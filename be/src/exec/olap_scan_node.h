@@ -32,6 +32,8 @@
 #include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
 #include "util/spinlock.h"
+#include "vec/exec/volap_scanner.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -158,6 +160,7 @@ protected:
                             RuntimeProfile* profile);
 
     friend class OlapScanner;
+    friend class vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
@@ -215,7 +218,7 @@ protected:
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
-    int64_t _running_thread = 0;
+    std::atomic_int _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
 
     std::list<RowBatch*> _scan_row_batches;
@@ -236,6 +239,7 @@ protected:
     SpinLock _status_mutex;
     Status _status;
     RuntimeState* _runtime_state;
+
     RuntimeProfile::Counter* _scan_timer;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
@@ -321,6 +325,12 @@ protected:
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
 
     RuntimeProfile::Counter* _olap_wait_batch_queue_timer = nullptr;
+
+    // for debugging or profiling, record any info as you want
+    RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
+
+    vectorized::VExpr* _dfs_peel_conjunct(vectorized::VExpr* expr, int& leaf_index);
+    void _peel_pushed_conjuncts(); // remove pushed expr from conjunct tree
 };
 
 } // namespace doris

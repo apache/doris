@@ -1710,7 +1710,7 @@ public class Load {
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
                             ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }
@@ -1774,7 +1774,7 @@ public class Load {
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
                             ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }
@@ -2063,6 +2063,10 @@ public class Load {
                 // tracking url
                 jobInfo.add(status.getTrackingUrl());
                 // job detail(not used for hadoop load, just return an empty string)
+                jobInfo.add("");
+                // transaction id
+                jobInfo.add(loadJob.getTransactionId());
+                // error tablets(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);

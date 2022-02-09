@@ -249,6 +249,9 @@ struct TQueryGlobals {
   // time_zone is the timezone this query used.
   // If this value is set, BE will ignore now_string
   3: optional string time_zone
+
+  // Set to true if in a load plan, the max_filter_ratio is 0.0
+  4: optional bool load_zero_tolerance = false;
 }
 
 

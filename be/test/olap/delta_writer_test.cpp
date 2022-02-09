@@ -376,7 +376,7 @@ TEST_F(TestDeltaWriter, open) {
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
     SAFE_DELETE(delta_writer);
 
@@ -438,7 +438,8 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value decimal_value(1.1);
+        DecimalV2Value decimal_value;
+        decimal_value.assign_from_double(1.1);
         *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
 
         *(int8_t*)(tuple->get_slot(slots[10]->tuple_offset())) = -127;
@@ -463,7 +464,9 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value val_decimal(1.1);
+        DecimalV2Value val_decimal;
+        val_decimal.assign_from_double(1.1);
+
         *(DecimalV2Value*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
 
         res = delta_writer->write(tuple);
@@ -472,7 +475,7 @@ TEST_F(TestDeltaWriter, write) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
@@ -552,7 +555,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success

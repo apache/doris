@@ -31,13 +31,13 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.util.HashSet;
 import java.util.List;
@@ -306,7 +306,7 @@ public class ColocateTableCheckerAndBalancerTest {
 
     public final class FakeBackendLoadStatistic extends BackendLoadStatistic {
         public FakeBackendLoadStatistic(long beId, String clusterName, SystemInfoService infoService,
-                                    TabletInvertedIndex invertedIndex) {
+                                        TabletInvertedIndex invertedIndex) {
             super(beId, clusterName, Tag.DEFAULT_BACKEND_TAG, infoService, invertedIndex);
         }
 
@@ -320,7 +320,7 @@ public class ColocateTableCheckerAndBalancerTest {
     public void testGetBeSeqIndexes() {
         List<Long> flatBackendsPerBucketSeq = Lists.newArrayList(1L, 2L, 2L, 3L, 4L, 2L);
         List<Integer> indexes = Deencapsulation.invoke(balancer, "getBeSeqIndexes", flatBackendsPerBucketSeq, 2L);
-        Assert.assertArrayEquals(new int[]{1, 2, 5}, indexes.stream().mapToInt(i->i).toArray());
+        Assert.assertArrayEquals(new int[]{1, 2, 5}, indexes.stream().mapToInt(i -> i).toArray());
         System.out.println("backend1 id is " + backend1.getId());
     }
 
@@ -331,7 +331,7 @@ public class ColocateTableCheckerAndBalancerTest {
                                                @Mocked Backend myBackend3,
                                                @Mocked Backend myBackend4,
                                                @Mocked Backend myBackend5
-                                               ) {
+    ) {
         GroupId groupId = new GroupId(10000, 10001);
         Tag tag = Tag.DEFAULT_BACKEND_TAG;
         Set<Long> allBackendsInGroup = Sets.newHashSet(1L, 2L, 3L, 4L, 5L);
@@ -363,7 +363,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 result = false;
                 minTimes = 0;
                 myBackend3.getLastUpdateMs();
-                result = System.currentTimeMillis() - Config.tablet_repair_delay_factor_second * 1000 * 20;
+                result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
                 minTimes = 0;
                 myBackend3.getTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
@@ -456,7 +456,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 result = false;
                 minTimes = 0;
                 myBackend3.getLastUpdateMs();
-                result = System.currentTimeMillis() - Config.tablet_repair_delay_factor_second * 1000 * 20;
+                result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
                 minTimes = 0;
                 myBackend3.getTag();
                 result = Tag.DEFAULT_BACKEND_TAG;

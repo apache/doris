@@ -138,6 +138,10 @@ public class ColumnDef {
     public TypeDef getTypeDef() { return typeDef; }
     public Type getType() { return typeDef.getType(); }
 
+    public String getComment() {
+        return comment;
+    }
+
     public boolean isVisible() {
         return visible;
     }

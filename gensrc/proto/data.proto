@@ -20,6 +20,8 @@ syntax="proto2";
 package doris;
 option java_package = "org.apache.doris.proto";
 
+import "types.proto";
+
 message PNodeStatistics {
     required int64 node_id = 1;
     optional int64 peak_memory_bytes = 2;
@@ -37,60 +39,27 @@ message PQueryStatistics {
 message PRowBatch {
     required int32 num_rows = 1;
     repeated int32 row_tuples = 2;
+    // Should be deprecated after v1.2.0
     repeated int32 tuple_offsets = 3;
     required bytes tuple_data = 4;
     required bool is_compressed = 5;
+    // This is used to replace "tuple_offsets"
+    repeated int64 new_tuple_offsets = 6;
 }
 
-message PColumn {
-    enum DataType {
-        UINT8 = 0;
-        UINT16 = 1;
-        UINT32 = 2;
-        UINT64 = 3;
-        UINT128 = 4;
-        UINT256 = 5;
-        INT16 = 6;
-        INT8 = 7;
-        INT32 = 8;
-        INT64 = 9;
-        INT128 = 10;
-        INT256 = 11;
-        FLOAT32 = 12;
-        FLOAT64 = 13;
-        BOOLEAN = 14;
-        DATE = 15;
-        DATETIME = 16;
-        HLL = 17;
-        BITMAP = 18;
-        ARRAY = 19;
-        MAP = 20;
-        STRUCT =21;
-        STRING = 22;
-        DECIMAL32 = 23;
-        DECIMAL64 = 24;
-        DECIMAL128 = 25;
-        BYTES = 26;
-        NOTHING = 27;
-        UNKNOWN = 999;
-    }
+message PColumnMeta {
     message Decimal {
         optional uint32 precision = 1;
         optional uint32 scale = 2;
     }
     required string name = 1;
-    // origin column data_type
-    required DataType type = 2;
-    // serialized data type
-    repeated bool is_null = 3;
-    // store in plain text or in binary data
-    optional bytes binary = 4;
-    optional bool compressed = 5 [default = false];
-    optional Decimal decimal_param = 6;
+    required PGenericType.TypeId type = 2;
+    optional bool is_nullable = 3 [default = false];
+    optional Decimal decimal_param = 4;
 }
 
 message PBlock {
-    optional uint64 num_rows = 1;
-    optional uint32 num_columns = 2;
-    repeated PColumn columns = 3;
+    repeated PColumnMeta column_metas = 1;
+    optional bytes column_values = 2;
+    optional bool compressed = 3 [default = false];
 }

@@ -38,6 +38,8 @@
 #include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -152,6 +154,7 @@ private:
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
+
     BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) {}
 
     BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options)
@@ -227,6 +230,61 @@ public:
         return Status::OK();
     }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+            *n = 0;
+            return Status::OK();
+        }
+        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+
+        auto* dst_col_ptr = dst.get();
+        if (dst->is_nullable()) {
+            auto nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+            dst_col_ptr = nullable_column->get_nested_column_ptr().get();
+            // fill null bitmap here, not null;
+            for (int i = 0; i < max_fetch; i++) {
+                nullable_column->get_null_map_data().push_back(0);
+            }
+        }
+
+        if (dst_col_ptr->is_bitmap()) {
+            auto& bitmap_column = reinterpret_cast<vectorized::ColumnBitmap&>(*dst_col_ptr);
+            for (size_t i = 0; i < max_fetch; i++, _cur_idx++) {
+                const uint32_t start_offset  = offset(_cur_idx);
+                uint32_t len = offset(_cur_idx + 1) - start_offset;
+                
+                bitmap_column.insert_default();
+                BitmapValue* pvalue = &bitmap_column.get_element(bitmap_column.size() - 1);
+                if (len != 0) {
+                    BitmapValue value;
+                    value.deserialize(&_data[start_offset]);
+                    *pvalue = std::move(value);
+                } else {
+                    *pvalue = std::move(*reinterpret_cast<BitmapValue*>(const_cast<char*>(&_data[start_offset])));   
+                }
+            }
+        } else if (dst_col_ptr->is_predicate_column()) {
+            // todo(wb) padding sv here for better comparison performance
+            for (size_t i = 0; i < max_fetch; i++, _cur_idx++) {
+                const uint32_t start_offset  = offset(_cur_idx);
+                uint32_t len = offset(_cur_idx + 1) - start_offset;
+                StringValue sv(const_cast<char*>(&_data[start_offset]), len);
+                dst_col_ptr->insert_data(reinterpret_cast<char*>(&sv), 0);
+            }
+        } else {
+            for (size_t i = 0; i < max_fetch; i++, _cur_idx++) {
+                // todo(wb) need more test case and then improve here
+                const uint32_t start_offset  = offset(_cur_idx);
+                uint32_t len = offset(_cur_idx + 1) - start_offset;
+                dst_col_ptr->insert_data(&_data[start_offset], len);
+            }
+        }
+ 
+        *n = max_fetch;
+        return Status::OK();
+    };
+
     size_t count() const override {
         DCHECK(_parsed);
         return _num_elems;
@@ -263,6 +321,8 @@ private:
 
     // Index of the currently seeked element in the page.
     uint32_t _cur_idx;
+    friend class BinaryDictPageDecoder;
+    friend class FileColumnIterator;
 };
 
 } // namespace segment_v2
