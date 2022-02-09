@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
+#include <cstdint>
 #include <string_view>
 
 #include "exprs/anyval_util.h"
@@ -77,6 +78,15 @@ inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index)
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
         char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
         str_index->push_back(i);
+        ++char_len;
+    }
+    return char_len;
+}
+
+inline size_t get_char_len(const StringValue& str, size_t end_pos) {
+    size_t char_len = 0;
+    for (size_t i = 0, char_size = 0; i < std::min(str.len, end_pos); i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
         ++char_len;
     }
     return char_len;
@@ -1165,10 +1175,12 @@ public:
         return std::make_shared<DataTypeInt32>();
     }
 
-    DataTypes get_variadic_argument_types() {
+    DataTypes get_variadic_argument_types_impl() const override {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
                 std::make_shared<DataTypeInt32>()};
     }
+
+    bool is_variadic() const override { return true; }
 
     bool use_default_implementation_for_constants() const override { return true; }
 
@@ -1214,7 +1226,7 @@ private:
         // Since returning 0 seems to be Hive's error condition, return 0.
         std::vector<size_t> index;
         size_t char_len = get_char_len(str, &index);
-        if (start_pos > char_len) {
+        if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
             return 0;
         }
         StringValue substr_sv = StringValue::from_string_val(substr);
@@ -1225,13 +1237,7 @@ private:
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
-            size_t char_len = 0;
-            for (size_t i = 0, char_size = 0; i < match_pos; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(adjusted_str.ptr)[i]);
-                ++char_len;
-            }
-            match_pos = char_len;
-            return start_pos + match_pos;
+            return start_pos + get_char_len(adjusted_str, match_pos);
         } else {
             return 0;
         }

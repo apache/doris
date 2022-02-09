@@ -95,14 +95,7 @@ struct StringUtf8LengthImpl {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1] - 1;
-
-            size_t char_len = 0;
-            for (size_t i = 0, char_size = 0; i < str_size; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(raw_str)[i]);
-                ++char_len;
-            }
-
-            res[i] = char_len;
+            res[i] = get_char_len(StringValue(const_cast<char*>(raw_str), str_size), str_size);
         }
         return Status::OK();
     }
@@ -201,12 +194,7 @@ struct InStrOP {
         // Hive returns positions starting from 1.
         int loc = search.search(&str_sv);
         if (loc > 0) {
-            size_t char_len = 0;
-            for (size_t i = 0, char_size = 0; i < loc; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(strl.data())[i]);
-                ++char_len;
-            }
-            loc = char_len;
+            loc = get_char_len(str_sv, loc);
         }
 
         res = loc + 1;
