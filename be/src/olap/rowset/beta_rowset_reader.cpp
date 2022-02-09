@@ -55,7 +55,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         _stats = _context->stats;
     }
     // SegmentIterator will load seek columns on demand
-    Schema schema(_context->tablet_schema->columns(), *(_context->return_columns));
+    _schema = std::make_unique<Schema>(_context->tablet_schema->columns(), *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
@@ -102,7 +102,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(schema, read_options, _parent_tracker, &iter);
+        auto s = seg_ptr->new_iterator(*_schema, read_options, _parent_tracker, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return OLAP_ERR_ROWSET_READER_INIT;
@@ -131,7 +131,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(schema,
+    _input_block.reset(new RowBlockV2(*_schema,
             std::min(1024, read_context->batch_size), _parent_tracker));
 
     if (!read_context->is_vec) {

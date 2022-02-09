@@ -35,7 +35,7 @@ public:
     Status next_batch(vectorized::Block* block) override;
 
 private:
-    Schema _schema;
+    const Schema& _schema;
 };
 
 } // namespace segment_v2
