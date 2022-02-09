@@ -1572,7 +1572,7 @@ public class Config extends ConfigBase {
      * auto set the slowest compaction replica's status to bad
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean repair_slow_replica = true;
+    public static boolean repair_slow_replica = false;
 
     /*
      * The relocation of a colocation group may involve a large number of tablets moving within the cluster.
