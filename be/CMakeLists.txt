@@ -674,7 +674,6 @@ else()
         ${DORIS_DEPENDENCIES}
         ${WL_START_GROUP}
         ${X86_DEPENDENCIES}
-        ${WL_END_GROUP}
     )
 endif()
 
@@ -689,6 +688,8 @@ if (WITH_MYSQL)
         mysql
         )
 endif()
+
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
