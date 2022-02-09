@@ -103,8 +103,7 @@ private:
     class BitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
-    // TODO(zc): rethink if we need copy it
-    Schema _schema;
+    const Schema& _schema;
     // _column_iterators.size() == _schema.num_columns()
     // _column_iterators[cid] == nullptr if cid is not in _schema
     std::vector<ColumnIterator*> _column_iterators;

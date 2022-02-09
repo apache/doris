@@ -111,7 +111,7 @@ public:
 private:
     Status _copy_data_to_column(int cid, vectorized::MutableColumnPtr& mutable_column_ptr);
 
-    Schema _schema;
+    const Schema& _schema;
     size_t _capacity;
     // _column_vector_batches[cid] == null if cid is not in `_schema`.
     // memory are not allocated from `_pool` because we don't wan't to reallocate them in clear()
