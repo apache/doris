@@ -71,7 +71,7 @@ public:
         _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
     }
 
-    size_t count() const { return _count; }
+    size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
