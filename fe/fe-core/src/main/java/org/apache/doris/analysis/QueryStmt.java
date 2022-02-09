@@ -23,11 +23,14 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -177,8 +180,8 @@ public abstract class QueryStmt extends StatementBase {
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
         // TODO chenhao
         if (limitElement.getOffset() > 0 && !hasOrderByClause()) {
-          throw new AnalysisException("OFFSET requires an ORDER BY clause: " +
-                  limitElement.toSql().trim());
+            throw new AnalysisException("OFFSET requires an ORDER BY clause: " +
+                    limitElement.toSql().trim());
         }
         limitElement.analyze(analyzer);
     }
@@ -213,7 +216,7 @@ public abstract class QueryStmt extends StatementBase {
 
         List<TableRef> tblRefs = Lists.newArrayList();
         collectTableRefs(tblRefs);
-        for (TableRef tblRef: tblRefs) {
+        for (TableRef tblRef : tblRefs) {
             if (absoluteRef == null && !tblRef.isRelative()) absoluteRef = tblRef;
             /*if (tblRef.isCorrelated()) {
              *   
@@ -313,19 +316,21 @@ public abstract class QueryStmt extends StatementBase {
         // are ignored.
         if (!hasLimit() && !hasOffset() && (!analyzer.isRootAnalyzer() || fromInsert)) {
             evaluateOrderBy = false;
-            // Return a warning that the order by was ignored.
-            StringBuilder strBuilder = new StringBuilder();
-            strBuilder.append("Ignoring ORDER BY clause without LIMIT or OFFSET: ");
-            strBuilder.append("ORDER BY ");
-            strBuilder.append(orderByElements.get(0).toSql());
-            for (int i = 1; i < orderByElements.size(); ++i) {
-                strBuilder.append(", ").append(orderByElements.get(i).toSql());
+            if (LOG.isDebugEnabled()) {
+                // Return a warning that the order by was ignored.
+                StringBuilder strBuilder = new StringBuilder();
+                strBuilder.append("Ignoring ORDER BY clause without LIMIT or OFFSET: ");
+                strBuilder.append("ORDER BY ");
+                strBuilder.append(orderByElements.get(0).toSql());
+                for (int i = 1; i < orderByElements.size(); ++i) {
+                    strBuilder.append(", ").append(orderByElements.get(i).toSql());
+                }
+                strBuilder.append(".\nAn ORDER BY appearing in a view, subquery, union operand, ");
+                strBuilder.append("or an insert/ctas statement has no effect on the query result ");
+                strBuilder.append("unless a LIMIT and/or OFFSET is used in conjunction ");
+                strBuilder.append("with the ORDER BY.");
+                LOG.debug(strBuilder.toString());
             }
-            strBuilder.append(".\nAn ORDER BY appearing in a view, subquery, union operand, ");
-            strBuilder.append("or an insert/ctas statement has no effect on the query result ");
-            strBuilder.append("unless a LIMIT and/or OFFSET is used in conjunction ");
-            strBuilder.append("with the ORDER BY.");
-            LOG.info(strBuilder.toString());
         } else {
             evaluateOrderBy = true;
         }
@@ -378,7 +383,7 @@ public abstract class QueryStmt extends StatementBase {
      * exprs is an ambiguous alias.
      */
     protected Expr getFirstAmbiguousAlias(List<Expr> exprs) {
-        for (Expr exp: exprs) {
+        for (Expr exp : exprs) {
             if (ambiguousAliasList.contains(exp)) return exp;
         }
         return null;
@@ -453,13 +458,15 @@ public abstract class QueryStmt extends StatementBase {
      * collect all exprs of a QueryStmt to a map
      * @param exprMap
      */
-    public void collectExprs(Map<String, Expr> exprMap) {}
+    public void collectExprs(Map<String, Expr> exprMap) {
+    }
 
     /**
      * put all rewritten exprs back to the ori QueryStmt
      * @param rewrittenExprMap
      */
-    public void putBackExprs(Map<String, Expr> rewrittenExprMap) {}
+    public void putBackExprs(Map<String, Expr> rewrittenExprMap) {
+    }
 
 
     @Override
@@ -551,14 +558,29 @@ public abstract class QueryStmt extends StatementBase {
         orderByElements = null;
     }
 
-    public void setWithClause(WithClause withClause) { this.withClause_ = withClause; }
-    public boolean hasWithClause() { return withClause_ != null; }
-    public WithClause getWithClause() { return withClause_; }
+    public void setWithClause(WithClause withClause) {
+        this.withClause_ = withClause;
+    }
+
+    public boolean hasWithClause() {
+        return withClause_ != null;
+    }
+
+    public WithClause getWithClause() {
+        return withClause_;
+    }
+
     public boolean hasOrderByClause() {
         return orderByElements != null;
     }
-    public boolean hasLimit() { return limitElement != null && limitElement.hasLimit(); }
-    public boolean hasOffset() { return limitElement != null && limitElement.hasOffset(); }
+
+    public boolean hasLimit() {
+        return limitElement != null && limitElement.hasLimit();
+    }
+
+    public boolean hasOffset() {
+        return limitElement != null && limitElement.hasOffset();
+    }
 
     public long getLimit() {
         return limitElement.getLimit();
@@ -601,7 +623,11 @@ public abstract class QueryStmt extends StatementBase {
     public SortInfo getSortInfo() {
         return sortInfo;
     }
-    public boolean evaluateOrderBy() { return evaluateOrderBy; }
+
+    public boolean evaluateOrderBy() {
+        return evaluateOrderBy;
+    }
+
     public ArrayList<Expr> getResultExprs() {
         return resultExprs;
     }
@@ -650,7 +676,7 @@ public abstract class QueryStmt extends StatementBase {
      */
     protected void materializeSlots(Analyzer analyzer, List<Expr> exprs) {
         List<SlotId> slotIds = Lists.newArrayList();
-        for (Expr e: exprs) {
+        for (Expr e : exprs) {
             e.getIds(null, slotIds);
         }
         analyzer.getDescTbl().markSlotsMaterialized(slotIds);
@@ -665,7 +691,7 @@ public abstract class QueryStmt extends StatementBase {
         if (orderByElements == null) return null;
         ArrayList<OrderByElement> result =
                 Lists.newArrayListWithCapacity(orderByElements.size());
-        for (OrderByElement o: orderByElements) result.add(o.clone());
+        for (OrderByElement o : orderByElements) result.add(o.clone());
         return result;
     }
 

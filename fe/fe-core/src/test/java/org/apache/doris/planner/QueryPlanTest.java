@@ -38,7 +38,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -55,6 +54,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.File;
@@ -392,7 +392,7 @@ public class QueryPlanTest {
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"mysql\"\n" +
                 ");");
-        
+
         createTable("create table test.tbl_int_date (" +
                 "`date` datetime NULL," +
                 "`day` date NULL," +
@@ -422,6 +422,7 @@ public class QueryPlanTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
+
     private static void createView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createView(createViewStmt);
@@ -597,7 +598,7 @@ public class QueryPlanTest {
     @Test
     public void testMultiStmts() throws Exception {
         String sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
-        List<StatementBase>stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
 
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
@@ -670,7 +671,7 @@ public class QueryPlanTest {
         String createSchemaSql = "create schema if not exists test";
         String createDbSql = "create database if not exists test";
         CreateDbStmt createSchemaStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createSchemaSql, connectContext);
-        CreateDbStmt createDbStmt =  (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
         Assert.assertEquals(createDbStmt.toSql(), createSchemaStmt.toSql());
     }
 
@@ -1505,7 +1506,7 @@ public class QueryPlanTest {
         sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
         sqls.add("explain select * from baseall join bigtable as b on null = 2");
 
-        for (String sql: sqls) {
+        for (String sql : sqls) {
             String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
             Assert.assertTrue(explainString.contains(emptyNode));
             Assert.assertFalse(explainString.contains(denseRank));
@@ -1714,7 +1715,7 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where day = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `day` = 1980"));
-       //invalid date
+        //invalid date
         sql = "select day from tbl_int_date where day = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `day` = -20"));
@@ -1785,7 +1786,7 @@ public class QueryPlanTest {
     }
 
     @Test
-    public void testNullColumnViewOrderBy() throws Exception{
+    public void testNullColumnViewOrderBy() throws Exception {
         FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
         String sql = "select * from tbl_null_column_view where add_column is not null;";
@@ -1876,7 +1877,7 @@ public class QueryPlanTest {
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
-    
+
     // Fix: issue-#7929
     @Test
     public void testEmptyNodeWithOuterJoinAndAnalyticFunction() throws Exception {
@@ -1912,7 +1913,26 @@ public class QueryPlanTest {
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
         Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
+    }
 
+    @Ignore
+    // Open it after fixing issue #7971
+    public void testGroupingSetOutOfBoundError() throws Exception {
+        String createDbStmtStr = "create database issue1111;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createTable("CREATE TABLE issue1111.`test1` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
+                ");");
+        String sql = "SELECT k1 ,GROUPING(k2) FROM issue1111.test1 GROUP BY CUBE (k1) ORDER BY k1";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
+        System.out.println(explainStr);
     }
 
     // --begin-- implicit cast in explain verbose
