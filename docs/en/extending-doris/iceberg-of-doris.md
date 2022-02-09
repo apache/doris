@@ -146,7 +146,7 @@ Show table structure can be viewed by `HELP SHOW CREATE TABLE`.
     
 ### Synchronized mounts
 
-When the Iceberg table Schema changes, you can manually synchronize it with the `REFRESH` command, which will remove and rebuild the table or database in Doris, as seen in the `HELP REFRESH` help.
+When the Iceberg table Schema changes, you can manually synchronize it with the `REFRESH` command, which will remove and rebuild the Iceberg external table in Doris, as seen in the `HELP REFRESH` help.
 
 ```sql
 -- Synchronize the Iceberg table

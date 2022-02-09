@@ -145,7 +145,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 
 ### 同步挂载
 
-当 Iceberg 表 Schema 发生变更时，可以通过 `REFRESH` 命令手动同步，该命令会将 Doris 中的表或数据库删除重建，具体帮助可以通过 `HELP REFRESH` 查看。
+当 Iceberg 表 Schema 发生变更时，可以通过 `REFRESH` 命令手动同步，该命令会将 Doris 中的 Iceberg 外表删除重建，具体帮助可以通过 `HELP REFRESH` 查看。
 
 ```sql
 -- 同步 Iceberg 表

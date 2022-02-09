@@ -28,8 +28,8 @@ under the License.
 
 ## Description
 
-    This statement is used to synchronize a remote Iceberg database and will delete and rebuild Doris' current database and the tables under it.
-    Syntax.
+    This statement is used to synchronize the remote Iceberg database and will delete and rebuild the Iceberg tables under the current Doris database, leaving the non-Iceberg tables unaffected.
+    Syntax:
         REFRESH DATABASE db_name;
 
     Instructions.

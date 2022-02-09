@@ -28,7 +28,7 @@ under the License.
 
 ## Description
 
-    该语句用于同步远端 Iceberg 数据库，会将 Doris 当前的数据库及其下的表删除重建。
+    该语句用于同步远端 Iceberg 数据库，会将 Doris 当前数据库下的 Iceberg 外表删除重建，非 Iceberg 外表不受影响。
     语法：
         REFRESH DATABASE db_name;
 
