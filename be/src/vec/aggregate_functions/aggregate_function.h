@@ -20,13 +20,6 @@
 
 #pragma once
 
-#include <cstddef>
-#include <istream>
-#include <memory>
-#include <ostream>
-#include <type_traits>
-#include <vector>
-
 #include "vec/common/exception.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -95,13 +88,15 @@ public:
                      Arena* arena) const = 0;
 
     /// Merges state (on which place points to) with other state of current aggregation function.
-    virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena* arena) const = 0;
+    virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+                       Arena* arena) const = 0;
 
     /// Serializes state (to transmit it over the network, for example).
     virtual void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
 
     /// Deserializes state. This function is called only for empty (just created) states.
-    virtual void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena* arena) const = 0;
+    virtual void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                             Arena* arena) const = 0;
 
     /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
     virtual bool allocates_memory_in_arena() const { return false; }
@@ -114,20 +109,10 @@ public:
       */
     virtual bool is_state() const { return false; }
 
-    /// if return false, during insert_result_into function, you colud get nullable result column, 
+    /// if return false, during insert_result_into function, you colud get nullable result column,
     /// so could insert to null value by yourself, rather than by AggregateFunctionNullBase;
     /// because you maybe be calculate a invalid value, but want to use null replace it;
     virtual bool insert_to_null_default() const { return true; }
-
-    /** The inner loop that uses the function pointer is better than using the virtual function.
-      * The reason is that in the case of virtual functions GCC 5.1.2 generates code,
-      *  which, at each iteration of the loop, reloads the function address (the offset value in the virtual function table) from memory to the register.
-      * This gives a performance drop on simple queries around 12%.
-      * After the appearance of better compilers, the code can be removed.
-      */
-    using AddFunc = void (*)(const IAggregateFunction*, AggregateDataPtr, const IColumn**, size_t,
-                             Arena*);
-    virtual AddFunc get_address_of_add_function() const = 0;
 
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
@@ -150,12 +135,6 @@ public:
                                         AggregateDataPtr place, const IColumn** columns,
                                         Arena* arena) const = 0;
 
-    /** This is used for runtime code generation to determine, which header files to include in generated source.
-      * Always implement it as
-      * const char * get_header_file_path() const override { return __FILE__; }
-      */
-    virtual const char* get_header_file_path() const = 0;
-
     const DataTypes& get_argument_types() const { return argument_types; }
     const Array& get_parameters() const { return parameters; }
 
@@ -167,17 +146,9 @@ protected:
 /// Implement method to obtain an address of 'add' function.
 template <typename Derived>
 class IAggregateFunctionHelper : public IAggregateFunction {
-private:
-    static void add_free(const IAggregateFunction* that, AggregateDataPtr place,
-                         const IColumn** columns, size_t row_num, Arena* arena) {
-        static_cast<const Derived&>(*that).add(place, columns, row_num, arena);
-    }
-
 public:
     IAggregateFunctionHelper(const DataTypes& argument_types_, const Array& parameters_)
             : IAggregateFunction(argument_types_, parameters_) {}
-
-    AddFunc get_address_of_add_function() const override { return &add_free; }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* arena) const override {

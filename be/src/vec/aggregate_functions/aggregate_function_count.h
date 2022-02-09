@@ -50,11 +50,10 @@ public:
         ++data(place).count;
     }
 
-    void reset(AggregateDataPtr place) const override {
-        this->data(place).count = 0;
-    }
+    void reset(AggregateDataPtr place) const override { this->data(place).count = 0; }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
         data(place).count += data(rhs).count;
     }
 
@@ -62,15 +61,14 @@ public:
         write_var_uint(data(place).count, buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         read_var_uint(data(place).count, buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
     }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 /// Simply count number of not-NULL values.
@@ -90,11 +88,10 @@ public:
         data(place).count += !assert_cast<const ColumnNullable&>(*columns[0]).is_null_at(row_num);
     }
 
-    void reset(AggregateDataPtr place) const override {
-        data(place).count = 0;
-    }
+    void reset(AggregateDataPtr place) const override { data(place).count = 0; }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
         data(place).count += data(rhs).count;
     }
 
@@ -102,21 +99,22 @@ public:
         write_var_uint(data(place).count, buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         read_var_uint(data(place).count, buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         if (to.is_nullable()) {
-            auto& null_column = assert_cast<ColumnNullable &>(to);
+            auto& null_column = assert_cast<ColumnNullable&>(to);
             null_column.get_null_map_data().push_back(0);
-            assert_cast<ColumnInt64 &>(null_column.get_nested_column()).get_data().push_back(data(place).count);
+            assert_cast<ColumnInt64&>(null_column.get_nested_column())
+                    .get_data()
+                    .push_back(data(place).count);
         } else {
-            assert_cast<ColumnInt64 &>(to).get_data().push_back(data(place).count);
+            assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
         }
     }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 } // namespace doris::vectorized
