@@ -89,6 +89,7 @@ private[spark] object SchemaUtils {
       case "VARCHAR"         => DataTypes.StringType
       case "DECIMALV2"       => DecimalType(precision, scale)
       case "TIME"            => DataTypes.DoubleType
+      case "STRING"          => DataTypes.StringType
       case "HLL"             =>
         throw new DorisException("Unsupported type " + dorisType)
       case _                 =>

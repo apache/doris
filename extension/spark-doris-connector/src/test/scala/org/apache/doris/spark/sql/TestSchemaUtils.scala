@@ -62,6 +62,7 @@ class TestSchemaUtils extends ExpectedExceptionTest {
     Assert.assertEquals(DataTypes.StringType, SchemaUtils.getCatalystType("VARCHAR", 0, 0))
     Assert.assertEquals(DecimalType(10, 5), SchemaUtils.getCatalystType("DECIMALV2", 10, 5))
     Assert.assertEquals(DataTypes.DoubleType, SchemaUtils.getCatalystType("TIME", 0, 0))
+    Assert.assertEquals(DataTypes.StringType, SchemaUtils.getCatalystType("STRING", 0, 0))
 
     thrown.expect(classOf[DorisException])
     thrown.expectMessage(startsWith("Unsupported type"))
