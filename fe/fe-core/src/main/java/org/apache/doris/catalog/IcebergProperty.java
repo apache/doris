@@ -47,6 +47,15 @@ public class IcebergProperty {
         }
     }
 
+    // Create a new Iceberg property from other property
+    public IcebergProperty(IcebergProperty otherProperty) {
+        this.exist = otherProperty.exist;
+        this.database = otherProperty.database;
+        this.table = otherProperty.table;
+        this.hiveMetastoreUris = otherProperty.hiveMetastoreUris;
+        this.catalogType = otherProperty.catalogType;
+    }
+
     public boolean isExist() {
         return exist;
     }

@@ -135,6 +135,7 @@ public class IcebergCatalogMgr {
 
     /**
      * Get Doris IcebergTable from remote Iceberg by database and table
+     * @param tableId table id in Doris
      * @param tableName table name in Doris
      * @param icebergProperty Iceberg property
      * @param identifier Iceberg table identifier
@@ -142,10 +143,9 @@ public class IcebergCatalogMgr {
      * @return IcebergTable in Doris
      * @throws DdlException
      */
-    public static IcebergTable getTableFromIceberg(String tableName, IcebergProperty icebergProperty,
+    public static IcebergTable getTableFromIceberg(long tableId, String tableName, IcebergProperty icebergProperty,
                                             TableIdentifier identifier,
                                             boolean isTable) throws DdlException {
-        long tableId = getNextId();
         IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
 
         if (isTable && !icebergCatalog.tableExists(identifier)) {
@@ -192,12 +192,13 @@ public class IcebergCatalogMgr {
         // 1. Already set column def in Create Stmt, just create table
         // 2. No column def in Create Stmt, get it from remote Iceberg schema.
         IcebergTable table;
+        long tableId = getNextId();
         if (stmt.getColumns().size() > 0) {
             // set column def in CREATE TABLE
-            table = new IcebergTable(getNextId(), tableName, stmt.getColumns(), icebergProperty, null);
+            table = new IcebergTable(tableId, tableName, stmt.getColumns(), icebergProperty, null);
         } else {
             // get column def from remote Iceberg
-            table = getTableFromIceberg(tableName, icebergProperty,
+            table = getTableFromIceberg(tableId, tableName, icebergProperty,
                     TableIdentifier.of(icebergDb, icebergTbl), true);
         }
 

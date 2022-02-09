@@ -17,12 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 
@@ -69,23 +68,27 @@ public class RefreshManager {
         Catalog catalog = Catalog.getCurrentCatalog();
 
         Database db = catalog.getDbOrDdlException(dbName);
-        // 0. get db properties
-        Map<String, String> dbProperties = db.getDbProperties().getProperties();
-        // build iceberg properties
-        db.getDbProperties().addAndBuildProperties(dbProperties);
+
+        // 0. build iceberg property
+        // Since we have only persisted database properties with key-value format in DatabaseProperty,
+        // we build IcebergProperty here, before checking database type.
+        db.getDbProperties().checkAndBuildProperties();
         // 1. check database type
         if (!db.getDbProperties().getIcebergProperty().isExist()) {
             throw new DdlException("Only support refresh Iceberg database.");
         }
 
-        // 2. drop database
-        DropDbStmt dropDbStmt = new DropDbStmt(true, dbName, true);
-        catalog.dropDb(dropDbStmt);
+        // 2. only drop iceberg table in the database
+        // Current database may have other types of table, which is not allowed to drop.
+        for (Table table : db.getTables()) {
+            if (table instanceof IcebergTable) {
+                DropTableStmt dropTableStmt = new DropTableStmt(true, new TableName(dbName, table.getName()), true);
+                catalog.dropTable(dropTableStmt);
+            }
+        }
 
-        // 3. create database
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, dbName, dbProperties);
-        createDbStmt.setClusterName(db.getClusterName());
-        catalog.createDb(createDbStmt);
+        // 3. register iceberg database to recreate iceberg table
+        catalog.getIcebergTableCreationRecordMgr().registerDb(db);
 
         LOG.info("Successfully refresh db: {}", dbName);
     }

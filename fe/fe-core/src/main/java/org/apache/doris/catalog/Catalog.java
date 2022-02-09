@@ -2645,7 +2645,7 @@ public class Catalog {
         Database db = new Database(id, fullDbName);
         db.setClusterName(clusterName);
         // check and analyze database properties before create database
-        db.getDbProperties().addAndBuildProperties(properties);
+        db.setDbProperties(new DatabaseProperty(properties).checkAndBuildProperties());
 
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
