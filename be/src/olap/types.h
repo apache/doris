@@ -248,7 +248,7 @@ public:
         dest_value->shallow_copy(src_value);
     }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
+    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 

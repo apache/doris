@@ -17,6 +17,10 @@
 
 package org.apache.doris.utframe;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import org.apache.commons.io.FileUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
@@ -45,12 +49,6 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-
-import org.apache.commons.io.FileUtils;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
@@ -61,6 +59,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 
 public class UtFrameUtils {
@@ -123,6 +122,14 @@ public class UtFrameUtils {
             stmt.analyze(analyzer);
         }
         return statementBases;
+    }
+
+    public static String generateRandomFeRunningDir(Class testSuiteClass) {
+        return generateRandomFeRunningDir(testSuiteClass.getSimpleName());
+    }
+
+    public static String generateRandomFeRunningDir(String testSuiteName) {
+        return "fe" + "/mocked/" + testSuiteName + "/" + UUID.randomUUID().toString() + "/";
     }
 
     public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,

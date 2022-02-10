@@ -188,8 +188,10 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
                 // assgin data and null_sign pointer position in tuple_data
                 int data_offset = convert_to<int>(array_val->data());
                 array_val->set_data(tuple_data + data_offset);
-                int null_offset = convert_to<int>(array_val->null_signs());
-                array_val->set_null_signs(convert_to<bool*>(tuple_data + null_offset));
+                if (array_val->has_null()) {
+                    int null_offset = convert_to<int>(array_val->null_signs());
+                    array_val->set_null_signs(convert_to<bool*>(tuple_data + null_offset));
+                }
 
                 const TypeDescriptor& item_type = slot_collection->type().children.at(0);
                 if (!item_type.is_string_type()) {
@@ -615,7 +617,9 @@ size_t RowBatch::total_byte_size() const {
                 // compute data null_signs size
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                result += array_val->length() * sizeof(bool);
+                if (array_val->has_null()) {
+                    result += array_val->length() * sizeof(bool);
+                }
 
                 const TypeDescriptor& item_type = slot_collection->type().children.at(0);
                 result += array_val->length() * item_type.get_slot_size();
