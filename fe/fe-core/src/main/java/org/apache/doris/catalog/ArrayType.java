@@ -17,15 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
 
 /**
  * Describes an ARRAY type.
@@ -93,6 +92,10 @@ public class ArrayType extends Type {
         }
         ArrayType otherArrayType = (ArrayType) other;
         return otherArrayType.itemType.equals(itemType);
+    }
+
+    public static boolean canCastTo(ArrayType type, ArrayType targetType) {
+        return Type.canCastTo(type.getItemType(), targetType.getItemType());
     }
 
     @Override

@@ -23,6 +23,10 @@
 namespace doris {
 int sizeof_type(PrimitiveType type) {
     switch (type) {
+    case TYPE_TINYINT:
+        return sizeof(int8_t);
+    case TYPE_SMALLINT:
+        return sizeof(int16_t);
     case TYPE_INT:
         return sizeof(int32_t);
     case TYPE_CHAR:
@@ -40,6 +44,8 @@ int sizeof_type(PrimitiveType type) {
 
 Status type_check(PrimitiveType type) {
     switch (type) {
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
     case TYPE_INT:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -160,6 +166,12 @@ Status CollectionValue::set(uint32_t i, PrimitiveType type, const AnyVal* value)
     }
 
     switch (type) {
+    case TYPE_TINYINT:
+        *reinterpret_cast<int8_t*>(iter.value()) = reinterpret_cast<const TinyIntVal*>(value)->val;
+        break;
+    case TYPE_SMALLINT:
+        *reinterpret_cast<int16_t*>(iter.value()) = reinterpret_cast<const SmallIntVal*>(value)->val;
+        break;
     case TYPE_INT:
         *reinterpret_cast<int32_t*>(iter.value()) = reinterpret_cast<const IntVal*>(value)->val;
         break;
@@ -214,7 +226,7 @@ void ArrayIterator::value(AnyVal* dest) {
         break;
 
     case TYPE_SMALLINT:
-        reinterpret_cast<TinyIntVal*>(dest)->val = *reinterpret_cast<const int16_t*>(value());
+        reinterpret_cast<SmallIntVal*>(dest)->val = *reinterpret_cast<const int16_t*>(value());
         break;
 
     case TYPE_INT:
