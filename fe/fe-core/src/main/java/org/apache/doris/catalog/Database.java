@@ -226,6 +226,10 @@ public class Database extends MetaObject implements Writable {
         return dbProperties;
     }
 
+    public void setDbProperties(DatabaseProperty dbProperties) {
+        this.dbProperties = dbProperties;
+    }
+
     public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
         readLock();

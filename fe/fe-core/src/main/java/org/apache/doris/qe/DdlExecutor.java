@@ -81,6 +81,8 @@ import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
@@ -287,6 +289,10 @@ public class DdlExecutor {
             catalog.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
             throw new DdlException("Not implemented yet");
+        } else if (ddlStmt instanceof RefreshTableStmt) {
+            catalog.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof RefreshDbStmt) {
+            catalog.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

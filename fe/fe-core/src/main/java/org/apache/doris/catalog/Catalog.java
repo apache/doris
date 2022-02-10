@@ -450,6 +450,8 @@ public class Catalog {
 
     private AuditEventProcessor auditEventProcessor;
 
+    private RefreshManager refreshManager;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -616,6 +618,7 @@ public class Catalog {
 
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
+        this.refreshManager = new RefreshManager();
     }
 
     public static void destroyCheckpoint() {
@@ -2642,7 +2645,7 @@ public class Catalog {
         Database db = new Database(id, fullDbName);
         db.setClusterName(clusterName);
         // check and analyze database properties before create database
-        db.getDbProperties().addAndBuildProperties(properties);
+        db.setDbProperties(new DatabaseProperty(properties).checkAndBuildProperties());
 
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
@@ -5161,6 +5164,10 @@ public class Catalog {
 
     public SmallFileMgr getSmallFileMgr() {
         return this.smallFileMgr;
+    }
+
+    public RefreshManager getRefreshManager() {
+        return this.refreshManager;
     }
 
     public long getReplayedJournalId() {
