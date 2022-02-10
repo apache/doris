@@ -55,27 +55,6 @@ jobs:
       run: |
         cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
 
-    - name: Build spark connector v2
-      run: |
-        thrift --version
-        cd extension/spark-doris-connector/ && /bin/bash build.sh 2.3.4 2.11
-
-    - name: Build spark connector v3
-      run: |
-        cd extension/spark-doris-connector/ && /bin/bash build.sh 3.1.2 2.12
-
-    - name: Build flink connector 1.11
-      run: |
-        cd extension/flink-doris-connector/ && /bin/bash build.sh 1.11.6 2.12
-
-    - name: Build flink connector 1.12
-      run: |
-        cd extension/flink-doris-connector/ && /bin/bash build.sh 1.12.7 2.12
-
-    - name: Build flink connector 1.13
-      run: |
-        cd extension/flink-doris-connector/ && /bin/bash build.sh 1.13.5 2.12
-
     - name: Build docs
       run: |
         cd docs && npm install && npm run build
