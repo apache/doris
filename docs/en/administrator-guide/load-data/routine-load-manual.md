@@ -247,7 +247,7 @@ Users can modify jobs that have been created. Specific instructions can be viewe
 
 ### Job Control
 
-The user can control the stop, pause and restart of the job by the three commands `STOP/PAUSE/RESUME`. You can view help and examples with the three commands `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` and `HELP RESUME ROUTINE LOAD;`.
+The user can control the stop(the FE will automatically clean up stopped ROUTINE LOAD), pause and restart of the job by the three commands `STOP/PAUSE/RESUME`. You can view help and examples with the three commands `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` and `HELP RESUME ROUTINE LOAD;`.
 
 ## other instructions
 
