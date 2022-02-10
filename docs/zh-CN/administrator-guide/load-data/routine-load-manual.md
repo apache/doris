@@ -246,7 +246,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 ### 作业控制
 
-用户可以通过 `STOP/PAUSE/RESUME` 三个命令来控制作业的停止，暂停和重启。可以通过 `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` 以及 `HELP RESUME ROUTINE LOAD;` 三个命令查看帮助和示例。
+用户可以通过 `STOP/PAUSE/RESUME` 三个命令来控制作业的停止(FE会自动定期清理停止的ROUTINE LOAD)，暂停和重启。可以通过 `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` 以及 `HELP RESUME ROUTINE LOAD;` 三个命令查看帮助和示例。
 
 ## 其他说明
 
