@@ -656,6 +656,23 @@ struct TLoadTxnCommitResult {
     1: required Status.TStatus status
 }
 
+struct TLoadTxn2PCRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: required string db
+    5: optional string user_ip
+    6: required i64 txnId
+    7: required string operation
+    8: optional i64 auth_code
+    9: optional string auth_code_uuid
+    10: optional i64 thrift_rpc_timeout_ms
+}
+
+struct TLoadTxn2PCResult {
+    1: required Status.TStatus status
+}
+
 struct TLoadTxnRollbackRequest {
     1: optional string cluster
     2: required string user
@@ -750,6 +767,7 @@ service FrontendService {
 
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
     TLoadTxnCommitResult loadTxnPreCommit(1: TLoadTxnCommitRequest request)
+    TLoadTxn2PCResult loadTxn2PC(1: TLoadTxn2PCRequest request)
     TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)
     TLoadTxnRollbackResult loadTxnRollback(1: TLoadTxnRollbackRequest request)
 

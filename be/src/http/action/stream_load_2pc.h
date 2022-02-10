@@ -15,33 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.http.rest;
+#pragma once
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+#include <string>
+#include "http/http_handler.h"
 
-// Base restful result
-public class RestBaseResult {
-    private static final RestBaseResult OK = new RestBaseResult();
-    public ActionStatus status;
-    public String msg;
+namespace doris {
 
-    public RestBaseResult() {
-        status = ActionStatus.OK;
-        msg = "Success";
-    }
+class ExecEnv;
 
-    public RestBaseResult(String msg) {
-        status = ActionStatus.FAILED;
-        this.msg = msg;
-    }
+class StreamLoad2PCAction : public HttpHandler {
+public:
+    StreamLoad2PCAction(ExecEnv* exec_env);
 
-    public static RestBaseResult getOk() {
-        return OK;
-    }
+    virtual ~StreamLoad2PCAction(){};
 
-    public String toJson() {
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(this);
-    }
-}
+    void handle(HttpRequest* req) override;
+    std::string get_success_info(const std::string txn_id, const std::string txn_operation);
+
+private:
+    ExecEnv* _exec_env;
+};
+
+} // namespace doris

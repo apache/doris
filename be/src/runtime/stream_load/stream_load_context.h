@@ -153,6 +153,8 @@ public:
 
     int64_t txn_id = -1;
 
+    std::string txn_operation = "";
+
     bool need_rollback = false;
     // when use_streaming is true, we use stream_pipe to send source data,
     // otherwise we save source data to file first, then process it.

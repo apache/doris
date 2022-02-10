@@ -19,10 +19,6 @@
 
 #include "common/status.h"
 #include "common/utils.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -175,28 +171,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 }
 
 Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_commit_request_total->increment(1);
 
     TLoadTxnCommitRequest request;
-    set_request_auth(&request, ctx->auth);
-    request.db = ctx->db;
-    if (ctx->db_id > 0) {
-        request.db_id = ctx->db_id;
-        request.__isset.db_id = true;
-    }
-    request.tbl = ctx->table;
-    request.txnId = ctx->txn_id;
-    request.sync = true;
-    request.commitInfos = std::move(ctx->commit_infos);
-    request.__isset.commitInfos = true;
-    request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
-
-    // set attachment if has
-    TTxnCommitAttachment attachment;
-    if (collect_load_stat(ctx, &attachment)) {
-        request.txnCommitAttachment = std::move(attachment);
-        request.__isset.txnCommitAttachment = true;
-    }
+    get_commit_request(ctx, request);
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitResult result;
@@ -210,7 +187,7 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
 #else
     result = k_stream_load_commit_result;
 #endif
-    // Return if this transaction is committed successful; otherwise, we need try
+    // Return if this transaction is precommitted successful; otherwise, we need try
     // to
     // rollback this transaction
     Status status(result.status);
@@ -227,10 +204,31 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     return Status::OK();
 }
 
-Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_commit_request_total->increment(1);
+Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
+    TLoadTxn2PCRequest request;
+    set_request_auth(&request, ctx->auth);
+    request.db = ctx->db;
+    request.txnId = ctx->txn_id;
+    request.operation = ctx->txn_operation;
+    request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
 
-    TLoadTxnCommitRequest request;
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TLoadTxn2PCResult result;
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+              client->loadTxn2PC(result, request);
+            },
+            config::txn_commit_rpc_timeout_ms));
+    Status status(result.status);
+    if (!status.ok()) {
+        LOG(WARNING) << "2PC commit transaction failed, errmsg=" << status.get_error_msg();
+        return status;
+    }
+    return Status::OK();
+}
+
+void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request) {
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
     if (ctx->db_id > 0) {
@@ -250,6 +248,13 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
         request.txnCommitAttachment = std::move(attachment);
         request.__isset.txnCommitAttachment = true;
     }
+}
+
+Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
+    DorisMetrics::instance()->txn_commit_request_total->increment(1);
+
+    TLoadTxnCommitRequest request;
+    get_commit_request(ctx, request);
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitResult result;

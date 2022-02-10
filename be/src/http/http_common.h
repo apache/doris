@@ -55,5 +55,7 @@ static const std::string HTTP_SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 static const std::string HTTP_100_CONTINUE = "100-continue";
 
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
+static const std::string HTTP_TXN_ID_KEY = "txn_id";
+static const std::string HTTP_TXN_OPERATION_KEY = "txn_operation";
 
 } // namespace doris

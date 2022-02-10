@@ -176,12 +176,20 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
     
     1. User can invoke the following interface to trigger commit operations for transaction：
     ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn:txnId" http://fe_host:http_port/api/{db}/_stream_load_commit
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://fe_host:http_port/api/{db}/_stream_load_2pc
+    ```
+    or
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://be_host:webserver_port/api/{db}/_stream_load_2pc
     ```
     
     2. User can invoke the following interface to trigger abort operations for transaction：
     ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn:txnId" http://fe_host:http_port/api/{db}/_stream_load_abort
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://fe_host:http_port/api/{db}/_stream_load_2pc
+    ```
+    or
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://be_host:webserver_port/api/{db}/_stream_load_2pc
     ```
 
 ### Return results

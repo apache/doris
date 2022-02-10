@@ -222,17 +222,17 @@ public class GlobalTransactionMgr implements Writable {
 
         LOG.debug("try to commit transaction: {}", transactionId);
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+        dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
 
     private void commitTransaction2PC(long dbId, long transactionId)
-            throws Exception {
+            throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
 
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.commitTransaction2PC(transactionId);
+        dbTransactionMgr.commitTransaction(null, transactionId, null, null, true);
     }
 
     public boolean commitAndPublishTransaction(Database db, List<Table> tableList, long transactionId,
@@ -267,7 +267,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
-            throws Exception {
+            throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {

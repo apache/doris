@@ -18,12 +18,8 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.http.rest.ActionStatus;
 import org.apache.doris.http.rest.RestBaseResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -34,9 +30,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 
-import org.apache.doris.transaction.DatabaseTransactionMgr;
-import org.apache.doris.transaction.TransactionNotFoundException;
-import org.apache.doris.transaction.TransactionState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -80,22 +73,13 @@ public class LoadAction extends RestBaseController {
         return executeWithoutPassword(request, response, db, table);
     }
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_commit", method = RequestMethod.PUT)
-    public Object streamLoadCommit(HttpServletRequest request,
-                             HttpServletResponse response,
-                             @PathVariable(value = DB_KEY) String db) {
-        this.isStreamLoad = true;
-        executeCheckPassword(request, response);
-        return executeStreamLoadCommit(request, response, db);
-    }
-
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_abort", method = RequestMethod.PUT)
-    public Object streamLoadAbort(HttpServletRequest request,
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
+    public Object streamLoad2PC(HttpServletRequest request,
                                    HttpServletResponse response,
                                    @PathVariable(value = DB_KEY) String db) {
         this.isStreamLoad = true;
         executeCheckPassword(request, response);
-        return executeStreamLoadAbort(request, response, db);
+        return executeStreamLoad2PC(request, db);
     }
 
     // Same as Multi load, to be compatible with http v1's response body,
@@ -180,8 +164,7 @@ public class LoadAction extends RestBaseController {
         }
     }
 
-    private Object executeStreamLoadCommit(HttpServletRequest request,
-                                          HttpServletResponse response, String db) {
+    private Object executeStreamLoad2PC(HttpServletRequest request, String db) {
         try {
             String dbName = db;
 
@@ -194,106 +177,37 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No database selected.");
             }
 
-            String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
-
-            String txnId = request.getHeader(TXN_KEY).trim();
-            if (Strings.isNullOrEmpty(txnId)) {
+            if (Strings.isNullOrEmpty(request.getHeader(TXN_ID_KEY))) {
                 return new RestBaseResult("No transaction id selected.");
             }
-            long transactionId = Long.parseLong(txnId);
-            LOG.info("redirect stream load commit request to master FE, txns: {}", transactionId);
 
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-            {
-                LOG.debug("Master FE received http request to commit txns: {}", transactionId);
-
-                // get database
-                Catalog catalog = Catalog.getCurrentCatalog();
-                Database database = catalog.getDbNullable(fullDbName);
-                if (database == null) {
-                    throw new UserException("unknown database, database=" + fullDbName);
-                }
-
-                DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(database.getId());
-                TransactionState transactionState = dbTransactionMgr.getTransactionState(transactionId);
-                if (transactionState == null) {
-                    throw new TransactionNotFoundException("transaction [" + transactionId + "] not found");
-                }
-                List<Long> tableIdList = transactionState.getTableIdList();
-                List<Table> tableList = database.getTablesOnIdOrderWithIgnoringWrongTableId(tableIdList);
-                for (Table table : tableList) {
-                    // check auth
-                    checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, table.getName(), PrivPredicate.LOAD);
-                }
-
-                Catalog.getCurrentGlobalTransactionMgr().commitTransaction2PC(database, tableList, transactionId, 5000);
-
-                return new RestBaseResult(ActionStatus.OK, "Transaction [" + transactionId + "] committed successfully." +
-                        " data will be visible later. db : " + db);
-            }
-        } catch (Exception e) {
-            return new RestBaseResult(e.getMessage());
-        }
-    }
-
-    private Object executeStreamLoadAbort(HttpServletRequest request,
-                                           HttpServletResponse response, String db) {
-        try {
-            String dbName = db;
-
-            final String clusterName = ConnectContext.get().getClusterName();
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return new RestBaseResult("No cluster selected.");
+            String txnOperation = request.getHeader(TXN_OPERATION_KEY);
+            if (Strings.isNullOrEmpty(txnOperation)) {
+                return new RestBaseResult("No transaction operation(\'commit\' or \'abort\') selected.");
             }
 
-            if (Strings.isNullOrEmpty(dbName)) {
-                return new RestBaseResult("No database selected.");
+            // Choose a backend sequentially.
+            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                    new SystemInfoService.BeAvailablePredicate(false, false, true);
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                    1, beAvailablePredicate, false, clusterName, null, null);
+            if (backendIds == null) {
+                return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
 
-            String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
-
-            String txnId = request.getHeader(TXN_KEY).trim();
-            if (Strings.isNullOrEmpty(txnId)) {
-                return new RestBaseResult("No transaction id selected.");
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            if (backend == null) {
+                return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
-            long transactionId = Long.parseLong(txnId);
 
-            LOG.info("redirect stream load abort request to master FE, txn: {}", txnId);
+            TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
 
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-            {
-                LOG.debug("Master FE received http request to abort txn: {}", transactionId);
+            LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
+                    redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
-                // get database
-                Catalog catalog = Catalog.getCurrentCatalog();
-                Database database = catalog.getDbNullable(fullDbName);
-                if (database == null) {
-                    throw new UserException("unknown database, database=" + fullDbName);
-                }
+            RedirectView redirectView = redirectTo(request, redirectAddr);
+            return redirectView;
 
-                DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(database.getId());
-                TransactionState transactionState = dbTransactionMgr.getTransactionState(transactionId);
-                if (transactionState == null) {
-                    throw new TransactionNotFoundException("transaction [" + transactionId + "] not found");
-                }
-                List<Long> tableIdList = transactionState.getTableIdList();
-                List<Table> tableList = database.getTablesOnIdOrderWithIgnoringWrongTableId(tableIdList);
-                for (Table table : tableList) {
-                    // check auth
-                    checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, table.getName(), PrivPredicate.LOAD);
-                }
-
-                Catalog.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), transactionId);
-
-                return new RestBaseResult(ActionStatus.OK, "Transaction " + transactionId +
-                        " abort successfully. db : " + db);
-            }
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
         }

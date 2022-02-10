@@ -187,12 +187,19 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     
     1. 用户可以调用如下接口对stream load事务触发commit操作：
     ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn:txnId" http://fe_host:http_port/api/{db}/_stream_load_commit
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://fe_host:http_port/api/{db}/_stream_load_2pc
     ```
-    
+    或
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://be_host:webserver_port/api/{db}/_stream_load_2pc
+    ```
     2. 用户可以调用如下接口对stream load事务触发abort操作：
     ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn:txnId" http://fe_host:http_port/api/{db}/_stream_load_abort
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://fe_host:http_port/api/{db}/_stream_load_2pc
+    ```
+    或
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://be_host:webserver_port/api/{db}/_stream_load_2pc
     ```
 
 #### strict mode 与 source data 的导入关系

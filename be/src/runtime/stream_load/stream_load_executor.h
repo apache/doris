@@ -19,6 +19,11 @@
 
 #include <memory>
 
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/FrontendService_types.h"
+#include "gen_cpp/HeartbeatService_types.h"
+#include "gen_cpp/Types_types.h"
+
 namespace doris {
 
 class ExecEnv;
@@ -35,7 +40,11 @@ public:
 
     Status pre_commit_txn(StreamLoadContext* ctx);
 
+    Status operate_txn_2pc(StreamLoadContext* ctx);
+
     Status commit_txn(StreamLoadContext* ctx);
+
+    void get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request);
 
     void rollback_txn(StreamLoadContext* ctx);
 
