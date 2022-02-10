@@ -1087,9 +1087,9 @@ public class Config extends ConfigBase {
     public static long es_state_sync_interval_second = 10;
 
     /**
-     * fe will create iceberg table every es_state_sync_interval_secs
+     * fe will create iceberg table every iceberg_table_creation_interval_second
      */
-    @ConfField
+    @ConfField(mutable = true, masterOnly = true)
     public static long iceberg_table_creation_interval_second = 10;
 
     /**
@@ -1613,4 +1613,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long min_bytes_indicate_replica_too_large = 2 * 1024 * 1024 * 1024L;
+
+    /**
+     * If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
+     * If set to FALSE, Doris only creates columns of supported data types.
+     * Default is true.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean iceberg_table_creation_strict_mode = true;
+
 }

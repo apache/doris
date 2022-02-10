@@ -29,13 +29,18 @@ import java.util.List;
 public class IcebergTableCreationRecord {
     private static final Logger LOG = LogManager.getLogger(IcebergTableCreationRecord.class);
 
+    private long dbId;
+    private long tableId;
     private String db;
     private String table;
     private String status;
     private String createTime;
     private String errorMsg;
 
-    public IcebergTableCreationRecord(String db, String table, String status, String createTime, String errorMsg) {
+    public IcebergTableCreationRecord(long dbId, long tableId, String db, String table, String status,
+                                      String createTime, String errorMsg) {
+        this.dbId = dbId;
+        this.tableId = tableId;
         this.db = db;
         this.table = table;
         this.status = status;
@@ -51,6 +56,14 @@ public class IcebergTableCreationRecord {
         record.add(this.createTime);
         record.add(this.errorMsg);
         return record;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public long getTableId() {
+        return tableId;
     }
 
     public String getDb() {

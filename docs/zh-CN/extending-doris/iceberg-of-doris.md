@@ -97,8 +97,41 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 
     `iceberg_test_db` 中的建表进度可以通过 `HELP SHOW TABLE CREATION` 查看。
 
+也可以根据自己的需求明确指定列定义来创建 Iceberg 外表。
+
+1. 创一个 Iceberg 外表
+
+    ```sql
+    -- 语法
+    CREATE [EXTERNAL] TABLE table_name (
+        col_name col_type [NULL | NOT NULL] [COMMENT "comment"]
+    ) ENGINE = ICEBERG
+    [COMMENT "comment"]
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db_name",
+    "iceberg.table" = "icberg_table_name",
+    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    );
+
+    -- 例子：挂载 Iceberg 中 iceberg_db 下的 iceberg_table 
+    CREATE TABLE `t_iceberg` (
+        `id` int NOT NULL COMMENT "id number",
+        `name` varchar(10) NOT NULL COMMENT "user name"
+    ) ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    );
+    ```
+
 #### 参数说明：
 
+- 外表列
+    - 列名要于 Iceberg 表一一对应
+    - 列的顺序需要与 Iceberg 表一致
 - ENGINE 需要指定为 ICEBERG
 - PROPERTIES 属性：
     - `iceberg.hive.metastore.uris`：Hive Metastore 服务地址
@@ -109,6 +142,18 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 ### 展示表结构
 
 展示表结构可以通过 `HELP SHOW CREATE TABLE` 查看。
+
+### 同步挂载
+
+当 Iceberg 表 Schema 发生变更时，可以通过 `REFRESH` 命令手动同步，该命令会将 Doris 中的 Iceberg 外表删除重建，具体帮助可以通过 `HELP REFRESH` 查看。
+
+```sql
+-- 同步 Iceberg 表
+REFRESH TABLE t_iceberg;
+
+-- 同步 Iceberg 数据库
+REFRESH DATABASE iceberg_test_db;
+```
     
 ## 类型匹配
 
@@ -134,7 +179,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 |   MAP  | - | 不支持 |
 
 **注意：** 
-- Iceberg 表 Schema 变更**不会自动同步**，需要在 Doris 中重建 Iceberg 外表或数据库。
+- Iceberg 表 Schema 变更**不会自动同步**，需要在 Doris 中通过 `REFRESH` 命令同步 Iceberg 外表或数据库。
 - 当前默认支持的 Iceberg 版本为 0.12.0，未在其他版本进行测试。后续后支持更多版本。
 
 ### 查询用法
@@ -144,3 +189,22 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 ```sql
 select * from t_iceberg where k1 > 1000 and k3 ='term' or k4 like '%doris';
 ```
+
+## 相关系统配置
+
+### FE配置
+
+下面几个配置属于 Iceberg 外表系统级别的配置，可以通过修改 `fe.conf` 来配置，也可以通过 `ADMIN SET CONFIG` 来配置。
+
+- `iceberg_table_creation_strict_mode`  
+  
+  创建 Iceberg 表默认开启 strict mode。  
+  strict mode 是指对 Iceberg 表的列类型进行严格过滤，如果有 Doris 目前不支持的数据类型，则创建外表失败。  
+
+- `iceberg_table_creation_interval_second`  
+
+  自动创建 Iceberg 表的后台任务执行间隔，默认为 10s。  
+
+- `max_iceberg_table_creation_record_size`
+
+  Iceberg 表创建记录保留的最大值，默认为 2000. 仅针对创建 Iceberg 数据库记录。
