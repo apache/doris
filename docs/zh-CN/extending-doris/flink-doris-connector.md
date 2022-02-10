@@ -30,6 +30,8 @@ under the License.
 
 Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。
 
+代码库地址：https://github.com/apache/incubator-doris-connectors
+
 * 可以将`Doris`表映射为`DataStream`或者`Table`。
 
 >**注意：**
