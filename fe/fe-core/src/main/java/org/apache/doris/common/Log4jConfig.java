@@ -42,6 +42,11 @@ public class Log4jConfig extends XmlConfiguration {
             "\n<!-- Auto Generated. DO NOT MODIFY IT! -->\n" +
             "<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n" +
             "  <Appenders>\n" +
+            "    <Console name=\"Console\" target=\"SYSTEM_OUT\">" + 
+            "      <PatternLayout charset=\"UTF-8\">\n" +
+            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n" +
+            "      </PatternLayout>\n" +
+            "    </Console>" + 
             "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n" +
             "      <PatternLayout charset=\"UTF-8\">\n" +
             "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n" +
@@ -92,6 +97,7 @@ public class Log4jConfig extends XmlConfiguration {
             "    <Root level=\"${sys_log_level}\">\n" +
             "      <AppenderRef ref=\"Sys\"/>\n" +
             "      <AppenderRef ref=\"SysWF\" level=\"WARN\"/>\n" +
+            "      <AppenderRef ref=\"Console\"/>\n" +
             "    </Root>\n" +
             "    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n" +
             "      <AppenderRef ref=\"Auditfile\"/>\n" +
