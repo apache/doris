@@ -2064,7 +2064,8 @@ public class ShowExecutor {
         String dbName = showStmt.getDbName();
         Database db = ctx.getCatalog().getDbOrAnalysisException(dbName);
 
-        List<IcebergTableCreationRecord> records = ctx.getCatalog().getIcebergTableCreationRecordMgr().getTableCreationRecordByDb(dbName);
+        List<IcebergTableCreationRecord> records =
+                ctx.getCatalog().getIcebergTableCreationRecordMgr().getTableCreationRecordByDbId(db.getId());
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
         for (IcebergTableCreationRecord record : records) {
@@ -2075,9 +2076,9 @@ public class ShowExecutor {
             }
         }
 
-        // sort function rows by first column asc
+        // sort function rows by fourth column (Create Time) asc
         ListComparator<List<Comparable>> comparator = null;
-        OrderByPair orderByPair = new OrderByPair(0, false);
+        OrderByPair orderByPair = new OrderByPair(3, false);
         comparator = new ListComparator<>(orderByPair);
         Collections.sort(rowSet, comparator);
         List<List<String>> resultRowSet = Lists.newArrayList();

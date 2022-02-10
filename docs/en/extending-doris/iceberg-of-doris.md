@@ -97,8 +97,42 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
 
     The progress of the table build in `iceberg_test_db` can be viewed by `HELP SHOW TABLE CREATION`.
 
+
+You can also create an Iceberg table by explicitly specifying the column definitions according to your needs.
+
+1. Create an Iceberg table
+
+    ```sql
+    -- Syntax
+    CREATE [EXTERNAL] TABLE table_name (
+        col_name col_type [NULL | NOT NULL] [COMMENT "comment"]
+    ) ENGINE = ICEBERG
+    [COMMENT "comment"] )
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db_name",
+    "iceberg.table" = "icberg_table_name",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
+    );
+
+    -- Example: Mount iceberg_table under iceberg_db in Iceberg 
+    CREATE TABLE `t_iceberg` (
+        `id` int NOT NULL COMMENT "id number",
+        `name` varchar(10) NOT NULL COMMENT "user name"
+    ) ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG"
+    );
+    ```
+
 #### Parameter Description
 
+- External Table Columns
+    - Column names should correspond to the Iceberg table
+    - The order of the columns needs to be consistent with the Iceberg table
 - ENGINE needs to be specified as ICEBERG
 - PROPERTIES property.
     - `iceberg.hive.metastore.uris`: Hive Metastore service address
@@ -110,6 +144,18 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
 
 Show table structure can be viewed by `HELP SHOW CREATE TABLE`.
     
+### Synchronized mounts
+
+When the Iceberg table Schema changes, you can manually synchronize it with the `REFRESH` command, which will remove and rebuild the Iceberg external table in Doris, as seen in the `HELP REFRESH` help.
+
+```sql
+-- Synchronize the Iceberg table
+REFRESH TABLE t_iceberg;
+
+-- Synchronize the Iceberg database
+REFRESH DATABASE iceberg_test_db;
+```
+
 ## Data Type Matching
 
 The supported Iceberg column types correspond to Doris in the following table.
@@ -134,7 +180,7 @@ The supported Iceberg column types correspond to Doris in the following table.
 |   MAP  | - | not supported |
 
 **Note:** 
-- Iceberg table Schema changes **are not automatically synchronized** and require rebuilding the Iceberg external tables or database in Doris.
+- Iceberg table Schema changes **are not automatically synchronized** and require synchronization of Iceberg external tables or databases in Doris via the `REFRESH` command.
 - The current default supported version of Iceberg is 0.12.0 and has not been tested in other versions. More versions will be supported in the future.
 
 ### Query Usage
@@ -144,3 +190,22 @@ Once you have finished building the Iceberg external table in Doris, it is no di
 ```sql
 select * from t_iceberg where k1 > 1000 and k3 = 'term' or k4 like '%doris';
 ```
+
+## Related system configurations
+
+### FE Configuration
+
+The following configurations are at the Iceberg external table system level and can be configured by modifying `fe.conf` or by `ADMIN SET CONFIG`.
+
+- `iceberg_table_creation_strict_mode`  
+  
+  Iceberg tables are created with strict mode enabled by default.  
+  strict mode means that the column types of the Iceberg table are strictly filtered, and if there are data types that Doris does not currently support, the creation of the table will fail.  
+
+- `iceberg_table_creation_interval_second`  
+
+  The background task execution interval for automatic creation of Iceberg tables, default is 10s.  
+
+- `max_iceberg_table_creation_record_size`
+
+  The maximum value reserved for Iceberg table creation records, default is 2000. Only for creating Iceberg database records.
