@@ -183,12 +183,16 @@ Status NodeChannel::open_wait() {
 
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
-    _add_batch_closure->addFailedHandler([this]() {
+    _add_batch_closure->addFailedHandler([this](bool is_last_rpc) {
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this, _add_batch_closure->cntl.ErrorText(), -1);
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
             _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+        } else if (is_last_rpc) {
+            // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
+            // will be blocked.
+            _add_batches_finished = true;
         }
     });
 
@@ -493,7 +497,7 @@ void NodeChannel::try_send_batch() {
         // eos request must be the last request
         _add_batch_closure->end_mark();
         _send_finished = true;
-        DCHECK(_pending_batches_num == 0);
+        CHECK(_pending_batches_num == 0) << _pending_batches_num;
     }
 
     if (_parent->_transfer_data_by_brpc_attachment && request.has_row_batch()) {
@@ -541,13 +545,15 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             LOG(WARNING) << "unknown tablet, tablet_id=" << tablet.tablet_id;
             return Status::InternalError("unknown tablet");
         }
-        std::vector<NodeChannel*> channels;
+        std::vector<std::shared_ptr<NodeChannel>> channels;
         for (auto& node_id : location->node_ids) {
-            NodeChannel* channel = nullptr;
+            std::shared_ptr<NodeChannel> channel;
             auto it = _node_channels.find(node_id);
             if (it == _node_channels.end()) {
-                channel =
-                        _parent->_pool->add(new NodeChannel(_parent, this, node_id, _schema_hash));
+                // NodeChannel is not added to the _parent->_pool.
+                // Because the deconstruction of NodeChannel may take a long time to wait rpc finish.
+                // but the ObjectPool will hold a spin lock to delete objects.
+                channel = std::make_shared<NodeChannel>(_parent, this, node_id, _schema_hash);
                 _node_channels.emplace(node_id, channel);
             } else {
                 channel = it->second;
@@ -571,7 +577,7 @@ void IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel, st.get_error_msg(), tablet_id);
+            mark_as_failed(channel.get(), st.get_error_msg(), tablet_id);
             // continue add row to other node, the error will be checked for every batch outside
         }
     }
@@ -586,7 +592,7 @@ void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(block_row, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel, st.get_error_msg(), tablet_id);
+            mark_as_failed(channel.get(), st.get_error_msg(), tablet_id);
         }
     }
 }
@@ -1216,7 +1222,7 @@ void OlapTableSink::_send_batch_process() {
 
         if (running_channels_num == 0) {
             LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
-                         "consumer thread exit.";
+                         "sender thread exit. " << print_id(_load_id);
             return;
         }
     } while (!_stop_background_threads_latch.wait_for(
