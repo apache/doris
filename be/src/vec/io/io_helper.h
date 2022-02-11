@@ -218,16 +218,6 @@ inline void read_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
-#if 0
-inline void read_binary(const PColumn& pcolumn, std::string* data) {
-    if (pcolumn.compressed()) {
-        snappy::Uncompress(pcolumn.binary().data(), pcolumn.binary().size(), data);
-    } else {
-        *data = pcolumn.binary();
-    }
-}
-#endif
-
 template <typename T>
 bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     static_assert(std::is_same_v<T, double> || std::is_same_v<T, float>,

@@ -20,7 +20,6 @@
 
 #include <string>
 
-#include "codegen/doris_ir.h"
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "exprs/agg_fn.h"
@@ -108,9 +107,9 @@ public:
 
     const AggFn& agg_fn() const { return agg_fn_; }
 
-    FunctionContext* IR_ALWAYS_INLINE agg_fn_ctx() const;
+    FunctionContext* agg_fn_ctx() const;
 
-    ExprContext* const* IR_ALWAYS_INLINE input_evals() const;
+    ExprContext* const* input_evals() const;
 
     /// Call the initialization function of the AggFn. May update 'dst'.
     void Init(Tuple* dst);

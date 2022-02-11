@@ -638,35 +638,6 @@ OLAPStatus VarStringColumnWriter::_finalize_direct_encoding() {
     //uint32_t block_id = 0;
 
     _dict_stream->suppress();
-#if 0
-
-    for (uint32_t i = 0; i <= _string_id.size(); i++) {
-        //Unlike other types, the record position of string will write entries to _block_row_count
-        // Other types have no effect until the next call to create_index_row_entry.
-        while (block_id < _block_row_count.size() - 1 &&
-                i == _block_row_count[block_id]) {
-            _data_stream->get_position(index()->mutable_entry(block_id));
-            _length_writer->get_position(index()->mutable_entry(block_id));
-            block_id++;
-        }
-
-        if (i != _string_id.size()) {
-            const std::string& str = _string_keys[_string_id[i]];
-
-            if (OLAP_SUCCESS != (res = _data_stream->write(str.c_str(),
-                                       str.length()))) {
-                OLAP_LOG_WARNING("fail to write string content.");
-                return res;
-            }
-
-            if (OLAP_SUCCESS != (res = _length_writer->write(str.length()))) {
-                OLAP_LOG_WARNING("fail to write string length.");
-                return res;
-            }
-        }
-    }
-
-#endif
     return OLAP_SUCCESS;
 }
 

@@ -23,22 +23,6 @@ void DCheckAsserter::warn(int64_t previous_thread_id, int64_t current_thread_id)
                << ", current thread id: " << current_thread_id;
 }
 
-#if 0
-// Original source from Chromium -- we didn't import their threading library
-// into Kudu source as of yet
-
-static subtle::Atomic32 CurrentThread() {
-  const PlatformThreadId current_thread_id = PlatformThread::CurrentId();
-  // We need to get the thread id into an atomic data type. This might be a
-  // truncating conversion, but any loss-of-information just increases the
-  // chance of a fault negative, not a false positive.
-  const subtle::Atomic32 atomic_thread_id =
-      static_cast<subtle::Atomic32>(current_thread_id);
-
-  return atomic_thread_id;
-}
-#else
-
 static subtle::Atomic64 CurrentThread() {
 #if defined(__APPLE__)
     uint64_t tid;
@@ -48,8 +32,6 @@ static subtle::Atomic64 CurrentThread() {
     return syscall(__NR_gettid);
 #endif
 }
-
-#endif
 
 void ThreadCollisionWarner::EnterSelf() {
     // If the active thread is 0 then I'll write the current thread ID

@@ -714,18 +714,6 @@ FORCE_INLINE __m128 _mm_shuffle_ps_2032(__m128 a, __m128 b) {
 // Selects four specific single-precision, floating-point values from a and b,
 // based on the mask i.
 // https://msdn.microsoft.com/en-us/library/vstudio/5f0858x0(v=vs.100).aspx
-#if 0 /* C version */
-FORCE_INLINE __m128 _mm_shuffle_ps_default(__m128 a,
-                                           __m128 b,
-                                           __constrange(0, 255) int imm) {
-    __m128 ret;
-    ret[0] = a[imm & 0x3];
-    ret[1] = a[(imm >> 2) & 0x3];
-    ret[2] = b[(imm >> 4) & 0x03];
-    ret[3] = b[(imm >> 6) & 0x03];
-    return ret;
-}
-#endif
 #define _mm_shuffle_ps_default(a, b, imm)                                                        \
     __extension__({                                                                              \
         float32x4_t ret;                                                                         \
@@ -903,8 +891,8 @@ FORCE_INLINE __m128i _mm_shuffle_epi8(__m128i a, __m128i b) {
     // respectively.
     __asm__("    vtbl.8  %e[ret], {%e[tbl], %f[tbl]}, %e[idx]\n"
             "    vtbl.8  %f[ret], {%e[tbl], %f[tbl]}, %f[idx]\n"
-            : [ret] "=&w"(ret)
-            : [tbl] "w"(tbl), [idx] "w"(idx_masked));
+            : [ ret ] "=&w"(ret)
+            : [ tbl ] "w"(tbl), [ idx ] "w"(idx_masked));
     return vreinterpretq_m128i_s8(ret);
 #else
     // use this line if testing on aarch64
@@ -914,17 +902,6 @@ FORCE_INLINE __m128i _mm_shuffle_epi8(__m128i a, __m128i b) {
 #endif
 }
 
-#if 0 /* C version */
-FORCE_INLINE __m128i _mm_shuffle_epi32_default(__m128i a,
-                                               __constrange(0, 255) int imm) {
-    __m128i ret;
-    ret[0] = a[imm & 0x3];
-    ret[1] = a[(imm >> 2) & 0x3];
-    ret[2] = a[(imm >> 4) & 0x03];
-    ret[3] = a[(imm >> 6) & 0x03];
-    return ret;
-}
-#endif
 #define _mm_shuffle_epi32_default(a, imm)                                                         \
     __extension__({                                                                               \
         int32x4_t ret;                                                                            \

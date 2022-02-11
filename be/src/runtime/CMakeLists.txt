@@ -38,7 +38,6 @@ set(RUNTIME_FILES
     plan_fragment_executor.cpp
     primitive_type.cpp
     raw_value.cpp
-    raw_value_ir.cpp
     result_sink.cpp
     result_file_sink.cpp
     result_buffer_mgr.cpp
@@ -48,7 +47,6 @@ set(RUNTIME_FILES
     runtime_filter_mgr.cpp
     string_value.cpp
     thread_resource_mgr.cpp
-    #  timestamp_value.cpp
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
@@ -73,9 +71,7 @@ set(RUNTIME_FILES
     sorted_run_merger.cc
     data_stream_recvr.cc
     buffered_tuple_stream2.cc
-    buffered_tuple_stream2_ir.cc
     buffered_tuple_stream3.cc
-    #  export_task_mgr.cpp
     export_sink.cpp
     load_channel_mgr.cpp
     load_channel.cpp

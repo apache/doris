@@ -116,9 +116,6 @@ public:
     static StringVal cast_to_string_val(FunctionContext* context, const DoubleVal& val);
     static StringVal cast_to_string_val(FunctionContext* context, const DateTimeVal& val);
     static StringVal cast_to_string_val(FunctionContext* context, const StringVal& val);
-#if 0
-    static StringVal CastToChar(FunctionContext* context, const StringVal& val);
-#endif
 
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const TinyIntVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const SmallIntVal& val);
