@@ -31,6 +31,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/core/materialize_block.h"
 
 namespace doris {
 
@@ -203,7 +204,7 @@ Status MysqlTableWriter::append(vectorized::Block* block) {
     if (UNLIKELY(num_rows == 0)) {
         return status;
     }
-
+    materialize_block_inplace(output_block);
     for (int i = 0; i < num_rows; ++i) {
         RETURN_IF_ERROR(insert_row(output_block, i));
     }
@@ -216,8 +217,8 @@ Status MysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
     int num_columns = _vec_output_expr_ctxs.size();
 
     for (int i = 0; i < num_columns; ++i) {
-        auto column_ptr = block.get_by_position(i).column->convert_to_full_column_if_const();
-        auto type_ptr = block.get_by_position(i).type;
+        auto& column_ptr = block.get_by_position(i).column;
+        auto& type_ptr = block.get_by_position(i).type;
 
         if (i != 0) {
             fmt::format_to(_insert_stmt_buffer, "{}", ", ");
@@ -238,37 +239,37 @@ Status MysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
         switch (_vec_output_expr_ctxs[i]->root()->result_type()) {
         case TYPE_BOOLEAN: {
             auto& data = assert_cast<const vectorized::ColumnUInt8&>(*column).get_data();
-            fmt::format_to(_insert_stmt_buffer, "{}", std::to_string(data[row]));
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
             break;
         }
         case TYPE_TINYINT: {
             auto& data = assert_cast<const vectorized::ColumnInt8&>(*column).get_data();
-            fmt::format_to(_insert_stmt_buffer, "{}", std::to_string(data[row]));
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
             break;
         }
         case TYPE_SMALLINT: {
             auto& data = assert_cast<const vectorized::ColumnInt16&>(*column).get_data();
-            fmt::format_to(_insert_stmt_buffer, "{}", std::to_string(data[row]));
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
             break;
         }
         case TYPE_INT: {
             auto& data = assert_cast<const vectorized::ColumnInt32&>(*column).get_data();
-            fmt::format_to(_insert_stmt_buffer, "{}", std::to_string(data[row]));
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
             break;
         }
         case TYPE_BIGINT: {
             auto& data = assert_cast<const vectorized::ColumnInt64&>(*column).get_data();
-            fmt::format_to(_insert_stmt_buffer, "{}", std::to_string(data[row]));
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
             break;
         }
         case TYPE_FLOAT: {
             auto& data = assert_cast<const vectorized::ColumnFloat32&>(*column).get_data();
-            fmt::format_to(_insert_stmt_buffer, "{}", std::to_string(data[row]));
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
             break;
         }
         case TYPE_DOUBLE: {
             auto& data = assert_cast<const vectorized::ColumnFloat64&>(*column).get_data();
-            fmt::format_to(_insert_stmt_buffer, "{}", std::to_string(data[row]));
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
             break;
         }
 
@@ -277,18 +278,11 @@ Status MysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
         case TYPE_VARCHAR: {
             const auto& string_val =
                     assert_cast<const vectorized::ColumnString&>(*column).get_data_at(row);
-            if (string_val.data == nullptr) {
-                if (string_val.size == 0) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", "''");
-                } else {
-                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
-                }
-            } else {
-                char* buf = new char[2 * string_val.size + 1];
-                mysql_real_escape_string(_mysql_conn, buf, string_val.data, string_val.size);
-                fmt::format_to(_insert_stmt_buffer, "'{}'", buf);
-                delete[] buf;
-            }
+            DCHECK(string_val.data != nullptr);
+            std::unique_ptr<char[]> buf(new char[2 * string_val.size + 1]);
+            mysql_real_escape_string(_mysql_conn, buf.get(), string_val.data, string_val.size);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", buf.get());
+
             break;
         }
         case TYPE_DECIMALV2: {
@@ -324,9 +318,7 @@ Status MysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
     fmt::format_to(_insert_stmt_buffer, "{}", ")");
 
     // Insert this to MySQL server
-    std::string insert_stmt = to_string(_insert_stmt_buffer);
-    LOG(INFO) << insert_stmt;
-    if (mysql_real_query(_mysql_conn, insert_stmt.c_str(), insert_stmt.length())) {
+    if (mysql_real_query(_mysql_conn, _insert_stmt_buffer.data(), _insert_stmt_buffer.size())) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "Insert to mysql server({}) failed, because: {}.",
                        mysql_get_host_info(_mysql_conn), mysql_error(_mysql_conn));

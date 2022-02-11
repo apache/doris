@@ -37,8 +37,9 @@
 
 #include "vec/sink/result_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
-#include "vec/sink/vtablet_sink.h"
 #include "vec/sink/vmysql_table_writer.h"
+#include "vec/sink/vtablet_sink.h"
+
 namespace doris {
 
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
