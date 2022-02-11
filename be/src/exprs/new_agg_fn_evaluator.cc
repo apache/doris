@@ -88,8 +88,6 @@ typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
 typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
 typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
-const int DEFAULT_MULTI_DISTINCT_COUNT_STRING_BUFFER_SIZE = 1024;
-
 NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool,
                                      const std::shared_ptr<MemTracker>& tracker, bool is_clone)
         : _total_mem_consumption(0),
@@ -138,7 +136,7 @@ Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, Objec
         agg_fn_eval->input_evals_.push_back(input_eval);
         Expr* root = input_eval->root();
         DCHECK(root == input_expr);
-        AnyVal* staging_input_val;
+        AnyVal* staging_input_val = nullptr;
         status = allocate_any_val(state, mem_pool, input_expr->type(),
                                   "Could not allocate aggregate expression input value",
                                   &staging_input_val);
@@ -176,7 +174,7 @@ Status NewAggFnEvaluator::Create(const vector<AggFn*>& agg_fns, RuntimeState* st
                                  const std::shared_ptr<MemTracker>& tracker,
                                  const RowDescriptor& row_desc) {
     for (const AggFn* agg_fn : agg_fns) {
-        NewAggFnEvaluator* agg_fn_eval;
+        NewAggFnEvaluator* agg_fn_eval = nullptr;
         RETURN_IF_ERROR(NewAggFnEvaluator::Create(*agg_fn, state, pool, mem_pool, &agg_fn_eval,
                                                   tracker, row_desc));
         evals->push_back(agg_fn_eval);
@@ -202,7 +200,9 @@ Status NewAggFnEvaluator::Open(RuntimeState* state) {
 }
 
 Status NewAggFnEvaluator::Open(const vector<NewAggFnEvaluator*>& evals, RuntimeState* state) {
-    for (NewAggFnEvaluator* eval : evals) RETURN_IF_ERROR(eval->Open(state));
+    for (NewAggFnEvaluator* eval : evals) {
+        RETURN_IF_ERROR(eval->Open(state));
+    }
     return Status::OK();
 }
 
@@ -224,7 +224,9 @@ void NewAggFnEvaluator::Close(RuntimeState* state) {
 }
 
 void NewAggFnEvaluator::Close(const vector<NewAggFnEvaluator*>& evals, RuntimeState* state) {
-    for (NewAggFnEvaluator* eval : evals) eval->Close(state);
+    for (NewAggFnEvaluator* eval : evals) {
+        eval->Close(state);
+    }
 }
 
 void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_slot_desc,

@@ -109,12 +109,17 @@ struct decimal12_t {
             integer = 999999999999999999;
             fraction = 999999999;
         } else {
+            int64_t temp_integer = 0;
+            int32_t temp_fraction = 0;
+
             if (sepr == value_string) {
-                sscanf(value_string, ".%9d", &fraction);
-                integer = 0;
+                sscanf(value_string, ".%9d", &temp_fraction);
             } else {
-                sscanf(value_string, "%18ld.%9d", &integer, &fraction);
+                sscanf(value_string, "%18ld.%9d", &temp_integer, &temp_fraction);
             }
+
+            integer = temp_integer;
+            fraction = temp_fraction;
 
             int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1)
                                                  : MAX_FRAC_DIGITS_NUM;

@@ -367,9 +367,6 @@ if (COMPILER_CLANG)
 
     # TODO: Fix all these warnings
     add_compile_options(
-        -Wno-address-of-packed-member
-        -Wno-ambiguous-reversed-operator
-        -Wno-atomic-implicit-seq-cst
         -Wno-cast-align
         -Wno-cast-qual
         -Wno-comma
@@ -438,21 +435,12 @@ if (COMPILER_CLANG)
         -Wno-unreachable-code
         -Wno-unreachable-code-break
         -Wno-unreachable-code-return
-        -Wno-unused-but-set-variable
-        -Wno-unused-const-variable
-        -Wno-unused-exception-parameter
-        -Wno-unused-function
         -Wno-unused-lambda-capture
-        -Wno-unused-local-typedef
         -Wno-unused-macros
         -Wno-unused-member-function
         -Wno-unused-parameter
         -Wno-unused-private-field
         -Wno-unused-result
-        -Wno-unused-value
-        -Wno-unused-variable
-        -Wno-variadic-macros
-        -Wno-zero-as-null-pointer-constant
     )
 endif ()
 

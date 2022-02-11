@@ -45,8 +45,7 @@ namespace stream_load {
 
 NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id,
                          int32_t schema_hash)
-        : _parent(parent), _index_channel(index_channel), _node_id(node_id), _schema_hash(schema_hash) {
-
+        : _parent(parent), _index_channel(index_channel), _node_id(node_id) {
     if (_parent->_transfer_data_by_brpc_attachment) {
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
@@ -458,7 +457,8 @@ void NodeChannel::try_send_batch() {
     if (row_batch->num_rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
+        Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
+                                         &compressed_bytes, _tuple_data_buffer_ptr);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             return;
@@ -498,8 +498,8 @@ void NodeChannel::try_send_batch() {
 
     if (_parent->_transfer_data_by_brpc_attachment && request.has_row_batch()) {
         request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
-            ReusableClosure<PTabletWriterAddBatchResult>>(
-                    &request, _tuple_data_buffer, _add_batch_closure);
+                                              ReusableClosure<PTabletWriterAddBatchResult>>(
+                &request, _tuple_data_buffer, _add_batch_closure);
     }
     _add_batch_closure->set_in_flight();
     _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,

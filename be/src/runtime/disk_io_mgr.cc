@@ -728,7 +728,6 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
 void DiskIoMgr::gc_io_buffers() {
     unique_lock<mutex> lock(_free_buffers_lock);
     int buffers_freed = 0;
-    int bytes_freed = 0;
     for (int idx = 0; idx < _free_buffers.size(); ++idx) {
         for (list<char*>::iterator iter = _free_buffers[idx].begin();
              iter != _free_buffers[idx].end(); ++iter) {
@@ -738,7 +737,6 @@ void DiskIoMgr::gc_io_buffers() {
             delete[] * iter;
 
             ++buffers_freed;
-            bytes_freed += buffer_size;
         }
         _free_buffers[idx].clear();
     }

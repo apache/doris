@@ -74,7 +74,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     if (!_is_open) {
         RETURN_IF_ERROR(_open());
     }
-    DCHECK_NOTNULL(read_options.stats);
+    DCHECK(read_options.stats);
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
