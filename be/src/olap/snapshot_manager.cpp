@@ -29,7 +29,6 @@
 
 #include "env/env.h"
 #include "gen_cpp/Types_constants.h"
-#include "olap/olap_snapshot_converter.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_converter.h"
