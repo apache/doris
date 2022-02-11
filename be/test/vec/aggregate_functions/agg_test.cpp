@@ -95,6 +95,9 @@ TEST(AggTest, topn_test) {
             "46,\"10\":37}";
     ASSERT_EQ(result, expect_result);
     agg_function->destroy(place);
+    if (place) {
+        delete[] place;
+    }
 }
 } // namespace doris::vectorized
 
