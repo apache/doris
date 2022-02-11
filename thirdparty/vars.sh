@@ -403,6 +403,12 @@ XSIMD_NAME=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34.tar.gz
 XSIMD_SOURCE=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34
 XSIMD_MD5SUM="9f230757cf4acd3d544c4a79a020c9dc"
 
+# simdjson
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2.tar.gz"
+SIMDJSON_NAME=simdjson-1.0.2.tar.gz
+SIMDJSON_SOURCE=simdjson-1.0.2
+SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -461,4 +467,5 @@ LIBDIVIDE
 PDQSORT
 BENCHMARK
 BREAKPAD
-XSIMD"
+XSIMD
+SIMDJSON"
