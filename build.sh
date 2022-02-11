@@ -159,7 +159,7 @@ if [[ ${HELP} -eq 1 ]]; then
 fi
 
 # build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libbreakpad_client.a ]]; then
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libsimdjson.a ]]; then
     echo "Thirdparty libraries need to be build ..."
     ${DORIS_THIRDPARTY}/build-thirdparty.sh -j $PARALLEL
 fi

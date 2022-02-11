@@ -972,6 +972,22 @@ build_breakpad() {
     make -j $PARALLEL && make install
 }
 
+# simdjson
+build_simdjson() {
+    check_if_source_exist $SIMDJSON_SOURCE
+    cd $TP_SOURCE_DIR/$SIMDJSON_SOURCE
+
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    CXX_FLAGS="-O3" \
+    C_FLAGS="-O3" \
+    $CMAKE_CMD ..
+    $CMAKE_CMD --build .
+
+    cp $TP_SOURCE_DIR/$SIMDJSON_SOURCE/$BUILD_DIR/libsimdjson.a $TP_INSTALL_DIR/lib64
+
+    cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1024,6 +1040,7 @@ build_gsasl
 build_hdfs3
 build_benchmark
 build_breakpad
+build_simdjson
 
 echo "Finished to build all thirdparties"
 
