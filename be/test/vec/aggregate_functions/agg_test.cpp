@@ -46,18 +46,19 @@ TEST(AggTest, basic_test) {
     DataTypes data_types = {data_type};
     Array array;
     auto agg_function = factory.get("sum", data_types, array);
-    std::unique_ptr<char[]> place(new char[agg_function->size_of_data()]);
-    agg_function->create(place.get());
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
     const IColumn* column[1] = {column_vector_int32.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place.get(), column, i, nullptr);
+        agg_function->add(place, column, i, nullptr);
     }
     int ans = 0;
     for (int i = 0; i < agg_test_batch_size; i++) {
         ans += i;
     }
-    ASSERT_EQ(ans, *reinterpret_cast<int32_t*>(place.get()));
-    agg_function->destroy(place.get());
+    ASSERT_EQ(ans, *reinterpret_cast<int32_t*>(place));
+    agg_function->destroy(place);
 }
 
 TEST(AggTest, topn_test) {
@@ -78,21 +79,22 @@ TEST(AggTest, topn_test) {
     Array array;
 
     auto agg_function = factory.get("topn", data_types, array);
-    std::unique_ptr<char[]> place(new char[agg_function->size_of_data()]);
-    agg_function->create(place.get());
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
 
     IColumn* columns[2] = {datas[0].get(), datas[1].get()};
 
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place.get(), const_cast<const IColumn**>(columns), i, nullptr);
+        agg_function->add(place, const_cast<const IColumn**>(columns), i, nullptr);
     }
 
-    std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place.get())->get();
+    std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place)->get();
     std::string expect_result =
             "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
             "46,\"10\":37}";
     ASSERT_EQ(result, expect_result);
-    agg_function->destroy(place.get());
+    agg_function->destroy(place);
 }
 } // namespace doris::vectorized
 
