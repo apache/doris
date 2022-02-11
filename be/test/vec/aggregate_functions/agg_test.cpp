@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
 #include <string>
 
 #include "gtest/gtest.h"
@@ -45,21 +46,18 @@ TEST(AggTest, basic_test) {
     DataTypes data_types = {data_type};
     Array array;
     auto agg_function = factory.get("sum", data_types, array);
-    AggregateDataPtr place = new char[agg_function->size_of_data()];
-    agg_function->create(place);
+    std::unique_ptr<char[]> place(new char[agg_function->size_of_data()]);
+    agg_function->create(place.get());
     const IColumn* column[1] = {column_vector_int32.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place.get(), column, i, nullptr);
     }
     int ans = 0;
     for (int i = 0; i < agg_test_batch_size; i++) {
         ans += i;
     }
-    ASSERT_EQ(ans, *(int32_t*)place);
-    agg_function->destroy(place);
-    if (place) {
-        free(place);
-    }
+    ASSERT_EQ(ans, *reinterpret_cast<int32_t*>(place.get()));
+    agg_function->destroy(place.get());
 }
 
 TEST(AggTest, topn_test) {
@@ -80,21 +78,21 @@ TEST(AggTest, topn_test) {
     Array array;
 
     auto agg_function = factory.get("topn", data_types, array);
-    AggregateDataPtr place = new char[agg_function->size_of_data()];
-    agg_function->create(place);
+    std::unique_ptr<char[]> place(new char[agg_function->size_of_data()]);
+    agg_function->create(place.get());
 
     IColumn* columns[2] = {datas[0].get(), datas[1].get()};
 
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, const_cast<const IColumn**>(columns), i, nullptr);
+        agg_function->add(place.get(), const_cast<const IColumn**>(columns), i, nullptr);
     }
 
-    std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place)->get();
+    std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place.get())->get();
     std::string expect_result =
             "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
             "46,\"10\":37}";
     ASSERT_EQ(result, expect_result);
-    agg_function->destroy(place);
+    agg_function->destroy(place.get());
 }
 } // namespace doris::vectorized
 
