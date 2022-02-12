@@ -33,10 +33,12 @@
 #include "vec/io/var_int.h"
 #include "vec/runtime/vdatetime_value.h"
 
-#define DEFAULT_MAX_STRING_SIZE (1ULL << 30)
-#define WRITE_HELPERS_MAX_INT_WIDTH 40U
-
 namespace doris::vectorized {
+
+// Define in the namespace and avoid defining global macros, 
+// because it maybe conflict with other libs
+static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
+static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
 template <typename T>
 inline T decimal_scale_multiplier(UInt32 scale);

@@ -33,7 +33,6 @@ class AlphaRowset;
 using AlphaRowsetSharedPtr = std::shared_ptr<AlphaRowset>;
 class AlphaRowsetWriter;
 class AlphaRowsetReader;
-class OlapSnapshotConverter;
 class RowsetFactory;
 
 class AlphaRowset : public Rowset {
@@ -89,7 +88,6 @@ private:
 private:
     friend class AlphaRowsetWriter;
     friend class AlphaRowsetReader;
-    friend class OlapSnapshotConverter;
 
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
 };
