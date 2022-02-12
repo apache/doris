@@ -586,7 +586,6 @@ set(DORIS_LINK_LIBS
     Webserver
     Geo
     Vec
-    Plugin
     ${WL_END_GROUP}
 )
 if (${MAKE_TEST} STREQUAL "ON")
@@ -775,7 +774,6 @@ if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
 endif()
 
 add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/plugin)
 add_subdirectory(${SRC_DIR}/vec)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
@@ -795,24 +793,6 @@ FUNCTION(ADD_BE_TEST TEST_NAME)
         SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_DIR_NAME}")
     endif()
     ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
-ENDFUNCTION()
-
-FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
-    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
-
-    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-    get_filename_component(PLUGIN_DIR_NAME ${PLUGIN_NAME} PATH)
-    get_filename_component(PLUGIN_FILE_NAME ${PLUGIN_NAME} NAME)
-
-    ADD_LIBRARY(${PLUGIN_FILE_NAME} SHARED ${PLUGIN_NAME}.cpp)
-
-    TARGET_LINK_LIBRARIES(${PLUGIN_FILE_NAME} ${DORIS_LINK_LIBS})
-    SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
-
-    if (NOT "${PLUGIN_DIR_NAME}" STREQUAL "")
-        SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${PLUGIN_DIR_NAME}")
-    endif ()
-
 ENDFUNCTION()
 
 if (${MAKE_TEST} STREQUAL "ON")
@@ -835,8 +815,6 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/vec/function)
     add_subdirectory(${TEST_DIR}/vec/runtime)
     add_subdirectory(${TEST_DIR}/vec/aggregate_functions)
-    add_subdirectory(${TEST_DIR}/plugin)
-    add_subdirectory(${TEST_DIR}/plugin/example)
     add_subdirectory(${TEST_DIR}/tools)
 endif ()
 
