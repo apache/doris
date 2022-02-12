@@ -58,7 +58,6 @@ class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class PluginMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -154,8 +153,6 @@ public:
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
-    PluginMgr* plugin_mgr() { return _plugin_mgr; }
-
     // The root tracker should be set before calling ExecEnv::init();
     void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
 
@@ -228,7 +225,6 @@ private:
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
 
-    PluginMgr* _plugin_mgr = nullptr;
 };
 
 template <>

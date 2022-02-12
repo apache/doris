@@ -544,8 +544,6 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 // this is a an enhancement for better performance to manage tablet
 CONF_Int32(tablet_map_shard_size, "1");
 
-CONF_String(plugin_path, "${DORIS_HOME}/plugin");
-
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
 CONF_Int32(txn_map_shard_size, "128");
