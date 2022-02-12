@@ -95,14 +95,7 @@ struct StringUtf8LengthImpl {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1] - 1;
-
-            size_t char_len = 0;
-            for (size_t i = 0, char_size = 0; i < str_size; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(raw_str)[i]);
-                ++char_len;
-            }
-
-            res[i] = char_len;
+            res[i] = get_char_len(StringValue(const_cast<char*>(raw_str), str_size), str_size);
         }
         return Status::OK();
     }
@@ -201,15 +194,17 @@ struct InStrOP {
         // Hive returns positions starting from 1.
         int loc = search.search(&str_sv);
         if (loc > 0) {
-            size_t char_len = 0;
-            for (size_t i = 0, char_size = 0; i < loc; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(strl.data())[i]);
-                ++char_len;
-            }
-            loc = char_len;
+            loc = get_char_len(str_sv, loc);
         }
 
         res = loc + 1;
+    }
+};
+struct LocateOP {
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = PaddedPODArray<Int32>;
+    static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
+        InStrOP::execute(strr, strl, res);
     }
 };
 
@@ -706,6 +701,9 @@ template <typename LeftDataType, typename RightDataType>
 using StringInstrImpl = StringFunctionImpl<LeftDataType, RightDataType, InStrOP>;
 
 template <typename LeftDataType, typename RightDataType>
+using StringLocateImpl = StringFunctionImpl<LeftDataType, RightDataType, LocateOP>;
+
+template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
@@ -720,7 +718,7 @@ using FunctionStringEndsWith =
 using FunctionStringInstr =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameInstr>;
 using FunctionStringLocate =
-        FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameLocate>;
+        FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
 
@@ -755,7 +753,6 @@ using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 
 void register_function_string(SimpleFunctionFactory& factory) {
-    // factory.register_function<>();
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
     factory.register_function<FunctionStringUTF8Length>();
@@ -764,7 +761,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringEndsWith>();
     factory.register_function<FunctionStringInstr>();
     factory.register_function<FunctionStringFindInSet>();
-    //    factory.register_function<FunctionStringLocate>();
+    factory.register_function<FunctionStringLocate>();
+    factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionReverse>();
     factory.register_function<FunctionHexString>();
     factory.register_function<FunctionUnHex>();
