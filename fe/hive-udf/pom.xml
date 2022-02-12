@@ -16,40 +16,16 @@
         <fe_ut_parallel>1</fe_ut_parallel>
     </properties>
     <dependencies>
-
-        <dependency>
-            <groupId>org.apache.hive</groupId>
-            <artifactId>hive-serde</artifactId>
-            <optional>true</optional>
-            <version>${hive.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hive</groupId>
-            <artifactId>hive-common</artifactId>
-            <version>${hive.version}</version>
-        </dependency>
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
             <version>${hive.version}</version>
         </dependency>
-
-        <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
-            <version>2.7</version>
-        </dependency>
-
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>fe-common</artifactId>
-        </dependency>
-
     </dependencies>
     <build>
         <finalName>hive-udf</finalName>
@@ -70,26 +46,6 @@
                     </execution>
                 </executions>
             </plugin>
-<!--            &lt;!&ndash; Build test-jar's for all projects, since some projects depend on tests from others &ndash;&gt;-->
-<!--            <plugin>-->
-<!--                <groupId>org.apache.maven.plugins</groupId>-->
-<!--                <artifactId>maven-jar-plugin</artifactId>-->
-<!--                <version>3.1.2</version>-->
-<!--                <executions>-->
-<!--                    <execution>-->
-<!--                        <id>prepare-test-jar</id>-->
-<!--                        <phase>test-compile</phase>-->
-<!--                        <goals>-->
-<!--                            <goal>test-jar</goal>-->
-<!--                        </goals>-->
-<!--                        <configuration>-->
-<!--                            <excludes>-->
-<!--                                <exclude>log4j.properties</exclude>-->
-<!--                            </excludes>-->
-<!--                        </configuration>-->
-<!--                    </execution>-->
-<!--                </executions>-->
-<!--            </plugin>-->
 
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
