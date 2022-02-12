@@ -319,12 +319,6 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
         return _polygon->Contains(point->point());
-#if 0
-        if (_polygon->Contains(point->point())) {
-            return true;
-        }
-        return _polygon->MayIntersect(S2Cell(point->point()));
-#endif
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
@@ -334,35 +328,6 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
         return _polygon->Contains(other->polygon());
     }
-#if 0
-    case GEO_SHAPE_MULTI_POINT: {
-        const GeoMultiPoint* multi_point = (const GeoMultiPoint*)rhs;
-        for (auto& point : multi_point->points()) {
-            if (!_polygon.Contains(point)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_LINE_STRING: {
-        const GeoMultiLine* multi_line = (const GeoMultiLine*)rhs;
-        for (auto line : multi_line->lines()) {
-            if (!_polygon.Contains(line)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
-        for (auto polygon : multi_polygon->polygons()) {
-            if (!_polygon.Contains(polygon)) {
-                return false;
-            }
-        }
-        return true;
-    }
-#endif
     default:
         return false;
     }
@@ -387,50 +352,7 @@ bool GeoCircle::contains(const GeoShape* rhs) const {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
         return _cap->Contains(point->point());
-#if 0
-        if (_polygon->Contains(point->point())) {
-            return true;
-        }
-        return _polygon->MayIntersect(S2Cell(point->point()));
-#endif
     }
-#if 0
-    case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
-        return _polygon->Contains(*line->polyline());
-    }
-    case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* other = (const GeoPolygon*)rhs;
-        return _polygon->Contains(other->polygon());
-    }
-    case GEO_SHAPE_MULTI_POINT: {
-        const GeoMultiPoint* multi_point = (const GeoMultiPoint*)rhs;
-        for (auto& point : multi_point->points()) {
-            if (!_polygon.Contains(point)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_LINE_STRING: {
-        const GeoMultiLine* multi_line = (const GeoMultiLine*)rhs;
-        for (auto line : multi_line->lines()) {
-            if (!_polygon.Contains(line)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
-        for (auto polygon : multi_polygon->polygons()) {
-            if (!_polygon.Contains(polygon)) {
-                return false;
-            }
-        }
-        return true;
-    }
-#endif
     default:
         return false;
     }
@@ -455,63 +377,5 @@ std::string GeoCircle::as_wkt() const {
     ss << "), " << S2Earth::ToMeters(_cap->radius()) << ")";
     return ss.str();
 }
-
-#if 0
-
-template<typename T>
-bool GeoMultiPolygon::_contains(const T rhs) {
-    for (auto polygon : _polygons) {
-        if (polygon->Contains(point->point())) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool GeoMultiPolygon::contains(const GeoShape* rhs) {
-    switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
-        return _contains(point->point());
-    }
-    case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
-        return _contains(line->polyline());
-    }
-    case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
-        return _contains(line->polygon());
-    }
-    case GEO_SHAPE_MULTI_POINT: {
-        const GeoMultiPoint* multi_point = (const GeoMultiPoint*)rhs;
-        for (auto point : multi_point->points()) {
-            if (!_contains(point)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_LINE_STRING: {
-        const GeoMultiLine* multi_line = (const GeoMultiLine*)rhs;
-        for (auto line : multi_line->lines()) {
-            if (!_contains(line)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_POLYGON: {
-        const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
-        for (auto polygon : multi_polygon->polygons()) {
-            if (!_contains(polygon)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    }
-    return false;
-}
-#endif
 
 } // namespace doris

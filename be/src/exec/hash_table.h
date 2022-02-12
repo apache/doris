@@ -20,9 +20,9 @@
 
 #include <vector>
 
-#include "codegen/doris_ir.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -101,7 +101,7 @@ public:
 
     // Insert row into the hash table.  Row will be evaluated over _build_expr_ctxs
     // This will grow the hash table if necessary
-    void IR_ALWAYS_INLINE insert(TupleRow* row) {
+    void insert(TupleRow* row) {
         if (_num_filled_buckets > _num_buckets_till_resize) {
             // TODO: next prime instead of double?
             resize_buckets(_num_buckets * 2);
@@ -111,13 +111,13 @@ public:
     }
 
     // Insert row into the hash table. if the row is already exist will not insert
-    void IR_ALWAYS_INLINE insert_unique(TupleRow* row) {
+    void insert_unique(TupleRow* row) {
         if (find(row, false) == end()) {
             insert(row);
         }
     }
 
-    bool IR_ALWAYS_INLINE emplace_key(TupleRow* row, TupleRow** key_addr);
+    bool emplace_key(TupleRow* row, TupleRow** key_addr);
 
     // Returns the start iterator for all rows that match 'probe_row'.  'probe_row' is
     // evaluated with _probe_expr_ctxs.  The iterator can be iterated until HashTable::end()
@@ -128,7 +128,7 @@ public:
     // Advancing the returned iterator will go to the next matching row.  The matching
     // rows are evaluated lazily (i.e. computed as the Iterator is moved).
     // Returns HashTable::end() if there is no match.
-    Iterator IR_ALWAYS_INLINE find(TupleRow* probe_row, bool probe = true);
+    Iterator find(TupleRow* probe_row, bool probe = true);
 
     // Returns number of elements in the hash table
     int64_t size() { return _num_nodes; }
@@ -194,7 +194,7 @@ public:
         // from a Find, this will lazily evaluate that bucket, only returning
         // TupleRows that match the current scan row.
         template <bool check_match>
-        void IR_ALWAYS_INLINE next();
+        void next();
 
         // Returns the current row or nullptr if at end.
         TupleRow* get_row() {
@@ -300,10 +300,10 @@ private:
     Bucket* next_bucket(int64_t* bucket_idx);
 
     // Resize the hash table to 'num_buckets'
-    void resize_buckets(int64_t num_buckets);
+    Status resize_buckets(int64_t num_buckets);
 
     // Insert row into the hash table
-    void IR_ALWAYS_INLINE insert_impl(TupleRow* row);
+    void insert_impl(TupleRow* row);
 
     // Chains the node at 'node_idx' to 'bucket'.  Nodes in a bucket are chained
     // as a linked list; this places the new node at the beginning of the list.
@@ -323,16 +323,16 @@ private:
     // cross compiled because we need to be able to differentiate between EvalBuildRow
     // and EvalProbeRow by name and the _build_expr_ctxs/_probe_expr_ctxs are baked into
     // the codegen'd function.
-    bool IR_NO_INLINE eval_build_row(TupleRow* row) { return eval_row(row, _build_expr_ctxs); }
+    bool eval_build_row(TupleRow* row) { return eval_row(row, _build_expr_ctxs); }
 
     // Evaluate 'row' over _probe_expr_ctxs caching the results in '_expr_values_buffer'
     // This will be replaced by codegen.
-    bool IR_NO_INLINE eval_probe_row(TupleRow* row) { return eval_row(row, _probe_expr_ctxs); }
+    bool eval_probe_row(TupleRow* row) { return eval_row(row, _probe_expr_ctxs); }
 
     // Compute the hash of the values in _expr_values_buffer.
     // This will be replaced by codegen.  We don't want this inlined for replacing
     // with codegen'd functions so the function name does not change.
-    uint32_t IR_NO_INLINE hash_current_row() {
+    uint32_t hash_current_row() {
         if (_var_result_begin == -1) {
             // This handles NULLs implicitly since a constant seed value was put
             // into results buffer for nulls.
@@ -391,9 +391,6 @@ private:
     bool _exceeded_limit; // true if any of _mem_trackers[].limit_exceeded()
 
     std::shared_ptr<MemTracker> _mem_tracker;
-    // Set to true if the hash table exceeds the memory limit. If this is set,
-    // subsequent calls to Insert() will be ignored.
-    bool _mem_limit_exceeded;
 
     std::vector<Bucket> _buckets;
 

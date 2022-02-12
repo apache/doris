@@ -25,12 +25,6 @@
 namespace doris {
 
 CompoundPredicate::CompoundPredicate(const TExprNode& node) : Predicate(node) {}
-#if 0
-Status CompoundPredicate::prepare(RuntimeState* state, const RowDescriptor& desc) {
-    DCHECK_LE(_children.size(), 2);
-    return Expr::prepare(state, desc);
-}
-#endif
 
 void CompoundPredicate::init() {}
 

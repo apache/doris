@@ -57,7 +57,7 @@ TEST(AggTest, basic_test) {
     }
     ASSERT_EQ(ans, *(int32_t*)place);
     agg_function->destroy(place);
-    if(place) {
+    if (place) {
         free(place);
     }
 }
@@ -90,7 +90,9 @@ TEST(AggTest, topn_test) {
     }
 
     std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place)->get();
-    std::string expect_result="{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":46,\"10\":37}";
+    std::string expect_result =
+            "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
+            "46,\"10\":37}";
     ASSERT_EQ(result, expect_result);
     agg_function->destroy(place);
 }

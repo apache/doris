@@ -944,11 +944,6 @@ std::string AggFnEvaluator::debug_string(const std::vector<AggFnEvaluator*>& exp
 std::string AggFnEvaluator::debug_string() const {
     std::stringstream out;
     out << "AggFnEvaluator(op=" << _agg_op;
-#if 0
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        out << " " << _input_exprs[i]->debug_string() << ")";
-    }
-#endif
 
     out << ")";
     return out.str();
