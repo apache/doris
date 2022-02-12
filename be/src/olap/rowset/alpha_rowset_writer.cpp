@@ -252,7 +252,7 @@ OLAPStatus AlphaRowsetWriter::_init() {
         _cur_segment_group = new (std::nothrow) SegmentGroup(
                 _rowset_writer_context.tablet_id, _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema, _rowset_writer_context.path_desc.filepath,
-                false, _segment_group_id, true, _rowset_writer_context.partition_id,
+                false, _segment_group_id, 0, true, _rowset_writer_context.partition_id,
                 _rowset_writer_context.txn_id);
     } else {
         _cur_segment_group = new (std::nothrow) SegmentGroup(
