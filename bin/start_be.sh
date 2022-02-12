@@ -116,5 +116,6 @@ fi
 if [ ${RUN_DAEMON} -eq 1 ]; then
     nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
 else
-    $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null
+    export DORIS_LOG_TO_STDERR=1
+    env $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null
 fi
