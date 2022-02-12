@@ -24,19 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Spark UDF
+# Hive UDF
 
-Hive Bitmap UDF 提供了在 hive 表中生成 bitmap 等UDF，bitmap 与 doris bitmap 一致 ，可以通过 spark bitmap load 导入 doris
-
+ Hive Bitmap UDF 提供了在 hive 表中生成 bitmap 、bitmap 运算等 UDF，Hive 中的 bitmap 与 Doris bitmap 完全一致 ，Hive 中的 bitmap 可以通过 spark bitmap load 导入 doris
 
 ## 使用方法
 
 ### 在 Hive 中创建 Bitmap 类型表
 
 ```sql
-
-
-add jar file:///spark-udf-jar-with-dependencies.jar;
 
 -- 例子：创建 Hive Bitmap 表
 CREATE TABLE IF NOT EXISTS `hive_bitmap_table`(
@@ -70,7 +66,7 @@ create temporary function bitmap_union as 'org.apache.doris.udf.BitmapUnionUDAF'
 create temporary function bitmap_count as 'org.apache.doris.udf.BitmapCountUDF';
 create temporary function bitmap_and as 'org.apache.doris.udf.BitmapAndUDF';
 
--- 例子：生成 bitmap 写入 Hive Bitmap 表
+-- 例子：通过 to_bitmap 生成 bitmap 写入 Hive Bitmap 表
 insert into hive_bitmap_table
 select 
     k1,
@@ -84,12 +80,16 @@ group by
     k2,
     k3
 
--- 例子：计算 bitmap中 元素个数
-select bitmap_count(uuid) from hive_bitmap_table
+-- 例子：bitmap_count 计算 bitmap 中元素个数
+select k1,k2,k3,bitmap_count(uuid) from hive_bitmap_table
 
--- 例子：bitmap_union 聚合函数
-select bitmap_union(uuid) from hive_bitmap_table
+-- 例子：bitmap_union 用于计算分组后的 bitmap 并集
+select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ```
 
-### UDF 说明：
+### UDF 说明
+
+## Hive bitmap 导入 doris
+
+ 见 Spark Load 中 hive binary（bitmap）类型导入
