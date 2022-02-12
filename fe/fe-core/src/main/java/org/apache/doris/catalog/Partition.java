@@ -149,21 +149,19 @@ public class Partition extends MetaObject implements Writable {
      * If a partition is overwritten by a restore job, we need to reset all version info to
      * the restored partition version info》
      */
-    public void updateVersionForRestore(long visibleVersion, long visibleVersionHash) {
-        this.setVisibleVersion(visibleVersion, visibleVersionHash);
+    public void updateVersionForRestore(long visibleVersion) {
+        this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        this.nextVersionHash = Util.generateVersionHash();
-        this.committedVersionHash = visibleVersionHash;
-        LOG.info("update partition {} version for restore: visible: {}-{}, next: {}-{}",
-                name, visibleVersion, visibleVersionHash, nextVersion, nextVersionHash);
+        LOG.info("update partition {} version for restore: visible: {}, next: {}",
+                name, visibleVersion, nextVersion);
     }
 
-    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {
-        updateVisibleVersionAndVersionHash(visibleVersion, System.currentTimeMillis(), visibleVersionHash);
+    public void updateVisibleVersionAndVersionHash(long visibleVersion) {
+        updateVisibleVersionAndVersionHash(visibleVersion, System.currentTimeMillis());
     }
 
-    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionTime, long visibleVersionHash) {
-        this.setVisibleVersion(visibleVersion, visibleVersionTime, visibleVersionHash);
+    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionTime) {
+        this.setVisibleVersion(visibleVersion, visibleVersionTime);
         if (MetaContext.get() != null) {
             // MetaContext is not null means we are in a edit log replay thread.
             // if it is upgrade from old palo cluster, then should update next version info
@@ -195,16 +193,14 @@ public class Partition extends MetaObject implements Writable {
     }
     
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
-    private void setVisibleVersion(long visibleVersion, long visibleVersionHash) {
+    private void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = System.currentTimeMillis();
-        this.visibleVersionHash = visibleVersionHash;
     }
 
-    public void setVisibleVersion(long visibleVersion, long visibleVersionTime, long visibleVersionHash) {
+    public void setVisibleVersion(long visibleVersion, long visibleVersionTime) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = visibleVersionTime;
-        this.visibleVersionHash = visibleVersionHash;
     }
 
     public PartitionState getState() {

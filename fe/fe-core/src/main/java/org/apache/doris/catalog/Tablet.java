@@ -397,7 +397,7 @@ public class Tablet extends MetaObject implements Writable {
      */
     public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
-            long visibleVersion, long visibleVersionHash, ReplicaAllocation replicaAlloc,
+            long visibleVersion, ReplicaAllocation replicaAlloc,
             List<Long> aliveBeIdsInCluster) {
 
 

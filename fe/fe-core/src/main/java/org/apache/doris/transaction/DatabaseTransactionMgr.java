@@ -865,7 +865,6 @@ public class DatabaseTransactionMgr {
                                         // the latest version of data.
 
                                         replica.updateVersionInfo(partitionCommitInfo.getVersion(),
-                                                partitionCommitInfo.getVersionHash(),
                                                 replica.getDataSize(), replica.getRowCount());
                                         ++healthReplicaNum;
                                     } else {
@@ -874,9 +873,9 @@ public class DatabaseTransactionMgr {
                                         // A,B 's version is 10, C's version is 10 but C' 10 is abnormal should be rollback
                                         // then we will detect this and set C's last failed version to 10 and last success version to 11
                                         // this logic has to be replayed in checkpoint thread
-                                        replica.updateVersionInfo(replica.getVersion(), replica.getVersionHash(),
-                                                partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                                partitionCommitInfo.getVersion(), partitionCommitInfo.getVersionHash());
+                                        replica.updateVersionInfo(replica.getVersion(),
+                                                partition.getVisibleVersion(), 
+                                                partitionCommitInfo.getVersion());
                                         LOG.warn("transaction state {} has error, the replica [{}] not appeared in error replica list "
                                                 + " and its version not equal to partition commit version or commit version - 1"
                                                 + " if its not a upgrade stage, its a fatal error. ", transactionState, replica);
@@ -1562,7 +1561,7 @@ public class DatabaseTransactionMgr {
                                     lastFailedVersionHash = newCommitVersionHash;
                                 }
                             }
-                            replica.updateVersionInfo(newVersion, newVersionHash, lastFailedVersion, lastFailedVersionHash, lastSuccessVersion, lastSuccessVersionHash);
+                            replica.updateVersionWithFailedInfo(newVersion, lastFailedVersion, lastSuccessVersion);
                         }
                     }
                 } // end for indices

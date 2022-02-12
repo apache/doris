@@ -4715,12 +4715,10 @@ public class Catalog {
         }
 
         Replica replica = new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(),
-                info.getVersionHash(), schemaHash, info.getDataSize(), info.getRowCount(),
+                schemaHash, info.getDataSize(), info.getRowCount(),
                 ReplicaState.NORMAL,
                 info.getLastFailedVersion(),
-                info.getLastFailedVersionHash(),
-                info.getLastSuccessVersion(),
-                info.getLastSuccessVersionHash());
+                info.getLastSuccessVersion());
         tablet.addReplica(replica);
     }
 
@@ -4731,7 +4729,7 @@ public class Catalog {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
         Preconditions.checkNotNull(replica, info);
-        replica.updateVersionInfo(info.getVersion(), info.getVersionHash(), info.getDataSize(), info.getRowCount());
+        replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
         replica.setBad(false);
     }
 

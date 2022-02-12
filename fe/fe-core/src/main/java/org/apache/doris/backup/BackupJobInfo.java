@@ -516,7 +516,6 @@ public class BackupJobInfo implements Writable {
                     BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
                     partitionInfo.id = partition.getId();
                     partitionInfo.version = partition.getVisibleVersion();
-                    partitionInfo.versionHash = partition.getVisibleVersionHash();
                     tableInfo.partitions.put(partition.getName(), partitionInfo);
                     // indexes
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {

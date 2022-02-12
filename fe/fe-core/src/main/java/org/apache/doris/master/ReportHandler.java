@@ -491,17 +491,17 @@ public class ReportHandler extends Daemon {
                             // happens when
                             // 1. PUSH finished in BE but failed or not yet report to FE
                             // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
-                            replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
+                            replica.updateVersionInfo(backendVersion, dataSize, rowCount);
 
                             if (replica.getLastFailedVersion() < 0 && !isInitVersion) {
                                 // last failed version < 0 means this replica becomes health after sync,
                                 // so we write an edit log to sync this operation
                                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
                                         partitionId, indexId, tabletId, backendId, replica.getId(),
-                                        replica.getVersion(), replica.getVersionHash(), schemaHash,
+                                        replica.getVersion(), schemaHash,
                                         dataSize, rowCount,
-                                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
-                                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                                        replica.getLastFailedVersion(),
+                                        replica.getLastSuccessVersion());
                                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
                             }
 
@@ -873,21 +873,16 @@ public class ReportHandler extends Daemon {
                                     // this missing version is the last version of this replica
                                     replica.updateVersionInfoForRecovery(
                                             tTabletInfo.getVersion(), /* set version to BE report version */
-                                            -1, /* BE report version hash is meaningless here */
                                             replica.getVersion(), /* set LFV to current FE version */
-                                            replica.getVersionHash(), /* set LFV hash to current FE version hash */
-                                            tTabletInfo.getVersion(), /* set LSV to BE report version */
-                                            -1 /* LSV hash is unknown */);
+                                            tTabletInfo.getVersion() /* set LSV to BE report version */
+                                            );
                                 } else {
                                     // this missing version is a hole
                                     replica.updateVersionInfoForRecovery(
                                             tTabletInfo.getVersion(), /* set version to BE report version */
-                                            -1, /* BE report version hash is meaningless here */
                                             tTabletInfo.getVersion() + 1, /* LFV */
-                                            -1, /* LFV hash is unknown */
                                             /* remain LSV unchanged, which should be equal to replica.version */
-                                            replica.getLastSuccessVersion(),
-                                            replica.getLastSuccessVersionHash());
+                                            replica.getLastSuccessVersion());
                                 }
                                 // no need to write edit log, if FE crashed, this will be recovered again
                                 break;
@@ -940,7 +935,6 @@ public class ReportHandler extends Daemon {
 
         int schemaHash = backendTabletInfo.getSchemaHash();
         long version = backendTabletInfo.getVersion();
-        long versionHash = backendTabletInfo.getVersionHash();
         long dataSize = backendTabletInfo.getDataSize();
         long rowCount = backendTabletInfo.getRowCount();
 
@@ -965,12 +959,11 @@ public class ReportHandler extends Daemon {
             }
 
             long visibleVersion = partition.getVisibleVersion();
-            long visibleVersionHash = partition.getVisibleVersionHash();
 
             // check replica version
             if (version < visibleVersion) {
-                throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
-                        + ", visible[" + visibleVersion + "-" + visibleVersionHash + "]");
+                throw new MetaNotFoundException("version is invalid. tablet[" + version + "]"
+                        + ", visible[" + visibleVersion + "]");
             }
 
             // check schema hash
@@ -987,7 +980,7 @@ public class ReportHandler extends Daemon {
 
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
-                    db.getClusterName(), visibleVersion, visibleVersionHash,
+                    db.getClusterName(), visibleVersion,
                     replicaAlloc, aliveBeIdsInCluster);
 
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
@@ -1024,9 +1017,9 @@ public class ReportHandler extends Daemon {
                 // write edit log
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForAdd(dbId, tableId, partitionId, indexId,
                         tabletId, backendId, replicaId,
-                        version, versionHash, schemaHash, dataSize, rowCount,
-                        lastFailedVersion, lastFailedVersionHash,
-                        version, versionHash);
+                        version, schemaHash, dataSize, rowCount,
+                        lastFailedVersion,
+                        version);
 
                 Catalog.getCurrentCatalog().getEditLog().logAddReplica(info);
 

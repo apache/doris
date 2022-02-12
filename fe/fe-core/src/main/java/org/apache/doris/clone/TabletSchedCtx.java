@@ -890,7 +890,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         "replica does not exist. backend id: " + destBackendId);
             }
 
-            replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersionHash(),
+            replica.updateVersionInfo(reportedTablet.getVersion(),
                     reportedTablet.getDataSize(), reportedTablet.getRowCount());
             if (reportedTablet.isSetPathHash()) {
                 replica.setPathHash(reportedTablet.getPathHash());
@@ -910,14 +910,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tblId, partitionId, indexId,
                     tabletId, destBackendId, replica.getId(),
                     reportedTablet.getVersion(),
-                    reportedTablet.getVersionHash(),
                     reportedTablet.getSchemaHash(),
                     reportedTablet.getDataSize(),
                     reportedTablet.getRowCount(),
                     replica.getLastFailedVersion(),
-                    replica.getLastFailedVersionHash(),
-                    replica.getLastSuccessVersion(),
-                    replica.getLastSuccessVersionHash());
+                    replica.getLastSuccessVersion());
 
             if (replica.getState() == ReplicaState.CLONE) {
                 replica.setState(ReplicaState.NORMAL);
