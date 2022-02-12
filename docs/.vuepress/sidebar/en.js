@@ -475,7 +475,10 @@ module.exports = [
           {
             title: "Math Functions",
             directoryPath: "math-functions/",
-            children: ["conv"],
+            children: [
+              "conv",
+              "pmod"
+            ],
           },
           {
             title: "table functions",
