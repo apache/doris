@@ -132,7 +132,8 @@ void FunctionContextImpl::set_constant_args(const std::vector<doris_udf::AnyVal*
     _constant_args = constant_args;
 }
 
-void FunctionContextImpl::set_constant_cols(const std::vector<doris::ColumnPtrWrapper*>& constant_cols) {
+void FunctionContextImpl::set_constant_cols(
+        const std::vector<doris::ColumnPtrWrapper*>& constant_cols) {
     _constant_cols = constant_cols;
 }
 
@@ -507,4 +508,58 @@ void HllVal::agg_merge(const HllVal& other) {
     }
 }
 
+bool FunctionContext::is_arg_constant(int i) const {
+    if (i < 0 || i >= _impl->_constant_args.size()) {
+        return false;
+    }
+    return _impl->_constant_args[i] != nullptr;
+}
+
+bool FunctionContext::is_col_constant(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return false;
+    }
+    return _impl->_constant_cols[i] != nullptr;
+}
+
+AnyVal* FunctionContext::get_constant_arg(int i) const {
+    if (i < 0 || i >= _impl->_constant_args.size()) {
+        return nullptr;
+    }
+    return _impl->_constant_args[i];
+}
+
+doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return nullptr;
+    }
+    return _impl->_constant_cols[i];
+}
+
+int FunctionContext::get_num_args() const {
+    return _impl->_arg_types.size();
+}
+
+int FunctionContext::get_num_constant_args() const {
+    return _impl->_constant_args.size();
+}
+
+const FunctionContext::TypeDesc& FunctionContext::get_return_type() const {
+    return _impl->_return_type;
+}
+
+void* FunctionContext::get_function_state(FunctionStateScope scope) const {
+    // assert(!_impl->_closed);
+    switch (scope) {
+    case THREAD_LOCAL:
+        return _impl->_thread_local_fn_state;
+        break;
+    case FRAGMENT_LOCAL:
+        return _impl->_fragment_local_fn_state;
+        break;
+    default:
+        // TODO: signal error somehow
+        return nullptr;
+    }
+}
 } // namespace doris_udf

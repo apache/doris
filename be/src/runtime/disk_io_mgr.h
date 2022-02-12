@@ -27,7 +27,6 @@
 
 #include "common/atomic.h"
 #include "common/config.h"
-#include "common/hdfs.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/mem_tracker.h"

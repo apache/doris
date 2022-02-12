@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
     aggregation_node.cpp
-    aggregation_node_ir.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
@@ -40,7 +39,6 @@ set(EXEC_FILES
     exec_node.cpp
     exchange_node.cpp
     hash_join_node.cpp
-    hash_join_node_ir.cpp
     hash_table.cpp
     local_file_reader.cpp
     merge_node.cpp
@@ -70,7 +68,6 @@ set(EXEC_FILES
     es/es_query_builder.cpp
     spill_sort_node.cc
     union_node.cpp
-    union_node_ir.cpp
     set_operation_node.cpp
     intersect_node.cpp
     except_node.cpp
@@ -94,9 +91,7 @@ set(EXEC_FILES
     schema_scanner/schema_partitions_scanner.cpp
 
     partitioned_hash_table.cc
-    partitioned_hash_table_ir.cc
     partitioned_aggregation_node.cc
-    partitioned_aggregation_node_ir.cc
     odbc_scan_node.cpp
     local_file_writer.cpp
     broker_writer.cpp
