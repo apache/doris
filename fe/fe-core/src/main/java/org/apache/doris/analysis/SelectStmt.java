@@ -447,7 +447,7 @@ public class SelectStmt extends QueryStmt {
                     }
                 }
             }
-            groupingInfo = new GroupingInfo(analyzer, groupByClause.getGroupingType());
+            groupingInfo = new GroupingInfo(analyzer, groupByClause);
             groupingInfo.substituteGroupingFn(resultExprs, analyzer);
         } else {
             for (Expr expr : resultExprs) {
@@ -1881,4 +1881,3 @@ public class SelectStmt extends QueryStmt {
         return this.id.equals(((SelectStmt) obj).id);
     }
 }
-
