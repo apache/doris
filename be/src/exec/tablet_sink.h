@@ -288,13 +288,13 @@ public:
 
     void add_row(BlockRow& block_row, int64_t tablet_id);
 
-    void for_each_node_channel(const std::function<void(NodeChannel*)>& func) {
+    void for_each_node_channel(const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
         for (auto& it : _node_channels) {
-            func(it.second.get());
+            func(it.second);
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id = -1);
+    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err, int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
     // set error tablet info in runtime state, so that it can be returned to FE.

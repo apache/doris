@@ -185,7 +185,7 @@ Status NodeChannel::open_wait() {
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this](bool is_last_rpc) {
         // If rpc failed, mark all tablets on this node channel as failed
-        _index_channel->mark_as_failed(this, _add_batch_closure->cntl.ErrorText(), -1);
+        _index_channel->mark_as_failed(this->node_id(), this->host(), _add_batch_closure->cntl.ErrorText(), -1);
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
             _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
@@ -202,7 +202,7 @@ Status NodeChannel::open_wait() {
         if (status.ok()) {
             // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {
-                _index_channel->mark_as_failed(this, error.msg(), error.tablet_id());
+                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(), error.tablet_id());
             }
 
             Status st = _index_channel->check_intolerable_failure();
@@ -577,7 +577,7 @@ void IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel.get(), st.get_error_msg(), tablet_id);
+            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
             // continue add row to other node, the error will be checked for every batch outside
         }
     }
@@ -592,14 +592,14 @@ void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(block_row, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel.get(), st.get_error_msg(), tablet_id);
+            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
         }
     }
 }
 
-void IndexChannel::mark_as_failed(const NodeChannel* ch, const std::string& err,
+void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
-    const auto& it = _tablets_by_channel.find(ch->node_id());
+    const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
     }
@@ -608,16 +608,16 @@ void IndexChannel::mark_as_failed(const NodeChannel* ch, const std::string& err,
         std::lock_guard<SpinLock> l(_fail_lock);
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
-                _failed_channels[the_tablet_id].insert(ch->node_id());
-                _failed_channels_msgs.emplace(the_tablet_id, err + ", host: " + ch->host());
+                _failed_channels[the_tablet_id].insert(node_id);
+                _failed_channels_msgs.emplace(the_tablet_id, err + ", host: " + host);
                 if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
                     _intolerable_failure_status =
                             Status::InternalError(_failed_channels_msgs[the_tablet_id]);
                 }
             }
         } else {
-            _failed_channels[tablet_id].insert(ch->node_id());
-            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + ch->host());
+            _failed_channels[tablet_id].insert(node_id);
+            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + host);
             if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
                 _intolerable_failure_status =
                         Status::InternalError(_failed_channels_msgs[tablet_id]);
@@ -661,7 +661,7 @@ OlapTableSink::~OlapTableSink() {
     // OlapTableSink::_mem_tracker and its parents.
     // But their destructions are after OlapTableSink's.
     for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([](NodeChannel* ch) { ch->clear_all_batches(); });
+        index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->clear_all_batches(); });
     }
 }
 
@@ -815,17 +815,17 @@ Status OlapTableSink::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
 
     for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([](NodeChannel* ch) { ch->open(); });
+        index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->open(); });
     }
 
     for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([&index_channel](NodeChannel* ch) {
+        index_channel->for_each_node_channel([&index_channel](const std::shared_ptr<NodeChannel>& ch) {
             auto st = ch->open_wait();
             if (!st.ok()) {
                 // The open() phase is mainly to generate DeltaWriter instances on the nodes corresponding to each node channel.
                 // This phase will not fail due to a single tablet.
                 // Therefore, if the open() phase fails, all tablets corresponding to the node need to be marked as failed.
-                index_channel->mark_as_failed(ch,
+                index_channel->mark_as_failed(ch->node_id(), ch->host(),
                                               fmt::format("{}, open failed, err: {}",
                                                           ch->channel_info(), st.get_error_msg()),
                                               -1);
@@ -941,7 +941,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
-                index_channel->for_each_node_channel([](NodeChannel* ch) { ch->mark_close(); });
+                index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->mark_close(); });
                 num_node_channels += index_channel->num_node_channels();
             }
 
@@ -951,10 +951,10 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                         [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
                          &mem_exceeded_block_ns, &queue_push_lock_ns, &actual_consume_ns,
                          &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                         &total_add_batch_num](NodeChannel* ch) {
+                         &total_add_batch_num](const std::shared_ptr<NodeChannel>& ch) {
                             auto s = ch->close_wait(state);
                             if (!s.ok()) {
-                                index_channel->mark_as_failed(ch, s.get_error_msg(), -1);
+                                index_channel->mark_as_failed(ch->node_id(), ch->host(), s.get_error_msg(), -1);
                                 LOG(WARNING)
                                         << ch->channel_info()
                                         << ", close channel failed, err: " << s.get_error_msg();
@@ -1013,7 +1013,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     } else {
         for (auto channel : _channels) {
             channel->for_each_node_channel(
-                    [&status](NodeChannel* ch) { ch->cancel(status.get_error_msg()); });
+                    [&status](const std::shared_ptr<NodeChannel>& ch) { ch->cancel(status.get_error_msg()); });
         }
     }
 
@@ -1214,7 +1214,7 @@ void OlapTableSink::_send_batch_process() {
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this](NodeChannel* ch) {
+            index_channel->for_each_node_channel([&running_channels_num, this](const std::shared_ptr<NodeChannel>& ch) {
                 running_channels_num +=
                         ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
             });
