@@ -883,8 +883,8 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             continue;
         }
         const OlapTablePartition* partition = nullptr;
-        uint32_t dist_hash = 0;
-        if (!_partition->find_tablet(tuple, &partition, &dist_hash)) {
+        uint32_t tablet_index = 0;
+        if (!_partition->find_tablet(tuple, &partition, &tablet_index)) {
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
@@ -901,7 +901,6 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             continue;
         }
         _partition_ids.emplace(partition->id);
-        uint32_t tablet_index = dist_hash % partition->num_buckets;
         for (int j = 0; j < partition->indexes.size(); ++j) {
             int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
             _channels[j]->add_row(tuple, tablet_id);

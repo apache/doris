@@ -101,9 +101,9 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
             continue;
         }
         const VOlapTablePartition* partition = nullptr;
-        uint32_t dist_hash = 0;
+        uint32_t tablet_index = 0;
         block_row = {&block, i};
-        if (!_vpartition->find_tablet(&block_row, &partition, &dist_hash)) {
+        if (!_vpartition->find_tablet(&block_row, &partition, &tablet_index)) {
             RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
                     [&]() -> std::string {
                     fmt::memory_buffer buf;
@@ -117,7 +117,6 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
             continue;
         }
         _partition_ids.emplace(partition->id);
-        uint32_t tablet_index = dist_hash % partition->num_buckets;
         for (int j = 0; j < partition->indexes.size(); ++j) {
             int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
             _channels[j]->add_row(block_row, tablet_id);

@@ -189,7 +189,7 @@ public class OlapTableSink extends DataSink {
         return schemaParam;
     }
 
-    private List<String> getDistColumns(DistributionInfo distInfo, OlapTable table) throws UserException {
+    private List<String> getDistColumns(DistributionInfo distInfo) throws UserException {
         List<String> distColumns = Lists.newArrayList();
         switch (distInfo.getType()) {
             case HASH: {
@@ -200,11 +200,7 @@ public class OlapTableSink extends DataSink {
                 break;
             }
             case RANDOM: {
-                for (Column column : table.getBaseSchema()) {
-                    if (column.isKey()) {
-                        distColumns.add(column.getName());
-                    }
-                }
+                // RandomDistributionInfo doesn't have distributedColumns
                 break;
             }
             default:
@@ -247,7 +243,7 @@ public class OlapTableSink extends DataSink {
 
                     DistributionInfo distInfo = partition.getDistributionInfo();
                     if (selectedDistInfo == null) {
-                        partitionParam.setDistributedColumns(getDistColumns(distInfo, table));
+                        partitionParam.setDistributedColumns(getDistColumns(distInfo));
                         selectedDistInfo = distInfo;
                     } else {
                         if (selectedDistInfo.getType() != distInfo.getType()) {
@@ -275,7 +271,7 @@ public class OlapTableSink extends DataSink {
                 }
                 partitionParam.addToPartitions(tPartition);
                 partitionParam.setDistributedColumns(
-                        getDistColumns(partition.getDistributionInfo(), table));
+                        getDistColumns(partition.getDistributionInfo()));
                 break;
             }
             default: {
