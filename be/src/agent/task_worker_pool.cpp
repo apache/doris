@@ -383,7 +383,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.tablet_id = tablet->table_id();
             tablet_info.schema_hash = tablet->schema_hash();
             tablet_info.version = create_tablet_req.version;
-            // Useless but it is a required field i TTabletInfo
+            // Useless but it is a required field in TTabletInfo
             tablet_info.version_hash = 0;
             tablet_info.row_count = 0;
             tablet_info.data_size = 0;
