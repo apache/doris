@@ -21,7 +21,6 @@
 #include <cstring>
 #include <vector>
 
-#include "codegen/doris_ir.h"
 #include "common/logging.h"
 #include "runtime/buffered_block_mgr2.h" // for BufferedBlockMgr2::Block
 #include "runtime/bufferpool/buffer_pool.h"
@@ -41,7 +40,6 @@ class Tuple;
 class TupleRow;
 class TupleDescriptor;
 class PRowBatch;
-
 
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller
@@ -203,10 +201,10 @@ public:
         }
 
         /// Return the current row pointed to by the row pointer.
-        TupleRow* IR_ALWAYS_INLINE get() { return reinterpret_cast<TupleRow*>(_row); }
+        TupleRow* get() { return reinterpret_cast<TupleRow*>(_row); }
 
         /// Increment the row pointer and return the next row.
-        TupleRow* IR_ALWAYS_INLINE next() {
+        TupleRow* next() {
             _row += _num_tuples_per_row;
             DCHECK_LE((_row - _parent->_tuple_ptrs) / _num_tuples_per_row, _parent->_capacity);
             return get();
@@ -215,7 +213,7 @@ public:
         /// Returns true if the iterator is beyond the last row for read iterators.
         /// Useful for read iterators to determine the limit. Write iterators should use
         /// RowBatch::AtCapacity() instead.
-        bool IR_ALWAYS_INLINE at_end() const { return _row >= _row_batch_end; }
+        bool at_end() const { return _row >= _row_batch_end; }
 
         /// Returns the row batch which this iterator is iterating through.
         RowBatch* parent() const { return _parent; }
@@ -403,10 +401,10 @@ private:
 
     // All members need to be handled in RowBatch::swap()
 
-    bool _has_in_flight_row;       // if true, last row hasn't been committed yet
-    int _num_rows;                 // # of committed rows
-    int _num_uncommitted_rows;     // # of uncommited rows in row batch mem pool
-    int _capacity;                 // maximum # of rows
+    bool _has_in_flight_row;   // if true, last row hasn't been committed yet
+    int _num_rows;             // # of committed rows
+    int _num_uncommitted_rows; // # of uncommited rows in row batch mem pool
+    int _capacity;             // maximum # of rows
 
     /// If FLUSH_RESOURCES, the resources attached to this batch should be freed or
     /// acquired by a new owner as soon as possible. See MarkFlushResources(). If

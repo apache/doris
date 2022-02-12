@@ -28,13 +28,6 @@ public:
     // Do nothing, just get its symbols
     static void init();
 
-#if 0
-    static BigIntVal factorial_tiny_int_val(FunctionContext*, const TinyIntVal&);
-    static BigIntVal factorial_small_int_val(FunctionContext*, const SmallIntVal&);
-    static BigIntVal factorial_int_val(FunctionContext*, const IntVal&);
-    static BigIntVal factorial_big_int_val(FunctionContext*, const BigIntVal&);
-#endif
-
     // Bit operator
     static TinyIntVal bitnot_tiny_int_val(FunctionContext*, const TinyIntVal&);
     static SmallIntVal bitnot_small_int_val(FunctionContext*, const SmallIntVal&);

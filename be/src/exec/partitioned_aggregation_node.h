@@ -551,7 +551,7 @@ private:
     /// This function is replaced by codegen. We pass in ht_ctx_.get() as an argument for
     /// performance.
     template <bool AGGREGATED_ROWS>
-    Status IR_ALWAYS_INLINE ProcessBatch(RowBatch* batch, PartitionedHashTableCtx* ht_ctx);
+    Status ProcessBatch(RowBatch* batch, PartitionedHashTableCtx* ht_ctx);
 
     /// Evaluates the rows in 'batch' starting at 'start_row_idx' and stores the results in
     /// the expression values cache in 'ht_ctx'. The number of rows evaluated depends on
@@ -566,7 +566,7 @@ private:
     /// ProcessBatch for codegen to substitute function calls with codegen'd versions.
     /// May spill partitions if not enough memory is available.
     template <bool AGGREGATED_ROWS>
-    Status IR_ALWAYS_INLINE ProcessRow(TupleRow* row, PartitionedHashTableCtx* ht_ctx);
+    Status ProcessRow(TupleRow* row, PartitionedHashTableCtx* ht_ctx);
 
     /// Create a new intermediate tuple in partition, initialized with row. ht_ctx is
     /// the context for the partition's hash table and hash is the precomputed hash of
@@ -576,14 +576,14 @@ private:
     /// to substitute function calls with codegen'd versions.  insert_it is an iterator
     /// for insertion returned from PartitionedHashTable::FindBuildRowBucket().
     template <bool AGGREGATED_ROWS>
-    Status IR_ALWAYS_INLINE AddIntermediateTuple(Partition* partition, TupleRow* row, uint32_t hash,
-                                                 PartitionedHashTable::Iterator insert_it);
+    Status AddIntermediateTuple(Partition* partition, TupleRow* row, uint32_t hash,
+                                PartitionedHashTable::Iterator insert_it);
 
     /// Append a row to a spilled partition. May spill partitions if needed to switch to
     /// I/O buffers. Selects the correct stream according to the argument. Inlined into
     /// ProcessBatch().
     template <bool AGGREGATED_ROWS>
-    Status IR_ALWAYS_INLINE AppendSpilledRow(Partition* partition, TupleRow* row);
+    Status AppendSpilledRow(Partition* partition, TupleRow* row);
 
     /// Reads all the rows from input_stream and process them by calling ProcessBatch().
     template <bool AGGREGATED_ROWS>
@@ -630,9 +630,9 @@ private:
     /// keeps track of how many more entries can be added to the hash table so we can avoid
     /// retrying inserts. It is decremented if an insert succeeds and set to zero if an
     /// insert fails. If an error occurs, returns false and sets 'status'.
-    bool IR_ALWAYS_INLINE TryAddToHashTable(PartitionedHashTableCtx* ht_ctx, Partition* partition,
-                                            PartitionedHashTable* hash_tbl, TupleRow* in_row,
-                                            uint32_t hash, int* remaining_capacity, Status* status);
+    bool TryAddToHashTable(PartitionedHashTableCtx* ht_ctx, Partition* partition,
+                           PartitionedHashTable* hash_tbl, TupleRow* in_row, uint32_t hash,
+                           int* remaining_capacity, Status* status);
 
     /// Initializes hash_partitions_. 'level' is the level for the partitions to create.
     /// If 'single_partition_idx' is provided, it must be a number in range

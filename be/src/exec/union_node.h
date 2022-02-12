@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "codegen/doris_ir.h"
 #include "exec/exec_node.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
