@@ -243,7 +243,7 @@ public class BackupJob extends AbstractJob {
 
         taskProgress.remove(task.getSignature());
         Long oldValue = unfinishedTaskIds.remove(task.getSignature());
-        taskErrMsg.remove(task.getTabletId());
+        taskErrMsg.remove(task.getSignature());
         LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
                 unfinishedTaskIds.size(), (oldValue != null), this);
         return oldValue != null;
