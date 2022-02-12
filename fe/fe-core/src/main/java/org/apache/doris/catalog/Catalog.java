@@ -293,8 +293,6 @@ import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
-import scala.reflect.internal.Trees.New;
-
 import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
