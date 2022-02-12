@@ -40,13 +40,13 @@ Copy gensrc/proto/function_service.proto and gensrc/proto/types.proto to Rpc ser
     - args：The parameters passed by the method
     - context：Querying context Information
   - PFunctionCallResponse
-    - result：result
-    - status：status, 0 indicates normal
+    - result：Return result
+    - status：Return Status, 0 indicates normal
   - PCheckFunctionRequest
     - function：Function related information
     - match_type：Matching type
   - PCheckFunctionResponse
-    - status：status, 0 indicates normal
+    - status：Return status, 0 indicates normal
 
 ### Generated interface
 

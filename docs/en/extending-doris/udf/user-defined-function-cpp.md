@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# User Define Function Native
+# User Define Function
 UDF is mainly suitable for scenarios where the analytical capabilities that users need do not possess. Users can implement custom functions according to their own needs, and register with Doris through the UDF framework to expand Doris' capabilities and solve user analysis needs.
 
 There are two types of analysis requirements that UDF can meet: UDF and UDAF. UDF in this article refers to both.
