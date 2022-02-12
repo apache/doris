@@ -22,7 +22,7 @@ import com.alibaba.fastjson.JSONArray;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.demo.spark.util.DorisStreamLoad;
 import org.apache.doris.demo.spark.vo.TestVo;
-import scala.Function1;
+import scala.runtime.AbstractFunction1;
 import scala.collection.AbstractIterator;
 
 import java.io.Serializable;
@@ -32,7 +32,7 @@ import java.util.Map;
 
 
 @Slf4j
-public class MyForeachPartitionFunction implements Function1, Serializable {
+public class MyForeachPartitionFunction extends AbstractFunction1 implements Serializable {
     DorisStreamLoad dorisStreamLoad;
 
     public MyForeachPartitionFunction(Map<String, Object> parameters) {
