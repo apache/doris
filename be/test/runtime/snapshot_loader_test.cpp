@@ -76,13 +76,6 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
     ASSERT_EQ(0, files.size());
     std::filesystem::remove_all("./ss_test/");
 
-    std::string snapshot_file;
-    std::string tablet_file;
-    loader._assemble_file_name("/snapshot/path", "/tablet/path", 1234, 2, 5, 12345, 1, ".dat",
-                               &snapshot_file, &tablet_file);
-    ASSERT_EQ("/snapshot/path/1234_2_5_12345_1.dat", snapshot_file);
-    ASSERT_EQ("/tablet/path/1234_2_5_12345_1.dat", tablet_file);
-
     std::string new_name;
     st = loader._replace_tablet_id("12345.hdr", 5678, &new_name);
     ASSERT_TRUE(st.ok());

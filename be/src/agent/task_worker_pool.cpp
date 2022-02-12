@@ -383,7 +383,8 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.tablet_id = tablet->table_id();
             tablet_info.schema_hash = tablet->schema_hash();
             tablet_info.version = create_tablet_req.version;
-            tablet_info.version_hash = create_tablet_req.version_hash;
+            // Useless but it is a required field i TTabletInfo
+            tablet_info.version_hash = 0;
             tablet_info.row_count = 0;
             tablet_info.data_size = 0;
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
@@ -662,7 +663,6 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         finish_task_request.__set_signature(agent_task_req.signature);
         if (push_req.push_type == TPushType::DELETE) {
             finish_task_request.__set_request_version(push_req.version);
-            finish_task_request.__set_request_version_hash(push_req.version_hash);
         }
 
         if (status == DORIS_SUCCESS) {
@@ -1074,7 +1074,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         uint32_t checksum = 0;
         EngineChecksumTask engine_task(
                 check_consistency_req.tablet_id, check_consistency_req.schema_hash,
-                check_consistency_req.version, check_consistency_req.version_hash, &checksum);
+                check_consistency_req.version, &checksum);
         OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "check consistency failed. status: " << res
@@ -1095,7 +1095,6 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         finish_task_request.__set_task_status(task_status);
         finish_task_request.__set_tablet_checksum(static_cast<int64_t>(checksum));
         finish_task_request.__set_request_version(check_consistency_req.version);
-        finish_task_request.__set_request_version_hash(check_consistency_req.version_hash);
 
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
@@ -1404,7 +1403,6 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
             LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                          << ", schema_hash:" << snapshot_request.schema_hash
                          << ", version:" << snapshot_request.version
-                         << ", version_hash:" << snapshot_request.version_hash
                          << ", status: " << make_snapshot_status;
             error_msgs.push_back("make_snapshot failed. status: " +
                                  boost::lexical_cast<string>(make_snapshot_status));
@@ -1412,7 +1410,6 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
             LOG(INFO) << "make_snapshot success. tablet_id:" << snapshot_request.tablet_id
                       << ", schema_hash:" << snapshot_request.schema_hash
                       << ", version:" << snapshot_request.version
-                      << ", version_hash:" << snapshot_request.version_hash
                       << ", snapshot_path:" << snapshot_path;
             if (snapshot_request.__isset.list_files) {
                 // list and save all snapshot files
@@ -1427,7 +1424,6 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
                     LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                                  << ", schema_hash:" << snapshot_request.schema_hash
                                  << ", version:" << snapshot_request.version
-                                 << ", version_hash:" << snapshot_request.version_hash
                                  << ",list file failed: " << st.get_error_msg();
                     error_msgs.push_back("make_snapshot failed. list file failed: " +
                                          st.get_error_msg());

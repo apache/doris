@@ -80,7 +80,7 @@ protected:
     void do_close() override {}
 
     // add custom logic when rowset is published
-    void make_visible_extra(Version version, VersionHash version_hash) override;
+    void make_visible_extra(Version version) override;
 
 private:
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();

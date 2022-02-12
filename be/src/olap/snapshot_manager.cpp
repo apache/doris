@@ -219,7 +219,6 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.tablet_schema = &tablet_schema;
     context.rowset_state = org_rowset_meta->rowset_state();
     context.version = org_rowset_meta->version();
-    context.version_hash = org_rowset_meta->version_hash();
     // keep segments_overlap same as origin rowset
     context.segments_overlap = alpha_rowset_meta->segments_overlap();
 

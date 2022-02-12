@@ -32,7 +32,7 @@ public:
 
 public:
     EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version,
-                       TVersionHash version_hash, uint32_t* checksum);
+                       uint32_t* checksum);
 
     ~EngineChecksumTask() {}
 
@@ -43,7 +43,6 @@ private:
     TTabletId _tablet_id;
     TSchemaHash _schema_hash;
     TVersion _version;
-    TVersionHash _version_hash;
     uint32_t* _checksum;
 }; // EngineTask
 

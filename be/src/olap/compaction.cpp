@@ -80,7 +80,6 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
-    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
@@ -163,7 +162,6 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
     context.version = _output_version;
-    context.version_hash = _output_version_hash;
     context.segments_overlap = NONOVERLAPPING;
     context.parent_mem_tracker = _writer_tracker;
     // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
