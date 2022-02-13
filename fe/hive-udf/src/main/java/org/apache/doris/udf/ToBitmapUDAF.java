@@ -22,8 +22,6 @@ import org.apache.doris.common.io.BitmapValue;
 import org.apache.hadoop.hive.ql.udf.generic.AbstractGenericUDAFResolver;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentTypeException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -33,7 +31,6 @@ import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorUtils;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
-import org.apache.hadoop.util.StringUtils;
 
 import java.io.IOException;
 
@@ -43,8 +40,6 @@ import java.io.IOException;
  */
 @Description(name = "to_bitmap", value = "_FUNC_(expr) - Returns an doris bitmap representation of a column.")
 public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
-
-    static final Logger LOG = LoggerFactory.getLogger(ToBitmapUDAF.class.getName());
 
     @Override
     public GenericUDAFEvaluator getEvaluator(TypeInfo[] parameters)
@@ -107,10 +102,10 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
             if (p != null) {
                 BitmapAgg myagg = (BitmapAgg) agg;
                 try {
-                    int row = PrimitiveObjectInspectorUtils.getInt(p, inputOI);
+                    long row = PrimitiveObjectInspectorUtils.getLong(p, inputOI);
                     addBitmap(row, myagg);
                 } catch (NumberFormatException e) {
-                    LOG.warn(getClass().getSimpleName() + " " + StringUtils.stringifyException(e));
+                    throw new HiveException(e);
                 }
             }
         }
@@ -141,7 +136,7 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
             return terminate(agg);
         }
 
-        private void addBitmap(int newRow, BitmapAgg myagg) {
+        private void addBitmap(long newRow, BitmapAgg myagg) {
             myagg.bitmap.add(newRow);
         }
     }
