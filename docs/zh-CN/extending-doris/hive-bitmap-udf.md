@@ -31,7 +31,7 @@ under the License.
  主要目的：
   1. 减少数据导入 doris 时间 , 除去了构建字典、bitmap 预聚合等流程；
   2. 节省 hive 存储 ，使用 bitmap 对数据压缩 ，减少了存储成本；
-  3. 提供在 hive 中 bitmap 的灵活运算 ，比如：用户留存、流失等人群 ，计算后的 bitmap 也可以直接导入 doris；
+  3. 提供在 hive 中 bitmap 的灵活运算 ，比如：交集、并集、差集运算 ，计算后的 bitmap 也可以直接导入 doris；
 
 ## 使用方法
 
@@ -56,11 +56,13 @@ CREATE TABLE IF NOT EXISTS `hive_table`(
 ) comment  'comment'
 ```
 
-### UDF 使用：
+### Hive Bitmap UDF 使用：
+
+ Hive Bitmap UDF 需要在 Hive/Spark 中使用
 
 ```sql
 
--- 加载hive bitmap udf jar包
+-- 加载hive bitmap udf jar包  (需要将编译好的 hive-udf jar 包上传至 HDFS)
 add jar hdfs://node:9001/hive-udf-jar-with-dependencies.jar;
 
 -- 创建UDAF函数
@@ -95,8 +97,8 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ```
 
-### UDF 说明
+###  Hive Bitmap UDF  说明
 
 ## Hive bitmap 导入 doris
 
- 详见: 数据导入 -> Spark Load -> 创建导入 (示例3：上游数据源是hive binary类型情况)
+ 详见: 数据导入 -> Spark Load -> 基本操作  -> 创建导入 (示例3：上游数据源是hive binary类型情况)
