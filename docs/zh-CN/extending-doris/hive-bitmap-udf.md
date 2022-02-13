@@ -27,6 +27,11 @@ under the License.
 # Hive UDF
 
  Hive Bitmap UDF 提供了在 hive 表中生成 bitmap 、bitmap 运算等 UDF，Hive 中的 bitmap 与 Doris bitmap 完全一致 ，Hive 中的 bitmap 可以通过 spark bitmap load 导入 doris
+ 
+ 主要目的：
+  1. 减少数据导入 doris 时间 , 除去了构建字典、bitmap 预聚合等流程；
+  2. 节省 hive 存储 ，使用 bitmap 对数据压缩 ，减少了存储成本；
+  3. 提供在 hive 中 bitmap 的灵活运算 ，比如：用户留存、流失等人群 ，计算后的 bitmap 也可以直接导入 doris；
 
 ## 使用方法
 
@@ -65,6 +70,8 @@ create temporary function bitmap_union as 'org.apache.doris.udf.BitmapUnionUDAF'
 -- 创建UDF函数
 create temporary function bitmap_count as 'org.apache.doris.udf.BitmapCountUDF';
 create temporary function bitmap_and as 'org.apache.doris.udf.BitmapAndUDF';
+create temporary function bitmap_or as 'org.apache.doris.udf.BitmapOrUDF';
+create temporary function bitmap_xor as 'org.apache.doris.udf.BitmapXorUDF';
 
 -- 例子：通过 to_bitmap 生成 bitmap 写入 Hive Bitmap 表
 insert into hive_bitmap_table
@@ -92,4 +99,4 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ## Hive bitmap 导入 doris
 
- 见 Spark Load 中 hive binary（bitmap）类型导入
+ 详见: 数据导入 -> Spark Load -> 创建导入 (示例3：上游数据源是hive binary类型情况)
