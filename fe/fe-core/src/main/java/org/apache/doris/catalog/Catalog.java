@@ -1828,7 +1828,7 @@ public class Catalog {
             size = dis.readInt();
             newChecksum ^= size;
             if (size > 0) {
-                throw new IOException("There are [" + size + "] old finished or cancelled alter jobs, should not happen");
+                throw new IOException("There are [" + size + "] old finished or cancelled alter jobs. Please downgrade FE to an older version and handle residual jobs");
             }
         }
 
