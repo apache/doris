@@ -29,7 +29,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectIn
 
 import java.io.IOException;
 
-@Description(name = "bitmap_count", value = "a _FUNC_ b - Compute intersection of two or more input bitmaps, return the new bitmap")
+@Description(name = "bitmap_count", value = "a _FUNC_ b - Returns the number of distinct integers added to the bitmap (e.g., number of bits set)")
 public class BitmapCountUDF extends GenericUDF {
 
     private transient BinaryObjectInspector inputOI;
@@ -59,7 +59,7 @@ public class BitmapCountUDF extends GenericUDF {
             return bitmapValue.cardinality();
         }catch (IOException ioException){
             ioException.printStackTrace();
-            throw new RuntimeException(ioException);
+            throw new HiveException(ioException);
         }
     }
 
