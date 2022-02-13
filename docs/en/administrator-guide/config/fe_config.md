@@ -171,16 +171,6 @@ Default：false
 
 If set to true, FE will be started in BDBJE debug mode
 
-### enable_fe_heartbeat_by_thrift
-
-Default：false
-
-IsMutable：true
-
-MasterOnly：true
-
-This config is used to solve fe heartbeat response read_timeout problem,  When config is set to be true, master will get fe heartbeat response by thrift protocol  instead of http protocol. In order to maintain compatibility with the old version,  the default is false, and the configuration cannot be changed to true until all fe are upgraded.
-
 ### enable_alpha_rowset
 
 Default：false

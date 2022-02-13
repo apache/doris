@@ -170,16 +170,6 @@ FE 的配置项有两种方式进行配置：
 
 如果设置为 true，FE 将在 BDBJE 调试模式下启动，在 Web 页面 `System->bdbje` 可以查看相关信息，否则不可以查看
 
-### enable_fe_heartbeat_by_thrift
-
-默认值：false
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-这个配置是用来解决 fe 心跳响应读超时的问题，当 config 设置为 true 时，master 会通过 thrift 协议而不是 http 协议来获取 fe heartbeat response。 为了保持与旧版本的兼容性，默认为 false，在所有 fe 都升级之前不能将配置改为 true。
-
 ### enable_alpha_rowset
 
 默认值：false
