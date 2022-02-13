@@ -1803,7 +1803,7 @@ public class Catalog {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
             if (type == JobType.DECOMMISSION_BACKEND) {
-                throw new IOException("There should be no DECOMMISSION_BACKEND jobs, not use this FE version");
+                throw new IOException("There should be no DECOMMISSION_BACKEND jobs. Please downgrade FE to an older version and handle residual jobs");
             } else {
                 newChecksum = loadAlterJob(dis, newChecksum, type);
             }
