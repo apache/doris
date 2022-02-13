@@ -31,20 +31,20 @@ import java.io.IOException;
 @Description(name = "bitmap_and", value = "a _FUNC_ b - Compute intersection of two or more input bitmaps, return the new bitmap")
 public class BitmapAndUDF extends GenericUDF {
 
+    private transient BinaryObjectInspector inputOI0;
     private transient BinaryObjectInspector inputOI1;
-    private transient BinaryObjectInspector inputOI2;
 
     @Override
     public ObjectInspector initialize(ObjectInspector[] arguments) throws UDFArgumentException {
 
-        ObjectInspector input1 = arguments[0];
-        ObjectInspector input2 = arguments[1];
-        if (!(input1 instanceof BinaryObjectInspector) || !(input2 instanceof BinaryObjectInspector)) {
+        ObjectInspector input0 = arguments[0];
+        ObjectInspector input1 = arguments[1];
+        if (!(input0 instanceof BinaryObjectInspector) || !(input1 instanceof BinaryObjectInspector)) {
             throw new UDFArgumentException("first and second argument must be a binary");
         }
 
+        this.inputOI0 = (BinaryObjectInspector) input0;
         this.inputOI1 = (BinaryObjectInspector) input1;
-        this.inputOI2 = (BinaryObjectInspector) input2;
 
         return PrimitiveObjectInspectorFactory.javaByteArrayObjectInspector;
     }
@@ -54,13 +54,13 @@ public class BitmapAndUDF extends GenericUDF {
         if(args[0] == null || args[1] == null){
             return null;
         }
-        byte[] inputBytes1 = this.inputOI1.getPrimitiveJavaObject(args[0].get());
-        byte[] inputBytes2 = this.inputOI2.getPrimitiveJavaObject(args[1].get());
+        byte[] inputBytes0 = this.inputOI0.getPrimitiveJavaObject(args[0].get());
+        byte[] inputBytes1 = this.inputOI1.getPrimitiveJavaObject(args[1].get());
 
         try{
+            BitmapValue bitmapValue0 = BitmapValueUtil.deserializeToBitmap(inputBytes0);
             BitmapValue bitmapValue1 = BitmapValueUtil.deserializeToBitmap(inputBytes1);
-            BitmapValue bitmapValue2 = BitmapValueUtil.deserializeToBitmap(inputBytes2);
-            bitmapValue1.and(bitmapValue2);
+            bitmapValue0.and(bitmapValue1);
             return BitmapValueUtil.serializeToBytes(bitmapValue1);
         }catch (IOException ioException){
             ioException.printStackTrace();
