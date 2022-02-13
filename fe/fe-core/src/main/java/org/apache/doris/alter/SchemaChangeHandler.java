@@ -1776,7 +1776,9 @@ public class SchemaChangeHandler extends AlterHandler {
             List<AlterJobV2> schemaChangeJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
             // current schemaChangeJob job doesn't support batch operation,so just need to get one job
             schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null : Iterables.getOnlyElement(schemaChangeJobV2List);
-            Preconditions.checkNotNull(schemaChangeJobV2, "Table[" + tableName + "] is not under SCHEMA_CHANGE.");
+            if (schemaChangeJobV2 == null) {
+                throw new DdlException("Table[" + tableName + "] is under schema change state but could not find related job");
+            }
         } finally {
             olapTable.writeUnlock();
         }
