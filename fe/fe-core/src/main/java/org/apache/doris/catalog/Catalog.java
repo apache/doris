@@ -1820,7 +1820,7 @@ public class Catalog {
         long newChecksum = checksum ^ size;
         if (size > 0) {
             // There should be no old alter jobs, if exist throw exception, should not use this FE version
-            throw new IOException("There are [" + size + "] old alter jobs, should not happen");
+            throw new IOException("There are [" + size + "] old alter jobs. Please downgrade FE to an older version and handle residual jobs");
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= 2) {
