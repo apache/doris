@@ -17,13 +17,43 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
+#include "vec/columns/column_string.h"
+#include "vec/columns/columns_number.h"
+
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const std::string& name, const DataTypes& argument_types, const Array& parameters,
         const bool result_is_nullable) {
     AggregateFunctionPtr res = nullptr;
-    res.reset(new AggregateFunctionApproxCountDistinct(argument_types));
+    WhichDataType which(argument_types[0]->is_nullable()
+                                ? reinterpret_cast<const DataTypeNullable*>(argument_types[0].get())
+                                          ->get_nested_type()
+                                : argument_types[0]);
+
+    // TODO: use template traits here.
+    if (which.is_uint8()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnUInt8>(argument_types));
+    } else if (which.is_int8()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnInt8>(argument_types));
+    } else if (which.is_int16()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnInt16>(argument_types));
+    } else if (which.is_int32()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnInt32>(argument_types));
+    } else if (which.is_int64()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnInt64>(argument_types));
+    } else if (which.is_date_or_datetime()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnVector<DateTime>>(argument_types));
+    } else if (which.is_float32()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnFloat32>(argument_types));
+    } else if (which.is_float64()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnFloat64>(argument_types));
+    } else if (which.is_decimal()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnDecimal<Decimal128>>(
+                argument_types));
+    } else if (which.is_string()) {
+        res.reset(new AggregateFunctionApproxCountDistinct<ColumnString>(argument_types));
+    }
 
     if (!res) {
         LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",

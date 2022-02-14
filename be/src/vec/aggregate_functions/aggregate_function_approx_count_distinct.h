@@ -24,6 +24,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
@@ -54,9 +55,9 @@ struct AggregateFunctionApproxCountDistinctData {
     }
 
     void read(BufferReadable& buf) {
-        std::string result;
+        StringRef result;
         read_binary(result, buf);
-        Slice data = Slice(result.data(), result.length());
+        Slice data = Slice(result.data, result.size);
         hll_data.deserialize(data);
     }
 
@@ -65,22 +66,24 @@ struct AggregateFunctionApproxCountDistinctData {
     void reset() { hll_data.clear(); }
 };
 
+template <typename ColumnDataType>
 class AggregateFunctionApproxCountDistinct final
-        : public IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
-                                              AggregateFunctionApproxCountDistinct> {
+        : public IAggregateFunctionDataHelper<
+                  AggregateFunctionApproxCountDistinctData,
+                  AggregateFunctionApproxCountDistinct<ColumnDataType>> {
 public:
     String get_name() const override { return "approx_count_distinct"; }
 
     AggregateFunctionApproxCountDistinct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
-                                           AggregateFunctionApproxCountDistinct>(argument_types_,
-                                                                                 {}) {}
+                                           AggregateFunctionApproxCountDistinct<ColumnDataType>>(
+                      argument_types_, {}) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        this->data(place).add(columns[0]->get_data_at(row_num));
+        this->data(place).add(static_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num));
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
