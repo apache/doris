@@ -79,7 +79,9 @@ int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column) co
     auto allocate_content_size = 0;
     for (size_t i = 0; i < column.size(); ++i) {
         auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
-        allocate_content_size += hll.max_serialized_size();
+        std::string result(hll.max_serialized_size(), '0');
+        size_t actual_size = hll.serialize((uint8_t*)result.c_str());
+        allocate_content_size += actual_size;
     }
 
     return allocate_len_size + allocate_content_size;
