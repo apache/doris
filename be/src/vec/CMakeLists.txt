@@ -33,6 +33,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_window.cpp
   aggregate_functions/aggregate_function_stddev.cpp
   aggregate_functions/aggregate_function_topn.cpp
+  aggregate_functions/aggregate_function_approx_count_distinct.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   columns/collator.cpp
   columns/column.cpp
