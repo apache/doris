@@ -30,7 +30,7 @@ class Status;
 
 class ScrollParser {
 public:
-    ScrollParser(bool doc_value_mode);
+    ScrollParser();
     ~ScrollParser();
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);

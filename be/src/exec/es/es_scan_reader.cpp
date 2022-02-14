@@ -161,7 +161,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         }
     }
 
-    scroll_parser.reset(new ScrollParser(_doc_value_mode));
+    scroll_parser.reset(new ScrollParser());
     VLOG_CRITICAL << "get_next request ES, returned response: " << response;
     Status status = scroll_parser->parse(response, _exactly_once);
     if (!status.ok()) {

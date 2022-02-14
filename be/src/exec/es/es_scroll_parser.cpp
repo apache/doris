@@ -256,7 +256,7 @@ static Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
     return Status::OK();
 }
 
-ScrollParser::ScrollParser(bool doc_value_mode) : _scroll_id(""), _size(0), _line_index(0) {}
+ScrollParser::ScrollParser() : _scroll_id(""), _size(0), _line_index(0) {}
 
 ScrollParser::~ScrollParser() {}
 
