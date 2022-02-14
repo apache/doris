@@ -46,8 +46,6 @@ public:
 
     Version version() override { return _rowset->version(); }
 
-    VersionHash version_hash() override { return _rowset->version_hash(); }
-
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
     // Return the total number of filtered rows, will be used for validation of schema change

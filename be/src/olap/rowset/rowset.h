@@ -140,12 +140,11 @@ public:
     bool is_pending() const { return _is_pending; }
 
     // publish rowset to make it visible to read
-    void make_visible(Version version, VersionHash version_hash);
+    void make_visible(Version version);
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
     int64_t end_version() const { return rowset_meta()->version().second; }
-    VersionHash version_hash() const { return rowset_meta()->version_hash(); }
     size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
     size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
     bool empty() const { return rowset_meta()->empty(); }
@@ -269,7 +268,7 @@ protected:
     virtual void do_close() = 0;
 
     // allow subclass to add custom logic when rowset is being published
-    virtual void make_visible_extra(Version version, VersionHash version_hash) {}
+    virtual void make_visible_extra(Version version) {}
 
     const TabletSchema* _schema;
     FilePathDesc _rowset_path_desc;

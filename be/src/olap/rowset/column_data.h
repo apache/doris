@@ -47,7 +47,6 @@ public:
 
     // 为了与之前兼容, 暴露部分index的接口
     Version version() const { return _segment_group->version(); }
-    VersionHash version_hash() const { return _segment_group->version_hash(); }
     bool delete_flag() const { return _segment_group->delete_flag(); }
     uint32_t num_segments() const { return _segment_group->num_segments(); }
 

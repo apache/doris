@@ -36,7 +36,6 @@ using std::string;
 
 namespace doris {
 
-// const std::string meta_path = "./be/test/olap/test_data/header.txt";
 const std::string meta_path = "./be/test/olap/test_data/header_without_inc_rs.txt";
 
 class TabletMetaManagerTest : public testing::Test {

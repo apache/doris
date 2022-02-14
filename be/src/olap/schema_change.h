@@ -166,7 +166,7 @@ public:
 
 private:
     bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
-                           const Version& temp_delta_versions, const VersionHash version_hash,
+                           const Version& temp_delta_versions,
                            TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
                            SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
 
