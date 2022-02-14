@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
@@ -39,14 +38,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentTask;
-import org.apache.doris.thrift.TTabletInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -72,23 +68,9 @@ public class SystemHandler extends AlterHandler {
     }
 
     @Override
-    public void handleFinishedReplica(AgentTask task, TTabletInfo finishTabletInfo, long reportVersion)
-            throws MetaNotFoundException {
-    }
-
-    @Override
     protected void runAfterCatalogReady() {
         super.runAfterCatalogReady();
-        runOldAlterJob();
         runAlterJobV2();
-    }
-
-    @Deprecated
-    private void runOldAlterJob() {
-        // just remove all old decommission jobs. the decommission state is already marked in Backend,
-        // and we no long need decommission job.
-        alterJobs.clear();
-        finishedOrCancelledAlterJobs.clear();
     }
 
     // check all decommissioned backends, if there is no tablet on that backend, drop it.
@@ -262,26 +244,5 @@ public class SystemHandler extends AlterHandler {
                 LOG.info("backend is not decommissioned[{}]", backend.getHost());
             }
         }
-    }
-
-    @Override
-    public void replayInitJob(AlterJob alterJob, Catalog catalog) {
-        DecommissionBackendJob decommissionBackendJob = (DecommissionBackendJob) alterJob;
-        LOG.debug("replay init decommission backend job: {}", decommissionBackendJob.getBackendIdsString());
-        addAlterJob(alterJob);
-    }
-
-    @Override
-    public void replayFinish(AlterJob alterJob, Catalog catalog) {
-        LOG.debug("replay finish decommission backend job: {}",
-                ((DecommissionBackendJob) alterJob).getBackendIdsString());
-        removeAlterJob(alterJob.getTableId());
-        alterJob.setState(JobState.FINISHED);
-        addFinishedOrCancelledAlterJob(alterJob);
-    }
-
-    @Override
-    public void replayCancel(AlterJob alterJob, Catalog catalog) {
-        throw new NotImplementedException();
     }
 }

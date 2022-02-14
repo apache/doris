@@ -17,7 +17,6 @@
 
 package org.apache.doris.journal.local;
 
-import org.apache.doris.alter.AlterJob;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.ha.MasterInfo;
@@ -275,18 +274,6 @@ public final class LocalJournalCursor implements JournalCursor {
                 RecoverInfo recoverInfo = new RecoverInfo();
                 recoverInfo.readFields(in);
                 ret.setData(recoverInfo);
-                break;
-            }
-            case OperationType.OP_START_ROLLUP:
-            case OperationType.OP_FINISH_ROLLUP:
-            case OperationType.OP_CANCEL_ROLLUP:
-            case OperationType.OP_START_SCHEMA_CHANGE:
-            case OperationType.OP_FINISH_SCHEMA_CHANGE:
-            case OperationType.OP_CANCEL_SCHEMA_CHANGE:
-            case OperationType.OP_START_DECOMMISSION_BACKEND:
-            case OperationType.OP_FINISH_DECOMMISSION_BACKEND: {
-                AlterJob alterJob = AlterJob.read(in);
-                ret.setData(alterJob);
                 break;
             }
             case OperationType.OP_CLEAR_ROLLUP_INFO: {

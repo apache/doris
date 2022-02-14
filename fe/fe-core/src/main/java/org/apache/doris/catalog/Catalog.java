@@ -18,10 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.Alter;
-import org.apache.doris.alter.AlterJob;
-import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
+import org.apache.doris.alter.AlterJobV2.JobType;
+import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
@@ -293,6 +292,7 @@ import javax.annotation.Nullable;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+
 import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
@@ -1803,9 +1803,7 @@ public class Catalog {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
             if (type == JobType.DECOMMISSION_BACKEND) {
-                if (Catalog.getCurrentCatalogJournalVersion() >= 5) {
-                    newChecksum = loadAlterJob(dis, newChecksum, type);
-                }
+                throw new IOException("There should be no DECOMMISSION_BACKEND jobs. Please downgrade FE to an older version and handle residual jobs");
             } else {
                 newChecksum = loadAlterJob(dis, newChecksum, type);
             }
@@ -1815,52 +1813,22 @@ public class Catalog {
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
-        Map<Long, AlterJob> alterJobs = null;
-        ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
         Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
-        if (type == JobType.ROLLUP) {
-            alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
-            finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-        } else if (type == JobType.SCHEMA_CHANGE) {
-            alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
-            finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
-        } else if (type == JobType.DECOMMISSION_BACKEND) {
-            alterJobs = this.getClusterHandler().unprotectedGetAlterJobs();
-            finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-        }
 
         // alter jobs
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
-        for (int i = 0; i < size; i++) {
-            long tableId = dis.readLong();
-            newChecksum ^= tableId;
-            AlterJob job = AlterJob.read(dis);
-            alterJobs.put(tableId, job);
-
-            // init job
-            Database db = getDbNullable(job.getDbId());
-            // should check job state here because the job is finished but not removed from alter jobs list
-            if (db != null && (job.getState() == org.apache.doris.alter.AlterJob.JobState.PENDING
-                    || job.getState() == org.apache.doris.alter.AlterJob.JobState.RUNNING)) {
-                job.replayInitJob(db);
-            }
+        if (size > 0) {
+            // There should be no old alter jobs, if exist throw exception, should not use this FE version
+            throw new IOException("There are [" + size + "] old alter jobs. Please downgrade FE to an older version and handle residual jobs");
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= 2) {
             // finished or cancelled jobs
-            long currentTimeMs = System.currentTimeMillis();
             size = dis.readInt();
             newChecksum ^= size;
-            for (int i = 0; i < size; i++) {
-                long tableId = dis.readLong();
-                newChecksum ^= tableId;
-                AlterJob job = AlterJob.read(dis);
-                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.history_job_keep_max_second) {
-                    // delete history jobs
-                    finishedOrCancelledAlterJobs.add(job);
-                }
+            if (size > 0) {
+                throw new IOException("There are [" + size + "] old finished or cancelled alter jobs. Please downgrade FE to an older version and handle residual jobs");
             }
         }
 
@@ -2160,43 +2128,19 @@ public class Catalog {
     }
 
     public long saveAlterJob(CountingDataOutputStream dos, long checksum, JobType type) throws IOException {
-        Map<Long, AlterJob> alterJobs = null;
-        ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
         Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
-        if (type == JobType.ROLLUP) {
-            alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
-            finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-            alterJobsV2 = this.getRollupHandler().getAlterJobsV2();
-        } else if (type == JobType.SCHEMA_CHANGE) {
-            alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
-            finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
-        } else if (type == JobType.DECOMMISSION_BACKEND) {
-            alterJobs = this.getClusterHandler().unprotectedGetAlterJobs();
-            finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-        }
 
-        // alter jobs
-        int size = alterJobs.size();
+        // alter jobs == 0
+        // If the FE version upgrade from old version, if it have alter jobs, the FE will failed during start process
+        // the number of old version alter jobs has to be 0
+        int size = 0;
         checksum ^= size;
         dos.writeInt(size);
-        for (Entry<Long, AlterJob> entry : alterJobs.entrySet()) {
-            long tableId = entry.getKey();
-            checksum ^= tableId;
-            dos.writeLong(tableId);
-            entry.getValue().write(dos);
-        }
 
         // finished or cancelled jobs
-        size = finishedOrCancelledAlterJobs.size();
+        size = 0;
         checksum ^= size;
         dos.writeInt(size);
-        for (AlterJob alterJob : finishedOrCancelledAlterJobs) {
-            long tableId = alterJob.getTableId();
-            checksum ^= tableId;
-            dos.writeLong(tableId);
-            alterJob.write(dos);
-        }
 
         // alter job v2
         size = alterJobsV2.size();
@@ -5982,9 +5926,6 @@ public class Catalog {
             load.getIdToLoadJob().clear();
             // load = null;
         }
-
-        SingletonHolder.INSTANCE.getRollupHandler().unprotectedGetAlterJobs().clear();
-        SingletonHolder.INSTANCE.getSchemaChangeHandler().unprotectedGetAlterJobs().clear();
         System.gc();
     }
 
@@ -7264,8 +7205,6 @@ public class Catalog {
     public void eraseDatabase(long dbId, boolean needEditLog) {
         // remove jobs
         Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
-        Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(dbId);
-        Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(dbId);
 
         // remove database transaction manager
         Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);

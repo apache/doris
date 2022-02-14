@@ -19,9 +19,6 @@ package org.apache.doris.persist;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
-import org.apache.doris.alter.DecommissionBackendJob;
-import org.apache.doris.alter.RollupJob;
-import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -276,26 +273,6 @@ public class EditLog {
                     catalog.getBackupHandler().replayAddJob(job);
                     break;
                 }
-                case OperationType.OP_START_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayInitJob(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISHING_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayFinishing(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayFinish(job, catalog);
-                    break;
-                }
-                case OperationType.OP_CANCEL_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayCancel(job, catalog);
-                    break;
-                }
                 case OperationType.OP_DROP_ROLLUP: {
                     DropInfo info = (DropInfo) journal.getData();
                     catalog.getRollupHandler().replayDropRollup(info, catalog);
@@ -307,32 +284,6 @@ public class EditLog {
                         catalog.getRollupHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), catalog);
                     }
-                    break;
-                }
-                case OperationType.OP_START_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    LOG.info("Begin to unprotect create schema change job. db = " + job.getDbId()
-                            + " table = " + job.getTableId());
-                    catalog.getSchemaChangeHandler().replayInitJob(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISHING_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    LOG.info("Begin to unprotect replay finishing schema change job. db = " + job.getDbId()
-                            + " table = " + job.getTableId());
-                    catalog.getSchemaChangeHandler().replayFinishing(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    catalog.getSchemaChangeHandler().replayFinish(job, catalog);
-                    break;
-                }
-                case OperationType.OP_CANCEL_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    LOG.debug("Begin to unprotect cancel schema change. db = " + job.getDbId()
-                            + " table = " + job.getTableId());
-                    catalog.getSchemaChangeHandler().replayCancel(job, catalog);
                     break;
                 }
                 case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
@@ -433,18 +384,6 @@ public class EditLog {
                 case OperationType.OP_BACKEND_STATE_CHANGE: {
                     Backend be = (Backend) journal.getData();
                     Catalog.getCurrentSystemInfo().updateBackendState(be);
-                    break;
-                }
-                case OperationType.OP_START_DECOMMISSION_BACKEND: {
-                    DecommissionBackendJob job = (DecommissionBackendJob) journal.getData();
-                    LOG.debug("{}: {}", opCode, job.getTableId());
-                    catalog.getClusterHandler().replayInitJob(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_DECOMMISSION_BACKEND: {
-                    DecommissionBackendJob job = (DecommissionBackendJob) journal.getData();
-                    LOG.debug("{}: {}", opCode, job.getTableId());
-                    catalog.getClusterHandler().replayFinish(job, catalog);
                     break;
                 }
                 case OperationType.OP_ADD_FIRST_FRONTEND:
@@ -1064,44 +1003,12 @@ public class EditLog {
         logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
-    public void logStartRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_START_ROLLUP, rollupJob);
-    }
-
-    public void logFinishingRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_FINISHING_ROLLUP, rollupJob);
-    }
-
-    public void logFinishRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_FINISH_ROLLUP, rollupJob);
-    }
-
-    public void logCancelRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_CANCEL_ROLLUP, rollupJob);
-    }
-
     public void logDropRollup(DropInfo info) {
         logEdit(OperationType.OP_DROP_ROLLUP, info);
     }
 
     public void logBatchDropRollup(BatchDropInfo batchDropInfo) {
         logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
-    }
-
-    public void logStartSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_START_SCHEMA_CHANGE, schemaChangeJob);
-    }
-
-    public void logFinishingSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_FINISHING_SCHEMA_CHANGE, schemaChangeJob);
-    }
-
-    public void logFinishSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_FINISH_SCHEMA_CHANGE, schemaChangeJob);
-    }
-
-    public void logCancelSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_CANCEL_SCHEMA_CHANGE, schemaChangeJob);
     }
 
     public void logFinishConsistencyCheck(ConsistencyCheckInfo info) {
@@ -1194,14 +1101,6 @@ public class EditLog {
 
     public void logDropRole(PrivInfo info) {
         logEdit(OperationType.OP_DROP_ROLE, info);
-    }
-
-    public void logStartDecommissionBackend(DecommissionBackendJob job) {
-        logEdit(OperationType.OP_START_DECOMMISSION_BACKEND, job);
-    }
-
-    public void logFinishDecommissionBackend(DecommissionBackendJob job) {
-        logEdit(OperationType.OP_FINISH_DECOMMISSION_BACKEND, job);
     }
 
     public void logDatabaseRename(DatabaseInfo databaseInfo) {

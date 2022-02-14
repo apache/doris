@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -377,14 +376,7 @@ public class LoadChecker extends MasterDaemon {
             }
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
             // check if the job is submit during rollup
-            RollupJob rollupJob = (RollupJob) Catalog.getCurrentCatalog().getRollupHandler().getAlterJob(tableId);
             boolean autoLoadToTwoTablet = true;
-            if (rollupJob != null && job.getTransactionId() > 0) {
-                long rollupIndexId = rollupJob.getRollupIndexId();
-                if (tableLoadInfo.containsIndex(rollupIndexId)) {
-                    autoLoadToTwoTablet = false;
-                }
-            }
             
             for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
                 long partitionId = partitionEntry.getKey();
@@ -418,20 +410,8 @@ public class LoadChecker extends MasterDaemon {
                          * 2. just send push tasks to indexes which it contains, ignore others
                          */
                         if (!tableLoadInfo.containsIndex(indexId)) {
-                            if (rollupJob == null) {
-                                // new process, just continue
-                                continue;
-                            }
-                            
-                            if (rollupJob.getRollupIndexId() == indexId) {
-                                continue;
-                            } else {
-                                // if the index is not during rollup and not contained in table load info, it a fatal error
-                                // return null, will cancel the load job
-                                LOG.warn("could not find index {} in table load info, and could not find " 
-                                        + "it in rollup job, it is a fatal error", indexId);
-                                return null;
-                            }
+                            // new process, just continue
+                            continue;
                         }
                         
                         // add to jobTotalTablets first.
