@@ -38,7 +38,7 @@ FE is mainly responsible for metadata management, cluster management, user reque
 
 BE is mainly responsible for data storage and execution of query plans.
 
-FE does not participate in the processing and calculation of user data, so it is a node with low resource consumption. The BE is responsible for all data calculations and task processing, and is a resource-consuming node. Therefore, the resource division and resource restriction schemes introduced in this article are all aimed at BE nodes. Because the FE node consumes relatively low resources and can also be scaled horizontally, there is usually no need to isolate and restrict resources, and the FE node can be shared by all users.
+FE does not participate in the processing and calculation of user data, so it is a node with low resource consumption. The BE is responsible for all data calculations and task processing, and is a resource-consuming node. Therefore, the resource division and resource restriction schemes introduced in this article are all aimed at BE nodes. Because the FE node consumes relatively low resources and can also be scaled horizontally, there is usually no need to isolate and restrict resources, and the FE node can be shared by all users. But if you think the max query number you can request is a kind of resource, we also provide a way to limit it.
 
 ## Node resource division
 
@@ -220,3 +220,36 @@ Here we give an example of the steps to start using the resource division functi
     After the data is redistributed. We can start to set the user's resource label permissions. Because by default, the user's `resource_tags.location` attribute is empty, that is, the BE of any tag can be accessed. Therefore, in the previous steps, the normal query of existing users will not be affected. When the `resource_tags.location` property is not empty, the user will be restricted from accessing the BE of the specified Tag.
     
 Through the above 4 steps, we can smoothly use the resource division function after the original cluster is upgraded.
+
+## Limit operation number of FE
+
+We find that the Doris system stability is often affected by the number of operations. If there is too many operations in 
+certain time, some nodes will restart or the service will get stuck. So we think there should be a limit of operation to 
+protect system from outside pressure.
+
+1. limit of query number
+    limit the number of acceptted query in certain time. If there is too many queries in one period, all query will be rejected in next period.
+
+    ```
+    ADMIN SET FRONTEND CONFIG ("max_running_query_num" = "20");
+    ADMIN SET FRONTEND CONFIG ("report_stats_period" = "10000");
+    ```
+
+    The config above means that if there is more than 20 queries in 10 seconds, all query in next 10 seconds will be rejected.
+    `report_stats_period` shouldn't be too small, because in order to achieve global operation limit, every FE will send
+    query number to Master in every period, and all FE will get query statistics through metadata synchronize mechanism. If
+    period is too small, there will be too many unnecessary RPC in system.
+
+2. limit of load number
+    Include the system level limit and database level limit. The example of system level limit is:
+
+    ```
+    ADMIN SET FRONTEND CONFIG ("max_running_txn_num" = "300");
+    ```
+
+    The example of database level limit is:
+    ```
+    ADMIN SET FRONTEND CONFIG ("max_running_txn_num_per_db" = "100");
+    ```
+
+    If there is more load than threshold, the new comming load transaction will be rejected.
