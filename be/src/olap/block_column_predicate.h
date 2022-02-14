@@ -29,7 +29,6 @@ namespace doris {
 // in the future
 // TODO: support do predicate on Bitmap and ZoneMap, So we can use index of column to do predicate on
 // page and segment
-
 class BlockColumnPredicate {
 public:
     BlockColumnPredicate() = default;

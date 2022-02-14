@@ -206,13 +206,13 @@ visible_functions = [
         '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['yearweek'], 'INT', ['DATETIME', 'INT'],
         '_ZN5doris18TimestampFunctions9year_weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE',
-        '', '', '', ''],
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['week'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['week'], 'INT', ['DATETIME', 'INT'],
         '_ZN5doris18TimestampFunctions4weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE',
-        '', '', '', 'ALWAYS_NULLABLE'],
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['hour'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4hourEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -643,28 +643,28 @@ visible_functions = [
             '15FunctionContextERKNS1_9DoubleValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod'], 'TINYINT', ['TINYINT', 'TINYINT'],
             '_ZN5doris9Operators29mod_tiny_int_val_tiny_int_valEPN9doris_udf'
-            '15FunctionContextERKNS1_10TinyIntValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_10TinyIntValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod'], 'SMALLINT', ['SMALLINT', 'SMALLINT'],
             '_ZN5doris9Operators31mod_small_int_val_small_int_valEPN9doris_udf'
-            '15FunctionContextERKNS1_11SmallIntValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_11SmallIntValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod'], 'INT', ['INT', 'INT'],
             '_ZN5doris9Operators19mod_int_val_int_valEPN9doris_udf'
-            '15FunctionContextERKNS1_6IntValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_6IntValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod'], 'BIGINT', ['BIGINT', 'BIGINT'],
             '_ZN5doris9Operators27mod_big_int_val_big_int_valEPN9doris_udf'
-            '15FunctionContextERKNS1_9BigIntValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_9BigIntValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod'], 'LARGEINT', ['LARGEINT', 'LARGEINT'],
             '_ZN5doris9Operators31mod_large_int_val_large_int_valEPN9doris_udf'
-            '15FunctionContextERKNS1_11LargeIntValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_11LargeIntValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'],
             '_ZN5doris18DecimalV2Operators31mod_decimalv2_val_decimalv2_valEPN9doris_udf'
-            '15FunctionContextERKNS1_12DecimalV2ValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_12DecimalV2ValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod', 'fmod'], 'FLOAT', ['FLOAT', 'FLOAT'],
         '_ZN5doris13MathFunctions10fmod_floatEPN9doris_udf15FunctionContextERKNS1_8FloatValES6_',
-        '', '', '', 'ALWAYS_NULLABLE'],
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod', 'fmod'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
         '_ZN5doris13MathFunctions11fmod_doubleEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_',
-        '', '', '', 'ALWAYS_NULLABLE'],
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
 
     [['positive'], 'BIGINT', ['BIGINT'],
             '_ZN5doris13MathFunctions15positive_bigintEPN9doris_udf'
