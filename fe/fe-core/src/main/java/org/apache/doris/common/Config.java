@@ -18,9 +18,20 @@
 package org.apache.doris.common;
 
 import org.apache.doris.PaloFe;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.http.HttpServer;
 
+import java.lang.reflect.Field;
+
 public class Config extends ConfigBase {
+
+    static class StatsPeriodConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception{
+            setConfigField(field, confVal);
+            Catalog.getCurrentCatalog().setStatsPeriod(Long.parseLong(confVal));
+        }
+    }
 
     /**
      * Dir of custom config file
@@ -722,7 +733,7 @@ public class Config extends ConfigBase {
     /**
      * period for report statistics in each FE to Master.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, callback = StatsPeriodConfHandler.class)
     public static long report_stats_period = 10 * 1000;
 
     /**

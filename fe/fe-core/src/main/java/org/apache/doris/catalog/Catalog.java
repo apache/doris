@@ -2606,6 +2606,10 @@ public class Catalog {
         };
     }
 
+    public void setStatsPeriod(long period) {
+        statsSyncer.setInterval(period);
+    }
+
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
