@@ -61,7 +61,7 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     public enum JobType {
-        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND
+        ROLLUP, SCHEMA_CHANGE
     }
 
     @SerializedName(value = "type")

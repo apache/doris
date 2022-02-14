@@ -1802,11 +1802,7 @@ public class Catalog {
     public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
-            if (type == JobType.DECOMMISSION_BACKEND) {
-                throw new IOException("There should be no DECOMMISSION_BACKEND jobs. Please downgrade FE to an older version and handle residual jobs");
-            } else {
-                newChecksum = loadAlterJob(dis, newChecksum, type);
-            }
+            newChecksum = loadAlterJob(dis, newChecksum, type);
         }
         LOG.info("finished replay alterJob from image");
         return newChecksum;
