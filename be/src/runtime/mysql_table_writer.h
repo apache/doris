@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
 #define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
 
+#include <fmt/format.h>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include <fmt/format.h>
 #ifndef __DorisMysql
 #define __DorisMysql void
 #endif
