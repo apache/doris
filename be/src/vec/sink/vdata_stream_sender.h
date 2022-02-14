@@ -70,6 +70,9 @@ public:
     Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
 
 private:
+    void _roll_pb_block();
+
+private:
     class Channel;
 
     Status get_partition_column_result(Block* block, int* result) const {
@@ -109,7 +112,7 @@ private:
     // one while the other one is still being sent
     PBlock _pb_block1;
     PBlock _pb_block2;
-    PBlock* _current_pb_block = nullptr;
+    PBlock* _cur_pb_block = nullptr;
 
     // compute per-row partition values
     std::vector<VExprContext*> _partition_expr_ctxs;
@@ -135,6 +138,11 @@ private:
     RuntimeProfile::Counter* _local_bytes_send_counter;
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
+
+    // This buffer is used to store the serialized block data
+    // The data in the buffer is copied to the attachment of the brpc when it is sent,
+    // to avoid an extra pb serialization in the brpc.
+    std::string _column_values_buffer;
 };
 
 // TODO: support local exechange
@@ -159,7 +167,8 @@ public:
               _need_close(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
+              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
+              _ch_cur_pb_block(&_ch_pb_block1) {
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
@@ -210,7 +219,7 @@ public:
 
     int64_t num_data_bytes_sent() const { return _num_data_bytes_sent; }
 
-    PBlock* pb_block() { return &_pb_block; }
+    PBlock* ch_cur_pb_block() { return _ch_cur_pb_block; }
 
     std::string get_fragment_instance_id_str() {
         UniqueId uid(_fragment_instance_id);
@@ -220,6 +229,8 @@ public:
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
     bool is_local() const { return _is_local; }
+
+    void ch_roll_pb_block();
 
 private:
     inline Status _wait_last_brpc() {
@@ -274,6 +285,14 @@ private:
 
     size_t _capacity;
     bool _is_local;
+
+    // serialized blocks for broadcasting; we need two so we can write
+    // one while the other one is still being sent.
+    // Which is for same reason as `_cur_pb_block`, `_pb_block1` and `_pb_block2`
+    // in VDataStreamSender.
+    PBlock* _ch_cur_pb_block = nullptr;
+    PBlock _ch_pb_block1;
+    PBlock _ch_pb_block2;
 };
 
 template <typename Channels, typename HashVals>

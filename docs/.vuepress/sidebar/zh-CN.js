@@ -467,7 +467,10 @@ module.exports = [
           {
             title: "数学函数",
             directoryPath: "math-functions/",
-            children: ["conv"],
+            children: [
+              "conv",
+              "pmod"
+            ],
           },
           {
             title: "加密和信息摘要函数",
@@ -584,6 +587,8 @@ module.exports = [
               "DROP VIEW",
               "HLL",
               "RECOVER",
+              "REFRESH DATABASE",
+              "REFRESH TABLE",
               "RESTORE",
               "SHOW ENCRYPTKEYS",
               "SHOW RESOURCES",

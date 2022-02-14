@@ -16,17 +16,18 @@
 // under the License.
 
 #include "exprs/string_functions.h"
-#include "exprs/v_string_functions.h"
 
+#include <fmt/os.h>
 #include <gtest/gtest.h>
+
 #include <iostream>
 #include <string>
-#include <fmt/os.h>
 
 #include "exprs/anyval_util.h"
 #include "test_util/test_util.h"
 #include "testutil/function_utils.h"
 #include "util/logging.h"
+#include "util/simd/vstring_function.h"
 
 namespace doris {
 
@@ -47,8 +48,7 @@ private:
 
 TEST_F(StringFunctionsTest, do_money_format_for_bigint_bench) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
-    StringVal expected =
-            AnyValUtil::from_string(ctx, std::string("9,223,372,036,854,775,807.00"));
+    StringVal expected = AnyValUtil::from_string(ctx, std::string("9,223,372,036,854,775,807.00"));
     BigIntVal bigIntVal(9223372036854775807);
     for (int i = 0; i < LOOP_LESS_OR_MORE(10, 10000000); i++) {
         StringVal result = StringFunctions::money_format(context, bigIntVal);
@@ -98,7 +98,7 @@ TEST_F(StringFunctionsTest, money_format_large_int) {
     value = MIN_INT128;
     result = StringFunctions::money_format(context, doris_udf::LargeIntVal(value));
     expected = AnyValUtil::from_string_temp(
-                context, std::string("-170,141,183,460,469,231,731,687,303,715,884,105,728.00"));
+            context, std::string("-170,141,183,460,469,231,731,687,303,715,884,105,728.00"));
     ASSERT_EQ(expected, result);
     delete context;
 }
@@ -682,80 +682,82 @@ TEST_F(StringFunctionsTest, upper) {
 TEST_F(StringFunctionsTest, ltrim) {
     // no blank
     StringVal src("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    StringVal res = VStringFunctions::ltrim(src);
+    StringVal res = simd::VStringFunctions::ltrim(src);
     ASSERT_EQ(src, res);
     // empty string
     StringVal src1("");
-    res = VStringFunctions::ltrim(src1);
+    res = simd::VStringFunctions::ltrim(src1);
     ASSERT_EQ(src1, res);
     // null string
     StringVal src2(StringVal::null());
-    res = VStringFunctions::ltrim(src2);
+    res = simd::VStringFunctions::ltrim(src2);
     ASSERT_EQ(src2, res);
     // less than 16 blanks
     StringVal src3("       hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    res = VStringFunctions::ltrim(src3);
+    res = simd::VStringFunctions::ltrim(src3);
     ASSERT_EQ(src, res);
     // more than 16 blanks
     StringVal src4("                   hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    res = VStringFunctions::ltrim(src4);
+    res = simd::VStringFunctions::ltrim(src4);
     ASSERT_EQ(src, res);
     // all are blanks, less than 16 blanks
     StringVal src5("       ");
-    res = VStringFunctions::ltrim(src5);
+    res = simd::VStringFunctions::ltrim(src5);
     ASSERT_EQ(StringVal(""), res);
     // all are blanks, more than 16 blanks
     StringVal src6("                  ");
-    res = VStringFunctions::ltrim(src6);
+    res = simd::VStringFunctions::ltrim(src6);
     ASSERT_EQ(StringVal(""), res);
     // src less than 16 length
     StringVal src7(" 12345678910");
-    res = VStringFunctions::ltrim(src7);
+    res = simd::VStringFunctions::ltrim(src7);
     ASSERT_EQ(StringVal("12345678910"), res);
 }
 
 TEST_F(StringFunctionsTest, rtrim) {
     // no blank
     StringVal src("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    StringVal res = VStringFunctions::rtrim(src);
+    StringVal res = simd::VStringFunctions::rtrim(src);
     ASSERT_EQ(src, res);
     // empty string
     StringVal src1("");
-    res = VStringFunctions::rtrim(src1);
+    res = simd::VStringFunctions::rtrim(src1);
     ASSERT_EQ(src1, res);
     // null string
     StringVal src2(StringVal::null());
-    res = VStringFunctions::rtrim(src2);
+    res = simd::VStringFunctions::rtrim(src2);
     ASSERT_EQ(src2, res);
     // less than 16 blanks
     StringVal src3("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa       ");
-    res = VStringFunctions::rtrim(src3);
+    res = simd::VStringFunctions::rtrim(src3);
     ASSERT_EQ(src, res);
     // more than 16 blanks
     StringVal src4("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                      ");
-    res = VStringFunctions::rtrim(src4);
+    res = simd::VStringFunctions::rtrim(src4);
     ASSERT_EQ(src, res);
     // all are blanks, less than 16 blanks
     StringVal src5("       ");
-    res = VStringFunctions::rtrim(src5);
+    res = simd::VStringFunctions::rtrim(src5);
     ASSERT_EQ(StringVal(""), res);
     // all are blanks, more than 16 blanks
     StringVal src6("                  ");
-    res = VStringFunctions::rtrim(src6);
+    res = simd::VStringFunctions::rtrim(src6);
     ASSERT_EQ(StringVal(""), res);
     // src less than 16 length
     StringVal src7("12345678910 ");
-    res = VStringFunctions::rtrim(src7);
+    res = simd::VStringFunctions::rtrim(src7);
     ASSERT_EQ(StringVal("12345678910"), res);
 }
 
 TEST_F(StringFunctionsTest, is_ascii) {
-    ASSERT_EQ(true, VStringFunctions::is_ascii(StringVal("hello123")));
-    ASSERT_EQ(true, VStringFunctions::is_ascii(StringVal("hello123fwrewerwerwerwrsfqrwerwefwfwrwfsfwe")));
-    ASSERT_EQ(false, VStringFunctions::is_ascii(StringVal("运维组123")));
-    ASSERT_EQ(false, VStringFunctions::is_ascii(StringVal("hello123运维组fwrewerwerwerwrsfqrwerwefwfwrwfsfwe")));
-    ASSERT_EQ(true, VStringFunctions::is_ascii(StringVal::null()));
-    ASSERT_EQ(true, VStringFunctions::is_ascii(StringVal("")));
+    ASSERT_EQ(true, simd::VStringFunctions::is_ascii(StringVal("hello123")));
+    ASSERT_EQ(true, simd::VStringFunctions::is_ascii(
+                            StringVal("hello123fwrewerwerwerwrsfqrwerwefwfwrwfsfwe")));
+    ASSERT_EQ(false, simd::VStringFunctions::is_ascii(StringVal("运维组123")));
+    ASSERT_EQ(false, simd::VStringFunctions::is_ascii(
+                             StringVal("hello123运维组fwrewerwerwerwrsfqrwerwefwfwrwfsfwe")));
+    ASSERT_EQ(true, simd::VStringFunctions::is_ascii(StringVal::null()));
+    ASSERT_EQ(true, simd::VStringFunctions::is_ascii(StringVal("")));
 }
 } // namespace doris
 

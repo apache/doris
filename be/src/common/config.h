@@ -144,7 +144,7 @@ CONF_String(doris_cgroups, "");
 // thrashing.
 CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
-CONF_Bool(compress_rowbatches, "true");
+CONF_mBool(compress_rowbatches, "true");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
 // number of olap scanner thread pool size
@@ -204,7 +204,8 @@ CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");
 CONF_mInt32(snapshot_expire_time_sec, "172800");
-// 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
+// It is only a recommended value. When the disk space is insufficient, 
+// the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
@@ -542,8 +543,6 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
 CONF_Int32(tablet_map_shard_size, "1");
-
-CONF_String(plugin_path, "${DORIS_HOME}/plugin");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn

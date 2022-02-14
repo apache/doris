@@ -42,10 +42,6 @@ void HealthAction::handle(HttpRequest* req) {
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     HttpChannel::send_reply(req, HttpStatus::OK, result);
-#if 0
-    HttpResponse response(HttpStatus::OK, HEADER_JSON, &result);
-    channel->send_response(response);
-#endif
 }
 
 } // end namespace doris

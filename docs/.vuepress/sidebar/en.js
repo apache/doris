@@ -475,7 +475,10 @@ module.exports = [
           {
             title: "Math Functions",
             directoryPath: "math-functions/",
-            children: ["conv"],
+            children: [
+              "conv",
+              "pmod"
+            ],
           },
           {
             title: "table functions",
@@ -579,6 +582,8 @@ module.exports = [
               "DROP VIEW",
               "HLL",
               "RECOVER",
+              "REFRESH DATABASE",
+              "REFRESH TABLE",
               "RESTORE",
               "SHOW ENCRYPTKEYS",
               "TRUNCATE TABLE",

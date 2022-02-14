@@ -33,14 +33,12 @@ add_library(Exprs
   cast_functions.cpp
   compound_predicate.cpp
   conditional_functions.cpp
-  conditional_functions_ir.cpp
   decimalv2_operators.cpp
   time_operators.cpp
   es_functions.cpp
   hash_functions.cpp
   literal.cpp
   expr.cpp
-  expr_ir.cpp
   expr_context.cpp
   in_predicate.cpp
   new_in_predicate.cpp

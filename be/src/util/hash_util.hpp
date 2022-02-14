@@ -345,7 +345,7 @@ public:
 #endif
     }
     // hash_combine is the same with boost hash_combine,
-    // except replace boost::hash with std::hash 
+    // except replace boost::hash with std::hash
     template <class T>
     static inline void hash_combine(std::size_t& seed, const T& v) {
         std::hash<T> hasher;
@@ -376,7 +376,7 @@ struct hash<doris::TNetworkAddress> {
     }
 };
 
-#if !defined(IR_COMPILE) && __GNUC__ < 6 && !defined(__clang__)
+#if __GNUC__ < 6 && !defined(__clang__)
 // Cause this is builtin function
 template <>
 struct hash<__int128> {

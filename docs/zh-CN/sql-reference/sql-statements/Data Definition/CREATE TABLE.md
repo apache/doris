@@ -34,7 +34,7 @@ under the License.
 ```
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
     (column_definition1[, column_definition2, ...]
-    [, index_definition1[, ndex_definition12,]])
+    [, index_definition1[, index_definition2, ...]])
     [ENGINE = [olap|mysql|broker|hive|iceberg]]
     [key_desc]
     [COMMENT "table comment"];

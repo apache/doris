@@ -637,10 +637,10 @@ visible_functions = [
 
     [['pmod'], 'BIGINT', ['BIGINT', 'BIGINT'],
             '_ZN5doris13MathFunctions11pmod_bigintEPN9doris_udf'
-            '15FunctionContextERKNS1_9BigIntValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_9BigIntValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['pmod'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
             '_ZN5doris13MathFunctions11pmod_doubleEPN9doris_udf'
-            '15FunctionContextERKNS1_9DoubleValES6_', '', '', '', 'ALWAYS_NULLABLE'],
+            '15FunctionContextERKNS1_9DoubleValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['mod'], 'TINYINT', ['TINYINT', 'TINYINT'],
             '_ZN5doris9Operators29mod_tiny_int_val_tiny_int_valEPN9doris_udf'
             '15FunctionContextERKNS1_10TinyIntValES6_', '', '', '', 'ALWAYS_NULLABLE'],

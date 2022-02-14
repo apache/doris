@@ -23,9 +23,9 @@
 #include <cstdlib>
 #include <string_view>
 
-#include "exprs/v_string_functions.h"
 #include "runtime/string_search.hpp"
 #include "util/encryption_util.h"
+#include "util/simd/vstring_function.h"
 #include "util/url_coding.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/functions/function_string_to_string.h"
@@ -95,14 +95,7 @@ struct StringUtf8LengthImpl {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1] - 1;
-
-            size_t char_len = 0;
-            for (size_t i = 0, char_size = 0; i < str_size; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(raw_str)[i]);
-                ++char_len;
-            }
-
-            res[i] = char_len;
+            res[i] = get_char_len(StringValue(const_cast<char*>(raw_str), str_size), str_size);
         }
         return Status::OK();
     }
@@ -201,15 +194,17 @@ struct InStrOP {
         // Hive returns positions starting from 1.
         int loc = search.search(&str_sv);
         if (loc > 0) {
-            size_t char_len = 0;
-            for (size_t i = 0, char_size = 0; i < loc; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(strl.data())[i]);
-                ++char_len;
-            }
-            loc = char_len;
+            loc = get_char_len(str_sv, loc);
         }
 
         res = loc + 1;
+    }
+};
+struct LocateOP {
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = PaddedPODArray<Int32>;
+    static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
+        InStrOP::execute(strr, strl, res);
     }
 };
 
@@ -258,8 +253,8 @@ struct ReverseImpl {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1] - 1;
             char dst[src_len];
-            VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                      StringVal((uint8_t*)dst, src_len));
+            simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
+                                            StringVal((uint8_t*)dst, src_len));
             StringOP::push_value_string(std::string_view(dst, src_len), i, res_data, res_offsets);
         }
         return Status::OK();
@@ -271,9 +266,7 @@ struct HexStringName {
 };
 
 struct HexStringImpl {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeString>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
@@ -293,7 +286,8 @@ struct HexStringImpl {
                 dst_data_ptr++;
                 offset++;
             } else {
-                VStringFunctions::hex_encode(source, srclen, reinterpret_cast<char*>(dst_data_ptr));
+                simd::VStringFunctions::hex_encode(source, srclen,
+                                                   reinterpret_cast<char*>(dst_data_ptr));
                 dst_data_ptr[srclen * 2] = '\0';
                 dst_data_ptr += (srclen * 2 + 1);
                 offset += (srclen * 2 + 1);
@@ -355,10 +349,10 @@ struct TrimImpl {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             StringVal str(raw_str);
             if constexpr (is_ltrim) {
-                str = VStringFunctions::ltrim(str);
+                str = simd::VStringFunctions::ltrim(str);
             }
             if constexpr (is_rtrim) {
-                str = VStringFunctions::rtrim(str);
+                str = simd::VStringFunctions::rtrim(str);
             }
             StringOP::push_value_string(std::string_view((char*)str.ptr, str.len), i, res_data,
                                         res_offsets);
@@ -707,6 +701,9 @@ template <typename LeftDataType, typename RightDataType>
 using StringInstrImpl = StringFunctionImpl<LeftDataType, RightDataType, InStrOP>;
 
 template <typename LeftDataType, typename RightDataType>
+using StringLocateImpl = StringFunctionImpl<LeftDataType, RightDataType, LocateOP>;
+
+template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
@@ -721,7 +718,7 @@ using FunctionStringEndsWith =
 using FunctionStringInstr =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameInstr>;
 using FunctionStringLocate =
-        FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameLocate>;
+        FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
 
@@ -756,7 +753,6 @@ using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 
 void register_function_string(SimpleFunctionFactory& factory) {
-    // factory.register_function<>();
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
     factory.register_function<FunctionStringUTF8Length>();
@@ -765,7 +761,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringEndsWith>();
     factory.register_function<FunctionStringInstr>();
     factory.register_function<FunctionStringFindInSet>();
-    //    factory.register_function<FunctionStringLocate>();
+    factory.register_function<FunctionStringLocate>();
+    factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionReverse>();
     factory.register_function<FunctionHexString>();
     factory.register_function<FunctionUnHex>();

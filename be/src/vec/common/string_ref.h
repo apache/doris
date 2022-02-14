@@ -27,6 +27,7 @@
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
+#include "udf/udf.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -53,6 +54,10 @@ struct StringRef {
     std::string to_string() const { return std::string(data, size); }
 
     explicit operator std::string() const { return to_string(); }
+
+    StringVal to_string_val() const {
+        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
+    }
 };
 
 using StringRefs = std::vector<StringRef>;
@@ -291,7 +296,7 @@ struct StringRefHash : CRC32Hash {};
 
 struct CRC32Hash {
     size_t operator()(StringRef /* x */) const {
-        throw std::logic_error{"Not implemented CRC32Hash without SSE"};
+        throw std::logic_error {"Not implemented CRC32Hash without SSE"};
     }
 };
 

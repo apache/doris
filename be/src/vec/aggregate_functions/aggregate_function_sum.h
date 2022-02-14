@@ -20,10 +20,6 @@
 
 #pragma once
 
-#include <istream>
-#include <ostream>
-#include <type_traits>
-
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -82,12 +78,11 @@ public:
         const auto& column = static_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
-    
-    void reset(AggregateDataPtr place) const override {
-        this->data(place).sum = {};
-    }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -95,7 +90,8 @@ public:
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         this->data(place).read(buf);
     }
 
@@ -104,15 +100,13 @@ public:
         column.get_data().push_back(this->data(place).get());
     }
 
-    const char* get_header_file_path() const override { return __FILE__; }
-
 private:
     UInt32 scale;
 };
 
 AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const Array& parameters,
-                                                   const bool result_is_nullable);
+                                                          const DataTypes& argument_types,
+                                                          const Array& parameters,
+                                                          const bool result_is_nullable);
 
 } // namespace doris::vectorized

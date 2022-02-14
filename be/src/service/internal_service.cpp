@@ -435,8 +435,20 @@ void PInternalServiceImpl<T>::transmit_block(google::protobuf::RpcController* cn
                                              google::protobuf::Closure* done) {
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " node=" << request->node_id();
-    _exec_env->vstream_mgr()->transmit_block(request, &done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
+    // The response is accessed when done->Run is called in transmit_block(),
+    // give response a default value to avoid null pointers in high concurrency.
+    Status st;
+    st.to_protobuf(response->mutable_status());
+    st = _exec_env->vstream_mgr()->transmit_block(request, &done);
+    if (!st.ok()) {
+        LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
+                     << ", fragment_instance_id=" << print_id(request->finst_id())
+                     << ", node=" << request->node_id();
+    }
     if (done != nullptr) {
+        st.to_protobuf(response->mutable_status());
         done->Run();
     }
 }

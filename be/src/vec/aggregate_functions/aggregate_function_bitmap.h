@@ -16,8 +16,6 @@
 // under the License.
 
 #pragma once
-#include <istream>
-#include <ostream>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
@@ -91,7 +89,8 @@ public:
         this->data(place).add(column.get_data()[row_num]);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
         this->data(place).merge(
                 const_cast<AggregateFunctionBitmapData<Op>&>(this->data(rhs)).get());
     }
@@ -100,7 +99,8 @@ public:
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         this->data(place).read(buf);
     }
 
@@ -109,8 +109,6 @@ public:
         column.get_data().push_back(
                 const_cast<AggregateFunctionBitmapData<Op>&>(this->data(place)).get());
     }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 template <bool nullable, typename ColVecType>
@@ -146,7 +144,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
         this->data(place).merge(const_cast<AggFunctionData&>(this->data(rhs)).get());
     }
 
@@ -154,7 +153,8 @@ public:
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         this->data(place).read(buf);
     }
 
@@ -163,8 +163,6 @@ public:
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(value_data.cardinality());
     }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& name,

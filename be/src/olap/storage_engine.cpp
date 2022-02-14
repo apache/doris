@@ -42,7 +42,6 @@
 #include "olap/fs/file_block_manager.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_flush_executor.h"
-#include "olap/olap_snapshot_converter.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/rowset/alpha_rowset.h"

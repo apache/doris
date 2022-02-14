@@ -389,19 +389,6 @@ void AggregationNode::update_tuple(Tuple* tuple, TupleRow* row) {
     DCHECK(tuple != nullptr);
 
     AggFnEvaluator::add(_aggregate_evaluators, _agg_fn_ctxs, row, tuple);
-#if 0
-    std::vector<AggFnEvaluator*>::const_iterator evaluator;
-    int i = 0;
-    for (evaluator = _aggregate_evaluators.begin();
-            evaluator != _aggregate_evaluators.end(); ++evaluator, ++i) {
-        (*evaluator)->choose_update_or_merge(_agg_fn_ctxs[i], row, tuple);
-        //if (_is_merge) {
-        //    (*evaluator)->merge(_agg_fn_ctxs[i], row, tuple, pool);
-        //} else {
-        //    (*evaluator)->update(_agg_fn_ctxs[i], row, tuple, pool);
-        //}
-    }
-#endif
 }
 
 Tuple* AggregationNode::finalize_tuple(Tuple* tuple, MemPool* pool) {
@@ -449,6 +436,29 @@ void AggregationNode::push_down_predicate(RuntimeState* state, std::list<ExprCon
     // groupby can pushdown, agg can't pushdown
     // Now we doesn't pushdown for easy.
     return;
+}
+
+void AggregationNode::process_row_batch_no_grouping(RowBatch* batch, MemPool* pool) {
+    for (int i = 0; i < batch->num_rows(); ++i) {
+        update_tuple(_singleton_output_tuple, batch->get_row(i));
+    }
+}
+
+void AggregationNode::process_row_batch_with_grouping(RowBatch* batch, MemPool* pool) {
+    for (int i = 0; i < batch->num_rows(); ++i) {
+        TupleRow* row = batch->get_row(i);
+        Tuple* agg_tuple = nullptr;
+        HashTable::Iterator it = _hash_tbl->find(row);
+
+        if (it.at_end()) {
+            agg_tuple = construct_intermediate_tuple();
+            _hash_tbl->insert(reinterpret_cast<TupleRow*>(&agg_tuple));
+        } else {
+            agg_tuple = it.get_row()->get_tuple(0);
+        }
+
+        update_tuple(agg_tuple, row);
+    }
 }
 
 } // namespace doris

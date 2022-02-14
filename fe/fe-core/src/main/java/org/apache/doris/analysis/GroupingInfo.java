@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 
 public class GroupingInfo {
     public static final String COL_GROUPING_ID = "GROUPING_ID";
-
+    private GroupByClause groupByClause;
     private VirtualSlotRef groupingIDSlot;
     private TupleDescriptor virtualTuple;
     private Set<VirtualSlotRef> groupingSlots;
@@ -41,8 +41,9 @@ public class GroupingInfo {
     private GroupByClause.GroupingType groupingType;
     private BitSet bitSetAll;
 
-    public GroupingInfo(Analyzer analyzer, GroupByClause.GroupingType groupingType) throws AnalysisException {
-        this.groupingType = groupingType;
+    public GroupingInfo(Analyzer analyzer, GroupByClause groupByClause) throws AnalysisException {
+        this.groupByClause = groupByClause;
+        this.groupingType = groupByClause.getGroupingType();
         groupingSlots = new LinkedHashSet<>();
         virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");
         groupingIDSlot = new VirtualSlotRef(COL_GROUPING_ID, Type.BIGINT, virtualTuple, new ArrayList<>());
@@ -190,6 +191,9 @@ public class GroupingInfo {
                     if (colIndex != -1 && !(ref.getViewStmt().getResultExprs().get(colIndex) instanceof SlotRef)) {
                         throw new AnalysisException("grouping functions only support column in current version.");
                     }
+                } else if (!groupByClause.getGroupingExprs().contains(child)) {
+                    throw new AnalysisException("select list expression not produced by aggregation output" +
+                            " (missing from GROUP BY clause?): " + ((SlotRef) child).getColumnName());
                 }
             }
             // if is substituted skip

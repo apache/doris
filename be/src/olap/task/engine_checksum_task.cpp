@@ -23,12 +23,10 @@
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
-                                       TVersion version, TVersionHash version_hash,
-                                       uint32_t* checksum)
+                                       TVersion version, uint32_t* checksum)
         : _tablet_id(tablet_id),
           _schema_hash(schema_hash),
           _version(version),
-          _version_hash(version_hash),
           _checksum(checksum) {}
 
 OLAPStatus EngineChecksumTask::execute() {

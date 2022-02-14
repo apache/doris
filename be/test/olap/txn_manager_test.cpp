@@ -284,9 +284,8 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
                                  _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     Version new_version(10, 11);
-    VersionHash new_versionhash = 123;
     status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                   _tablet_uid, new_version, new_versionhash);
+                                   _tablet_uid, new_version);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 
     RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
@@ -301,10 +300,9 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
 // 1. publish version failed if not found related txn and rowset
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
-    VersionHash new_versionhash = 123;
     OLAPStatus status =
             _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid, new_version, new_versionhash);
+                                  _tablet_uid, new_version);
     ASSERT_TRUE(status != OLAP_SUCCESS);
 }
 

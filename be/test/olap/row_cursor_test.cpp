@@ -311,7 +311,7 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     scan_keys.push_back("char_exceed_length");
     scan_keys.push_back("varchar_exceed_length");
 
-    std::vector<uint32_t> columns{0, 1};
+    std::vector<uint32_t> columns {0, 1};
     std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema.columns(), columns);
 
     RowCursor row;
@@ -498,7 +498,8 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
 
     agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = *reinterpret_cast<int128_t*>(row.cell_ptr(2));
+    int128_t agg_value = 0;
+    memcpy(&agg_value, row.cell_ptr(2), 16);
     ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
 
     double agg_double = *reinterpret_cast<double*>(row.cell_ptr(3));
@@ -558,7 +559,8 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 
     agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = *reinterpret_cast<int128_t*>(row.cell_ptr(2));
+    int128_t agg_value = 0;
+    memcpy(&agg_value, row.cell_ptr(2), 16);
     ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
 
     bool is_null_double = left.is_null(3);

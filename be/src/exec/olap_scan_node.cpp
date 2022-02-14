@@ -425,7 +425,6 @@ Status OlapScanNode::close(RuntimeState* state) {
 //  1: required list<Types.TNetworkAddress> hosts
 //  2: required string schema_hash
 //  3: required string version
-//  4: required string version_hash
 //  5: required Types.TTabletId tablet_id
 //  6: required string db_name
 //  7: optional list<TKeyRange> partition_column_ranges

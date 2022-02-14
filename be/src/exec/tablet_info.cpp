@@ -530,15 +530,15 @@ bool VOlapTablePartitionParam::find_tablet(BlockRow* block_row, const VOlapTable
 Status VOlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,
                                                        BlockRow* part_key) {
     for (int i = 0; i < t_exprs.size(); i++) {
-        RETURN_IF_ERROR(_create_partition_key(t_exprs[i], part_key->first,
+        RETURN_IF_ERROR(_create_partition_key(t_exprs[i], part_key,
                 _partition_slot_locs[i]));
     }
     return Status::OK();
 }
 
-Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, vectorized::Block* block,
+Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                                                       uint16_t pos) {
-    auto column = std::move(*block->get_by_position(pos).column).mutate();
+    auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         vectorized::VecDateTimeValue dt;
@@ -586,18 +586,6 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     } case TExprNodeType::STRING_LITERAL: {
         int len = t_expr.string_literal.value.size();
         const char* str_val = t_expr.string_literal.value.c_str();
-
-        // CHAR is a fixed-length string and needs to use the length in the slot definition,
-        // VARVHAR is a variable-length string and needs to use the length of the string itself
-        // padding 0 to CHAR field
-//        if (TYPE_CHAR == slot_desc->type().type && len < slot_desc->type().len) {
-//            auto new_ptr = (char*)_mem_pool->allocate(slot_desc->type().len);
-//            memset(new_ptr, 0, slot_desc->type().len);
-//            memcpy(new_ptr, str_val, len);
-//
-//            str_val = new_ptr;
-//            len = slot_desc->type().len;
-//        }
         column->insert_data(str_val, len);
         break;
     } case TExprNodeType::BOOL_LITERAL: {
@@ -609,6 +597,7 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
         return Status::InternalError(ss.str());
     }
     }
+    part_key->second = column->size() - 1;
     return Status::OK();
 }
 

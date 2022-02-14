@@ -245,7 +245,7 @@ OLAPStatus ColumnData::_find_position_by_full_key(const RowCursor& key, bool fin
             it_result = std::upper_bound(it_start, it_end, key, comparator);
         }
         VLOG_NOTICE << "get result iterator. offset=" << *it_result
-                << ", start_pos=" << start_position.to_string();
+                    << ", start_pos=" << start_position.to_string();
     } catch (std::exception& e) {
         LOG(WARNING) << "exception happens when doing seek. exception=" << e.what();
         return OLAP_ERR_STL_ERROR;
@@ -599,14 +599,6 @@ OLAPStatus ColumnData::_get_block_from_reader(VectorizedRowBatch** got_batch, bo
     }
     // If this is normal read
     do {
-#if 0
-        LOG(INFO) << "_current_segment is " << _current_segment
-            << ", _next_block:" << _next_block
-            << ", _end_segment::"  << _end_segment
-            << ", _end_block:" << _end_block
-            << ", _end_row_index:" << _end_row_index
-            << ", _segment_eof:" << _segment_eof;
-#endif
         vec_batch->clear();
         if (rows_read > 0) {
             vec_batch->set_limit(rows_read);

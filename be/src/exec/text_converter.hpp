@@ -41,7 +41,7 @@ namespace doris {
 inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tuple,
                                       const char* data, int len, bool copy_string, bool need_escape,
                                       MemPool* pool) {
-    //小批量导入只有\N被认为是NULL,没有批量导入的replace_value函数
+    //Small batch import only \N is considered to be NULL, there is no replace_value function for batch import
     if (true == slot_desc->is_nullable()) {
         if (len == 2 && data[0] == '\\' && data[1] == 'N') {
             tuple->set_null(slot_desc->null_indicator_offset());
