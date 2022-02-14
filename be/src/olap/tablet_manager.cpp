@@ -76,8 +76,7 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
         : _mem_tracker(MemTracker::CreateTracker(-1, "TabletMeta", nullptr, false, false,
                                                  MemTrackerLevel::OVERVIEW)),
           _tablets_shards_size(tablet_map_lock_shard_size),
-          _tablets_shards_mask(tablet_map_lock_shard_size - 1),
-          _last_update_stat_ms(0) {
+          _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
@@ -616,19 +615,12 @@ bool TabletManager::get_rowset_id_from_path(const string& path, RowsetId* rowset
 }
 
 void TabletManager::get_tablet_stat(TTabletStatResult* result) {
-    int64_t curr_ms = UnixMillis();
-    // Update cache if it is too old
+    std::shared_ptr<std::vector<TTabletStat>> local_cache;
     {
-        int interval_sec = config::tablet_stat_cache_update_interval_second;
-        std::lock_guard<std::mutex> l(_tablet_stat_mutex);
-        if (curr_ms - _last_update_stat_ms > interval_sec * 1000) {
-            VLOG_NOTICE << "update tablet stat.";
-            _build_tablet_stat();
-            _last_update_stat_ms = UnixMillis();
-        }
+        std::lock_guard<std::mutex> guard(_tablet_stat_cache_mutex);
+        local_cache = _tablet_stat_list_cache;
     }
-
-    result->__set_tablets_stats(_tablet_stat_cache);
+    result->__set_tablet_stat_list(*local_cache);
 }
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
@@ -888,19 +880,18 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
 
     DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
     HistogramStat tablet_version_num_hist;
+    std::shared_ptr<std::vector<TTabletStat>> local_cache = std::make_shared<std::vector<TTabletStat>>();
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& item : tablets_shard.tablet_map) {
             if (item.second.table_arr.empty()) {
                 continue;
             }
-
             uint64_t tablet_id = item.first;
             TTablet t_tablet;
             for (TabletSharedPtr tablet_ptr : item.second.table_arr) {
                 TTabletInfo tablet_info;
                 tablet_ptr->build_tablet_report_info(&tablet_info);
-
                 // find expired transaction corresponding to this tablet
                 TabletInfo tinfo(tablet_id, tablet_ptr->schema_hash(), tablet_ptr->tablet_uid());
                 auto find = expire_txn_map.find(tinfo);
@@ -913,11 +904,21 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
                     tablet_version_num_hist.add(tablet_ptr->version_count());
                 }
             }
-
             if (!t_tablet.tablet_infos.empty()) {
                 tablets_info->emplace(tablet_id, t_tablet);
+                TTabletStat t_tablet_stat;
+                auto& tablet_info = t_tablet.tablet_infos[0];
+                t_tablet_stat.tablet_id = tablet_info.tablet_id;
+                t_tablet_stat.data_size = tablet_info.data_size;
+                t_tablet_stat.row_num = tablet_info.row_count;
+                t_tablet_stat.version_count = tablet_info.version_count;
+                local_cache->emplace_back(t_tablet_stat);
             }
         }
+    }
+    {
+        std::lock_guard<std::mutex> guard(_tablet_stat_cache_mutex);
+        _tablet_stat_list_cache = local_cache;
     }
     DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
             tablet_version_num_hist);
@@ -1178,36 +1179,6 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
     int64_t cost = watch.elapsed_time() / 1000 / 1000;
     LOG(INFO) << "finish to do meta checkpoint on dir: " << data_dir->path()
               << ", number: " << counter << ", cost(ms): " << cost;
-    return;
-}
-
-void TabletManager::_build_tablet_stat() {
-    _tablet_stat_cache.clear();
-    for (const auto& tablets_shard : _tablets_shards) {
-        ReadLock rlock(tablets_shard.lock.get());
-        for (const auto& item : tablets_shard.tablet_map) {
-            if (item.second.table_arr.empty()) {
-                continue;
-            }
-
-            TTabletStat stat;
-            stat.tablet_id = item.first;
-            for (TabletSharedPtr tablet : item.second.table_arr) {
-                // TODO(lingbin): if it is nullptr, why is it not deleted?
-                if (tablet == nullptr) {
-                    continue;
-                }
-                stat.__set_data_size(tablet->tablet_footprint());
-                stat.__set_row_num(tablet->num_rows());
-                VLOG_NOTICE << "building tablet stat. tablet_id=" << item.first
-                            << ", data_size=" << tablet->tablet_footprint()
-                            << ", row_num=" << tablet->num_rows();
-                break;
-            }
-
-            _tablet_stat_cache.emplace(item.first, stat);
-        }
-    }
 }
 
 OLAPStatus TabletManager::_create_initial_rowset_unlocked(const TCreateTabletReq& request,
@@ -1311,7 +1282,7 @@ OLAPStatus TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& r
             }
         }
     }
-    LOG(INFO) << "creating tablet meta. next_unique_id=" << next_unique_id;
+    VLOG_NOTICE << "creating tablet meta. next_unique_id=" << next_unique_id;
 
     // We generate a new tablet_uid for this new tablet.
     uint64_t shard_id = 0;

@@ -239,10 +239,17 @@ public class Replica implements Writable {
         this.furtherRepairSetTime = System.currentTimeMillis();
     }
 
-    // only update data size and row num
+    // for compatibility
     public synchronized void updateStat(long dataSize, long rowNum) {
         this.dataSize = dataSize;
         this.rowCount = rowNum;
+    }
+
+    // only update data_size, row_num, version_count
+    public synchronized void updateStat(long dataSize, long rowNum, long versionCount) {
+        this.dataSize = dataSize;
+        this.rowCount = rowNum;
+        this.versionCount = versionCount;
     }
 
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRowCount) {
