@@ -44,6 +44,7 @@
 #include "common/logging.h"
 #include "common/resource_tls.h"
 #include "common/status.h"
+#include "common/utils.h"
 #include "env/env.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
@@ -80,8 +81,7 @@ static void thrift_output(const char* x) {
 
 // These code is referenced from clickhouse
 // It is used to check the SIMD instructions
-enum class InstructionFail
-{
+enum class InstructionFail {
     NONE = 0,
     SSE3 = 1,
     SSSE3 = 2,
@@ -90,10 +90,9 @@ enum class InstructionFail
     POPCNT = 5,
     AVX = 6,
     AVX2 = 7,
-    AVX512 = 8
+    AVX512 = 8,
+    ARM_NEON = 9
 };
-
-#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 
 auto instruction_fail_to_string(InstructionFail fail)
 {
@@ -118,6 +117,8 @@ auto instruction_fail_to_string(InstructionFail fail)
             ret("AVX2");
         case InstructionFail::AVX512:
             ret("AVX512");
+        case InstructionFail::ARM_NEON:
+            ret("ARM_NEON");
     }
     __builtin_unreachable();
 }
@@ -125,7 +126,7 @@ auto instruction_fail_to_string(InstructionFail fail)
 
 sigjmp_buf jmpbuf;
 
-[[noreturn]] void sig_ill_check_handler(int, siginfo_t *, void *)
+void sig_ill_check_handler(int, siginfo_t *, void *)
 {
     siglongjmp(jmpbuf, 1);
 }
@@ -178,6 +179,11 @@ void check_required_instructions_impl(volatile InstructionFail & fail)
 #if defined(__AVX512__)
     fail = InstructionFail::AVX512;
     __asm__ volatile ("vpabsw %%zmm0, %%zmm0" : : : "zmm0");
+#endif
+
+#if defined(__ARM_NEON__)
+    fail = InstructionFail::ARM_NEON;
+    __asm__ volatile ("vadd.i32  q8, q8, q8" : : : "q8");
 #endif
 
     fail = InstructionFail::NONE;
