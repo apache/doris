@@ -1243,7 +1243,6 @@ OLAPStatus TabletManager::_create_initial_rowset_unlocked(const TCreateTabletReq
             context.tablet_schema = &(tablet->tablet_schema());
             context.rowset_state = VISIBLE;
             context.version = version;
-            context.version_hash = request.version_hash;
             // there is no data in init rowset, so overlapping info is unknown.
             context.segments_overlap = OVERLAP_UNKNOWN;
 

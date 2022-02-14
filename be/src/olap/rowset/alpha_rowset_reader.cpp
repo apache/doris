@@ -120,10 +120,6 @@ Version AlphaRowsetReader::version() {
     return _alpha_rowset_meta->version();
 }
 
-VersionHash AlphaRowsetReader::version_hash() {
-    return _alpha_rowset_meta->version_hash();
-}
-
 int64_t AlphaRowsetReader::filtered_rows() {
     return _stats->rows_del_filtered;
 }

@@ -73,8 +73,6 @@ public:
 
     Version version() override;
 
-    VersionHash version_hash() override;
-
     RowsetSharedPtr rowset() override;
 
     int64_t filtered_rows() override;

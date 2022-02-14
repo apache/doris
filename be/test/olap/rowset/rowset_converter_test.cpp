@@ -66,7 +66,6 @@ void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_
     rowset_writer_context->tablet_schema = tablet_schema;
     rowset_writer_context->version.first = 0;
     rowset_writer_context->version.second = 1;
-    rowset_writer_context->version_hash = 110;
 }
 
 void create_rowset_reader_context(TabletSchema* tablet_schema,

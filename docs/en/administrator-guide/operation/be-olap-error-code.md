@@ -131,7 +131,6 @@ under the License.
 | OLAP_ERR_BE_VERSION_NOT_MATCH | -800 | BE Compaction version mismatch error |
 | OLAP_ERR_BE_REPLACE_VERSIONS_ERROR | -801 | BE Compaction replacement version error |
 | OLAP_ERR_BE_MERGE_ERROR | -802 | BE Compaction merge error |
-| OLAP_ERR_BE_COMPUTE_VERSION_HASH_ERROR | -803 | BE Compaction calculation version hash error |
 | OLAP_ERR_CAPTURE_ROWSET_ERROR | -804 | Cannot find the version corresponding to Rowset |
 | OLAP_ERR_BE_SAVE_HEADER_ERROR | -805 | BE Compaction save header error |
 | OLAP_ERR_BE_INIT_OLAP_DATA | -806 | BE Compaction initialized OLAP data error |

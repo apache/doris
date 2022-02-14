@@ -56,8 +56,6 @@ public:
 
     virtual Version version() = 0;
 
-    virtual VersionHash version_hash() = 0;
-
     virtual RowsetSharedPtr rowset() = 0;
 
     virtual int64_t filtered_rows() = 0;
