@@ -115,6 +115,31 @@ using HashTableVariants =
                      I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
                      I256FixedKeyHashTableContext<false>>;
 
+using JoinOpVariants = std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::MERGE_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+
+#define APPLY_FOR_JOINOP_VARIANTS(M)        \
+    M(INNER_JOIN)                           \
+    M(LEFT_SEMI_JOIN)                       \
+    M(LEFT_ANTI_JOIN)                       \
+    M(LEFT_OUTER_JOIN)                      \
+    M(FULL_OUTER_JOIN)                      \
+    M(RIGHT_OUTER_JOIN)                     \
+    M(CROSS_JOIN)                           \
+    M(MERGE_JOIN)                           \
+    M(RIGHT_SEMI_JOIN)                      \
+    M(RIGHT_ANTI_JOIN)                      \
+    M(NULL_AWARE_LEFT_ANTI_JOIN)
+
 class VExprContext;
 
 class HashJoinNode : public ::doris::ExecNode {
@@ -129,11 +154,14 @@ public:
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos);
     virtual Status close(RuntimeState* state);
     HashTableVariants& get_hash_table_variants() { return _hash_table_variants; }
+    void init_join_op();
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
 
     TJoinOp::type _join_op;
+
+    JoinOpVariants _join_op_variants;
     // probe expr
     VExprContexts _probe_expr_ctxs;
     // build expr
@@ -214,7 +242,7 @@ private:
     template <class HashTableContext, bool ignore_null, bool build_unique>
     friend class ProcessHashTableBuild;
 
-    template <class HashTableContext, bool ignore_null>
+    template <class HashTableContext, class JoinOpType, bool ignore_null>
     friend class ProcessHashTableProbe;
 
     template <class HashTableContext>
