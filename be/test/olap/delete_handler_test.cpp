@@ -76,7 +76,6 @@ void tear_down() {
 void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10003;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = 270068375;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -157,7 +156,6 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
 void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10009;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = 270068376;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::DUP_KEYS;

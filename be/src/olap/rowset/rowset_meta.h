@@ -133,12 +133,6 @@ public:
 
     void set_end_version(int64_t end_version) { _rowset_meta_pb.set_end_version(end_version); }
 
-    VersionHash version_hash() const { return _rowset_meta_pb.version_hash(); }
-
-    void set_version_hash(VersionHash version_hash) {
-        _rowset_meta_pb.set_version_hash(version_hash);
-    }
-
     int64_t num_rows() const { return _rowset_meta_pb.num_rows(); }
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }

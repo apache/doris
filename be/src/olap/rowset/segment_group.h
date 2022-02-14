@@ -49,7 +49,7 @@ class SegmentGroup {
 
 public:
     SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
-                 const std::string& rowset_path_prefix, Version version, VersionHash version_hash,
+                 const std::string& rowset_path_prefix, Version version,
                  bool delete_flag, int segment_group_id, int32_t num_segments);
 
     SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
@@ -142,8 +142,6 @@ public:
 
     inline Version version() const { return _version; }
     inline void set_version(Version version) { _version = version; }
-    inline VersionHash version_hash() const { return _version_hash; }
-    inline void set_version_hash(VersionHash version_hash) { _version_hash = version_hash; }
 
     inline bool is_pending() const { return _is_pending; }
     inline void set_pending_finished() { _is_pending = false; }
@@ -271,7 +269,6 @@ private:
     const TabletSchema* _schema;
     std::string _rowset_path_prefix; // path of rowset
     Version _version;                // version of associated data file
-    VersionHash _version_hash;       // version hash for this segment group
     bool _delete_flag;
     int32_t _segment_group_id;       // segment group id of segment group
     PUniqueId _load_id;              // load id for segment group

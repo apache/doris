@@ -556,25 +556,6 @@ Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_p
     return Status::OK();
 }
 
-void SnapshotLoader::_assemble_file_name(const std::string& snapshot_path,
-                                         const std::string& tablet_path, int64_t tablet_id,
-                                         int64_t start_version, int64_t end_version,
-                                         int64_t vesion_hash, int32_t seg_num,
-                                         const std::string suffix, std::string* snapshot_file,
-                                         std::string* tablet_file) {
-    std::stringstream ss1;
-    ss1 << snapshot_path << "/" << tablet_id << "_" << start_version << "_" << end_version << "_"
-        << vesion_hash << "_" << seg_num << suffix;
-    *snapshot_file = ss1.str();
-
-    std::stringstream ss2;
-    ss2 << tablet_path << "/" << tablet_id << "_" << start_version << "_" << end_version << "_"
-        << vesion_hash << "_" << seg_num << suffix;
-    *tablet_file = ss2.str();
-
-    VLOG_CRITICAL << "assemble file name: " << *snapshot_file << ", " << *tablet_file;
-}
-
 Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,
                                           std::string* new_file_name) {
     // eg:

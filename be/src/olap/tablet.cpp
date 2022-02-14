@@ -395,7 +395,6 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 
 void Tablet::delete_expired_stale_rowset() {
     int64_t now = UnixSeconds();
-    std::vector<pair<Version, VersionHash>> expired_versions;
     WriteLock wrlock(&_meta_lock);
     // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
     double expired_stale_sweep_endtime =
@@ -767,17 +766,6 @@ const uint32_t Tablet::_calc_base_compaction_score() const {
     return base_rowset_exist ? score : 0;
 }
 
-void Tablet::compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
-                                               VersionHash* version_hash) {
-    DCHECK(version_hash != nullptr) << "invalid parameter, version_hash is nullptr";
-    int64_t v_hash = 0;
-    // version hash is useless since Doris version 0.11
-    // but for compatibility, we set version hash as the last rowset's version hash.
-    // this can also enable us to do the compaction for last one rowset.
-    v_hash = rowsets.back()->version_hash();
-    *version_hash = v_hash;
-}
-
 void Tablet::calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions) {
     ReadLock rdlock(&_meta_lock);
     calc_missed_versions_unlocked(spec_version, missed_versions);
@@ -818,36 +806,32 @@ void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
     }
 }
 
-void Tablet::max_continuous_version_from_beginning(Version* version, VersionHash* v_hash) {
+void Tablet::max_continuous_version_from_beginning(Version* version) {
     ReadLock rdlock(&_meta_lock);
-    _max_continuous_version_from_beginning_unlocked(version, v_hash);
+    _max_continuous_version_from_beginning_unlocked(version);
 }
 
-void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
-                                                             VersionHash* v_hash) const {
-    std::vector<pair<Version, VersionHash>> existing_versions;
+void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version) const {
+    std::vector<Version> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
-        existing_versions.emplace_back(rs->version(), rs->version_hash());
+        existing_versions.emplace_back(rs->version());
     }
 
     // sort the existing versions in ascending order
     std::sort(existing_versions.begin(), existing_versions.end(),
-              [](const pair<Version, VersionHash>& left, const pair<Version, VersionHash>& right) {
+              [](const Version& left, const Version& right) {
                   // simple because 2 versions are certainly not overlapping
-                  return left.first.first < right.first.first;
+                  return left.first < right.first;
               });
 
     Version max_continuous_version = {-1, 0};
-    VersionHash max_continuous_version_hash = 0;
     for (int i = 0; i < existing_versions.size(); ++i) {
-        if (existing_versions[i].first.first > max_continuous_version.second + 1) {
+        if (existing_versions[i].first > max_continuous_version.second + 1) {
             break;
         }
-        max_continuous_version = existing_versions[i].first;
-        max_continuous_version_hash = existing_versions[i].second;
+        max_continuous_version = existing_versions[i];
     }
     *version = max_continuous_version;
-    *v_hash = max_continuous_version_hash;
 }
 
 void Tablet::calculate_cumulative_point() {
@@ -1264,8 +1248,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->row_count = _tablet_meta->num_rows();
     tablet_info->data_size = _tablet_meta->tablet_footprint();
     Version version = {-1, 0};
-    VersionHash v_hash = 0;
-    _max_continuous_version_from_beginning_unlocked(&version, &v_hash);
+    _max_continuous_version_from_beginning_unlocked(&version);
     auto max_rowset = rowset_with_max_version();
     if (max_rowset != nullptr) {
         if (max_rowset->version() != version) {
@@ -1284,7 +1267,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
         // and perform state modification operations.
     }
     tablet_info->version = version.second;
-    tablet_info->version_hash = v_hash;
+    // Useless but it is a required filed in TTabletInfo
+    tablet_info->version_hash = 0;
     tablet_info->__set_partition_id(_tablet_meta->partition_id());
     tablet_info->__set_storage_medium(_data_dir->storage_medium());
     tablet_info->__set_version_count(_tablet_meta->version_count());
