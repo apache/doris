@@ -207,9 +207,9 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
 Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     TLoadTxn2PCRequest request;
     set_request_auth(&request, ctx->auth);
-    request.db = ctx->db;
-    request.txnId = ctx->txn_id;
-    request.operation = ctx->txn_operation;
+    request.__set_db(ctx->db);
+    request.__set_txnId(ctx->txn_id);
+    request.__set_operation(ctx->txn_operation);
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;

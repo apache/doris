@@ -660,10 +660,10 @@ struct TLoadTxn2PCRequest {
     1: optional string cluster
     2: required string user
     3: required string passwd
-    4: required string db
+    4: optional string db
     5: optional string user_ip
-    6: required i64 txnId
-    7: required string operation
+    6: optional i64 txnId
+    7: optional string operation
     8: optional i64 auth_code
     9: optional string auth_code_uuid
     10: optional i64 thrift_rpc_timeout_ms

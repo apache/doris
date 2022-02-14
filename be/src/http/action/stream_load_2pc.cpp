@@ -61,6 +61,12 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         return;
     }
     ctx->txn_operation = req->header(HTTP_TXN_OPERATION_KEY);
+    if (ctx->txn_operation.compare("commit") != 0 && ctx->txn_operation.compare("abort") != 0) {
+        status = Status::InternalError("transaction operation should be \'commit\' or \'abort\'");
+        status_result = to_json(status);
+        HttpChannel::send_reply(req, HttpStatus::OK, status_result);
+        return;
+    }
 
     if (!parse_basic_auth(*req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed.";
