@@ -23,32 +23,35 @@
 
 namespace doris::vectorized {
 
+// Two part of binary: <column num > + <size array> | <hll data array>
+// first: column num | hll1 size | hll2 size | ...
+// second: hll1 | hll2 | ...
 char* DataTypeHLL::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
 
-    const auto column_num = column.size();
+    size_t column_num = column.size();
     size_t hll_size_array[column_num + 1];
     hll_size_array[0] = column_num;
 
-    for (size_t i = 0; i < column.size(); ++i) {
-        auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
-        hll_size_array[i + 1] = hll.max_serialized_size();
-    }
-
     auto allocate_len_size = sizeof(size_t) * (column_num + 1);
-    memcpy(buf, hll_size_array, allocate_len_size);
+    char* buf_start = buf;
     buf += allocate_len_size;
 
     for (size_t i = 0; i < column_num; ++i) {
         auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
-        hll.serialize(reinterpret_cast<uint8_t*>(buf));
-        buf += hll_size_array[i + 1];
+        size_t actual_size = hll.serialize(reinterpret_cast<uint8_t*>(buf));
+        hll_size_array[i + 1] = actual_size;
+        buf += actual_size;
     }
 
+    memcpy(buf_start, hll_size_array, allocate_len_size);
     return buf;
 }
 
+// Two part of binary: <column num > + <size array> | <hll data array>
+// first: column num | hll1 size | hll2 size | ...
+// second: hll1 | hll2 | ...
 const char* DataTypeHLL::deserialize(const char* buf, IColumn* column) const {
     auto& data_column = assert_cast<ColumnHLL&>(*column);
     auto& data = data_column.get_data();
@@ -60,11 +63,11 @@ const char* DataTypeHLL::deserialize(const char* buf, IColumn* column) const {
     buf += sizeof(size_t) * column_num;
 
     data.resize(column_num);
-    for (int i = 0; i < column_num ; ++i) {
+    for (int i = 0; i < column_num; ++i) {
         data[i].deserialize(Slice(buf, hll_size_array[i]));
         buf += hll_size_array[i];
     }
-    
+
     return buf;
 }
 
@@ -76,10 +79,12 @@ int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column) co
     auto allocate_content_size = 0;
     for (size_t i = 0; i < column.size(); ++i) {
         auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
-        allocate_content_size += hll.max_serialized_size();
+        std::string result(hll.max_serialized_size(), '0');
+        size_t actual_size = hll.serialize((uint8_t*)result.c_str());
+        allocate_content_size += actual_size;
     }
 
-    return allocate_len_size + allocate_content_size;    
+    return allocate_len_size + allocate_content_size;
 }
 
 MutableColumnPtr DataTypeHLL::create_column() const {
@@ -88,10 +93,9 @@ MutableColumnPtr DataTypeHLL::create_column() const {
 
 void DataTypeHLL::serialize_as_stream(const HyperLogLog& cvalue, BufferWritable& buf) {
     auto& value = const_cast<HyperLogLog&>(cvalue);
-    std::string memory_buffer;
-    int bytesize = value.max_serialized_size();
-    memory_buffer.resize(bytesize);
-    value.serialize((uint8_t*)memory_buffer.data());
+    std::string memory_buffer(value.max_serialized_size(), '0');
+    size_t actual_size = value.serialize((uint8_t*)memory_buffer.data());
+    memory_buffer.resize(actual_size);
     write_string_binary(memory_buffer, buf);
 }
 
@@ -102,11 +106,12 @@ void DataTypeHLL::deserialize_as_stream(HyperLogLog& value, BufferReadable& buf)
 }
 
 void DataTypeHLL::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-        doris::vectorized::BufferWritable& ostr) const {
-    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(column).get_element(row_num));
+                            doris::vectorized::BufferWritable& ostr) const {
+    auto& data =
+            const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(column).get_element(row_num));
     std::string result(data.max_serialized_size(), '0');
-    data.serialize((uint8_t*)result.data());
-
+    size_t actual_size = data.serialize((uint8_t*)result.data());
+    result.resize(actual_size);
     ostr.write(result.data(), result.size());
 }
 

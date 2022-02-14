@@ -816,12 +816,11 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
             string_slot->len = size;
         } else if (slot_desc->type() == TYPE_HLL) {
             auto hll_value = (HyperLogLog*)(data_ref.data);
-            LOG(INFO)<<"block hll string: "<<hll_value->to_string();
             auto size = hll_value->max_serialized_size();
             auto string_slot = dst->get_string_slot(slot_desc->tuple_offset());
             string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-            hll_value->serialize((uint8_t*)string_slot->ptr);
-            string_slot->len = size;
+            size_t actual_size = hll_value->serialize((uint8_t*)string_slot->ptr);
+            string_slot->len = actual_size;
         } else {
             VecDateTimeValue ts =
                     *reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data_ref.data);
