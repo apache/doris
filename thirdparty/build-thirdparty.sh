@@ -164,6 +164,14 @@ check_prerequest "automake --version" "automake"
 # sudo yum install libtool
 check_prerequest "libtoolize --version" "libtool"
 
+# aclocal_version should equal to automake_version
+aclocal_version=`aclocal --version | sed -n '1p'|awk 'NF>1{print $NF}'`
+automake_version=`automake --version | sed -n '1p'|awk 'NF>1{print $NF}'`
+if [ ${aclocal_version} != ${automake_version} ] ; then
+    echo "Error: aclocal version(${aclocal_version}) is not equal to automake version(${automake_version})."
+    exit 1
+fi
+
 # sudo apt-get install binutils-dev
 # sudo yum install binutils-devel
 #check_prerequest "locate libbfd.a" "binutils-dev"
