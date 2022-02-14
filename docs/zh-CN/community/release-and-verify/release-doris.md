@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Apache Doris 发布流程",
+    "title": "发布 Doris 主代码",
     "language": "zh-CN"
 }
 ---
@@ -24,9 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache Doris 发布流程
+# 发布 Doris 主代码
 
 Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer，这个角色叫做 release manager。
+
+本文档主要介绍 Doris 主代码的发布流程，即 [apache/incubator-doris](https://github.com/apache/incubator-doris) 代码库的版本发布。
 
 发布的大致流程如下：
 
@@ -50,7 +52,6 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	1. 上传签名的软件包到 [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接
 	2. 在 Doris 官网和 github 发布下载链接，并且清理 svn 上的旧版本包
 	3. 发送 Announce 邮件到 general@incubator.apache.org
-
 
 ## 准备环境
 
@@ -93,6 +94,7 @@ personal-digest-preferences SHA512
 cert-digest-algo SHA512
 default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed
 ```
+
 #### 生成新的签名
 
 ##### 准备签名
@@ -166,7 +168,7 @@ Email address 为 apache 的邮箱。
 
 输入 passphrase, 一共要输入两遍，超过8个字符即可。
 
-**这里的秘钥一定要记住，后面签名的时候会用到**
+**这里的秘钥一定要记住，后面签名的时候会用到。同时也会用于其他组件的发布**
 
 ##### 查看和输出
 
