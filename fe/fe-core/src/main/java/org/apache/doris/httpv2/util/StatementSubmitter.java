@@ -172,7 +172,12 @@ public class StatementSubmitter {
                 List<Object> row = Lists.newArrayListWithCapacity(colNum);
                 // index start from 1
                 for (int i = 1; i <= colNum; ++i) {
-                    row.add(rs.getObject(i));
+                    String type = rs.getMetaData().getColumnTypeName(i);
+                    if("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)){
+                        row.add(rs.getString(i));
+                    } else {
+                        row.add(rs.getObject(i));
+                    }
                 }
                 rows.add(row);
                 rowCount++;
