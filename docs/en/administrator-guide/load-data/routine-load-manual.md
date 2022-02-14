@@ -298,6 +298,10 @@ The user can control the stop, pause and restart of the job by the three command
     |3| Yes | No | No | The system will start consumption from the OFFSET_END of the specified partition |
     |4| Yes | Yes | No | The system will start consumption from the specified offset of the specified partition |
     |5| Yes | No | Yes | The system will start consumption from the specified partition and the location specified by the default offset |
+   
+ 7. The difference between STOP and PAUSE
+
+    the FE will automatically clean up stopped ROUTINE LOAD，while paused ROUTINE LOAD can be resumed
 
 ## Related parameters
 
