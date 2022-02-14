@@ -96,6 +96,7 @@ under the License.
 | OLAP_ERR_TOO_MANY_VERSION                        | -235   | tablet的数据版本超过了最大限制（默认500）                    |
 | OLAP_ERR_NOT_INITIALIZED                         | -236   | 不能初始化                                                   |
 | OLAP_ERR_ALREADY_CANCELLED                       | -237   | 已经被取消                                                   |
+| OLAP_ERR_TOO_MANY_SEGMENTS                       | -238   | 通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多 |
 | 命令执行异常代码                                 |        |                                                              |
 | OLAP_ERR_CE_CMD_PARAMS_ERROR                     | -300   | 命令参数错误                                                 |
 | OLAP_ERR_CE_BUFFER_TOO_SMALL                     | -301   | 缓冲区太多小文件                                             |
