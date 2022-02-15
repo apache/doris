@@ -26,7 +26,7 @@ under the License.
 
 # convert_tz
 ## description
-## Syntax
+### Syntax
 
 `DATETIME CONVERT_TZ(DATETIME dt, VARCHAR from_tz, VARCHAR to_tz)`
 
