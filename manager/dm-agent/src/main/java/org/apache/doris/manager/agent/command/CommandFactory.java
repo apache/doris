@@ -101,7 +101,7 @@ public class CommandFactory {
                 }
                 return new WriteBrokerConfCommand(writeBrokerConfCommandRequestBody);
             default:
-                throw new AgentException("unkown CommandType");
+                throw new AgentException("unknown CommandType");
         }
     }
 

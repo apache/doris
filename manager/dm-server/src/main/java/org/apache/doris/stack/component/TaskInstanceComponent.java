@@ -119,7 +119,7 @@ public class TaskInstanceComponent {
         }
         for (TaskInstanceEntity task : taskInstanceEntities) {
             if (Flag.NO.equals(task.getFinish())) {
-                log.error("task {} is unfinish", task.getTaskType());
+                log.error("task {} is unfinished", task.getTaskType());
                 return false;
             }
         }

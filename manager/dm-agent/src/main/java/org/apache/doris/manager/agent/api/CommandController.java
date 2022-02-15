@@ -40,7 +40,7 @@ public class CommandController {
     @PostMapping("/execute")
     public RResult execute(@RequestBody CommandRequest commandRequest) {
         if (Objects.isNull(CommandType.findByName(commandRequest.getCommandType()))) {
-            return RResult.error("Unkonwn command");
+            return RResult.error("unknown command");
         }
         Task task = CommandFactory.get(commandRequest).setup().execute();
         CommandResult commandResult = new CommandResult(task.getTaskResult());

@@ -79,7 +79,7 @@ public class CommonControllder {
             BrokerService brokerService = new BrokerService(register.getInstallDir());
             ServiceContext.register(brokerService);
         } else {
-            return RResult.error("unkown service role");
+            return RResult.error("unknown service role");
         }
 
         return RResult.success();
