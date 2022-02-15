@@ -17,13 +17,15 @@
 
 package org.apache.doris.udf;
 
-import io.grpc.stub.StreamObserver;
-import net.devh.boot.grpc.server.service.GrpcService;
 import org.apache.doris.proto.FunctionService;
 import org.apache.doris.proto.PFunctionServiceGrpc;
 import org.apache.doris.proto.Types;
 
 import java.util.List;
+
+import io.grpc.stub.StreamObserver;
+import lombok.extern.slf4j.Slf4j;
+import net.devh.boot.grpc.server.service.GrpcService;
 
 /**
  * FunctionGrpc
@@ -32,17 +34,23 @@ import java.util.List;
  * @since 2022/02/08
  */
 @GrpcService
+@Slf4j
 public class FunctionGrpc extends PFunctionServiceGrpc.PFunctionServiceImplBase {
+    
     
     @Override
     public void fnCall(FunctionService.PFunctionCallRequest request, StreamObserver<FunctionService.PFunctionCallResponse> responseObserver) {
+        // symbol is functionName
         String functionName = request.getFunctionName();
+        log.info("fnCall request={}", request);
         FunctionService.PFunctionCallResponse res;
-        if ("grpc_add".equals(functionName)) {
+        if ("add_int".equals(functionName)) {
+            // get args
             List<Types.PValues> argsList = request.getArgsList();
+            // calculate logic
             int sum = 0;
             for (Types.PValues pValues : argsList) {
-                sum += pValues.getInt32Value(0) % 10;
+                sum += pValues.getInt32Value(0);
             }
             res = FunctionService.PFunctionCallResponse.newBuilder()
                     .setStatus(Types.PStatus.newBuilder()
@@ -59,14 +67,31 @@ public class FunctionGrpc extends PFunctionServiceGrpc.PFunctionServiceImplBase 
                             .setStatusCode(0)
                             .build()).build();
         }
+        log.info("fnCall res={}", res);
         ok(responseObserver, res);
     }
     
     @Override
     public void checkFn(FunctionService.PCheckFunctionRequest request, StreamObserver<FunctionService.PCheckFunctionResponse> responseObserver) {
+        // CREATE FUNCTION rpc_add(INT, INT), rpc_add is functionName
+        log.info("checkFn request={}", request);
+        int status = 0;
+        if ("rpc_add".equals(request.getFunction().getFunctionName())) {
+            // check inputs count
+            if (request.getFunction().getInputsCount() != 2) {
+                status = -1;
+            }
+        }
         FunctionService.PCheckFunctionResponse res = FunctionService.PCheckFunctionResponse.newBuilder()
-                .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build();
+                .setStatus(Types.PStatus.newBuilder().setStatusCode(status).build()).build();
+        log.info("checkFn res={}", res);
         ok(responseObserver, res);
+    }
+    
+    @Override
+    public void handShake(Types.PHandShakeRequest request, StreamObserver<Types.PHandShakeResponse> responseObserver) {
+        log.info("handShake request={}", request);
+        ok(responseObserver, Types.PHandShakeResponse.newBuilder().setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).setHello(request.getHello()).build());
     }
     
     public static <T> void ok(StreamObserver<T> observer, T data) {

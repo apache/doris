@@ -26,13 +26,6 @@ under the License.
     <name>udf-demo</name>
     <!-- FIXME change it to the project's website -->
     <url>http://www.example.com</url>
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.2.0.RELEASE</version>
-        <relativePath/>
-        <!-- lookup parent from repository -->
-    </parent>
     <properties>
         <protobuf.version>3.14.0</protobuf.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -42,16 +35,19 @@ under the License.
         <doris.thirdparty>${basedir}/../../../thirdparty</doris.thirdparty>
     </properties>
     <dependencies>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
-        </dependency>
         <!-- grpc -->
         <dependency>
             <groupId>net.devh</groupId>
             <artifactId>grpc-server-spring-boot-starter</artifactId>
-            <version>2.12.0.RELEASE</version>
+            <version>2.9.0.RELEASE</version>
         </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.22</version>
+            <scope>provided</scope>
+        </dependency>
+
 
     </dependencies>
 

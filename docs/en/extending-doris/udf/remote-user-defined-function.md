@@ -1,6 +1,6 @@
 ---
 {
-    "title": "User Defined Function Rpc",
+    "title": "Remote User Defined Function Service",
     "language": "en"
 }
 ---
@@ -26,9 +26,19 @@ under the License.
 
 # User Defined Function Rpc
 
-You can call a function use Rpc logic, and data transmission through the protobuf support Java/c++/Python/Ruby/Go/PHP/JavaScript and other languages
+Remote UDF Service The Remote UDF Service can be accessed through RPC to implement the execution of user-defined functions. Compared with Native UDF implementations, Remote UDF Service has the following advantages and limitations:
+1. The advantage
+   * Cross-language: UDF services can be written in all languages supported by Protobuf.
+   * Security: UDF execution failure or crash only affects the UDF Service and does not cause the Doris process to crash.
+   * Flexibility: Any other Service or library class can be invoked within a UDF Service to meet a wider variety of business requirements.
+
+2. Restrictions on use
+   * Performance: Compared to Native UDFs, UDF services incur extra network overhead and thus have much lower performance than Native UDFs. At the same time, the implementation of the UDF Service also affects the execution efficiency of the function. Users need to deal with problems such as high concurrency and thread safety by themselves.
+   * Single line mode and batch mode: Doris's original query execution framework based on row memory would execute one UDF RPC call for each row of data, so the execution efficiency was very poor. However, under the new vectorization execution framework, one UDF RPC call would be executed for each batch of data (2048 rows by default), so the performance was significantly improved. In actual tests, the performance of Remote UDF based on vectorization and batch processing is similar to that of Native UDF based on rowmemory, which can be used for reference.
 
 ## Write UDF functions
+
+This section describes how to develop a Remote RPC Service. Samples for the Java version are provided under `samples/doris-demo/udf-demo/` for your reference.
 
 ### Copy the proto file
 
@@ -77,10 +87,10 @@ Instructions:
 4. name: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`。
 
 Sample:
-```
+```sql
 CREATE FUNCTION rpc_add(INT, INT) RETURNS INT PROPERTIES (
   "SYMBOL"="add_int",
-  "OBJECT_FILE"="127.0.0.1:9999",
+  "OBJECT_FILE"="127.0.0.1:9090",
   "TYPE"="RPC"
 );
 ```

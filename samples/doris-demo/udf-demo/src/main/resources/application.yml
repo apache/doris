@@ -1,3 +1,0 @@
-grpc:
-  server:
-    port: 9999

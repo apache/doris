@@ -1,6 +1,6 @@
 ---
 {
-    "title": "User Defined Function Rpc",
+    "title": "Remote User Defined Function Service",
     "language": "zh-CN"
 }
 ---
@@ -24,11 +24,22 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# User Defined Function Rpc
+# Remote User Defined Function Service
 
-可以通过 Rpc 的方式调用函数逻辑，通过 protobuf 进行数据传输，支持 Java/C++/Python/Ruby/Go/PHP/JavaScript 等多种语言
+Remote UDF Service 支持通过 RPC 的方式访问用户提供的 UDF Service，以实现用户自定义函数的执行。相比于 Native 的 UDF 实现，Remote UDF Service 有如下优势和限制：
+1. 优势
+  * 跨语言：可以用 Protobuf 支持的各类语言编写 UDF Service。
+  * 安全：UDF 执行失败或崩溃，仅会影响 UDF Service 自身，而不会导致 Doris 进程崩溃。
+  * 灵活：UDF Service 中可以调用任意其他服务或程序库类，以满足更多样的业务需求。
+
+2. 使用限制
+  * 性能：相比于 Native UDF，UDF Service 会带来额外的网络开销，因此性能会远低于 Native UDF。同时，UDF Service 自身的实现也会影响函数的执行效率，用户需要自行处理高并发、线程安全等问题。
+  * 单行模式和批处理模式：Doris 原先的的基于行存的查询执行框架会对每一行数据执行一次 UDF RPC 调用，因此执行效率非常差，而在新的向量化执行框架下，会对每一批数据（默认2048行）执行一次 UDF RPC 调用，因此性能有明显提升。实际测试中，基于向量化和批处理方式的 Remote UDF 性能和基于行存的 Native UDF 性能相当，可供参考。
 
 ## 编写 UDF 函数
+
+
+本小节主要介绍如何开发一个 Remote RPC service。在 `samples/doris-demo/udf-demo/` 下提供了 Java 版本的示例，可供参考。
 
 ### 拷贝 proto 文件
 
@@ -63,12 +74,11 @@ under the License.
 
 目前暂不支持 UDAF 和 UDTF
 
-```
+```sql
 CREATE FUNCTION 
-	name ([,...])
-	[RETURNS] rettype
-	PROPERTIES (["key"="value"][,...])
-	
+name ([,...])
+[RETURNS] rettype
+PROPERTIES (["key"="value"][,...])	
 ```
 说明：
 
@@ -78,10 +88,10 @@ CREATE FUNCTION
 4. name: 一个function是要归属于某个DB的，name的形式为`dbName`.`funcName`。当`dbName`没有明确指定的时候，就是使用当前session所在的db作为`dbName`。
 
 示例：
-```
+```sql
 CREATE FUNCTION rpc_add(INT, INT) RETURNS INT PROPERTIES (
   "SYMBOL"="add_int",
-  "OBJECT_FILE"="127.0.0.1:9999",
+  "OBJECT_FILE"="127.0.0.1:9090",
   "TYPE"="RPC"
 );
 ```
