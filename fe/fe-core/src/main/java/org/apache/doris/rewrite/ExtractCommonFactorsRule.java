@@ -63,6 +63,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
+        Expr resultExpr = null;
         if (expr == null) {
             return null;
         } else if (expr instanceof CompoundPredicate
@@ -72,14 +73,15 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 return rewrittenExpr;
             }
         } else {
+            resultExpr = expr.clone();
             for (int i = 0; i < expr.getChildren().size(); i++) {
                 Expr rewrittenExpr = apply(expr.getChild(i), analyzer, clauseType);
                 if (rewrittenExpr != null) {
-                    expr.setChild(i, rewrittenExpr);
+                    resultExpr.setChild(i, rewrittenExpr);
                 }
             }
         }
-        return expr;
+        return resultExpr;
     }
 
     /**

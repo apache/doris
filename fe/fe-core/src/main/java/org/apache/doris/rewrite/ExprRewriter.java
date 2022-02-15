@@ -98,9 +98,8 @@ public class ExprRewriter {
     }
 
     private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
-        Expr originExpr = expr.clone();
         Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
-        if (rewrittenExpr != originExpr) {
+        if (rewrittenExpr != expr) {
             numChanges_++;
         }
         return rewrittenExpr;
@@ -149,9 +148,8 @@ public class ExprRewriter {
         for (int i = 0; i < expr.getChildren().size(); ++i) {
             expr.setChild(i, applyRuleBottomUp(expr.getChild(i), rule, analyzer, clauseType));
         }
-        Expr originExpr = expr.clone();
         Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
-        if (rewrittenExpr != originExpr) ++numChanges_;
+        if (rewrittenExpr != expr) ++numChanges_;
         return rewrittenExpr;
     }
 
