@@ -227,7 +227,7 @@ public:
                                                filled_flag, input_rows_count);
         NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
         DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
-        NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
+        TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
         return Status::NotSupported(
                 fmt::format("argument_type {} not supported", data_type->get_name()));
