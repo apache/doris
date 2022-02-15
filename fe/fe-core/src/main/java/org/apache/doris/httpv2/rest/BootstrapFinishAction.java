@@ -46,7 +46,6 @@ import javax.servlet.http.HttpServletResponse;
  *     	"count": 0
  *     }
  */
-@Deprecated
 @RestController
 public class BootstrapFinishAction {
 

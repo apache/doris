@@ -37,7 +37,6 @@ import org.apache.doris.common.Version;
  * {"status":"OK","msg":"Success","replayedJournal"=123456, "queryPort"=9000, "rpcPort"=9001}
  * {"status":"FAILED","msg":"err info..."}
  */
-@Deprecated
 public class BootstrapFinishAction extends RestBaseAction {
     private static final String CLUSTER_ID = "cluster_id";
     private static final String TOKEN = "token";
