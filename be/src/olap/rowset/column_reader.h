@@ -114,7 +114,6 @@ public:
     size_t get_buffer_size() { return sizeof(RunLengthByteReader); }
 
 private:
-    bool _eof;
     uint32_t _column_unique_id;
     Slice* _values;
     ReadOnlyFileStream* _data_stream;
@@ -154,7 +153,7 @@ private:
     //StorageByteBuffer* _dictionary_data_buffer;   // Save dict data
     std::vector<std::string> _dictionary;
     // Used to read the actual data (represented by an integer)
-    RunLengthIntegerReader* _data_reader; 
+    RunLengthIntegerReader* _data_reader;
 };
 
 // ColumnReader is used to read a column and is the base class of other XXXColumnReader
@@ -395,9 +394,10 @@ public:
         _stats = stats;
         return OLAP_SUCCESS;
     }
-    virtual OLAPStatus seek(PositionProvider* positions) { return OLAP_SUCCESS; }
-    virtual OLAPStatus skip(uint64_t row_count) { return OLAP_SUCCESS; }
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
+    virtual OLAPStatus seek(PositionProvider* positions) override { return OLAP_SUCCESS; }
+    virtual OLAPStatus skip(uint64_t row_count) override { return OLAP_SUCCESS; }
+    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size,
+                                   MemPool* mem_pool) override {
         column_vector->set_no_nulls(false);
         column_vector->set_is_null(_is_null);
         _stats->bytes_read += size;
@@ -792,11 +792,12 @@ public:
     virtual ~DecimalColumnReader();
     OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
                     OlapReaderStatistics* stats) override;
-    virtual OLAPStatus seek(PositionProvider* positions);
-    virtual OLAPStatus skip(uint64_t row_count);
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
+    virtual OLAPStatus seek(PositionProvider* positions) override;
+    virtual OLAPStatus skip(uint64_t row_count) override;
+    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size,
+                                   MemPool* mem_pool) override;
 
-    virtual size_t get_buffer_size() { return sizeof(RunLengthByteReader) * 2; }
+    virtual size_t get_buffer_size() override { return sizeof(RunLengthByteReader) * 2; }
 
 private:
     bool _eof;

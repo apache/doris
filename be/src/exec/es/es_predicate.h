@@ -33,7 +33,7 @@ namespace doris {
 
 class Status;
 class ExprContext;
-class ExtBinaryPredicate;
+struct ExtBinaryPredicate;
 class EsPredicate;
 
 class ExtLiteral {
@@ -157,7 +157,6 @@ private:
     const SlotDescriptor* get_slot_desc(const SlotRef* slotRef);
 
     ExprContext* _context;
-    int _disjuncts_num;
     const TupleDescriptor* _tuple_desc;
     std::vector<ExtPredicate*> _disjuncts;
     Status _es_query_status;

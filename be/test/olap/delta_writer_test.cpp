@@ -44,7 +44,6 @@ namespace doris {
 // This is DeltaWriter unit test which used by streaming load.
 // And also it should take schema change into account after streaming load.
 
-static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
 StorageEngine* k_engine = nullptr;
@@ -492,9 +491,9 @@ TEST_F(TestDeltaWriter, write) {
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(
-                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                write_req.schema_hash, tablet_rs.first.tablet_uid, version);
+        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                   write_req.tablet_id, write_req.schema_hash,
+                                                   tablet_rs.first.tablet_uid, version);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -570,9 +569,9 @@ TEST_F(TestDeltaWriter, sequence_col) {
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(
-                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                write_req.schema_hash, tablet_rs.first.tablet_uid, version);
+        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                   write_req.tablet_id, write_req.schema_hash,
+                                                   tablet_rs.first.tablet_uid, version);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first

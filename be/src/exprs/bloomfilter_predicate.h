@@ -302,7 +302,7 @@ public:
 
     ~BloomFilterFunc() = default;
 
-    void insert(const void* data) {
+    void insert(const void* data) override {
         DCHECK(this->_bloom_filter != nullptr);
         dummy.insert(*this->_bloom_filter, data);
     }
@@ -329,6 +329,7 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new BloomFilterPredicate(*this));
     }
+    using Predicate::prepare;
     Status prepare(RuntimeState* state, IBloomFilterFuncBase* bloomfilterfunc);
 
     std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() { return _filter; }

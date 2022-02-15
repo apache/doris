@@ -155,7 +155,6 @@ public:
     const static std::string _s_system_group;
 
 private:
-    ExecEnv* _exec_env;
     std::string _root_cgroups_path;
     int32_t _drop_retry_times = 10;
     bool _is_cgroups_init_success;

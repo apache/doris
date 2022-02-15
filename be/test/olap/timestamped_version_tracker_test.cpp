@@ -18,8 +18,8 @@
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 
 #include "gutil/strings/substitute.h"
@@ -292,7 +292,6 @@ public:
     }
 
 private:
-    OlapMeta* _meta;
     std::string _json_rowset_meta;
 };
 

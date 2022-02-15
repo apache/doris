@@ -42,7 +42,10 @@ ParquetOutputStream::ParquetOutputStream(FileWriter* file_writer)
 }
 
 ParquetOutputStream::~ParquetOutputStream() {
-    Close();
+    arrow::Status st = Close();
+    if (!st.ok()) {
+        LOG(WARNING) << "close parquet file error";
+    }
 }
 
 arrow::Status ParquetOutputStream::Write(const void* data, int64_t nbytes) {
@@ -463,7 +466,10 @@ void ParquetWriterWrapper::close() {
             _rg_writer = nullptr;
         }
         _writer->Close();
-        _outstream->Close();
+        arrow::Status st = _outstream->Close();
+        if (!st.ok()) {
+            LOG(WARNING) << "close parquet file error";
+        }
     } catch (const std::exception& e) {
         _rg_writer = nullptr;
         LOG(WARNING) << "Parquet writer close error: " << e.what();

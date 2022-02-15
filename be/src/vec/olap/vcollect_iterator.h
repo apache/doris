@@ -181,8 +181,6 @@ private:
         bool _skip_same;
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
-        // used when `_merge == false`
-        int _child_idx = 0;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;

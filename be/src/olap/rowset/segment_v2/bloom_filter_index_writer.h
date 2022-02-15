@@ -34,7 +34,7 @@ class WritableBlock;
 
 namespace segment_v2 {
 
-class BloomFilterOptions;
+struct BloomFilterOptions;
 
 class BloomFilterIndexWriter {
 public:

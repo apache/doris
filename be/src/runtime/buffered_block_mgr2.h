@@ -384,7 +384,7 @@ public:
     }
 
 private:
-    friend struct Client;
+    friend class Client;
 
     // Descriptor for a single memory buffer in the pool.
     struct BufferDescriptor : public InternalQueue<BufferDescriptor>::Node {
@@ -578,8 +578,6 @@ private:
     // Counters and timers to track behavior.
     std::unique_ptr<RuntimeProfile> _profile;
 
-    // These have a fixed value for the lifetime of the manager and show memory usage.
-    RuntimeProfile::Counter* _mem_tracker_counter;
     RuntimeProfile::Counter* _block_size_counter;
 
     // Total number of blocks created.

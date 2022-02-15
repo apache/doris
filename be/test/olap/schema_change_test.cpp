@@ -124,7 +124,7 @@ public:
         for (; it != _stream_factory->streams().end(); ++it) {
             StreamName stream_name = it->first;
             OutStream* out_stream = it->second;
-            std::vector<StorageByteBuffer*>* buffers;
+            std::vector<StorageByteBuffer*>* buffers = nullptr;
 
             if (out_stream->is_suppressed()) {
                 continue;

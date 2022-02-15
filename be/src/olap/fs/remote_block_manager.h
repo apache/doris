@@ -47,16 +47,18 @@ public:
 
     Status create_block(const CreateBlockOptions& opts,
                         std::unique_ptr<WritableBlock>* block) override;
-    Status open_block(const FilePathDesc& path_desc, std::unique_ptr<ReadableBlock>* block) override;
+    Status open_block(const FilePathDesc& path_desc,
+                      std::unique_ptr<ReadableBlock>* block) override;
 
     Status get_all_block_ids(std::vector<BlockId>* block_ids) override {
         // TODO(lingbin): to be implemented after we assign each block an id
         return Status::OK();
     };
 
-    Status delete_block(const FilePathDesc& path_desc, bool is_dir = false);
+    Status delete_block(const FilePathDesc& path_desc, bool is_dir = false) override;
 
-    Status link_file(const FilePathDesc& src_path_desc, const FilePathDesc& dest_path_desc) override;
+    Status link_file(const FilePathDesc& src_path_desc,
+                     const FilePathDesc& dest_path_desc) override;
 
 private:
     Env* _local_env;

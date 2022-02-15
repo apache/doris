@@ -41,7 +41,7 @@ const std::string TABLET_ID = "tablet_id";
 const std::string TABLET_VERSION = "version";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ChecksumAction::ChecksumAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+ChecksumAction::ChecksumAction() {}
 
 void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -105,8 +105,8 @@ void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "deal with checksum request finished! tablet id: " << tablet_id;
 }
 
-int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version,
-                                    int32_t schema_hash, HttpRequest* req) {
+int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int32_t schema_hash,
+                                    HttpRequest* req) {
     OLAPStatus res = OLAP_SUCCESS;
     uint32_t checksum;
     EngineChecksumTask engine_task(tablet_id, schema_hash, version, &checksum);

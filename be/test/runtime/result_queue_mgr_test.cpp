@@ -77,9 +77,19 @@ TEST_F(ResultQueueMgrTest, fetch_result_normal) {
 
     std::shared_ptr<arrow::Array> k1_col;
     arrow::NumericBuilder<arrow::Int32Type> builder;
-    builder.Reserve(1);
-    builder.Append(20);
-    builder.Finish(&k1_col);
+
+    auto st = builder.Reserve(1);
+    if (!st.ok()) {
+        LOG(WARNING) << "Reserve error";
+    }
+    st = builder.Append(20);
+    if (!st.ok()) {
+        LOG(WARNING) << "Append error";
+    }
+    st = builder.Finish(&k1_col);
+    if (!st.ok()) {
+        LOG(WARNING) << "Finish error";
+    }
 
     std::vector<std::shared_ptr<arrow::Array>> arrays;
     arrays.push_back(k1_col);
