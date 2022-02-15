@@ -38,8 +38,9 @@ public:
     //     capacity available.
     //  -- work_function: the function to run every time an item is consumed from the queue
     PriorityWorkStealingThreadPool(uint32_t num_threads, uint32_t num_queues, uint32_t queue_size)
-            : PriorityThreadPool(0, 0), _shutdown(false) {
-        DCHECK_GE(num_queues, 0);
+            : PriorityThreadPool(0, 0) {
+        DCHECK_GT(num_queues, 0);
+        DCHECK_GE(num_threads, num_queues);
         // init _work_queues first because the work thread needs it
         for (int i = 0; i < num_queues; ++i) {
             _work_queues.emplace_back(std::make_shared<BlockingPriorityQueue<Task>>(queue_size));
@@ -75,7 +76,7 @@ public:
     // Returns once the shutdown flag has been set, does not wait for the threads to
     // terminate.
     void shutdown() override {
-        _shutdown = true;
+        PriorityThreadPool::shutdown();
         for (auto work_queue : _work_queues) {
             work_queue->shutdown();
         }
@@ -137,8 +138,6 @@ private:
         }
     }
 
-    bool is_shutdown() { return _shutdown; }
-
     // Queue on which work items are held until a thread is available to process them in
     // FIFO order.
     std::vector<std::shared_ptr<BlockingPriorityQueue<Task>>> _work_queues;
@@ -148,9 +147,6 @@ private:
 
     // Guards _empty_cv
     std::mutex _lock;
-
-    // Set to true when threads should stop doing work and terminate.
-    std::atomic<bool> _shutdown;
 
     // Signalled when the queue becomes empty
     std::condition_variable _empty_cv;

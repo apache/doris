@@ -115,7 +115,8 @@ public:
         shutdown();
         join();
     }
-
+protected:
+    virtual bool is_shutdown() { return _shutdown; }
 private:
     // Driver method for each thread in the pool. Continues to read work from the queue
     // until the pool is shutdown.
@@ -130,8 +131,6 @@ private:
             }
         }
     }
-
-    bool is_shutdown() { return _shutdown; }
 
     // Queue on which work items are held until a thread is available to process them in
     // FIFO order.
