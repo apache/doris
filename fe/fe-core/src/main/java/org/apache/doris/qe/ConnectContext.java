@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -520,6 +521,10 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
+    public String getRemoteIp() {
+        return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
+    }
+
     public class ThreadInfo {
         public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
@@ -534,5 +539,9 @@ public class ConnectContext {
             row.add("");
             return row;
         }
+    }
+
+    public String getQueryIdentifier() {
+        return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 }

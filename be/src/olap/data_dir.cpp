@@ -35,7 +35,6 @@
 #include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
-#include "olap/olap_snapshot_converter.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"

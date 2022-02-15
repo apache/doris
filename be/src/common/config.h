@@ -144,7 +144,7 @@ CONF_String(doris_cgroups, "");
 // thrashing.
 CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
-CONF_Bool(compress_rowbatches, "true");
+CONF_mBool(compress_rowbatches, "true");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
 // number of olap scanner thread pool size
@@ -204,7 +204,8 @@ CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");
 CONF_mInt32(snapshot_expire_time_sec, "172800");
-// 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
+// It is only a recommended value. When the disk space is insufficient, 
+// the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
@@ -515,6 +516,8 @@ CONF_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
 CONF_Int32(flush_thread_num_per_store, "2");
+// number of thread for flushing memtable per store, for high priority load task
+CONF_Int32(high_priority_flush_thread_num_per_store, "1");
 
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -540,8 +543,6 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
 CONF_Int32(tablet_map_shard_size, "1");
-
-CONF_String(plugin_path, "${DORIS_HOME}/plugin");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
@@ -651,7 +652,7 @@ CONF_mInt32(default_remote_storage_s3_max_conn, "50");
 CONF_mInt32(default_remote_storage_s3_request_timeout_ms, "3000");
 CONF_mInt32(default_remote_storage_s3_conn_timeout_ms, "1000");
 // Set to true to disable the minidump feature.
-CONF_Bool(disable_minidump , "false");
+CONF_Bool(disable_minidump, "false");
 
 // The dir to save minidump file.
 // Make sure that the user who run Doris has permission to create and visit this dir,
@@ -664,6 +665,33 @@ CONF_Int32(max_minidump_file_size_mb, "200");
 // The max number of minidump file.
 // Doris will only keep latest 10 minidump files by default.
 CONF_Int32(max_minidump_file_number, "10");
+
+// If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
+// the value set by the fallback version kafka_broker_version_fallback will be used,
+// and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+CONF_String(kafka_broker_version_fallback, "0.10.0");
+
+// The the number of pool siz of routine load consumer.
+// If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
+// Change this size to 0 to fix it temporarily.
+CONF_Int32(routine_load_consumer_pool_size, "10");
+
+// When the timeout of a load task is less than this threshold,
+// Doris treats it as a high priority task.
+// high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
+// this threshold is mainly used to identify routine load tasks and should not be modified if not necessary.
+CONF_mInt32(load_task_high_priority_threshold_second, "120");
+
+// The min timeout of load rpc (add batch, close, etc.)
+// Because a load rpc may be blocked for a while.
+// Increase this config may avoid rpc timeout.
+CONF_mInt32(min_load_rpc_timeout_ms, "20000");
+
+// use which protocol to access function service, candicate is baidu_std/h2:grpc
+CONF_String(function_service_protocol, "h2:grpc");
+
+// use which load balancer to select server to connect
+CONF_String(rpc_load_balancer, "rr");
 
 } // namespace config
 

@@ -76,6 +76,8 @@ namespace doris {
 
 class VectorizedRowBatch;
 
+// todo(wb) support evaluate_and,evaluate_or
+
 #define IN_LIST_PRED_CLASS_DEFINE(CLASS)                                                          \
     template <class type>                                                                         \
     class CLASS : public ColumnPredicate {                                                        \
@@ -90,7 +92,10 @@ class VectorizedRowBatch;
         virtual Status evaluate(const Schema& schema,                                             \
                                 const std::vector<BitmapIndexIterator*>& iterators,               \
                                 uint32_t num_rows, roaring::Roaring* bitmap) const override;      \
-                                                                                                  \
+        void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
+        void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
+        void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
+        bool is_in_predicate() override { return true; }                                                                                          \
     private:                                                                                      \
         phmap::flat_hash_set<type> _values;                                                       \
     };

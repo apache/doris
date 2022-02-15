@@ -42,6 +42,10 @@
 #include "util/uid_util.h"
 #include "util/logging.h"
 
+#include "vec/core/block.h"
+#include "vec/exec/vexchange_node.h"
+#include "vec/runtime/vdata_stream_mgr.h"
+
 namespace doris {
 
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
@@ -159,6 +163,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);
         if (_runtime_state->enable_vectorized_exec()) {
+            static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
         } else {
             static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
         }
@@ -214,6 +219,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size(),
                                   _runtime_state->instance_mem_tracker().get()));
+    _block.reset(new doris::vectorized::Block());
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
@@ -244,6 +250,7 @@ Status PlanFragmentExecutor::open() {
     }
     Status status = Status::OK();
     if (_runtime_state->enable_vectorized_exec()) {
+        status = open_vectorized_internal();
     } else {
         status = open_internal();
     }
@@ -257,6 +264,89 @@ Status PlanFragmentExecutor::open() {
 
     update_status(status);
     return status;
+}
+
+Status PlanFragmentExecutor::open_vectorized_internal() {
+    {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        SCOPED_TIMER(profile()->total_time_counter());
+        RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
+    }
+    if (_sink == nullptr) {
+        return Status::OK();
+    }
+    {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        RETURN_IF_ERROR(_sink->open(runtime_state()));
+    }
+    doris::vectorized::Block* block = nullptr;
+    while (true) {
+        {
+            SCOPED_CPU_TIMER(_fragment_cpu_timer);
+            RETURN_IF_ERROR(get_vectorized_internal(&block));
+        }
+
+        if (block == NULL) {
+            break;
+        } 
+
+        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        // Collect this plan and sub plan statistics, and send to parent plan.
+        if (_collect_query_statistics_with_every_batch) {
+            _collect_query_statistics();
+        }
+
+        auto st =_sink->send(runtime_state(), block);
+        if (st.is_end_of_file()) {
+            break;
+        }
+        RETURN_IF_ERROR(st);
+    }
+
+    {
+        SCOPED_TIMER(profile()->total_time_counter());
+        _collect_query_statistics();
+        Status status;
+        {
+            std::lock_guard<std::mutex> l(_status_lock);
+            status = _status;
+        }
+        status = _sink->close(runtime_state(), status);
+        RETURN_IF_ERROR(status);
+    }
+    // Setting to NULL ensures that the d'tor won't double-close the sink.
+    _sink.reset(nullptr);
+    _done = true;
+
+    stop_report_thread();
+    send_report(true);
+
+    return Status::OK();
+}
+
+Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block** block) {
+    if (_done) {
+        *block = nullptr;
+        return Status::OK();
+    }
+
+    auto vexec_node = static_cast<doris::ExecNode*>(_plan);
+    while (!_done) {
+        _block->clear_column_data(vexec_node->row_desc().num_materialized_slots());
+        SCOPED_TIMER(profile()->total_time_counter());
+        RETURN_IF_ERROR(vexec_node->get_next(_runtime_state.get(), _block.get(), &_done));
+
+        if (_block->rows() > 0) {
+            COUNTER_UPDATE(_rows_produced_counter, _block->rows());
+            *block = _block.get();
+            break;
+        }
+
+        *block = nullptr;
+    }
+
+    return Status::OK();
 }
 
 Status PlanFragmentExecutor::open_internal() {
@@ -303,7 +393,11 @@ Status PlanFragmentExecutor::open_internal() {
         if (_collect_query_statistics_with_every_batch) {
             _collect_query_statistics();
         }
-        RETURN_IF_ERROR(_sink->send(runtime_state(), batch));
+        const Status& st = _sink->send(runtime_state(), batch);
+        if (st.is_end_of_file()) {
+            break;
+        }
+        RETURN_IF_ERROR(st);
     }
 
     // Close the sink *before* stopping the report thread. Close may
@@ -521,8 +615,14 @@ void PlanFragmentExecutor::cancel() {
                   .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id());
     DCHECK(_prepared);
     _runtime_state->set_is_cancelled(true);
-    _runtime_state->exec_env()->stream_mgr()->cancel(_runtime_state->fragment_instance_id());
-    _runtime_state->exec_env()->result_mgr()->cancel(_runtime_state->fragment_instance_id());
+
+    // must close stream_mgr to avoid dead lock in Exchange Node
+    if (_runtime_state->enable_vectorized_exec()) {
+        _runtime_state->exec_env()->vstream_mgr()->cancel(_runtime_state->fragment_instance_id());
+    } else {
+        _runtime_state->exec_env()->stream_mgr()->cancel(_runtime_state->fragment_instance_id());
+        _runtime_state->exec_env()->result_mgr()->cancel(_runtime_state->fragment_instance_id());
+    }
 }
 
 void PlanFragmentExecutor::set_abort() {

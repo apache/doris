@@ -51,10 +51,10 @@
 // agrees to be bound by the terms and conditions of this License
 // Agreement.
 
-#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
-#define DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
+#pragma once
 
 #include <cstring>
+#include <functional>
 #include <vector>
 
 #include "common/logging.h"
@@ -62,109 +62,32 @@
 
 namespace doris {
 
-// TODO: This can be sped up with SIDD_CMP_EQUAL_ORDERED or at the very least rewritten
-// from published algorithms.
 class StringSearch {
 public:
     virtual ~StringSearch() {}
-    StringSearch() : _pattern(NULL), _mask(0) {}
+    StringSearch() : _pattern(nullptr) {}
 
-    // Initialize/Precompute a StringSearch object from the pattern
-    StringSearch(const StringValue* pattern) : _pattern(pattern), _mask(0), _skip(0) {
-        // Special cases
-        if (_pattern->len <= 1) {
-            return;
-        }
-
-        // Build compressed lookup table
-        int mlast = _pattern->len - 1;
-        _skip = mlast - 1;
-
-        for (int i = 0; i < mlast; ++i) {
-            bloom_add(_pattern->ptr[i]);
-
-            if (_pattern->ptr[i] == _pattern->ptr[mlast]) {
-                _skip = mlast - i - 1;
-            }
-        }
-
-        bloom_add(_pattern->ptr[mlast]);
-    }
+    StringSearch(const StringValue* pattern) : _pattern(pattern) {}
 
     // search for this pattern in str.
     //   Returns the offset into str if the pattern exists
     //   Returns -1 if the pattern is not found
     int search(const StringValue* str) const {
-        // Special cases
         if (!str || !_pattern || _pattern->len == 0) {
             return -1;
         }
 
-        int mlast = _pattern->len - 1;
-        int w = str->len - _pattern->len;
-        int n = str->len;
-        int m = _pattern->len;
-        const char* s = str->ptr;
-        const char* p = _pattern->ptr;
-
-        // Special case if pattern->len == 1
-        if (m == 1) {
-            const char* result = reinterpret_cast<const char*>(memchr(s, p[0], n));
-
-            if (result != NULL) {
-                return result - s;
-            }
-
+        auto it = std::search(str->ptr, str->ptr + str->len,
+                              std::default_searcher(_pattern->ptr, _pattern->ptr + _pattern->len));
+        if (it == str->ptr + str->len) {
             return -1;
+        } else {
+            return it - str->ptr;
         }
-
-        // General case.
-        int j;
-        // TODO: the original code seems to have an off by one error. It is possible
-        // to index at w + m which is the length of the input string. Checks have
-        // been added to make sure that w + m < str->len.
-        for (int i = 0; i <= w; i++) {
-            // note: using mlast in the skip path slows things down on x86
-            if (s[i + m - 1] == p[m - 1]) {
-                // candidate match
-                for (j = 0; j < mlast; j++)
-                    if (s[i + j] != p[j]) {
-                        break;
-                    }
-
-                if (j == mlast) {
-                    return i;
-                }
-
-                // miss: check if next character is part of pattern
-                if (i + m < n && !bloom_query(s[i + m])) {
-                    i = i + m;
-                } else {
-                    i = i + _skip;
-                }
-            } else {
-                // skip: check if next character is part of pattern
-                if (i + m < n && !bloom_query(s[i + m])) {
-                    i = i + m;
-                }
-            }
-        }
-
-        return -1;
     }
 
 private:
-    static const int BLOOM_WIDTH = 64;
-
-    void bloom_add(char c) { _mask |= (1UL << (c & (BLOOM_WIDTH - 1))); }
-
-    bool bloom_query(char c) const { return _mask & (1UL << (c & (BLOOM_WIDTH - 1))); }
-
     const StringValue* _pattern;
-    int64_t _mask;
-    int64_t _skip;
 };
 
 } // namespace doris
-
-#endif

@@ -61,7 +61,7 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     public enum JobType {
-        ROLLUP, SCHEMA_CHANGE
+        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND
     }
 
     @SerializedName(value = "type")
@@ -194,7 +194,7 @@ public abstract class AlterJobV2 implements Writable {
             throw new AlterCancelException(e.getMessage());
         }
 
-        tbl.writeLock();
+        tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
                     Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());

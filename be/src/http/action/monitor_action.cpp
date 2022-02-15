@@ -41,30 +41,18 @@ void MonitorAction::handle(HttpRequest* req) {
     const std::string& module = req->param(MODULE_KEY);
     if (module.empty()) {
         std::string err_msg = "No module params\n";
-#if 0
-        HttpResponse response(HttpStatus::OK, &err_msg);
-        channel->send_response(response);
-#endif
         HttpChannel::send_reply(req, HttpStatus::OK, err_msg);
         return;
     }
     if (_module_by_name.find(module) == _module_by_name.end()) {
         std::string err_msg = "Unknown module(";
         err_msg += module + ")\n";
-#if 0
-        HttpResponse response(HttpStatus::OK, &err_msg);
-        channel->send_response(response);
-#endif
         HttpChannel::send_reply(req, HttpStatus::OK, err_msg);
         return;
     }
     std::stringstream ss;
     _module_by_name[module]->debug(ss);
     std::string str = ss.str();
-#if 0
-    HttpResponse response(HttpStatus::OK, &str);
-    channel->send_response(response);
-#endif
     HttpChannel::send_reply(req, HttpStatus::OK, str);
 }
 

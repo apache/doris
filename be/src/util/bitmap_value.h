@@ -1691,6 +1691,12 @@ public:
         }
         return count;
     }
+    
+    void clear() {
+        _type = EMPTY;
+        _bitmap.clear();
+        _sv = 0;
+    }
 
     // Implement an iterator for convenience
     friend class BitmapValueIterator;
@@ -1734,10 +1740,6 @@ private:
 //  }
 class BitmapValueIterator {
 public:
-    BitmapValueIterator()
-       : _bitmap(BitmapValue()) {
-    }
-
     BitmapValueIterator(const BitmapValue& bitmap, bool end = false)
         : _bitmap(bitmap), _end(end) {
 

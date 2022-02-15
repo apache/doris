@@ -53,11 +53,11 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -195,6 +195,8 @@ public class StreamLoadPlanner {
         queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
         queryGlobals.setTimestampMs(new Date().getTime());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
+        queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
+
         params.setQueryGlobals(queryGlobals);
 
         // set load error hub if exist

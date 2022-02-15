@@ -69,6 +69,9 @@ public:
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
 
+    // the returned iter points to the largest element which is less than `ordinal`,
+    // or points to the first element if all elements are greater than `ordinal`,
+    // or points to "end" if all elements are smaller than `ordinal`.
     OrdinalPageIndexIterator seek_at_or_before(ordinal_t ordinal);
     inline OrdinalPageIndexIterator begin();
     inline OrdinalPageIndexIterator end();

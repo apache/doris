@@ -111,7 +111,9 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                     params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1;
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
-            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, _mem_tracker));
+            bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
+            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, _mem_tracker, is_high_priority,
+                                          params.sender_ip()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -123,7 +125,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
 Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
-                                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+                                 PTabletWriterAddBatchResult* response) {
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
@@ -145,13 +147,17 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
         channel = it->second;
     }
 
-    // 2. check if mem consumption exceed limit
-    _handle_mem_exceed_limit();
+    if (!channel->is_high_priority()) {
+        // 2. check if mem consumption exceed limit
+        // If this is a high priority load task, do not handle this.
+        // because this may block for a while, which may lead to rpc timeout.
+        _handle_mem_exceed_limit();
+    }
 
     // 3. add batch to load channel
     // batch may not exist in request(eg: eos request without batch),
     // this case will be handled in load channel's add batch method.
-    RETURN_IF_ERROR(channel->add_batch(request, tablet_vec));
+    RETURN_IF_ERROR(channel->add_batch(request, response));
 
     // 4. handle finish
     if (channel->is_finished()) {
@@ -178,6 +184,11 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     int64_t max_consume = 0;
     std::shared_ptr<LoadChannel> channel;
     for (auto& kv : _load_channels) {
+        if (kv.second->is_high_priority()) {
+            // do not select high priority channel to reduce memory
+            // to avoid blocking them.
+            continue;
+        }
         if (kv.second->mem_consumption() > max_consume) {
             max_consume = kv.second->mem_consumption();
             channel = kv.second;

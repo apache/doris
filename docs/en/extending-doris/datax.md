@@ -52,7 +52,7 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 
     The help doc can be found in `doriswriter/doc`
 
-2. `init_env.sh`
+2. `init-env.sh`
 
     The script mainly performs the following steps:
 
@@ -67,7 +67,7 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 
 ### How to build
 
-1. Run `init_env.sh`
+1. Run `init-env.sh`
 2. Modify code of doriswriter in `DataX/doriswriter` if you need.
 3. Build doriswriter
 

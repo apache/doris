@@ -123,14 +123,14 @@ public class RoutineLoadManager implements Writable {
             throws UserException {
         // check load auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                createRoutineLoadStmt.getDBName(),
-                                                                createRoutineLoadStmt.getTableName(),
-                                                                PrivPredicate.LOAD)) {
+                createRoutineLoadStmt.getDBName(),
+                createRoutineLoadStmt.getTableName(),
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                createRoutineLoadStmt.getDBName(),
-                                                createRoutineLoadStmt.getTableName());
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    createRoutineLoadStmt.getDBName(),
+                    createRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
         }
 
         RoutineLoadJob routineLoadJob = null;
@@ -220,13 +220,13 @@ public class RoutineLoadManager implements Writable {
             throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                dbFullName,
-                                                                tableName,
-                                                                PrivPredicate.LOAD)) {
+                dbFullName,
+                tableName,
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbFullName + ": " + tableName);
         }
         return routineLoadJob;
     }
@@ -336,10 +336,10 @@ public class RoutineLoadManager implements Writable {
                         "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
                 false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                         .add("current_state", routineLoadJob.getState())
-                         .add("user", ConnectContext.get().getQualifiedUser())
-                         .add("msg", "routine load job has been stopped by user")
-                         .build());
+                .add("current_state", routineLoadJob.getState())
+                .add("user", ConnectContext.get().getQualifiedUser())
+                .add("msg", "routine load job has been stopped by user")
+                .build());
     }
 
     public int getSizeOfIdToRoutineLoadTask() {
@@ -394,7 +394,7 @@ public class RoutineLoadManager implements Writable {
                     }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
-                                  beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                                beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
                     }
                     result = maxIdleSlotNum < idleTaskNum ? beId : result;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
@@ -426,7 +426,7 @@ public class RoutineLoadManager implements Writable {
             // 1. Find if the given BE id has available slots
             if (previoudBeId != -1L) {
                 int idleTaskNum = 0;
-                if (beIdToMaxConcurrentTasks.containsKey(previoudBeId)) {
+                if (!beIdToMaxConcurrentTasks.containsKey(previoudBeId)) {
                     idleTaskNum = 0;
                 } else if (beIdToConcurrentTasks.containsKey(previoudBeId)) {
                     idleTaskNum = beIdToMaxConcurrentTasks.get(previoudBeId) - beIdToConcurrentTasks.get(previoudBeId);
@@ -594,7 +594,7 @@ public class RoutineLoadManager implements Writable {
                     iterator.remove();
 
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
-                                                                              routineLoadJob.getState());
+                            routineLoadJob.getState());
                     Catalog.getCurrentCatalog().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                             .add("end_timestamp", routineLoadJob.getEndTimestamp())
@@ -643,8 +643,8 @@ public class RoutineLoadManager implements Writable {
     public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         unprotectedAddJob(routineLoadJob);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                         .add("msg", "replay create routine load job")
-                         .build());
+                .add("msg", "replay create routine load job")
+                .build());
     }
 
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
@@ -655,11 +655,11 @@ public class RoutineLoadManager implements Writable {
             LOG.error("should not happened", e);
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, operation.getId())
-                 .add("current_state", operation.getJobState())
-                 .add("msg", "replay change routine load job")
-                 .build());
+                .add("current_state", operation.getJobState())
+                .add("msg", "replay change routine load job")
+                .build());
     }
-    
+
     /**
      * Enter of altering a routine load job
      */

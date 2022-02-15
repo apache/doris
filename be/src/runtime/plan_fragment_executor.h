@@ -30,11 +30,11 @@
 #include "runtime/runtime_state.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 class QueryFragmentsCtx;
-class HdfsFsCache;
 class ExecNode;
 class RowDescriptor;
 class RowBatch;
@@ -195,6 +195,7 @@ private:
     // Created in prepare (if required), owned by this object.
     std::unique_ptr<DataSink> _sink;
     std::unique_ptr<RowBatch> _row_batch;
+    std::unique_ptr<doris::vectorized::Block> _block;
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
@@ -234,9 +235,11 @@ private:
     // have been closed, a final report will have been sent and the report thread will
     // have been stopped. _sink will be set to nullptr after successful execution.
     Status open_internal();
+    Status open_vectorized_internal();
 
     // Executes get_next() logic and returns resulting status.
     Status get_next_internal(RowBatch** batch);
+    Status get_vectorized_internal(::doris::vectorized::Block** block);
 
     // Stops report thread, if one is running. Blocks until report thread terminates.
     // Idempotent.

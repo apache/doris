@@ -66,7 +66,6 @@ void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_
     rowset_writer_context->tablet_schema = tablet_schema;
     rowset_writer_context->version.first = 0;
     rowset_writer_context->version.second = 1;
-    rowset_writer_context->version_hash = 110;
 }
 
 void create_rowset_reader_context(TabletSchema* tablet_schema,
@@ -239,12 +238,12 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     schema_hash_path_desc.filepath = _schema_hash_path;
     if (dst_type == BETA_ROWSET) {
         ASSERT_EQ(OLAP_SUCCESS,
-                  rowset_converter.convert_alpha_to_beta(src_rowset->rowset_meta(),
-                          schema_hash_path_desc, &dst_rowset_meta_pb));
+                  rowset_converter.convert_alpha_to_beta(
+                          src_rowset->rowset_meta(), schema_hash_path_desc, &dst_rowset_meta_pb));
     } else {
         ASSERT_EQ(OLAP_SUCCESS,
-                  rowset_converter.convert_beta_to_alpha(src_rowset->rowset_meta(),
-                          schema_hash_path_desc, &dst_rowset_meta_pb));
+                  rowset_converter.convert_beta_to_alpha(
+                          src_rowset->rowset_meta(), schema_hash_path_desc, &dst_rowset_meta_pb));
     }
 
     ASSERT_EQ(dst_type, dst_rowset_meta_pb.rowset_type());
@@ -299,7 +298,7 @@ TEST_F(RowsetConverterTest, TestConvertBetaRowsetToAlpha) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     doris::SegmentLoader::create_global_instance(1000);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

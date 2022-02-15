@@ -91,7 +91,7 @@ For query options related to Runtime Filter, please refer to the following secti
 
 - The first query option is to adjust the type of Runtime Filter used. In most cases, you only need to adjust this option, and keep the other options as default.
 
-  - `runtime_filter_type`: Including Bloom Filter, MinMax Filter and IN predicate. By default, only IN predicate will be used conservatively. In some cases, the performance will be higher when both Bloom Filter, MinMax Filter and IN predicate are used at the same time.
+  - `runtime_filter_type`: Including Bloom Filter, MinMax Filter, IN predicate and IN_OR_BLOOM Filter. By default, only IN_OR_BLOOM Filter will be used. In some cases, the performance will be higher when both Bloom Filter, MinMax Filter and IN predicate are used at the same time.
 
 - Other query options usually only need to be further adjusted in certain specific scenarios to achieve the best results. Usually only after performance testing, optimize for resource-intensive, long enough running time and high enough frequency queries.
 
@@ -114,7 +114,7 @@ The query options are further explained below.
 #### 1.runtime_filter_type
 Type of Runtime Filter used.
 
-**Type**: Number (1, 2, 4) or the corresponding mnemonic string (IN, BLOOM_FILTER, MIN_MAX), the default is 1 (IN predicate), use multiple commas to separate, pay attention to the need to add quotation marks , Or add any number of types, for example:
+**Type**: Number (1, 2, 4, 8) or the corresponding mnemonic string (IN, BLOOM_FILTER, MIN_MAX, IN_OR_BLOOM_FILTER), the default is 8 (IN_OR_BLOOM FILTER), use multiple commas to separate, pay attention to the need to add quotation marks , Or add any number of types, for example:
 ```
 set runtime_filter_type="BLOOM_FILTER,IN,MIN_MAX";
 ```
@@ -125,6 +125,8 @@ set runtime_filter_type=7;
 
 **Precautions for use**
 
+- **IN or Bloom Filter**: According to the actual number of rows in the right table during execution, the system automatically determines whether to use IN predicate or Bloom Filter.
+    - By default, IN Predicate will be used when the number of data rows in the right table is less than 1024 (which can be adjusted by ` runtime_filter_max_in_num 'in the session variable). Otherwise, use bloom filter.
 - **Bloom Filter**: There is a certain misjudgment rate, which results in the filtered data being a little less than expected, but it will not cause the final result to be inaccurate. In most cases, Bloom Filter can improve performance or has no significant impact on performance, but in some cases Under circumstances will cause performance degradation.
     - Bloom Filter construction and application overhead is high, so when the filtering rate is low, or the amount of data in the left table is small, Bloom Filter may cause performance degradation.
     - At present, only the Key column of the left table can be pushed down to the storage engine if the Bloom Filter is applied, and the test results show that the performance of the Bloom Filter is often reduced when the Bloom Filter is not pushed down to the storage engine.

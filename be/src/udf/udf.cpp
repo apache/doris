@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "gen_cpp/types.pb.h"
 #include "olap/hll.h"
 #include "runtime/decimalv2_value.h"
 
@@ -50,7 +51,7 @@ public:
         return reinterpret_cast<uint8_t*>(realloc(ptr, byte_size));
     }
 
-    void free(uint8_t* ptr) { free(ptr); }
+    void free(uint8_t* ptr) { ::free(ptr); }
 };
 
 class RuntimeState {
@@ -131,6 +132,11 @@ void FunctionContextImpl::set_constant_args(const std::vector<doris_udf::AnyVal*
     _constant_args = constant_args;
 }
 
+void FunctionContextImpl::set_constant_cols(
+        const std::vector<doris::ColumnPtrWrapper*>& constant_cols) {
+    _constant_cols = constant_cols;
+}
+
 bool FunctionContextImpl::check_allocations_empty() {
     if (_allocations.empty() && _external_bytes_tracked == 0) {
         return true;
@@ -187,9 +193,24 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
             create_context(_state, pool, _intermediate_type, _return_type, _arg_types,
                            _varargs_buffer_size, _debug);
     new_context->_impl->_constant_args = _constant_args;
+    new_context->_impl->_constant_cols = _constant_cols;
     new_context->_impl->_fragment_local_fn_state = _fragment_local_fn_state;
     return new_context;
 }
+
+// TODO: to be implemented
+void FunctionContextImpl::serialize(PFunctionContext* pcontext) const {
+    // pcontext->set_string_result(_string_result);
+    // pcontext->set_num_updates(_num_updates);
+    // pcontext->set_num_removes(_num_removes);
+    // pcontext->set_num_warnings(_num_warnings);
+    // pcontext->set_error_msg(_error_msg);
+    // PUniqueId* query_id = pcontext->mutable_query_id();
+    // query_id->set_hi(_context->query_id().hi);
+    // query_id->set_lo(_context->query_id().lo);
+}
+
+void FunctionContextImpl::derialize(const PFunctionContext& pcontext) {}
 
 } // namespace doris
 
@@ -487,4 +508,58 @@ void HllVal::agg_merge(const HllVal& other) {
     }
 }
 
+bool FunctionContext::is_arg_constant(int i) const {
+    if (i < 0 || i >= _impl->_constant_args.size()) {
+        return false;
+    }
+    return _impl->_constant_args[i] != nullptr;
+}
+
+bool FunctionContext::is_col_constant(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return false;
+    }
+    return _impl->_constant_cols[i] != nullptr;
+}
+
+AnyVal* FunctionContext::get_constant_arg(int i) const {
+    if (i < 0 || i >= _impl->_constant_args.size()) {
+        return nullptr;
+    }
+    return _impl->_constant_args[i];
+}
+
+doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return nullptr;
+    }
+    return _impl->_constant_cols[i];
+}
+
+int FunctionContext::get_num_args() const {
+    return _impl->_arg_types.size();
+}
+
+int FunctionContext::get_num_constant_args() const {
+    return _impl->_constant_args.size();
+}
+
+const FunctionContext::TypeDesc& FunctionContext::get_return_type() const {
+    return _impl->_return_type;
+}
+
+void* FunctionContext::get_function_state(FunctionStateScope scope) const {
+    // assert(!_impl->_closed);
+    switch (scope) {
+    case THREAD_LOCAL:
+        return _impl->_thread_local_fn_state;
+        break;
+    case FRAGMENT_LOCAL:
+        return _impl->_fragment_local_fn_state;
+        break;
+    default:
+        // TODO: signal error somehow
+        return nullptr;
+    }
+}
 } // namespace doris_udf

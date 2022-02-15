@@ -85,7 +85,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 1. 支持无认证的 Kafka 访问，以及通过 SSL 方式认证的 Kafka 集群。
 2. 支持的消息格式为 csv, json 文本格式。csv 每一个 message 为一行，且行尾**不包含**换行符。
-3. 仅支持 Kafka 0.10.0.0(含) 以上版本。
+3. 默认支持 Kafka 0.10.0.0(含) 以上版本。如果要使用 Kafka 0.10.0.0 以下版本 (0.9.0, 0.8.2, 0.8.1, 0.8.0)，需要修改 be 的配置，将 kafka_broker_version_fallback 的值设置为要兼容的旧版本，或者在创建routine load的时候直接设置 property.broker.version.fallback的值为要兼容的旧版本，使用旧版本的代价是routine load 的部分新特性可能无法使用，如根据时间设置 kafka 分区的 offset。
 
 ### 创建例行导入任务
 
@@ -296,6 +296,10 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     |3| Yes | No | No | 系统会从指定分区的 OFFSET_END 开始消费 |
     |4| Yes | Yes | No | 系统会从指定分区的指定offset 处开始消费 |
     |5| Yes | No | Yes | 系统会从指定分区，default offset 指定的位置开始消费 |
+   
+ 7. STOP和PAUSE的区别
+    
+    FE会自动定期清理STOP状态的ROUTINE LOAD，而PAUSE状态的则可以再次被恢复启用。
     
 ## 相关参数
 

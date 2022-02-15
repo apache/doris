@@ -59,9 +59,6 @@ public:
         Status allocate_space(int64_t write_size, int64_t* offset);
 
         // Called to notify TmpFileMgr that an IO error was encountered for this file
-#if 0
-        void report_io_error(const ErrorMsg& msg);
-#endif
         void report_io_error(const std::string& error_msg);
 
         // Delete the physical file on disk, if one was created.

@@ -18,10 +18,12 @@
 package org.apache.doris.analysis;
 
 import java.math.BigDecimal;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
@@ -236,8 +238,8 @@ parser code {:
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN,
-    KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
-    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
+    KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT,
+    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_UPDATE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
@@ -258,10 +260,10 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_PLUGIN, KW_PLUGINS,
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROFILE, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
-    KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
+    KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REFRESH, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
-    KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
+    KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW, KW_SIGNED,
     KW_SKEW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
@@ -295,7 +297,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -398,7 +400,12 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
-nonterminal HashMap<String, String> select_hints_list, opt_select_hints;
+nonterminal Map<String, Map<String, String>> opt_select_hints;
+nonterminal Map<String, Map<String, String>> query_hints;
+nonterminal Map.Entry<String, Map<String, String>> query_hint;
+nonterminal Map<String, String> query_hint_parameters;
+nonterminal Map.Entry<String, String> query_hint_parameter;
+nonterminal String query_hint_parameter_key;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
@@ -550,6 +557,7 @@ precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
+precedence left KW_ENGINE;
 
 // unused
 // nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name, AlterClause alter_cluster_clause;
@@ -733,6 +741,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | unlock_tables_stmt:stmt
     {: RESULT = stmt; :}
+    | refresh_stmt:stmt
+    {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
         RESULT = new EmptyStmt();
@@ -758,6 +768,17 @@ des_cluster_name ::=
     | ident:cluster DOT ident:db
     {:
         RESULT = new ClusterName(cluster, db);
+    :}
+    ;
+
+refresh_stmt ::=
+    KW_REFRESH KW_TABLE table_name:tbl
+    {:
+        RESULT = new RefreshTableStmt(tbl);
+    :}
+    | KW_REFRESH KW_DATABASE ident:db
+    {:
+        RESULT = new RefreshDbStmt(db);
     :}
     ;
 
@@ -1064,9 +1085,9 @@ alter_table_clause ::=
     {:
         RESULT = new CreateIndexClause(null, indexDef, true);
     :}
-    | KW_DROP KW_INDEX ident:indexName
+    | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName
     {:
-        RESULT = new DropIndexClause(indexName, null, true);
+        RESULT = new DropIndexClause(indexName, ifExists, null, true);
     :}
     | KW_ENABLE KW_FEATURE STRING_LITERAL:featureName opt_enable_feature_properties:properties
     {:
@@ -1186,13 +1207,13 @@ opt_intermediate_type ::=
 // Create Statement
 create_stmt ::=
     /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db
+    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_properties:properties
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db);
+        RESULT = new CreateDbStmt(ifNotExists, db, properties);
     :}
     | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db);
+        RESULT = new CreateDbStmt(ifNotExists, db, null);
     :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
@@ -1249,6 +1270,11 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
     :}
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
+          properties:properties opt_comment:tableComment
+    {:
+       RESULT = new CreateTableStmt(ifNotExists, isExternal, name, engineName, properties, tableComment);
+    :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             opt_col_list:columns
             opt_engine:engineName
@@ -1295,9 +1321,9 @@ create_stmt ::=
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
-    | KW_CREATE KW_INDEX ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
     {:
-        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, cols, indexType, comment), false)));
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, comment), false)));
     :}
     /* resource */
     | KW_CREATE opt_external:isExternal KW_RESOURCE ident_or_text:resourceName opt_properties:properties
@@ -2004,9 +2030,9 @@ drop_stmt ::=
     {:
         RESULT = new DropFileStmt(fileName, dbName, properties);
     :}
-    | KW_DROP KW_INDEX ident:indexName KW_ON table_name:tableName
+    | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
-        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, tableName, false)));
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
     | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
     {:
@@ -2409,9 +2435,9 @@ column_definition ::=
     ;
 
 index_definition ::=
-    KW_INDEX ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
     {:
-        RESULT = new IndexDef(indexName, cols, indexType, comment);
+        RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, comment);
     :}
     ;
 
@@ -2704,6 +2730,10 @@ show_param ::=
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
     :}
+    | KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
+    {:
+        RESULT = new ShowDataSkewStmt(table_ref);
+    :}
     /* Show data statement: used to show data size of specified range */
      | KW_DATA order_by_clause:orderByClause
     {:
@@ -2840,6 +2870,11 @@ show_param ::=
     | KW_COLUMN KW_STATS table_name:tbl
     {:
         RESULT = new ShowColumnStatsStmt(tbl);
+    :}
+    /* show table creation statement */
+    | KW_TABLE KW_CREATION opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowTableCreationStmt(db, parser.wild);
     :}
     ;
 
@@ -3851,16 +3886,65 @@ select_clause ::=
     :}
     ;
 
-select_hints_list ::=
-    select_hints_list:map COMMA variable_name:k equal literal_or_ident:v
+query_hint_parameter_key ::=
+    literal:k
     {:
-        map.put(k, v);
+        RESULT = k.getStringValue();
+    :}
+    | variable_name:k
+    {:
+        RESULT = k;
+    :}
+    ;
+
+query_hint_parameter ::=
+    query_hint_parameter_key:k
+    {:
+        RESULT = new AbstractMap.SimpleEntry<String, String>(k, null);
+    :}
+    | query_hint_parameter_key:k equal literal_or_ident:v
+    {:
+        RESULT = new AbstractMap.SimpleEntry<String, String>(k, v);
+    :}
+    ;
+
+
+query_hint_parameters ::=
+    query_hint_parameters:map COMMA query_hint_parameter:kv
+    {:
+        map.put(kv.getKey(), kv.getValue());
         RESULT = map;
     :}
-    | variable_name:k equal literal_or_ident:v
+    |  query_hint_parameter:kv
     {:
-        HashMap<String, String> map = new HashMap<String, String>();
-        map.put(k, v);
+        Map<String, String> map = new HashMap<>();
+        map.put(kv.getKey(), kv.getValue());
+        RESULT = map;
+    :}
+    |
+    {:
+        RESULT = new HashMap<String, String>();
+    :}
+    ;
+
+query_hint ::=
+    ident:k LPAREN query_hint_parameters:v RPAREN
+    {:
+        RESULT = new AbstractMap.SimpleEntry<String, Map<String, String>>(k.toLowerCase(Locale.ROOT), v);
+    :}
+    ;
+
+query_hints ::=
+    query_hints:map query_hint:kv
+    {:
+        map.computeIfAbsent(kv.getKey(), k -> new HashMap<>());
+        map.get(kv.getKey()).putAll(kv.getValue());
+        RESULT = map;
+    :}
+    | query_hint:kv
+    {:
+        Map<String, Map<String, String>> map = new HashMap<>();
+        map.put(kv.getKey(), kv.getValue());
         RESULT = map;
     :}
     ;
@@ -3877,7 +3961,7 @@ literal_or_ident ::=
     ;
 
 opt_select_hints ::=
-    COMMENTED_PLAN_HINT_START KW_SET_VAR LPAREN select_hints_list:map RPAREN COMMENTED_PLAN_HINT_END
+    COMMENTED_PLAN_HINT_START query_hints:map COMMENTED_PLAN_HINT_END
     {:
         RESULT = map;
     :}
@@ -5170,6 +5254,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminCancelRepairTableStmt(table_ref);
     :}
+    | KW_ADMIN KW_COMPACT KW_TABLE base_table_ref:table_ref opt_wild_where
+    {:
+        RESULT = new AdminCompactTableStmt(table_ref, parser.where);
+    :}
     | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
         RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs);
@@ -5181,10 +5269,6 @@ admin_stmt ::=
     | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
     {:
         RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
-    :}
-    | KW_ADMIN KW_SHOW KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
-    {:
-        RESULT = new AdminShowDataSkewStmt(table_ref);
     :}
     | KW_ADMIN KW_CLEAN KW_TRASH KW_ON LPAREN string_list:backends RPAREN
     {:
@@ -5349,6 +5433,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_COMMIT:id
     {: RESULT = id; :}
+    | KW_COMPACT:id
+    {: RESULT = id; :}
     | KW_CONFIG:id
     {: RESULT = id; :}
     | KW_CONNECTION:id
@@ -5356,6 +5442,8 @@ keyword ::=
     | KW_CONNECTION_ID:id
     {: RESULT = id; :}
     | KW_CONVERT:id
+    {: RESULT = id; :}
+    | KW_CREATION:id
     {: RESULT = id; :}
     | KW_DATA:id
     {: RESULT = id; :}
@@ -5493,6 +5581,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_RECOVER:id
     {: RESULT = id; :}
+    | KW_REFRESH:id
+    {: RESULT = id; :}
     | KW_REPEATABLE:id
     {: RESULT = id; :}
     | KW_REPLACE:id
@@ -5538,6 +5628,8 @@ keyword ::=
     | KW_STORAGE:id
     {: RESULT = id; :}
     | KW_STREAM:id
+    {: RESULT = id; :}
+    | KW_STRUCT:id
     {: RESULT = id; :}
     | KW_STRING:id
     {: RESULT = id; :}

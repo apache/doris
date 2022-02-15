@@ -103,7 +103,6 @@ protected:
     CompactionState _state;
 
     Version _output_version;
-    VersionHash _output_version_hash;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

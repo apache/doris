@@ -258,8 +258,8 @@ public:
         return _type_info->from_string(buf, value_string);
     }
 
-    // 将内部的value转成string输出
-    // 没有考虑实现的性能，仅供DEBUG使用
+    //  convert inner value to string
+    //  performance is not considered, only for debug use
     inline std::string to_string(const char* src) const { return _type_info->to_string(src); }
 
     template <typename CellType>
@@ -303,8 +303,8 @@ public:
 protected:
     const TypeInfo* _type_info;
     const AggregateInfo* _agg_info;
-    // 长度，单位为字节
-    // 除字符串外，其它类型都是确定的
+    // unit : byte
+    // except for strings, other types have fixed lengths
     uint32_t _length;
     // Since the length of the STRING type cannot be determined,
     // only dynamic memory can be used. Mempool cannot realize realloc.
@@ -335,7 +335,8 @@ protected:
     }
 
 private:
-    // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
+    // maximum length of Field, unit : bytes
+    // usually equal to length, except for variable-length strings
     const KeyCoder* _key_coder;
     std::string _name;
     uint16_t _index_size;
@@ -360,8 +361,9 @@ int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
         uint32_t max_bytes =
                 type() == OLAP_FIELD_TYPE_VARCHAR ? OLAP_VARCHAR_MAX_BYTES : OLAP_STRING_MAX_BYTES;
         if (r_slice->size + max_bytes > _index_size || l_slice->size + max_bytes > _index_size) {
-            // 如果field的实际长度比short key长，则仅比较前缀，确保相同short key的所有block都被扫描，
-            // 否则，可以直接比较short key和field
+            // if the actual length of the field is longer than the short key, only the prefix is compared,
+            // make sure all blocks with the same short key are scanned
+            // Otherwise, the short key and field can be compared directly
             int compare_size = _index_size - max_bytes;
             // l_slice size and r_slice size may be less than compare_size
             // so calculate the min of the three size as new compare_size
@@ -399,7 +401,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
     }
 
     if (type() == OLAP_FIELD_TYPE_VARCHAR) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_VARCHAR_MAX_BYTES
@@ -409,7 +411,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
         memory_copy((char*)dst->mutable_cell_ptr() + OLAP_VARCHAR_MAX_BYTES, slice->data,
                     copy_size);
     } else if (type() == OLAP_FIELD_TYPE_STRING) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES
@@ -418,7 +420,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
         *reinterpret_cast<StringLengthType*>(dst->mutable_cell_ptr()) = copy_size;
         memory_copy((char*)dst->mutable_cell_ptr() + OLAP_STRING_MAX_BYTES, slice->data, copy_size);
     } else if (type() == OLAP_FIELD_TYPE_CHAR) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         memory_copy(dst->mutable_cell_ptr(), slice->data, _index_size);

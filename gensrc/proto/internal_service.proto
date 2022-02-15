@@ -22,7 +22,6 @@ option java_package = "org.apache.doris.proto";
 
 import "data.proto";
 import "descriptors.proto";
-import "status.proto";
 import "types.proto";
 
 option cc_generic_services = true;
@@ -74,6 +73,8 @@ message PTabletWriterOpenRequest {
     required bool need_gen_rollup = 7;
     optional int64 load_mem_limit = 8;
     optional int64 load_channel_timeout_s = 9;
+    optional bool is_high_priority = 10 [default = false];
+    optional string sender_ip = 11 [default = ""];
 };
 
 message PTabletWriterOpenResult {
@@ -100,7 +101,13 @@ message PTabletWriterAddBatchRequest {
     optional int64 backend_id = 9 [default = -1];
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
+    optional bool is_high_priority = 11 [default = false];
 };
+
+message PTabletError {
+    optional int64 tablet_id = 1;
+    optional string msg = 2;
+}
 
 message PTabletWriterAddBatchResult {
     required PStatus status = 1;
@@ -108,6 +115,7 @@ message PTabletWriterAddBatchResult {
     optional int64 execution_time_us = 3;
     optional int64 wait_lock_time_us = 4;
     optional int64 wait_execution_time_us = 5;
+    repeated PTabletError tablet_errors = 6;
 };
 
 // tablet writer cancel
@@ -351,6 +359,7 @@ enum PFilterType {
     BLOOM_FILTER = 1;
     MINMAX_FILTER = 2;
     IN_FILTER = 3;
+    IN_OR_BLOOM_FILTER = 4;
 };
 
 message PMergeFilterRequest {
@@ -419,15 +428,6 @@ message PResetRPCChannelResponse {
     required PStatus status = 1;
     repeated string channels = 2;
 };
-
-message PHandShakeRequest {
-    optional string hello = 1;
-}
-
-message PHandShakeResponse {
-    optional PStatus status = 1;
-    optional string hello = 2;
-}
 
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);

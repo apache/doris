@@ -28,6 +28,8 @@ under the License.
 
 Spark Doris Connector can support reading data stored in Doris and writing data to Doris through Spark.
 
+Github: https://github.com/apache/incubator-doris-connectors
+
 - Support reading data from `Doris`.
 - Support `Spark DataFrame` batch/stream writing data to `Doris`
 - You can map the `Doris` table to` DataFrame` or `RDD`, it is recommended to use` DataFrame`.

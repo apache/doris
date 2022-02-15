@@ -2099,7 +2099,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：false
+是否为 Master FE 节点独有的配置项：true
 
 如果设置为true，将关闭副本修复和均衡逻辑。
 
@@ -2109,17 +2109,68 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：false
+是否为 Master FE 节点独有的配置项：true
 
 如果设置为true，系统会在副本调度逻辑中，立即删除冗余副本。这可能导致部分正在对对应副本写入的导入作业失败，但是会加速副本的均衡和修复速度。
 当集群中有大量等待被均衡或修复的副本时，可以尝试设置此参数，以牺牲部分导入成功率为代价，加速副本的均衡和修复。
 
 ### repair_slow_replica
 
-默认值：true
+默认值：false
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为true，会自动检测compaction比较慢的副本，并将迁移到其他机器，检测条件是 最快和最慢副本版本差异超过100， 且差异超过最快副本的30%
+如果设置为true，会自动检测compaction比较慢的副本，并将迁移到其他机器，检测条件是 最慢副本的版本计数超过 `min_version_count_indicate_replica_compaction_too_slow` 的值， 且与最快副本的版本计数差异所占比例超过 `valid_version_count_delta_ratio_between_replicas` 的值
+
+### colocate_group_relocate_delay_second
+
+默认值：1800
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+重分布一个 Colocation Group 可能涉及大量的tablet迁移。因此，我们需要一个更保守的策略来避免不必要的Colocation 重分布。
+重分布通常发生在 Doris 检测到有 BE 节点宕机后。这个参数用于推迟对BE宕机的判断。如默认参数下，如果 BE 节点能够在 1800 秒内恢复，则不会触发 Colocation 重分布。
+
+### allow_replica_on_same_host
+
+默认值：false
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+是否允许同一个 tablet 的多个副本分布在同一个 host 上。这个参数主要用于本地测试是，方便搭建多个 BE 已测试某些多副本情况。不要用于非测试环境。
+
+### min_version_count_indicate_replica_compaction_too_slow
+
+默认值：300
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+版本计数阈值，用来判断副本做 compaction 的速度是否太慢
+
+### valid_version_count_delta_ratio_between_replicas
+
+默认值：0.5
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+最慢副本的版本计数与最快副本的差异有效比率阈值，如果设置 `repair_slow_replica` 为 true，则用于判断是否修复最慢的副本
+
+### min_bytes_indicate_replica_too_large
+
+默认值：2 * 1024 * 1024 * 1024 (2G)
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+数据大小阈值，用来判断副本的数据量是否太大

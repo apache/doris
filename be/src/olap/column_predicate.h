@@ -23,6 +23,7 @@
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/selection_vector.h"
+#include "vec/columns/column.h"
 
 using namespace doris::segment_v2;
 
@@ -54,7 +55,21 @@ public:
                             const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
                             roaring::Roaring* roaring) const = 0;
 
+    // evaluate predicate on IColumn
+    // a short circuit eval way
+    virtual void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {};
+    virtual void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+                              bool* flags) const {};
+    virtual void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+                             bool* flags) const {};
+
+    // used to evaluate pre read column in lazy matertialization
+    // now only support integer/float
+    // a vectorized eval way
+    virtual void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {};
     uint32_t column_id() const { return _column_id; }
+
+    virtual bool is_in_predicate() { return false; }
 
 protected:
     uint32_t _column_id;

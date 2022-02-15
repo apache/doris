@@ -22,7 +22,7 @@
 ############################################################
 
 ###################################################
-# DO NOT change variables bellow unless you known 
+# DO NOT change variables bellow unless you known
 # what you are doing.
 ###################################################
 
@@ -43,6 +43,9 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 
 # all java libraries will be unpacked to here
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
+
+# source of all dependencies
+export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -88,10 +91,10 @@ GLOG_SOURCE=glog-0.4.0
 GLOG_MD5SUM="0daea8785e6df922d7887755c3d100d0"
 
 # gtest
-GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.10.0.tar.gz"
-GTEST_NAME=googletest-release-1.10.0.tar.gz
-GTEST_SOURCE=googletest-release-1.10.0
-GTEST_MD5SUM="ecd1fa65e7de707cd5c00bdac56022cd"
+GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.11.0.tar.gz"
+GTEST_NAME=googletest-release-1.11.0.tar.gz
+GTEST_SOURCE=googletest-release-1.11.0
+GTEST_MD5SUM="e8a8df240b6938bb6384155d4c37d937"
 
 # snappy
 SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.8.tar.gz"
@@ -108,7 +111,7 @@ GPERFTOOLS_MD5SUM="e340f1b247ff512119a2db98c1538dc1"
 # zlib
 ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
 ZLIB_NAME=zlib-1.2.11.tar.gz
-ZLIB_SOURCE=zlib-1.2.11 
+ZLIB_SOURCE=zlib-1.2.11
 ZLIB_MD5SUM="1c9f62f0778697a09d36121ead88e08e"
 
 # lz4
@@ -174,7 +177,7 @@ LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
 BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.0.0.tar.gz"
-BRPC_NAME="1.0.0.tar.gz"
+BRPC_NAME="incubator-brpc-1.0.0.tar.gz"
 BRPC_SOURCE="incubator-brpc-1.0.0"
 BRPC_MD5SUM="73b201192a10107628e3af5ccd643676"
 
@@ -184,7 +187,7 @@ ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
 
-#cyrus-sasl
+# cyrus-sasl
 CYRUS_SASL_DOWNLOAD="https://github.com/cyrusimap/cyrus-sasl/releases/download/cyrus-sasl-2.1.27/cyrus-sasl-2.1.27.tar.gz"
 CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
@@ -349,6 +352,12 @@ XML2_NAME="libxml2-v2.9.10.tar.gz"
 XML2_SOURCE="libxml2-v2.9.10"
 XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
 
+# idn
+IDN_DOWNLOAD="https://ftp.gnu.org/gnu/libidn/libidn-1.38.tar.gz"
+IDN_NAME="libidn-1.38.tar.gz"
+IDN_SOURCE="libidn-1.38"
+IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
+
 # gsasl
 GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
 GSASL_NAME="libgsasl-1.10.0.tar.gz"
@@ -386,6 +395,19 @@ BREAKPAD_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/breakp
 BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
 BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
 BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
+
+# xsimd
+# for arrow-5.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/e9234cd6e6f4428fc260073b2c34ffe86fda1f34.tar.gz"
+XSIMD_NAME=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34.tar.gz
+XSIMD_SOURCE=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34
+XSIMD_MD5SUM="9f230757cf4acd3d544c4a79a020c9dc"
+
+# simdjson
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2.tar.gz"
+SIMDJSON_NAME=simdjson-1.0.2.tar.gz
+SIMDJSON_SOURCE=simdjson-1.0.2
+SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
@@ -438,10 +460,12 @@ AWS_S2N
 AWS_SDK
 LZMA
 XML2
+IDN
 GSASL
 HDFS3
 LIBDIVIDE
 PDQSORT
 BENCHMARK
-BREAKPAD"
-
+BREAKPAD
+XSIMD
+SIMDJSON"

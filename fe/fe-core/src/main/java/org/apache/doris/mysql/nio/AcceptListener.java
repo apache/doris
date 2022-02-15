@@ -22,6 +22,7 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.xnio.ChannelListener;
@@ -48,7 +49,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             if (connection == null) {
                 return;
             }
-            LOG.info("Connection established. remote={}", connection.getPeerAddress());
+            LOG.debug("Connection established. remote={}", connection.getPeerAddress());
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
             NConnectContext context = new NConnectContext(connection);

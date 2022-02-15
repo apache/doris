@@ -21,6 +21,7 @@ under the License.
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![Total Lines](https://tokei.rs/b1/github/apache/incubator-doris?category=lines)](https://github.com/apache/incubator-doris)
 [![GitHub release](https://img.shields.io/github/release/apache/incubator-doris.svg)](https://github.com/apache/incubator-doris/releases)
+[![Join the Doris Community at Slack](https://img.shields.io/badge/chat-slack-brightgreen)](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
@@ -44,16 +45,21 @@ The main advantages of Doris are the simplicity (of developing, deploying and us
 
 [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
-> **Note**   
+> **Note**
 > Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
 some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
 
 ## Technology
+
 Doris mainly integrates the technology of [Google Mesa](https://research.google/pubs/pub42851/) and [Apache Impala](https://impala.apache.org/), and it is based on a column-oriented storage engine and can communicate by MySQL client.
 
 ## Compile and install
 
-See [Compilation](https://github.com/apache/incubator-doris/blob/master/docs/en/installing/compilation.md) for details.
+See [Compilation](https://doris.incubator.apache.org/installing/compilation-with-ldb-toolchain.html)
+
+## Getting start
+
+See [Basic Usage](https://doris.incubator.apache.org/getting-started/basic-usage.html)
 
 ## Report issues or submit pull request
 
@@ -70,12 +76,5 @@ Contact us through the following mailing list.
 ## Links
 
 * Doris official site - <http://doris.incubator.apache.org>
-* User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
 * Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
-* Gitter channel - <https://gitter.im/apache-doris/Lobby> - Online chat room with Doris developers.
-* Overview - <https://github.com/apache/incubator-doris/wiki/Doris-Overview>
-* Compile and install - <https://github.com/apache/incubator-doris/wiki/Doris-Install>
-* Getting start - <https://github.com/apache/incubator-doris/wiki/Getting-start>
-* Deploy and Upgrade - <https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade>
-* User Manual - <https://github.com/apache/incubator-doris/wiki/Doris-Create%2C-Load-and-Delete>
-* FAQs - <https://github.com/apache/incubator-doris/wiki/Doris-FAQ>
+* Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)

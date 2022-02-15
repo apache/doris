@@ -17,9 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterJob;
-import org.apache.doris.alter.AlterJob.JobType;
-import org.apache.doris.alter.SchemaChangeJob;
+import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.FeConstants;
@@ -186,52 +184,6 @@ public class CatalogTest {
         long checksum2 = catalog.loadLoadJob(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
         LoadJob job2 = catalog.getLoadInstance().getLoadJob(-1);
-        Assert.assertTrue(job1.equals(job2));
-        dis.close();
-        
-        deleteDir(dir);
-    }
-    @Test
-    public void testSaveLoadSchemaChangeJob() throws Exception {
-        String dir = "testLoadSchemaChangeJob";
-        mkdir(dir);
-        File file = new File(dir, "image");
-        file.createNewFile();
-        CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
-        Catalog catalog = Catalog.getCurrentCatalog();
-        MetaContext.get().setMetaVersion(FeConstants.meta_version);
-        Field field = catalog.getClass().getDeclaredField("load");
-        field.setAccessible(true);
-        field.set(catalog, new Load());
-
-        Database db1 = new Database(10000L, "testCluster.db1");
-        db1.setClusterName("testCluster");
-        final Cluster cluster = new Cluster("testCluster", 10001L);
-        MaterializedIndex baseIndex = new MaterializedIndex(20000L, IndexState.NORMAL);
-        Partition partition = new Partition(2000L, "single", baseIndex, new RandomDistributionInfo(10));
-        List<Column> baseSchema = new LinkedList<Column>();
-        OlapTable table = new OlapTable(2L, "base", baseSchema, KeysType.AGG_KEYS,
-                                        new SinglePartitionInfo(), new RandomDistributionInfo(10));
-        table.addPartition(partition);
-        db1.createTable(table);
-
-        catalog.addCluster(cluster);
-        catalog.unprotectCreateDb(db1);
-        SchemaChangeJob job1 = new SchemaChangeJob(db1.getId(), table.getId(), null, table.getName(), -1);
-        
-        catalog.getSchemaChangeHandler().replayInitJob(job1, catalog);
-        long checksum1 = catalog.saveAlterJob(dos, 0, JobType.SCHEMA_CHANGE);
-        catalog.clear();
-        catalog = null;
-        dos.close();
-        
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        catalog = Catalog.getCurrentCatalog();
-        long checksum2 = catalog.loadAlterJob(dis, 0, JobType.SCHEMA_CHANGE);
-        Assert.assertEquals(checksum1, checksum2);
-        Map<Long, AlterJob> map = catalog.getSchemaChangeHandler().unprotectedGetAlterJobs();
-        Assert.assertEquals(1, map.size());
-        SchemaChangeJob job2 = (SchemaChangeJob) map.get(table.getId());
         Assert.assertTrue(job1.equals(job2));
         dis.close();
         

@@ -416,10 +416,9 @@ public class ReportHandler extends Daemon {
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
-                if (olapTable == null) {
+                if (olapTable == null || !olapTable.writeLockIfExist()) {
                     continue;
                 }
-                olapTable.writeLock();
                 try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
@@ -545,10 +544,9 @@ public class ReportHandler extends Daemon {
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
-                if (olapTable == null) {
+                if (olapTable == null || !olapTable.writeLockIfExist()) {
                     continue;
                 }
-                olapTable.writeLock();
                 try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
@@ -827,10 +825,9 @@ public class ReportHandler extends Daemon {
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
-                if (olapTable == null) {
+                if (olapTable == null || !olapTable.writeLockIfExist()) {
                     continue;
                 }
-                olapTable.writeLock();
                 try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
@@ -949,7 +946,7 @@ public class ReportHandler extends Daemon {
 
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-        olapTable.writeLock();
+        olapTable.writeLockOrMetaException();
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {

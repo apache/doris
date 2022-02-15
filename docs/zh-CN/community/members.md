@@ -36,13 +36,14 @@ under the License.
 
 我们要感谢以下提交者，他们帮助Apache Doris (incubating) 取得了今天的进展。此列表可能已过时，正式列表位于 [Apache 的网站上](https://people.apache.org/committers-by-project.html#doris) 。
 
-## PPMC (18)
+## PPMC (21)
 
 (如下列表不包含 mentors)
 
 | Apache ID                                                    | Github 用户名     | 公开名   |
 | :----------------------------------------------------------- | :------------------ | :------------ |
 | [lingbin](https://people.apache.org/committer-index.html#lingbin) | lingbin             | Bin Ling      |
+| [wangbo](https://people.apache.org/committer-index.html#wangbo) | wangbo | Bo Wang |
 | [lichaoyong](https://people.apache.org/committer-index.html#lichaoyong) | chaoyli             | Chaoyong Li   |
 | [zhaoc](https://people.apache.org/committer-index.html#zhaoc)    | imay                | Chun Zhao     |
 | [caiconghui](https://people.apache.org/committer-index.html#caiconghui) | caiconghui          | Conghui Cai   |
@@ -51,6 +52,8 @@ under the License.
 | [liuhangyuan](https://people.apache.org/committer-index.html#liuhangyuan) | HangyuanLiu         | Hangyuan Liu  |
 | [chenhao](https://people.apache.org/committer-index.html#chenhao) | chenhao7253886      | Hao Chen      |
 | [kangkaisen](https://people.apache.org/committer-index.html#kangkaisen) | kangkaisen          | Kaisen Kang   |
+| [lihaopeng](https://people.apache.org/committer-index.html#lihaopeng) | HappenLee | Haopeng Li |
+| [jiafengzheng](https://people.apache.org/committer-index.html#jiafengzheng) | hf200012 | Jiafeng Zhang |
 | [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
 | [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
 | [maruyue](https://people.apache.org/committer-index.html#maruyue) |                     | Ruyue Ma      |
@@ -65,12 +68,9 @@ under the License.
 
 | Apache ID                                                    | Github 用户名  | 公开名    |
 | :----------------------------------------------------------- | :--------------- | :------------- |
-| [wangbo](https://people.apache.org/committer-index.html#wangbo) | wangbo           | Bo Wang        |
-| [lihaopeng](https://people.apache.org/committer-index.html#lihaopeng) | HappenLee        | Haopeng Li     |
 | [huangwei](https://people.apache.org/committer-index.html#huangwei) | vagetablechicken | Huang Wei      |
 | [kangpinghuang](https://people.apache.org/committer-index.html#kangpinghuang) | kangpinghuang    | Kangping Huang |
 | [liulijia](https://people.apache.org/committer-index.html#liulijia) | liutang123       | Lijia Liu      |
-| [jiafengzheng](https://people.apache.org/committer-index.html#jiafengzheng) | hf200012         | Jiafeng Zhang  |
 | [wangxixu](https://people.apache.org/committer-index.html#wangxixu) | xinghuayu007     | Xixu Wang      |
 | [xuyang](https://people.apache.org/committer-index.html#xuyang) | xy720            | Yang Xu        |
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |

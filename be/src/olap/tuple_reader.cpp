@@ -196,7 +196,7 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
             cur_delete_flag = _next_delete_flag;
         }
 
-        // if reader needs to filter delete row and current delete_flag is ture,
+        // if reader needs to filter delete row and current delete_flag is true,
         // then continue
         if (!(cur_delete_flag && _filter_delete)) {
             break;

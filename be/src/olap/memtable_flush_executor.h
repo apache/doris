@@ -92,7 +92,10 @@ private:
 class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() {}
-    ~MemTableFlushExecutor() { _flush_pool->shutdown(); }
+    ~MemTableFlushExecutor() {
+        _flush_pool->shutdown();
+        _high_prio_flush_pool->shutdown();
+    }
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
@@ -100,10 +103,11 @@ public:
 
     OLAPStatus create_flush_token(
             std::unique_ptr<FlushToken>* flush_token,
-            RowsetTypePB rowset_type);
+            RowsetTypePB rowset_type, bool is_high_priority);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
+    std::unique_ptr<ThreadPool> _high_prio_flush_pool;
 };
 
 } // namespace doris

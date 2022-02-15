@@ -31,9 +31,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
+#include "runtime/types.h"
 #include "runtime/tuple_row.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
 #include "util/proto_util.h"
@@ -53,7 +54,8 @@ public:
         _env->_thread_mgr = new ThreadResourceMgr();
         _env->_master_info = new TMasterInfo();
         _env->_load_stream_mgr = new LoadStreamMgr();
-        _env->_brpc_stub_cache = new BrpcStubCache();
+        _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
+        _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_buffer_reservation = new ReservationTracker();
         ThreadPoolBuilder("SendBatchThreadPool")
                 .set_min_threads(1)
@@ -65,7 +67,8 @@ public:
     }
 
     void TearDown() override {
-        SAFE_DELETE(_env->_brpc_stub_cache);
+        SAFE_DELETE(_env->_internal_client_cache);
+        SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_load_stream_mgr);
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);

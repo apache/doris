@@ -92,7 +92,7 @@ public:
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
 
-    void addFailedHandler(std::function<void()> fn) { failed_handler = fn; }
+    void addFailedHandler(std::function<void(bool)> fn) { failed_handler = fn; }
     void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
 
     void join() {
@@ -126,7 +126,7 @@ public:
         if (cntl.Failed()) {
             LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl.ErrorCode())
                          << ", error_text=" << cntl.ErrorText();
-            failed_handler();
+            failed_handler(_is_last_rpc);
         } else {
             success_handler(result, _is_last_rpc);
         }
@@ -140,13 +140,14 @@ private:
     brpc::CallId cid;
     std::atomic<bool> _packet_in_flight {false};
     std::atomic<bool> _is_last_rpc {false};
-    std::function<void()> failed_handler;
+    std::function<void(bool)> failed_handler;
     std::function<void(const T&, bool)> success_handler;
 };
 
+class IndexChannel;
 class NodeChannel {
 public:
-    NodeChannel(OlapTableSink* parent, int64_t index_id, int64_t node_id, int32_t schema_hash);
+    NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id, int32_t schema_hash);
     ~NodeChannel() noexcept;
 
     // called before open, used to add tablet located in this backend
@@ -159,6 +160,8 @@ public:
     Status open_wait();
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
+
+    Status add_row(BlockRow& block_row, int64_t tablet_id);
 
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
@@ -193,6 +196,7 @@ public:
     }
 
     int64_t node_id() const { return _node_id; }
+    std::string host() const { return _node_info.host; }
     std::string name() const { return _name; }
 
     Status none_of(std::initializer_list<bool> vars);
@@ -201,10 +205,7 @@ public:
     void clear_all_batches();
 
     std::string channel_info() const {
-        // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
-        //             But I don't know why. so here I print node_info->id instead of node_info->host
-        //             to avoid BE crash. It needs further observation.
-        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.id,
+        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
                            _node_info.brpc_port);
     }
 
@@ -213,7 +214,7 @@ private:
 
 private:
     OlapTableSink* _parent = nullptr;
-    int64_t _index_id = -1;
+    IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
     int32_t _schema_hash = 0;
     std::string _load_info;
@@ -224,7 +225,6 @@ private:
 
     // this should be set in init() using config
     int _rpc_timeout_ms = 60000;
-    static const int _min_rpc_timeout_ms = 1000; // The min query timeout is 1 second.
     int64_t _next_packet_seq = 0;
     MonotonicStopWatch _timeout_watch;
 
@@ -265,6 +265,15 @@ private:
     std::atomic<int64_t> _mem_exceeded_block_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
+
+    // buffer for saving serialized row batch data.
+    // In the non-attachment approach, we need to use two PRowBatch structures alternately
+    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
+    // This is not necessary with the attachment approach, because the memory structures
+    // are already copied into attachment memory before sending, and will wait for
+    // the previous RPC to be fully completed before the next copy.
+    std::string _tuple_data_buffer;
+    std::string* _tuple_data_buffer_ptr = nullptr;
 };
 
 class IndexChannel {
@@ -275,40 +284,45 @@ public:
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
-    Status add_row(Tuple* tuple, int64_t tablet_id);
+    void add_row(Tuple* tuple, int64_t tablet_id);
 
-    void for_each_node_channel(const std::function<void(NodeChannel*)>& func) {
+    void add_row(BlockRow& block_row, int64_t tablet_id);
+
+    void for_each_node_channel(const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
         for (auto& it : _node_channels) {
             func(it.second);
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch) {
-        const auto& it = _tablets_by_channel.find(ch->node_id());
-        if (it == _tablets_by_channel.end()) {
-            return;
-        }
-        for (const auto tablet_id : it->second) {
-            _failed_channels[tablet_id].insert(ch->node_id());
-        }
-    }
-    bool has_intolerable_failure();
+    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err, int64_t tablet_id = -1);
+    Status check_intolerable_failure();
+
+    // set error tablet info in runtime state, so that it can be returned to FE.
+    void set_error_tablet_in_state(RuntimeState* state);
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
 private:
+    friend class NodeChannel;
+
     OlapTableSink* _parent;
     int64_t _index_id;
     int32_t _schema_hash;
 
     // BeId -> channel
-    std::unordered_map<int64_t, NodeChannel*> _node_channels;
+    std::unordered_map<int64_t, std::shared_ptr<NodeChannel>> _node_channels;
     // from tablet_id to backend channel
-    std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
+    std::unordered_map<int64_t, std::vector<std::shared_ptr<NodeChannel>>> _channels_by_tablet;
     // from backend channel to tablet_id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
+
+    // lock to protect _failed_channels and _failed_channels_msgs
+    mutable SpinLock _fail_lock;
     // key is tablet_id, value is a set of failed node id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
+    // key is tablet_id, value is error message
+    std::unordered_map<int64_t, std::string> _failed_channels_msgs;
+    Status _intolerable_failure_status = Status::OK();
 };
 
 // Write data to Olap Table.
@@ -339,19 +353,21 @@ public:
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
     // this is only used in insert statement.
-    void _convert_batch(RuntimeState* state, RowBatch* input_batch, RowBatch* output_batch);
+    Status _convert_batch(RuntimeState* state, RowBatch* input_batch, RowBatch* output_batch);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    int _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap);
+    // set stop_processing is we want to stop the whole process now.
+    Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap, int* filtered_rows,
+                          bool* stop_processing);
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
-private:
+protected:
     friend class NodeChannel;
     friend class IndexChannel;
 
@@ -380,6 +396,7 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
+    bool _is_high_priority = false;
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
@@ -440,6 +457,9 @@ private:
     bool _is_closed = false;
     // Save the status of close() method
     Status _close_status;
+
+    // TODO(cmy): this should be removed after we switch to rpc attachment by default.
+    bool _transfer_data_by_brpc_attachment = false;
 };
 
 } // namespace stream_load

@@ -159,7 +159,7 @@ private:
     std::mutex _status_lock;
     Status _exec_status;
 
-    bool _set_rsc_info;
+    bool _set_rsc_info = false;
     std::string _user;
     std::string _group;
 
@@ -353,6 +353,13 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
                 params.commitInfos.push_back(info);
             }
         }
+        if (!runtime_state->error_tablet_infos().empty()) {
+            params.__isset.errorTabletInfos = true;
+            params.errorTabletInfos.reserve(runtime_state->error_tablet_infos().size());
+            for (auto& info : runtime_state->error_tablet_infos()) {
+                params.errorTabletInfos.push_back(info);
+            }
+        }
 
         // Send new errors to coordinator
         runtime_state->get_unreported_errors(&(params.error_log));
@@ -518,7 +525,7 @@ void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
-            _fragment_map[fragment_instance_id]->set_pipe(pipe);
+            _fragment_map[fragment_instance_id]->set_pipe(std::move(pipe));
         }
     }
 }
@@ -783,7 +790,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
             TTabletVersionInfo info = iter->second;
             scan_range.tablet_id = tablet_id;
             scan_range.version = std::to_string(info.version);
-            scan_range.version_hash = std::to_string(info.version_hash);
+            // Useless but it is required field in TPaloScanRange
+            scan_range.version_hash = "0";
             scan_range.schema_hash = std::to_string(info.schema_hash);
             scan_range.hosts.push_back(address);
         } else {

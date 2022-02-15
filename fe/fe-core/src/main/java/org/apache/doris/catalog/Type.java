@@ -400,6 +400,31 @@ public abstract class Type {
         return ScalarType.INVALID;
     }
 
+    public static Type getNextNumType(Type t) {
+        switch (t.getPrimitiveType()) {
+            case BOOLEAN:
+                return TINYINT;
+            case TINYINT:
+                return SMALLINT;
+            case SMALLINT:
+                return INT;
+            case INT:
+                return BIGINT;
+            case BIGINT:
+                return BIGINT;
+            case LARGEINT:
+                return LARGEINT;
+            case FLOAT:
+                return DOUBLE;
+            case DOUBLE:
+                return DOUBLE;
+            case DECIMALV2:
+                return DECIMALV2;
+            default:
+                return INVALID;
+        }
+    }
+
     /**
      * Returns null if this expr is not instance of StringLiteral or StringLiteral
      * inner value could not parse to long. otherwise return parsed Long result.

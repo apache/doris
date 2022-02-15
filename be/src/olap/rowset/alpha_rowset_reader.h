@@ -65,17 +65,19 @@ public:
     // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
 
+    OLAPStatus next_block(vectorized::Block *block) override {
+        return OLAP_ERR_DATA_EOF;
+    }
+
     bool delete_flag() override;
 
     Version version() override;
-
-    VersionHash version_hash() override;
 
     RowsetSharedPtr rowset() override;
 
     int64_t filtered_rows() override;
 
-    RowsetReaderType type() const override { return RowsetReaderType::ALPHA; }
+    RowsetTypePB type() const override { return RowsetTypePB::ALPHA_ROWSET; }
 
 private:
     OLAPStatus _init_merge_ctxs(RowsetReaderContext* read_context);

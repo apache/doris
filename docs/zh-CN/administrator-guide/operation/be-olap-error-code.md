@@ -140,7 +140,6 @@ under the License.
 | OLAP_ERR_BE_VERSION_NOT_MATCH                    | -800   | BE Compaction 版本不匹配错误                                 |
 | OLAP_ERR_BE_REPLACE_VERSIONS_ERROR               | -801   | BE Compaction 替换版本错误                                   |
 | OLAP_ERR_BE_MERGE_ERROR                          | -802   | BE Compaction合并错误                                        |
-| OLAP_ERR_BE_COMPUTE_VERSION_HASH_ERROR           | -803   | BE Compaction 计算版本哈希错误                               |
 | OLAP_ERR_CAPTURE_ROWSET_ERROR                    | -804   | 找不到Rowset对应的版本                                       |
 | OLAP_ERR_BE_SAVE_HEADER_ERROR                    | -805   | BE Compaction保存Header错误                                  |
 | OLAP_ERR_BE_INIT_OLAP_DATA                       | -806   | BE Compaction 初始化OLAP数据错误                             |

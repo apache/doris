@@ -91,9 +91,10 @@ public class TabletStatMgr extends MasterDaemon {
                 if (table.getType() != TableType.OLAP) {
                     continue;
                 }
-
                 OlapTable olapTable = (OlapTable) table;
-                table.writeLock();
+                if (!table.writeLockIfExist()) {
+                    continue;
+                }
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();

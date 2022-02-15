@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -174,7 +173,7 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processCreateMaterializedView(CreateMaterializedViewStmt addMVClause, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             olapTable.checkStableAndNormal(db.getClusterName());
             if (olapTable.existTempPartitions()) {
@@ -229,7 +228,7 @@ public class MaterializedViewHandler extends AlterHandler {
         Map<String, RollupJobV2> rollupNameJobMap = new LinkedHashMap<>();
         // save job id for log
         Set<Long> logJobIdSet = new HashSet<>();
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
@@ -711,7 +710,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processBatchDropRollup(List<AlterClause> dropRollupClauses, Database db, OlapTable olapTable)
             throws DdlException, MetaNotFoundException {
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
@@ -747,7 +746,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processDropMaterializedView(DropMaterializedViewStmt dropMaterializedViewStmt, Database db,
                                             OlapTable olapTable) throws DdlException, MetaNotFoundException {
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             // check table state
             if (olapTable.getState() != OlapTableState.NORMAL) {
@@ -860,7 +859,6 @@ public class MaterializedViewHandler extends AlterHandler {
     @Override
     protected void runAfterCatalogReady() {
         super.runAfterCatalogReady();
-        runOldAlterJob();
         runAlterJobV2();
     }
 
@@ -884,7 +882,7 @@ public class MaterializedViewHandler extends AlterHandler {
         try {
             Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
             OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-            olapTable.writeLock();
+            olapTable.writeLockOrMetaException();
             try {
                 if (olapTable.getState() == olapTableState) {
                     return;
@@ -982,131 +980,10 @@ public class MaterializedViewHandler extends AlterHandler {
         }
     }
 
-    @Deprecated
-    private void runOldAlterJob() {
-        List<AlterJob> cancelledJobs = Lists.newArrayList();
-        List<AlterJob> finishedJobs = Lists.newArrayList();
-
-        for (AlterJob alterJob : alterJobs.values()) {
-            RollupJob rollupJob = (RollupJob) alterJob;
-            if (rollupJob.getState() != JobState.FINISHING
-                    && rollupJob.getState() != JobState.FINISHED
-                    && rollupJob.getState() != JobState.CANCELLED) {
-                // cancel the old alter table job
-                cancelledJobs.add(rollupJob);
-                continue;
-            }
-
-            if (rollupJob.getTransactionId() < 0) {
-                // it means this is an old type job and current version is real time load version
-                // then kill this job
-                cancelledJobs.add(rollupJob);
-                continue;
-            }
-            JobState state = rollupJob.getState();
-            switch (state) {
-                case PENDING: {
-                    // if rollup job's status is PENDING, we need to send tasks.
-                    if (!rollupJob.sendTasks()) {
-                        cancelledJobs.add(rollupJob);
-                        LOG.warn("sending rollup job[" + rollupJob.getTableId() + "] tasks failed. cancel it.");
-                    }
-                    break;
-                }
-                case RUNNING: {
-                    if (rollupJob.isTimeout()) {
-                        cancelledJobs.add(rollupJob);
-                    } else {
-                        int res = rollupJob.tryFinishJob();
-                        if (res == -1) {
-                            // cancel rollup
-                            cancelledJobs.add(rollupJob);
-                            LOG.warn("cancel rollup[{}] cause bad rollup job[{}]",
-                                    ((RollupJob) rollupJob).getRollupIndexName(), rollupJob.getTableId());
-                        }
-                    }
-                    break;
-                }
-                case FINISHING: {
-                    // check previous load job finished
-                    if (rollupJob.isPreviousLoadFinished()) {
-                        // if all previous load job finished, then send clear alter tasks to all related be
-                        LOG.info("previous txn finished, try to send clear txn task");
-                        int res = rollupJob.checkOrResendClearTasks();
-                        if (res != 0) {
-                            LOG.info("send clear txn task return {}", res);
-                            if (res == -1) {
-                                LOG.warn("rollup job is in finishing state, but could not finished, "
-                                        + "just finish it, maybe a fatal error {}", rollupJob);
-                            }
-                            finishedJobs.add(rollupJob);
-                        }
-                    } else {
-                        LOG.info("previous load jobs are not finished. can not finish rollup job: {}",
-                                rollupJob.getTableId());
-                    }
-                    break;
-                }
-                case FINISHED: {
-                    break;
-                }
-                case CANCELLED: {
-                    // the alter job could be cancelled in 3 ways
-                    // 1. the table or db is dropped
-                    // 2. user cancels the job
-                    // 3. the job meets errors when running
-                    // for the previous 2 scenarios, user will call jobdone to finish the job and set its state to cancelled
-                    // so that there exists alter job whose state is cancelled
-                    // for the third scenario, the thread will add to cancelled job list and will be dealt by call jobdone
-                    // Preconditions.checkState(false);
-                    break;
-                }
-                default:
-                    Preconditions.checkState(false);
-                    break;
-            }
-        } // end for jobs
-
-        // handle cancelled rollup jobs
-        for (AlterJob rollupJob : cancelledJobs) {
-            Database db = Catalog.getCurrentCatalog().getDbNullable(rollupJob.getDbId());
-            if (db == null) {
-                cancelInternal(rollupJob, null, null);
-                continue;
-            }
-
-            OlapTable olapTable = (OlapTable) db.getTableNullable(rollupJob.getTableId());
-            if (olapTable != null) {
-                olapTable.writeLock();
-            }
-            try {
-                rollupJob.cancel(olapTable, "cancelled");
-            } finally {
-                if (olapTable != null) {
-                    olapTable.writeUnlock();
-                }
-            }
-            jobDone(rollupJob);
-        }
-
-        // handle finished rollup jobs
-        for (AlterJob alterJob : finishedJobs) {
-            alterJob.setState(JobState.FINISHED);
-            // remove from alterJobs.
-            // has to remove here, because the job maybe finished and it still in alter job list,
-            // then user could submit schema change task, and auto load to two table flag will be set false.
-            // then schema change job will be failed.
-            alterJob.finishJob();
-            jobDone(alterJob);
-            Catalog.getCurrentCatalog().getEditLog().logFinishRollup((RollupJob) alterJob);
-        }
-    }
-
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
         List<List<Comparable>> rollupJobInfos = new LinkedList<List<Comparable>>();
 
-        getOldAlterJobInfos(db, rollupJobInfos);
         getAlterJobV2Infos(db, rollupJobInfos);
 
         // sort by
@@ -1129,43 +1006,6 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
             alterJob.getInfo(rollupJobInfos);
-        }
-    }
-
-    @Deprecated
-    private void getOldAlterJobInfos(Database db, List<List<Comparable>> rollupJobInfos) {
-        List<AlterJob> jobs = Lists.newArrayList();
-        // lock to perform atomically
-        lock();
-        try {
-            for (AlterJob alterJob : this.alterJobs.values()) {
-                if (alterJob.getDbId() == db.getId()) {
-                    jobs.add(alterJob);
-                }
-            }
-
-            for (AlterJob alterJob : this.finishedOrCancelledAlterJobs) {
-                if (alterJob.getDbId() == db.getId()) {
-                    jobs.add(alterJob);
-                }
-            }
-        } finally {
-            unlock();
-        }
-
-
-        for (AlterJob selectedJob : jobs) {
-            try {
-                OlapTable olapTable = db.getTableOrMetaException(selectedJob.getTableId(), Table.TableType.OLAP);
-                olapTable.readLock();
-                try {
-                    selectedJob.getJobInfo(rollupJobInfos, olapTable);
-                } finally {
-                    olapTable.readUnlock();
-                }
-            } catch (MetaNotFoundException ignored) {
-            }
-
         }
     }
 
@@ -1195,7 +1035,6 @@ public class MaterializedViewHandler extends AlterHandler {
 
         Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
-        AlterJob rollupJob = null;
         List<AlterJobV2> rollupJobV2List = new ArrayList<>();
         OlapTable olapTable;
         try {
@@ -1222,14 +1061,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 rollupJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
             }
             if (rollupJobV2List.size() == 0) {
-                rollupJob = getAlterJob(olapTable.getId());
-                Preconditions.checkNotNull(rollupJob, "Table[" + tableName + "] is not under ROLLUP. ");
-                if (rollupJob.getState() == JobState.FINISHED
-                        || rollupJob.getState() == JobState.FINISHING
-                        || rollupJob.getState() == JobState.CANCELLED) {
-                    throw new DdlException("job is already " + rollupJob.getState().name() + ", can not cancel it");
-                }
-                rollupJob.cancel(olapTable, "user cancelled");
+                // Alter job v1 is not supported, delete related code
+                throw new DdlException("Table[" + tableName + "] is not under ROLLUP. Maybe it has old alter job");
             }
         } finally {
             olapTable.writeUnlock();
@@ -1244,11 +1077,6 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
             return;
-        }
-
-        // handle old alter job
-        if (rollupJob != null && rollupJob.getState() == JobState.CANCELLED) {
-            jobDone(rollupJob);
         }
     }
 

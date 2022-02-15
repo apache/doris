@@ -83,7 +83,6 @@ void tear_down() {
 void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 6;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -232,7 +231,6 @@ void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_h
                                              TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::UNIQUE_KEYS;
@@ -376,7 +374,7 @@ TEST_F(TestDeltaWriter, open) {
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
     SAFE_DELETE(delta_writer);
 
@@ -438,7 +436,8 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value decimal_value(1.1);
+        DecimalV2Value decimal_value;
+        decimal_value.assign_from_double(1.1);
         *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
 
         *(int8_t*)(tuple->get_slot(slots[10]->tuple_offset())) = -127;
@@ -463,7 +462,9 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value val_decimal(1.1);
+        DecimalV2Value val_decimal;
+        val_decimal.assign_from_double(1.1);
+
         *(DecimalV2Value*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
 
         res = delta_writer->write(tuple);
@@ -472,7 +473,7 @@ TEST_F(TestDeltaWriter, write) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
@@ -485,7 +486,6 @@ TEST_F(TestDeltaWriter, write) {
     version.second = tablet->rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
-    VersionHash version_hash = 2;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
@@ -494,12 +494,11 @@ TEST_F(TestDeltaWriter, write) {
         RowsetSharedPtr rowset = tablet_rs.second;
         res = k_engine->txn_manager()->publish_txn(
                 meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                write_req.schema_hash, tablet_rs.first.tablet_uid, version, version_hash);
+                write_req.schema_hash, tablet_rs.first.tablet_uid, version);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
-                  << "-" << rowset->version().second << ", version_hash:" << rowset->version_hash()
-                  << std::endl;
+                  << "-" << rowset->version().second << std::endl;
         res = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(OLAP_SUCCESS, res);
     }
@@ -552,7 +551,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
@@ -565,7 +564,6 @@ TEST_F(TestDeltaWriter, sequence_col) {
     version.second = tablet->rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
-    VersionHash version_hash = 2;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
@@ -574,12 +572,11 @@ TEST_F(TestDeltaWriter, sequence_col) {
         RowsetSharedPtr rowset = tablet_rs.second;
         res = k_engine->txn_manager()->publish_txn(
                 meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                write_req.schema_hash, tablet_rs.first.tablet_uid, version, version_hash);
+                write_req.schema_hash, tablet_rs.first.tablet_uid, version);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
-                  << "-" << rowset->version().second << ", version_hash:" << rowset->version_hash()
-                  << std::endl;
+                  << "-" << rowset->version().second << std::endl;
         res = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(OLAP_SUCCESS, res);
     }

@@ -134,6 +134,35 @@ public class CreateTableLikeTest {
     }
 
     @Test
+    public void testDeepCopyOfDistributionInfo() throws Exception {
+        String createTableSql = "CREATE TABLE IF NOT EXISTS test.bucket_distribution_test (\n" +
+                "  `dt` bigint(20) NULL COMMENT \"\",\n" +
+                "  `id1` bigint(20) NULL COMMENT \"\",\n" +
+                "  `last_time` varchar(20) MAX NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`dt`, `id1`) \n" +
+                "PARTITION BY RANGE(`dt`) \n" +
+                "(\n" +
+                "    PARTITION p1 VALUES  [(\"20220101\"),(\"20220201\")),\n" +
+                "    partition p2 VALUES  [(\"20211201\"),(\"20220101\"))\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`id1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");";
+        createTable(createTableSql);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("bucket_distribution_test");
+        DistributionInfo default_info = table.getDefaultDistributionInfo();
+        DistributionInfo previous = null;
+        for (Partition p : table.getPartitions()) {
+            Assert.assertFalse(p.getDistributionInfo() == default_info);
+            Assert.assertFalse(p.getDistributionInfo() == previous);
+            previous = p.getDistributionInfo();
+        }
+    }
+
+    @Test
     public void testNormal() throws Exception {
         // 1. creat table with single partition
         String createTableSql = "create table test.testTbl1\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"

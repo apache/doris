@@ -24,14 +24,11 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * rewrite EncryptKey to LiteralExpr
  */
 public class RewriteEncryptKeyRule implements ExprRewriteRule {
-    private static final Logger LOG = LogManager.getLogger(RewriteEncryptKeyRule.class);
 
     public static ExprRewriteRule INSTANCE = new RewriteEncryptKeyRule();
 

@@ -132,3 +132,14 @@ diff -uprN a/include/event2/http_struct.h b/include/event2/http_struct.h
  };
  
  #ifdef __cplusplus
+diff -uprN a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2020-07-05 20:02:46.000000000 +0800
++++ b/CMakeLists.txt	2022-01-10 13:29:32.912883436 +0800
+@@ -200,6 +200,6 @@ endif()
+ if (("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU") OR (${CLANG}))
+     set(GNUC 1)
+ endif()
+-if (("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC") OR (${CLANG}))
++if (("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC") OR ("${CMAKE_C_SIMULATE_ID}" STREQUAL "MSVC"))
+     set(MSVC 1)
+ endif()

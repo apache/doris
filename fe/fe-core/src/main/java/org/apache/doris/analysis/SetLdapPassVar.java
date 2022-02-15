@@ -17,20 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+
 public class SetLdapPassVar extends SetVar {
-    private String passwd;
+    private final String passwd;
 
     public SetLdapPassVar(String passwd) {
-        //  Encrypted password
-        this.passwd = SymmetricEncryption.encrypt(passwd);
+        this.passwd = passwd;
     }
 
     public String getLdapPassword() {

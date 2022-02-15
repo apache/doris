@@ -35,7 +35,7 @@ public:
     void handle(HttpRequest* req) override;
 
 private:
-    int64_t do_checksum(int64_t tablet_id, int64_t version, int64_t version_hash,
+    int64_t do_checksum(int64_t tablet_id, int64_t version,
                         int32_t schema_hash, HttpRequest* req);
 
     ExecEnv* _exec_env;

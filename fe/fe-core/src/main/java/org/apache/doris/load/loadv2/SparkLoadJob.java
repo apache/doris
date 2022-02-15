@@ -626,7 +626,7 @@ public class SparkLoadJob extends BulkLoadJob {
                          .build());
         Database db = getDb();
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(tableToLoadPartitions.keySet()));
-        MetaLockUtils.writeLockTables(tableList);
+        MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, tableList, transactionId, commitInfos,

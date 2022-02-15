@@ -131,12 +131,12 @@ If the `function_name` contains the database name, the custom function will be c
 
     ```
     -- create a custom functional alias function
-    CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) 
+    CREATE ALIAS FUNCTION id_masking(BIGINT) WITH PARAMETER(id) 
         AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
 
     -- create a custom cast alias function
-    CREATE ALIAS FUNCTION decimal(ALL, INT, INT) WITH PARAMETER(col, precision, scale) 
-        AS CAST(col AS decimal(precision, scale));
+    CREATE ALIAS FUNCTION string(ALL, INT) WITH PARAMETER(col, length) 
+        AS CAST(col AS varchar(length));
     ```
 
 ## keyword

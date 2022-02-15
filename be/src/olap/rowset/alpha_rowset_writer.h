@@ -54,6 +54,8 @@ public:
 
     RowsetId rowset_id() override { return _rowset_writer_context.rowset_id; }
 
+    RowsetTypePB type() const override { return RowsetTypePB::ALPHA_ROWSET; }
+
 private:
     OLAPStatus _init();
 

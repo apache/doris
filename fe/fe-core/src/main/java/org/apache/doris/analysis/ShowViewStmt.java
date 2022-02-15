@@ -92,7 +92,7 @@ public class ShowViewStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    getTbl());
+                    dbName + ": " + getTbl());
         }
 
         Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
