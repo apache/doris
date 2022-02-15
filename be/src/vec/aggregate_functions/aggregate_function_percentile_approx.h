@@ -50,6 +50,7 @@ struct PercentileApproxState {
 
         write_binary(result, buf);
     }
+
     void read(BufferReadable& buf) {
         read_binary(init_flag, buf);
         read_binary(targetQuantile, buf);
@@ -69,10 +70,16 @@ struct PercentileApproxState {
         } else {
             digest.reset(new TDigest());
             digest->merge(rhs.digest.get());
+            init_flag = true;
         }
         if (targetQuantile == PercentileApproxState::INIT_QUANTILE) {
             targetQuantile = rhs.targetQuantile;
         }
+    }
+
+    void add(double source, double quantile) {
+        digest->add(source);
+        targetQuantile = quantile;
     }
 
     void reset() {
@@ -122,7 +129,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         double result = this->data(place).get();
-        
+
         if (std::isnan(result)) {
             nullable_column.insert_default();
         } else {
@@ -150,11 +157,11 @@ public:
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        this->data(place).init();
         const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
-        this->data(place).digest->add(sources.get_float64(row_num));
         const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
-        this->data(place).targetQuantile = quantile.get_float64(row_num);
+
+        this->data(place).init();
+        this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
     }
 };
 
@@ -164,13 +171,12 @@ public:
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& compression = static_cast<const ColumnVector<Float64>&>(*columns[2]);
-        this->data(place).init(compression.get_float64(row_num));
-
         const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
-        this->data(place).digest->add(sources.get_float64(row_num));
         const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
-        this->data(place).targetQuantile = quantile.get_float64(row_num);
+        const auto& compression = static_cast<const ColumnVector<Float64>&>(*columns[2]);
+
+        this->data(place).init(compression.get_float64(row_num));
+        this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
     }
 };
 
@@ -193,6 +199,23 @@ struct PercentileState {
         counts.unserialize((uint8_t*)ref.data + sizeof(double));
     }
 
+    void add(int64_t source, double quantiles) {
+        counts.increment(source, 1);
+        quantile = quantiles;
+    }
+
+    void merge(const PercentileState& rhs) {
+        counts.merge(&(rhs.counts));
+        if (quantile == -1.0) {
+            quantile = rhs.quantile;
+        }
+    }
+
+    void reset() {
+        counts = {};
+        quantile = -1.0;
+    }
+
     double get() const {
         auto result = counts.terminate(quantile); //DoubleVal
         return result.val;
@@ -213,23 +236,16 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& sources = static_cast<const ColumnVector<Int64>&>(*columns[0]);
-        this->data(place).counts.increment(sources.get_int(row_num), 1);
-
         const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
-        this->data(place).quantile = quantile.get_float64(row_num);
+
+        this->data(place).add(sources.get_int(row_num), quantile.get_float64(row_num));
     }
 
-    void reset(AggregateDataPtr __restrict place) const override {
-        this->data(place).counts = {};
-        this->data(place).quantile = -1;
-    }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).counts.merge(&(this->data(rhs).counts));
-        if (this->data(place).quantile == -1.0) {
-            this->data(place).quantile = this->data(rhs).quantile;
-        }
+        this->data(place).merge(this->data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
