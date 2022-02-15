@@ -601,8 +601,8 @@ void TabletMeta::remove_delete_predicate_by_version(const Version& version) {
             for (const auto& it : temp.sub_predicates()) {
                 del_cond_str += it + ";";
             }
-            LOG(INFO) << "remove one del_pred. version=" << temp.version()
-                      << ", condition=" << del_cond_str;
+            VLOG_NOTICE << "remove one del_pred. version=" << temp.version()
+                        << ", condition=" << del_cond_str;
 
             // remove delete condition from PB
             _del_pred_array.SwapElements(ordinal, _del_pred_array.size() - 1);

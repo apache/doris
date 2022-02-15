@@ -2096,7 +2096,7 @@ When there are a large number of replicas waiting to be balanced or repaired in 
 
 ### repair_slow_replica
 
-Default: true
+Default: false
 
 IsMutable：true
 

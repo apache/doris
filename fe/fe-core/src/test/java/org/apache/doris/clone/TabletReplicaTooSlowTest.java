@@ -20,14 +20,11 @@ package org.apache.doris.clone;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -51,8 +48,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
-
-import mockit.Mocked;
 
 public class TabletReplicaTooSlowTest {
     private static final Logger LOG = LogManager.getLogger(TabletReplicaTooSlowTest.class);
@@ -78,6 +73,7 @@ public class TabletReplicaTooSlowTest {
         FeConstants.runningUnitTest = true;
         FeConstants.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
+        Config.repair_slow_replica = true;
         // 5 backends:
         // 127.0.0.1
         // 127.0.0.2

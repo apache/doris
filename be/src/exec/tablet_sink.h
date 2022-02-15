@@ -92,7 +92,7 @@ public:
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
 
-    void addFailedHandler(std::function<void()> fn) { failed_handler = fn; }
+    void addFailedHandler(std::function<void(bool)> fn) { failed_handler = fn; }
     void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
 
     void join() {
@@ -126,7 +126,7 @@ public:
         if (cntl.Failed()) {
             LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl.ErrorCode())
                          << ", error_text=" << cntl.ErrorText();
-            failed_handler();
+            failed_handler(_is_last_rpc);
         } else {
             success_handler(result, _is_last_rpc);
         }
@@ -140,7 +140,7 @@ private:
     brpc::CallId cid;
     std::atomic<bool> _packet_in_flight {false};
     std::atomic<bool> _is_last_rpc {false};
-    std::function<void()> failed_handler;
+    std::function<void(bool)> failed_handler;
     std::function<void(const T&, bool)> success_handler;
 };
 
@@ -288,13 +288,13 @@ public:
 
     void add_row(BlockRow& block_row, int64_t tablet_id);
 
-    void for_each_node_channel(const std::function<void(NodeChannel*)>& func) {
+    void for_each_node_channel(const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
         for (auto& it : _node_channels) {
             func(it.second);
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch, const std::string& err, int64_t tablet_id = -1);
+    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err, int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
     // set error tablet info in runtime state, so that it can be returned to FE.
@@ -310,9 +310,9 @@ private:
     int32_t _schema_hash;
 
     // BeId -> channel
-    std::unordered_map<int64_t, NodeChannel*> _node_channels;
+    std::unordered_map<int64_t, std::shared_ptr<NodeChannel>> _node_channels;
     // from tablet_id to backend channel
-    std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
+    std::unordered_map<int64_t, std::vector<std::shared_ptr<NodeChannel>>> _channels_by_tablet;
     // from backend channel to tablet_id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
 
