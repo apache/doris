@@ -36,6 +36,9 @@ samples/**/.classpath
 fe/fe-core/src/main/resources/static/
 nohup.out
 
+regression-test/framework/target
+regression-test/framework/.flattened-pom.xml
+regression-test/framework/dependency-reduced-pom.xml
 
 # ignore eclipse project file & idea project file
 .cproject
