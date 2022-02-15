@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS `hive_bitmap_table`(
 
 ```
 
-### Hive Bitmap UDF 使用：
+### Hive Bitmap UDF Usage：
 
    Hive Bitmap UDF used in Hive/Spark
 
