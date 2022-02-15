@@ -26,15 +26,17 @@ namespace doris::vectorized {
 struct RowRef {
     using SizeT = uint32_t; /// Do not use size_t cause of memory economy
 
-    const Block* block = nullptr;
+    // const Block* block = nullptr;
     SizeT row_num = 0;
+
+    uint8_t block_index = 0;
     // Use in right join to mark row is visited
     // TODO: opt the varaible to use it only need
     bool visited = false;
 
     RowRef() {}
-    RowRef(const Block* block_ptr, size_t row_num_count, bool is_visited = false)
-            : block(block_ptr), row_num(row_num_count), visited(is_visited) {}
+    RowRef(uint8_t block_index, size_t row_num_count, bool is_visited = false)
+            : row_num(row_num_count), block_index(block_index), visited(is_visited) {}
 };
 
 /// Single linked list of references to rows. Used for ALL JOINs (non-unique JOINs)
@@ -115,7 +117,7 @@ struct RowRefList : RowRef {
     };
 
     RowRefList() {}
-    RowRefList(const Block* block_, size_t row_num_) : RowRef(block_, row_num_) {}
+    RowRefList(uint8_t block_index, size_t row_num_) : RowRef(block_index, row_num_) {}
 
     ForwardIterator begin() { return ForwardIterator(this); }
     ForwardIterator end() { return ForwardIterator::end(); }

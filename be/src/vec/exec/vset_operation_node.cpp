@@ -54,7 +54,7 @@ struct HashTableBuild {
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
-                new (&emplace_result.get_mapped()) Mapped({&_acquired_block, k});
+                new (&emplace_result.get_mapped()) Mapped({0, k});
                 _operation_node->_valid_element_in_hash_tbl++;
             }
         }
@@ -138,6 +138,7 @@ Status VSetOperationNode::prepare(RuntimeState* state) {
         _left_table_data_types.push_back(ctx->root()->data_type());
     }
     hash_table_init();
+
     return Status::OK();
 }
 
@@ -225,6 +226,10 @@ void VSetOperationNode::hash_table_init() {
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
+    MutableColumns columns(_left_table_data_types.size());
+    for (int i = 0; i < _left_table_data_types.size(); i++) {
+        columns[i] = _left_table_data_types[i]->create_column();
+    }
     bool eos = false;
     while (!eos) {
         block.clear();
@@ -237,9 +242,22 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         _mem_used += allocated_bytes;
 
         RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while getting next from the child 0.");
-        RETURN_IF_ERROR(process_build_block(block));
-        RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
+        if (block.rows() != 0) {
+            int i = 0;
+            for (const auto &data : block) {
+                const auto & column = *data.column.get();
+                columns[i].get()->insert_range_from(column, 0, block.rows());
+                i++;
+            }
+        }
     }
+
+    for (int i = 0; i < _left_table_data_types.size(); ++i) {
+        _build_block.insert({std::move(columns[i]),_left_table_data_types[i], ""});
+    }
+
+    RETURN_IF_ERROR(process_build_block(_build_block));
+    RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
     return Status::OK();
 }
 
@@ -249,16 +267,15 @@ Status VSetOperationNode::process_build_block(Block& block) {
         return Status::OK();
     }
 
-    auto& acquired_block = _acquire_list.acquire(std::move(block));
-    vectorized::materialize_block_inplace(acquired_block);
+    vectorized::materialize_block_inplace(block);
     ColumnRawPtrs raw_ptrs(_child_expr_lists[0].size());
-    RETURN_IF_ERROR(extract_build_column(acquired_block, raw_ptrs));
+    RETURN_IF_ERROR(extract_build_column(block, raw_ptrs));
 
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableBuild<HashTableCtxType> hash_table_build_process(rows, acquired_block,
+                    HashTableBuild<HashTableCtxType> hash_table_build_process(rows, block,
                                                                               raw_ptrs, this);
                     hash_table_build_process(arg);
                 } else {

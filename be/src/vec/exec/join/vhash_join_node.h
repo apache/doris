@@ -203,6 +203,7 @@ private:
     HashTableVariants _hash_table_variants;
     AcquireList<Block> _acquire_list;
 
+    std::vector<Block> _build_block;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
@@ -229,7 +230,7 @@ private:
 
 private:
     Status _hash_table_build(RuntimeState* state);
-    Status _process_build_block(RuntimeState* state, Block& block);
+    Status _process_build_block(RuntimeState* state, Block& block, uint8_t blk_ind);
 
     Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
                                      bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);
