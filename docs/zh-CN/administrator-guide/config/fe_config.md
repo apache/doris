@@ -2116,7 +2116,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### repair_slow_replica
 
-默认值：true
+默认值：false
 
 是否可以动态配置：true
 
