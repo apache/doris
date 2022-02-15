@@ -171,6 +171,19 @@ public:
     /// All data will be inserted as single element
     virtual void insert_data(const char* pos, size_t length) = 0;
 
+    virtual void insert_many_fix_len_data(const char* pos, size_t num) {
+      LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
+    }
+ 
+    virtual void insert_many_dict_data(const int32_t* data_array, size_t start_index, const uint32_t* start_offset_array, 
+        const uint32_t* len_array, char* dict_data, size_t num) {
+      LOG(FATAL) << "Method insert_many_dict_data is not supported for " << get_name();
+    }
+ 
+    virtual void insert_many_binary_data(size_t num, char* data_array, uint32_t* len_array, uint32_t* start_offset_array) {
+      LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+    }
+
     /// Appends "default value".
     /// Is used when there are need to increase column size, but inserting value doesn't make sense.
     /// For example, ColumnNullable(Nested) absolutely ignores values of nested column if it is marked as NULL.
@@ -221,8 +234,13 @@ public:
 
     /**
      *  used by lazy materialization to filter column by selected rowids
+     *  Q: Why use IColumn* as args type instead of MutablePtr or ImmutablePtr ?
+     *  A: If use MutablePtr/ImmutablePtr as col_ptr's type, which means there could be many 
+     *  convert(convert MutablePtr to ImmutablePtr or convert ImmutablePtr to MutablePtr)
+     *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
+     *  So using raw ptr directly here.
      */
-    virtual Ptr filter_by_selector(const uint16_t* sel, size_t sel_size, Ptr* ptr = nullptr) {
+    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
         LOG(FATAL) << "column not support filter_by_selector";
         __builtin_unreachable();
     };

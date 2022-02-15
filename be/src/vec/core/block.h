@@ -96,6 +96,22 @@ public:
     ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
 
+    Status copy_column_data_to_block(bool is_block_mem_reuse, doris::vectorized::IColumn* input_col_ptr, 
+        uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid, size_t batch_size) {
+        if (is_block_mem_reuse) {
+            auto* raw_res_ptr = this->get_by_position(block_cid).column.get();
+            const_cast<doris::vectorized::IColumn*>(raw_res_ptr)->reserve(batch_size);
+            return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, const_cast<doris::vectorized::IColumn*>(raw_res_ptr));
+        } else {
+            MutableColumnPtr res_col_ptr = data[block_cid].type->create_column();
+            res_col_ptr->reserve(batch_size);
+            auto* raw_res_ptr = res_col_ptr.get();
+            RETURN_IF_ERROR(input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, const_cast<doris::vectorized::IColumn*>(raw_res_ptr)));
+            this->replace_by_position(block_cid, std::move(res_col_ptr));
+            return Status::OK();
+        }
+    }
+
     void replace_by_position(size_t position, ColumnPtr&& res) {
         this->get_by_position(position).column = std::move(res);
     }

@@ -28,6 +28,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
+#include "olap/decimal12.h"
 
 namespace doris::vectorized {
 
@@ -103,6 +104,16 @@ public:
         data.reserve(size() + (indices_end - indices_begin));
         for (auto x = indices_begin; x != indices_end; ++x) {
             data.push_back_without_reserve(src_vec.get_element(*x));
+        }
+    }
+
+    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
+            int64_t int_value = *(int64_t*)(cur_ptr);
+            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
+            DecimalV2Value decimal_val(int_value, frac_value);
+            this->insert_data(reinterpret_cast<char*>(&decimal_val), 0);
         }
     }
 

@@ -91,6 +91,22 @@ public:
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
+    void insert_many_fix_len_data(const char* pos, size_t num) override {
+        get_null_map_column().batch_set_null_bitmap(0, num);
+        get_nested_column().insert_many_fix_len_data(pos, num);
+    }
+ 
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const uint32_t* start_offset_array, 
+        const uint32_t* len_array, char* dict_data, size_t num) override {
+        get_null_map_column().batch_set_null_bitmap(0, num);
+        get_nested_column().insert_many_dict_data(data_array, start_index, start_offset_array, len_array, dict_data, num);
+    }
+ 
+    void insert_many_binary_data(size_t num, char* data_array, uint32_t* len_array, uint32_t* start_offset_array) override {
+        get_null_map_column().batch_set_null_bitmap(0, num);
+        get_nested_column().insert_many_binary_data(num, data_array, len_array, start_offset_array);
+    }
+
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
@@ -103,13 +119,12 @@ public:
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
-        get_null_map_column().insert_elements(1, num);
+        get_null_map_column().batch_set_null_bitmap(1, num);
     }
 
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
-    ColumnPtr filter_by_selector(const uint16_t* sel, size_t sel_size,
-                                 ColumnPtr* ptr = nullptr) override;
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
