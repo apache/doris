@@ -713,7 +713,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         }
 
         DorisMetrics::instance()->publish_task_request_total->increment(1);
-        LOG(INFO) << "get publish version task, signature:" << agent_task_req.signature;
+        VLOG_NOTICE << "get publish version task, signature:" << agent_task_req.signature;
 
         Status st;
         std::vector<TTabletId> error_tablet_ids;

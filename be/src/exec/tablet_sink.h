@@ -309,12 +309,17 @@ private:
     int64_t _index_id;
     int32_t _schema_hash;
 
+    // from backend channel to tablet_id
+    // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
+    // Because the destruct order of objects is opposite to the creation order.
+    // So NodeChannel will be destructured first.
+    // And the destructor function of NodeChannel waits for all RPCs to finish.
+    // This ensures that it is safe to use `_tablets_by_channel` in the callback function for the end of the RPC.
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
     // BeId -> channel
     std::unordered_map<int64_t, std::shared_ptr<NodeChannel>> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<std::shared_ptr<NodeChannel>>> _channels_by_tablet;
-    // from backend channel to tablet_id
-    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
 
     // lock to protect _failed_channels and _failed_channels_msgs
     mutable SpinLock _fail_lock;

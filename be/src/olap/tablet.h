@@ -242,8 +242,9 @@ public:
 
     double calculate_scan_frequency();
 
-    int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                     TabletSharedPtr tablet);
+    Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
+                                                    TabletSharedPtr tablet,
+                                                    int64_t* permits);
     void execute_compaction(CompactionType compaction_type);
     void reset_compaction(CompactionType compaction_type);
 

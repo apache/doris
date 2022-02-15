@@ -1165,7 +1165,7 @@ bool Tablet::do_tablet_meta_checkpoint() {
                   << ", tablet=" << full_name();
         return false;
     }
-    LOG(INFO) << "start to do tablet meta checkpoint, tablet=" << full_name();
+    VLOG_NOTICE << "start to do tablet meta checkpoint, tablet=" << full_name();
     save_meta();
     // if save meta successfully, then should remove the rowset meta existing in tablet
     // meta from rowset meta store
@@ -1177,9 +1177,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(),
                                                  rs_meta->rowset_id())) {
             RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id());
-            LOG(INFO) << "remove rowset id from meta store because it is already persistent with "
-                         "tablet meta"
-                      << ", rowset_id=" << rs_meta->rowset_id();
+            VLOG_NOTICE << "remove rowset id from meta store because it is already persistent with "
+                        << "tablet meta, rowset_id=" << rs_meta->rowset_id();
         }
         rs_meta->set_remove_from_rowset_meta();
     }
@@ -1193,9 +1192,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(),
                                                  rs_meta->rowset_id())) {
             RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id());
-            LOG(INFO) << "remove rowset id from meta store because it is already persistent with "
-                         "tablet meta"
-                      << ", rowset_id=" << rs_meta->rowset_id();
+            VLOG_NOTICE << "remove rowset id from meta store because it is already persistent with "
+                        << "tablet meta, rowset_id=" << rs_meta->rowset_id();
         }
         rs_meta->set_remove_from_rowset_meta();
     }
@@ -1305,8 +1303,9 @@ double Tablet::calculate_scan_frequency() {
     return scan_frequency;
 }
 
-int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                         TabletSharedPtr tablet) {
+Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
+                                                        TabletSharedPtr tablet,
+                                                        int64_t* permits) {
     std::vector<RowsetSharedPtr> compaction_rowsets;
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         scoped_refptr<Trace> trace(new Trace);
@@ -1324,7 +1323,12 @@ int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compacti
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         OLAPStatus res = _cumulative_compaction->prepare_compact();
         if (res != OLAP_SUCCESS) {
-            return 0;
+            set_last_cumu_compaction_failure_time(UnixMillis());
+            if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
+                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+            }
+            *permits = 0;
+            return Status::InternalError(fmt::format("prepare compaction with err: {}", res));
         }
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
     } else {
@@ -1347,18 +1351,17 @@ int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compacti
             set_last_base_compaction_failure_time(UnixMillis());
             if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to pick rowsets for base compaction. res=" << res
-                             << ", tablet=" << full_name();
             }
-            return 0;
+            *permits = 0;
+            return Status::InternalError(fmt::format("prepare compaction with err: {}", res));
         }
         compaction_rowsets = _base_compaction->get_input_rowsets();
     }
-    int64_t permits = 0;
+    *permits = 0;
     for (auto rowset : compaction_rowsets) {
-        permits += rowset->rowset_meta()->get_compaction_score();
+        *permits += rowset->rowset_meta()->get_compaction_score();
     }
-    return permits;
+    return Status::OK();
 }
 
 void Tablet::execute_compaction(CompactionType compaction_type) {

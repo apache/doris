@@ -41,6 +41,8 @@ public:
 
     void release(int64_t permits);
 
+    int64_t usage() const { return _used_permits; }
+
 private:
     // sum of "permits" held by executing compaction tasks currently
     AtomicInt64 _used_permits;

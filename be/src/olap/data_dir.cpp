@@ -527,14 +527,16 @@ OLAPStatus DataDir::load() {
     // 1. add committed rowset to txn map
     // 2. add visible rowset to tablet
     // ignore any errors when load tablet or rowset, because fe will repair them after report
+    int64_t tablet_not_found = 0;
     for (auto rowset_meta : dir_rowset_metas) {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id(),
                                                              rowset_meta->tablet_schema_hash());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet == nullptr) {
-            LOG(WARNING) << "could not find tablet id: " << rowset_meta->tablet_id()
-                         << ", schema hash: " << rowset_meta->tablet_schema_hash()
-                         << ", for rowset: " << rowset_meta->rowset_id() << ", skip this rowset";
+            VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
+                        << ", schema hash: " << rowset_meta->tablet_schema_hash()
+                        << ", for rowset: " << rowset_meta->rowset_id() << ", skip this rowset";
+            ++tablet_not_found;
             continue;
         }
         RowsetSharedPtr rowset;
@@ -584,6 +586,8 @@ OLAPStatus DataDir::load() {
                          << " current valid tablet uid: " << tablet->tablet_uid();
         }
     }
+    LOG(INFO) << "finish to load tablets from " << _path_desc.filepath << ", total rowset meta: "
+              << dir_rowset_metas.size() << ", tablet not found: " << tablet_not_found;
     return OLAP_SUCCESS;
 }
 
