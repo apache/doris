@@ -67,6 +67,7 @@ void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
+void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -183,6 +184,7 @@ public:
             register_function_random(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
+            register_function_datetime_floor_ceil(instance);
         });
         return instance;
     }
