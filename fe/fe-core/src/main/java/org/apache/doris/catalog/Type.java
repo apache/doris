@@ -46,9 +46,10 @@ import java.util.List;
 public abstract class Type {
     private static final Logger LOG = LogManager.getLogger(Type.class);
 
-    // Maximum nesting depth of a type. This limit was determined experimentally byorg.apache.doris.rewrite.FoldConstantsRule.apply
-    // generating and scanning deeply nested Parquet and Avro files. In those experiments,
-    // we exceeded the stack space in the scanner (which uses recursion for dealing with
+    // Maximum nesting depth of a type. This limit was determined experimentally by
+    // org.apache.doris.rewrite.FoldConstantsRule.apply generating and scanning
+    // deeply nested Parquet and Avro files. In those experiments, we exceeded
+    // the stack space in the scanner (which uses recursion for dealing with
     // nested types) at a nesting depth between 200 and 300 (200 worked, 300 crashed).
     public static int MAX_NESTING_DEPTH = 2;
 
@@ -469,20 +470,13 @@ public abstract class Type {
                 }
             }
         } else if (isArrayType()) {
-            ArrayType arrayType = (ArrayType) this;
-            if (arrayType.getItemType().exceedsMaxNestingDepth(d + 1)) {
-                return true;
-            }
+            return false;
         } else if (isMultiRowType()) {
             MultiRowType multiRowType = (MultiRowType) this;
-            if (multiRowType.getItemType().exceedsMaxNestingDepth(d + 1)) {
-                return true;
-            }
+            return multiRowType.getItemType().exceedsMaxNestingDepth(d + 1);
         } else if (isMapType()) {
             MapType mapType = (MapType) this;
-            if (mapType.getValueType().exceedsMaxNestingDepth(d + 1)) {
-                return true;
-            }
+            return mapType.getValueType().exceedsMaxNestingDepth(d + 1);
         } else {
             Preconditions.checkState(isScalarType());
         }
