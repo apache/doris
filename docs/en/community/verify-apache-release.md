@@ -30,7 +30,7 @@ To verify the release, following checklist can used to reference:
 
 1. [ ] Download links are valid.
 2. [ ] Checksums and PGP signatures are valid.
-3. [ ] DISCLAIMER-WIP is included.
+3. [ ] DISCLAIMER or DISCLAIMER-WIP is included.
 4. [ ] Source code artifacts have correct names matching the current release.
 5. [ ] LICENSE and NOTICE files are correct for the repository.
 6. [ ] All files have license headers if necessary.
@@ -55,6 +55,8 @@ wget https://www.apache.org/dist/incubator/doris/KEYS
 
 GnuPG is recommended, which can install by yum install gnupg or apt-get install gnupg.
 
+Here we use Doris main code release as an example. Other releases are similar.
+
 ``` shell
 gpg --import KEYS
 gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-incubating-src.tar.gz
@@ -63,20 +65,28 @@ sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
 ## 3. Verify license header
 
-Apache RAT is recommended to verify license header, which can download as following command.
+Here we use [apache/skywalking-eyes](https://github.com/apache/skywalking-eyes) for source license header validation.
 
-``` shell
-wget http://mirrors.tuna.tsinghua.edu.cn/apache/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz
-tar zxvf apache-rat-0.13-bin.tar.gz
+Go to the source directory and execute the following command (requires a Docker environment).
+
+```
+docker run -it --rm -v $(pwd):/github/workspace apache/skywalking-eyes header check
 ```
 
-Given your source dir is apache-doris-a.b.c-incubating-src, you can check with following command.
-It will output a file list which don't include ASF license header, and these files used other licenses.
+The output is similar to the following:
 
-``` shell
-/usr/java/jdk/bin/java  -jar apache-rat-0.13/apache-rat-0.13.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excludes 
 ```
+INFO GITHUB_TOKEN is not set, license-eye won't comment on the pull request
+INFO Loading configuration from file: .licenserc.yaml
+INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 0
+```
+
+where an invalid of 0 means the check passed.
+
+> Some non-Apache License header files are documented in `.licenserc.yaml`.
 
 ## 4. Verify building
 
-To compile the Doris, please read [Compilation](../installing/compilation.html)
+* For Doris main code compilation, see [compilation documentation](../installing/compilation.html)
+* Flink Doris Connector compilation, see [compilation documentation](../extending-doris/flink-doris-connector.md)
+* Spark Doris Connector compilation, see [compilation documentation](../extending-doris/spark-doris-connector.md)
