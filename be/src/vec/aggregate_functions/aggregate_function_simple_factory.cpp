@@ -23,7 +23,9 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 
 namespace doris::vectorized {
+
 class AggregateFunctionSimpleFactory;
+
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_null(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
@@ -37,6 +39,8 @@ void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& fac
 void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_stddev_variance(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory);
+
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
     static AggregateFunctionSimpleFactory instance;
@@ -53,6 +57,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_window_rank(instance);
         register_aggregate_function_stddev_variance(instance);
         register_aggregate_function_topn(instance);
+        register_aggregate_function_approx_count_distinct(instance);
 
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);
