@@ -24,6 +24,7 @@
 #include <unordered_map>
 
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_group_concat.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type_date_time.h"
@@ -51,6 +52,10 @@ struct AggregateFunctionTopNData {
     }
 
     void merge(const AggregateFunctionTopNData& rhs) {
+        if (!rhs.top_num) {
+            return;
+        }
+
         top_num = rhs.top_num;
         capacity = rhs.capacity;
 
@@ -149,8 +154,8 @@ struct AggregateFunctionTopNData {
 
     void reset() { counter_map.clear(); }
 
-    int top_num;
-    uint64_t capacity;
+    int top_num = 0;
+    uint64_t capacity = 0;
     phmap::flat_hash_map<std::string, uint64_t> counter_map;
 };
 
@@ -160,6 +165,14 @@ struct StringDataImplTopN {
         StringRef ref =
                 static_cast<const typename DataType::ColumnType&>(column).get_data_at(row_num);
         return std::string(ref.data, ref.size);
+    }
+};
+
+struct AggregateFunctionTopNImplEmpty {
+    // only used at AGGREGATE (merge finalize)
+    static void add(AggregateFunctionTopNData& __restrict place, const IColumn** columns,
+                    size_t row_num) {
+        LOG(FATAL) << "AggregateFunctionTopNImplEmpty do not support add()";
     }
 };
 
@@ -182,26 +195,19 @@ struct AggregateFunctionTopNImplIntInt {
     }
 };
 
-struct AggregateFunctionTopNImplMerge {
-    // only used at AGGREGATE (merge finalize)
-    static void add(AggregateFunctionTopNData& __restrict place, const IColumn** columns,
-                    size_t row_num) {
-        LOG(FATAL) << "AggregateFunctionTopNImplMerge do not support add()";
-    }
-};
-
 //base function
-template <typename Data, typename Impl>
+template <typename Impl>
 class AggregateFunctionTopN final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionTopN<Data, Impl>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionTopNData,
+                                              AggregateFunctionTopN<Impl>> {
 public:
     AggregateFunctionTopN(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionTopN<Data, Impl>>(argument_types_,
-                                                                                    {}) {}
+            : IAggregateFunctionDataHelper<AggregateFunctionTopNData, AggregateFunctionTopN<Impl>>(
+                      argument_types_, {}) {}
 
     String get_name() const override { return "topn"; }
 
-    DataTypePtr get_return_type() const override { return {std::make_shared<DataTypeString>()}; }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
