@@ -92,8 +92,10 @@ public class TypeDef implements ParseNode {
         throw new AnalysisException("Unsupported data type: " + type.toSql());
       }
       if (type.isArrayType()) {
-        ScalarType itemType = (ScalarType) ((ArrayType) type).getItemType();
-        analyzeNestedType(itemType);
+        Type itemType = ((ArrayType) type).getItemType();
+        if (itemType instanceof ScalarType) {
+          analyzeNestedType((ScalarType) itemType);
+        }
       }
       if (type.isMapType()) {
         ScalarType keyType = (ScalarType) ((MapType) type).getKeyType();
@@ -114,6 +116,10 @@ public class TypeDef implements ParseNode {
   private void analyzeNestedType(ScalarType type) throws AnalysisException {
     if (type.isNull()) {
       throw new AnalysisException("Unsupported data type: " + type.toSql());
+    }
+    if (!type.getPrimitiveType().isIntegerType() &&
+            !type.getPrimitiveType().isCharFamily()) {
+      throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
     }
     if (type.getPrimitiveType().isStringType()
             && !type.isAssignedStrLenInColDefinition()) {

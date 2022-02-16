@@ -124,7 +124,7 @@ public:
         _remain_element_capacity = block_size / SIZE_OF_TYPE;
     }
 
-    size_t count() const { return _count; }
+    size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
