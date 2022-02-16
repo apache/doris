@@ -76,7 +76,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
                 agent.setStatus(AgentStatus.STOP);
                 agentRepository.save(agent);
                 agentCache.putAgent(agent);
-                log.warn("agent {} is unhealthily", agent.getHost());
+                log.warn("agent {} is unhealthy", agent.getHost());
             }
         }
     }
