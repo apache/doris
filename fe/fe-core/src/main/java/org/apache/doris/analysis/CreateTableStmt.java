@@ -17,8 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
@@ -35,12 +38,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -372,11 +369,6 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isArrayType()) {
-                ArrayType tp = (ArrayType) columnDef.getType();
-                if (!tp.getItemType().getPrimitiveType().isIntegerType() &&
-                        !tp.getItemType().getPrimitiveType().isCharFamily()) {
-                    throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
-                }
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
                     throw new AnalysisException("Array column can't support aggregation " + columnDef.getAggregateType());
                 }
