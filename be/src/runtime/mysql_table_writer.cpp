@@ -28,10 +28,10 @@
 #include "util/types.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
+#include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/core/materialize_block.h"
 
 namespace doris {
 
@@ -44,10 +44,10 @@ std::string MysqlConnInfo::debug_string() const {
 }
 
 MysqlTableWriter::MysqlTableWriter(const std::vector<ExprContext*>& output_expr_ctxs)
-        : _output_expr_ctxs(output_expr_ctxs), _vec_output_expr_ctxs {} {}
+        : _output_expr_ctxs(&output_expr_ctxs), _vec_output_expr_ctxs(nullptr) {}
 
 MysqlTableWriter::MysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_expr_ctxs)
-        : _output_expr_ctxs {}, _vec_output_expr_ctxs(output_expr_ctxs) {}
+        : _output_expr_ctxs(nullptr), _vec_output_expr_ctxs(&output_expr_ctxs) {}
 
 MysqlTableWriter::~MysqlTableWriter() {
     if (_mysql_conn) {
@@ -88,17 +88,17 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
 
     // Construct Insert statement of mysql
     ss << "INSERT INTO `" << _mysql_tbl << "` VALUES (";
-    int num_columns = _output_expr_ctxs.size();
+    int num_columns = _output_expr_ctxs->size();
     for (int i = 0; i < num_columns; ++i) {
         if (i != 0) {
             ss << ", ";
         }
-        void* item = _output_expr_ctxs[i]->get_value(row);
+        void* item = (*_output_expr_ctxs)[i]->get_value(row);
         if (item == nullptr) {
             ss << "NULL";
             continue;
         }
-        switch (_output_expr_ctxs[i]->root()->type().type) {
+        switch ((*_output_expr_ctxs)[i]->root()->type().type) {
         case TYPE_BOOLEAN:
         case TYPE_TINYINT:
             ss << (int)*static_cast<int8_t*>(item);
@@ -149,7 +149,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         case TYPE_DECIMALV2: {
             const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
             std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+            int output_scale = (*_output_expr_ctxs)[i]->root()->output_scale();
             decimal_str = decimal_val.to_string(output_scale);
             ss << decimal_str;
             break;
@@ -158,7 +158,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         default: {
             std::stringstream err_ss;
             err_ss << "can't convert this type to mysql type. type = "
-                   << _output_expr_ctxs[i]->root()->type();
+                   << (*_output_expr_ctxs)[i]->root()->type();
             return Status::InternalError(err_ss.str());
         }
         }
@@ -198,7 +198,7 @@ Status MysqlTableWriter::append(vectorized::Block* block) {
     }
 
     auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, *block, status);
+            *_vec_output_expr_ctxs, *block, status);
 
     auto num_rows = output_block.rows();
     if (UNLIKELY(num_rows == 0)) {
@@ -214,7 +214,7 @@ Status MysqlTableWriter::append(vectorized::Block* block) {
 Status MysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
     _insert_stmt_buffer.clear();
     fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _mysql_tbl);
-    int num_columns = _vec_output_expr_ctxs.size();
+    int num_columns = _vec_output_expr_ctxs->size();
 
     for (int i = 0; i < num_columns; ++i) {
         auto& column_ptr = block.get_by_position(i).column;
@@ -236,7 +236,7 @@ Status MysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             column = column_ptr;
         }
 
-        switch (_vec_output_expr_ctxs[i]->root()->result_type()) {
+        switch ((*_vec_output_expr_ctxs)[i]->root()->result_type()) {
         case TYPE_BOOLEAN: {
             auto& data = assert_cast<const vectorized::ColumnUInt8&>(*column).get_data();
             fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
@@ -309,7 +309,7 @@ Status MysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
         default: {
             fmt::memory_buffer err_out;
             fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
-                           _vec_output_expr_ctxs[i]->root()->type().type);
+                           (*_vec_output_expr_ctxs)[i]->root()->type().type);
             return Status::InternalError(err_out.data());
         }
         }

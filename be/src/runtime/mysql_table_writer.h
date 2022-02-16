@@ -19,6 +19,7 @@
 #define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
 
 #include <fmt/format.h>
+
 #include <string>
 #include <vector>
 
@@ -45,7 +46,7 @@ class ExprContext;
 namespace vectorized {
 class VExprContext;
 class Block;
-}
+} // namespace vectorized
 
 class MysqlTableWriter {
 public:
@@ -69,10 +70,10 @@ public:
 private:
     Status insert_row(TupleRow* row);
 
-    const std::vector<ExprContext*>& _output_expr_ctxs;
+    const std::vector<ExprContext*>* _output_expr_ctxs;
     //vectorized mode insert_row
     Status insert_row(vectorized::Block& block, size_t row);
-    const std::vector<vectorized::VExprContext*>& _vec_output_expr_ctxs;
+    const std::vector<vectorized::VExprContext*>* _vec_output_expr_ctxs;
     fmt::memory_buffer _insert_stmt_buffer;
     std::string _mysql_tbl;
     __DorisMysql* _mysql_conn;
