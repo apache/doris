@@ -184,7 +184,7 @@ struct HashTableProbe {
 
     void add_result_columns(RowRefList& value, int& block_size) {
         for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
-            auto& column = *value.begin()->block->get_by_position(idx->first).column;
+            auto& column = *value.begin()->block()->get_by_position(idx->first).column;
             _mutable_cols[idx->second]->insert_from(column, value.begin()->row_num);
         }
         block_size++;

@@ -22,19 +22,42 @@
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
+
 /// Reference to the row in block.
 struct RowRef {
     using SizeT = uint32_t; /// Do not use size_t cause of memory economy
 
-    const Block* block = nullptr;
-    SizeT row_num = 0;
-    // Use in right join to mark row is visited
-    // TODO: opt the varaible to use it only need
-    bool visited = false;
+    // using union to represent two cases
+    // 1. when RowRefList containing only one RowRef, visited + blockptr are valid
+    // 2. when RowRefList contaning multi RowRef, it's used through next pointer
+    union { 
+        struct {
+            uint64_t visited : 1;
+            uint64_t blockptr : 63;
+        };
 
-    RowRef() {}
-    RowRef(const Block* block_ptr, size_t row_num_count, bool is_visited = false)
-            : block(block_ptr), row_num(row_num_count), visited(is_visited) {}
+        void* next; // save RowRefList::Batch* actually
+    };
+
+    uint32_t row_num = 0;
+
+    Block* block() const {
+        return (Block*)((uint64_t)blockptr << 1);
+    }
+
+    void block(Block* ptr) {
+        DCHECK(((uint64_t)ptr & 0x0000000000000001) == 0); //the lowest bit must be 0, Arena.alloc() promised
+        blockptr = ((uint64_t)ptr >> 1);
+    }
+
+    RowRef() {
+        static_assert(sizeof(void*) == sizeof(uint64_t));
+    }
+
+    RowRef(const Block* ptr, size_t row_num, bool visited = false)
+        : visited(visited), row_num(row_num) {
+        block((Block*)ptr);
+    }
 };
 
 /// Single linked list of references to rows. Used for ALL JOINs (non-unique JOINs)
@@ -43,9 +66,9 @@ struct RowRefList : RowRef {
     struct Batch {
         static constexpr size_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
 
-        SizeT size = 0; /// It's smaller than size_t but keeps align in Arena.
         Batch* next;
         RowRef row_refs[MAX_SIZE];
+        SizeT size = 0; /// It's smaller than size_t but keeps align in Arena.
 
         Batch(Batch* parent) : next(parent) {}
 
@@ -53,8 +76,7 @@ struct RowRefList : RowRef {
 
         Batch* insert(RowRef&& row_ref, Arena& pool) {
             if (full()) {
-                auto batch = pool.alloc<Batch>();
-                *batch = Batch(this);
+                auto batch = new (pool.alloc<Batch>()) Batch(this);
                 batch->insert(std::move(row_ref), pool);
                 return batch;
             }
@@ -66,32 +88,19 @@ struct RowRefList : RowRef {
 
     class ForwardIterator {
     public:
-        ForwardIterator(RowRefList* begin)
-                : root(begin), first(true), batch(root->next), position(0) {}
+        ForwardIterator(RowRefList* begin) : root(begin), batch((Batch*)root->next), row_count(root->row_count) {}
 
-        RowRef& operator*() {
-            if (first) return *root;
+        RowRef& operator*() { // the user is guaranteed to call ok() before calling this function
+            if (row_count == 1) return *root;
             return batch->row_refs[position];
         }
+
         RowRef* operator->() { return &(**this); }
 
-        bool operator==(const ForwardIterator& rhs) const {
-            if (ok() != rhs.ok()) {
-                return false;
-            }
-            if (first && rhs.first) {
-                return true;
-            }
-            return batch == rhs.batch && position == rhs.position;
-        }
-        bool operator!=(const ForwardIterator& rhs) const { return !(*this == rhs); }
+        bool operator==(const ForwardIterator& rhs) const = delete;
+        bool operator!=(const ForwardIterator& rhs) const = delete;
 
         void operator++() {
-            if (first) {
-                first = false;
-                return;
-            }
-
             if (batch) {
                 ++position;
                 if (position >= batch->size) {
@@ -99,19 +108,21 @@ struct RowRefList : RowRef {
                     position = 0;
                 }
             }
+            ++iterate_count;
         }
 
-        bool ok() const { return first || batch; }
+        bool ok() const { return iterate_count < row_count; }
 
         static ForwardIterator end() { return ForwardIterator(); }
 
     private:
-        RowRefList* root;
-        bool first;
-        Batch* batch;
-        size_t position;
+        RowRefList* root = nullptr;
+        Batch* batch = nullptr;
+        size_t position = 0;
+        size_t row_count = 0;
+        size_t iterate_count = 0;
 
-        ForwardIterator() : root(nullptr), first(false), batch(nullptr), position(0) {}
+        ForwardIterator() = default;
     };
 
     RowRefList() {}
@@ -122,19 +133,19 @@ struct RowRefList : RowRef {
 
     /// insert element after current one
     void insert(RowRef&& row_ref, Arena& pool) {
-        row_count++;
-
-        if (!next) {
-            next = pool.alloc<Batch>();
-            *next = Batch(nullptr);
+        if (row_count == 1) {
+            auto batch = new (pool.alloc<Batch>()) Batch(nullptr);
+            // copy the only RowRef to batch as the first element
+            batch->row_refs[batch->size++] = std::move(*this);
+            this->next = batch;
         }
-        next = next->insert(std::move(row_ref), pool);
+        next = ((Batch*)next)->insert(std::move(row_ref), pool);
+        row_count++;
     }
 
-    uint32_t get_row_count() { return row_count; }
+    uint32_t get_row_count() const { return row_count; }
 
 private:
-    Batch* next = nullptr;
     uint32_t row_count = 1;
 };
 

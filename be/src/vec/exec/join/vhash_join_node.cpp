@@ -251,7 +251,7 @@ struct ProcessHashTableProbe {
                                       JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
                             ++repeat_count;
                             for (size_t j = 0; j < _right_col_len; ++j) {
-                                auto& column = *mapped.block->get_by_position(j).column;
+                                auto& column = *mapped.block()->get_by_position(j).column;
                                 mcol[j + _right_col_idx]->insert_from(column, mapped.row_num);
                             }
                         }
@@ -263,7 +263,7 @@ struct ProcessHashTableProbe {
                                           JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
                                 ++repeat_count;
                                 for (size_t j = 0; j < _right_col_len; ++j) {
-                                    auto& column = *it->block->get_by_position(j).column;
+                                    auto& column = *it->block()->get_by_position(j).column;
                                     // TODO: interface insert from cause serious performance problems
                                     //  when column is nullable. Try to make more effective way
                                     mcol[j + _right_col_idx]->insert_from(column, it->row_num);
@@ -316,8 +316,11 @@ struct ProcessHashTableProbe {
 
         // use in right join to change visited state after
         // exec the vother join conjunt
-        std::vector<bool*> visited_map;
+        std::vector<void*> visited_map;
         visited_map.reserve(1.2 * _batch_size);
+
+#define visited_map_or(index, value)  do { if (value)  ((RowRef*)visited_map[index])->visited = 1; } while (0)
+#define visited_map_get(index) (((RowRef*)visited_map[index])->visited)
 
         std::vector<bool> same_to_prev;
         same_to_prev.reserve(1.2 * _batch_size);
@@ -344,11 +347,11 @@ struct ProcessHashTableProbe {
 
                 for (auto it = mapped.begin(); it.ok(); ++it) {
                     ++current_offset;
-                    for (size_t j = 0; j < _right_col_len; ++j) {
-                        auto& column = *it->block->get_by_position(j).column;
-                        mcol[j + _right_col_idx]->insert_from(column, it->row_num);
+                    for (size_t j = 0; j < right_col_len; ++j) {
+                        auto& column = *it->block()->get_by_position(j).column;
+                        mcol[j + right_col_idx]->insert_from(column, it->row_num);
                     }
-                    visited_map.emplace_back(&it->visited);
+                    visited_map.emplace_back(&(*it));
                 }
                 same_to_prev.emplace_back(false);
                 for (int i = 0; i < current_offset - origin_offset - 1; ++i) {
@@ -419,7 +422,7 @@ struct ProcessHashTableProbe {
                     }
 
                     if (join_hit) {
-                        *visited_map[i] |= other_hit;
+                        visited_map_or(i, other_hit);
                         filter_map.push_back(other_hit || !same_to_prev[i] ||
                                              (!column->get_bool(i - 1) && filter_map.back()));
                         // Here to keep only hit join conjunt and other join conjunt is true need to be output.
@@ -435,7 +438,7 @@ struct ProcessHashTableProbe {
             } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
                 for (int i = 0; i < column->size(); ++i) {
                     DCHECK(visited_map[i]);
-                    *visited_map[i] |= column->get_bool(i);
+                    visited_map_or(i, column->get_bool(i));
                 }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
                 auto new_filter_column = ColumnVector<UInt8>::create();
@@ -458,7 +461,9 @@ struct ProcessHashTableProbe {
                 auto new_filter_column = ColumnVector<UInt8>::create();
                 auto& filter_map = new_filter_column->get_data();
 
-                if (!column->empty()) filter_map.emplace_back(column->get_bool(0) && visited_map[0]);
+                if (!column->empty()) 
+                    filter_map.emplace_back(column->get_bool(0) && visited_map[0]);
+
                 for (int i = 1; i < column->size(); ++i) {
                     if ((visited_map[i] && column->get_bool(i)) || (same_to_prev[i] && filter_map[i - 1])) {
                         filter_map.push_back(true);
@@ -480,7 +485,7 @@ struct ProcessHashTableProbe {
                                  JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
                 for (int i = 0; i < column->size(); ++i) {
                     DCHECK(visited_map[i]);
-                    *visited_map[i] |= column->get_bool(i);
+                    visited_map_or(i, column->get_bool(i));
                 }
             } else {
                 // inner join do nothing
@@ -520,10 +525,10 @@ struct ProcessHashTableProbe {
             for (auto it = mapped.begin(); it.ok(); ++it) {
                 if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
                     if (it->visited)
-                        insert_from_hash_table(it->block, it->row_num);
+                        insert_from_hash_table(it->block(), it->row_num);
                 } else {
                     if (!it->visited)
-                        insert_from_hash_table(it->block, it->row_num);
+                        insert_from_hash_table(it->block(), it->row_num);
                 }
             }
         }
