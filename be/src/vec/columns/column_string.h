@@ -157,7 +157,7 @@ public:
         offsets.push_back(new_size);
     }
 
-    void insert_many_binary_data(size_t num, char* data_array, uint32_t* len_array, uint32_t* start_offset_array) override {
+    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
         for (size_t i = 0; i < num; i++) {
             uint32_t len = len_array[i];
             uint32_t start_offset = start_offset_array[i];

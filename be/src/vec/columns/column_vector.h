@@ -272,20 +272,11 @@ public:
 
     void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
 
-    void batch_set_null_bitmap(uint8_t val, size_t num) {
+    void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
         auto new_size = old_size + num;
         data.resize(new_size);
-        memset(&data[old_size], val, sizeof(value_type) * num);
-    }
-
-    void insert_elements(const value_type& element, size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        if constexpr (std::is_same_v<value_type, int8_t>) {
-            memset(&data[old_size], element, sizeof(value_type) * num);
-        } else if constexpr (std::is_same_v<value_type, uint8_t>) {
+        if constexpr (sizeof(value_type) == 1) {
             memset(&data[old_size], element, sizeof(value_type) * num);
         } else {
             for (size_t i = 0; i < num; ++i) {

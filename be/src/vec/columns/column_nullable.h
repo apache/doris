@@ -92,19 +92,19 @@ public:
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
     void insert_many_fix_len_data(const char* pos, size_t num) override {
-        get_null_map_column().batch_set_null_bitmap(0, num);
+        get_null_map_column().fill(0, num);
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
  
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const uint32_t* start_offset_array, 
         const uint32_t* len_array, char* dict_data, size_t num) override {
-        get_null_map_column().batch_set_null_bitmap(0, num);
+        get_null_map_column().fill(0, num);
         get_nested_column().insert_many_dict_data(data_array, start_index, start_offset_array, len_array, dict_data, num);
     }
  
-    void insert_many_binary_data(size_t num, char* data_array, uint32_t* len_array, uint32_t* start_offset_array) override {
-        get_null_map_column().batch_set_null_bitmap(0, num);
-        get_nested_column().insert_many_binary_data(num, data_array, len_array, start_offset_array);
+    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+        get_null_map_column().fill(0, num);
+        get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
     }
 
     void insert_default() override {
@@ -119,7 +119,7 @@ public:
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
-        get_null_map_column().batch_set_null_bitmap(1, num);
+        get_null_map_column().fill(1, num);
     }
 
     void pop_back(size_t n) override;

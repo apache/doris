@@ -939,7 +939,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _output_non_pred_columns(block, is_mem_reuse);
 
         // 4.2 output short circuit predicate column
-        return _output_column_by_sel_idx(block, _short_cir_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
+        RETURN_IF_ERROR(_output_column_by_sel_idx(block, _short_cir_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse));
         // 4.3 output vectorizatioin predicate column
         return _output_column_by_sel_idx(block, _vec_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
     }

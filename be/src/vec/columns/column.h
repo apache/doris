@@ -180,7 +180,7 @@ public:
       LOG(FATAL) << "Method insert_many_dict_data is not supported for " << get_name();
     }
  
-    virtual void insert_many_binary_data(size_t num, char* data_array, uint32_t* len_array, uint32_t* start_offset_array) {
+    virtual void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) {
       LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
 

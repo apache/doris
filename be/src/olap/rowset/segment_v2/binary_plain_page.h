@@ -238,7 +238,7 @@ public:
         }
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
-       uint32_t len_array[max_fetch];
+        uint32_t len_array[max_fetch];
         uint32_t start_offset_array[max_fetch];
         for (int i = 0; i < max_fetch; i++, _cur_idx++) {
             const uint32_t start_offset  = offset(_cur_idx);
@@ -246,7 +246,7 @@ public:
             len_array[i] = len;
             start_offset_array[i] = start_offset;
         }
-        dst->insert_many_binary_data(max_fetch, _data.mutable_data(), len_array, start_offset_array);
+        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array, max_fetch);
  
         *n = max_fetch;
         return Status::OK();

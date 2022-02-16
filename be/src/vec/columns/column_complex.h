@@ -61,7 +61,7 @@ public:
         data.push_back(*reinterpret_cast<const T*>(pos));
     }
 
-    void insert_many_binary_data(size_t num, char* data_array, uint32_t* len_array, uint32_t* start_offset_array) override {
+    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, BitmapValue>) {
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
