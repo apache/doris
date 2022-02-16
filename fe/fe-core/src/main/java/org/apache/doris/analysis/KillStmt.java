@@ -24,9 +24,9 @@ package org.apache.doris.analysis;
  */
 public class KillStmt extends StatementBase {
     private final boolean isConnectionKill;
-    private final long connectionId;
+    private final int connectionId;
 
-    public KillStmt(boolean isConnectionKill, long connectionId) {
+    public KillStmt(boolean isConnectionKill, int connectionId) {
         this.isConnectionKill = isConnectionKill;
         this.connectionId = connectionId;
     }
@@ -35,7 +35,7 @@ public class KillStmt extends StatementBase {
         return isConnectionKill;
     }
 
-    public long getConnectionId() {
+    public int getConnectionId() {
         return connectionId;
     }
 
