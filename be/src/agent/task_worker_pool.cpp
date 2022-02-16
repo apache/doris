@@ -252,7 +252,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
             _worker_thread_condition_variable.notify_one();
         }
         LOG(INFO) << "success to submit task. type=" << type_str << ", signature=" << signature
-                  << ", task_count_in_queue=" << task_count_in_queue;
+                  << ", queue size=" << task_count_in_queue;
     } else {
         LOG(INFO) << "fail to register task. type=" << type_str << ", signature=" << signature;
     }
@@ -280,8 +280,8 @@ void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t 
 
     std::string type_str;
     EnumToString(TTaskType, task_type, type_str);
-    LOG(INFO) << "remove task info. type=" << type_str << ", signature=" << signature
-              << ", queue_size=" << queue_size;
+    VLOG_NOTICE << "remove task info. type=" << type_str << ", signature=" << signature
+                << ", queue_size=" << queue_size;
     TRACE("remove task info");
 }
 

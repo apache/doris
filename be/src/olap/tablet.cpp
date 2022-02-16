@@ -530,11 +530,11 @@ void Tablet::delete_expired_stale_rowset() {
 
     bool reconstructed = _reconstruct_version_tracker_if_necessary();
 
-    LOG(INFO) << "delete stale rowset _stale_rs_version_map tablet=" << full_name()
-              << " current_size=" << _stale_rs_version_map.size() << " old_size=" << old_size
-              << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
-              << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
-              << expired_stale_sweep_endtime  << ", reconstructed=" << reconstructed;
+    VLOG_NOTICE << "delete stale rowset _stale_rs_version_map tablet=" << full_name()
+                << " current_size=" << _stale_rs_version_map.size() << " old_size=" << old_size
+                << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
+                << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
+                << expired_stale_sweep_endtime  << ", reconstructed=" << reconstructed;
 
 #ifndef BE_TEST
     save_meta();

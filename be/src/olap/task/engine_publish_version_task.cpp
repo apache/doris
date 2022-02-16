@@ -34,7 +34,7 @@ EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publi
 OLAPStatus EnginePublishVersionTask::finish() {
     OLAPStatus res = OLAP_SUCCESS;
     int64_t transaction_id = _publish_version_req.transaction_id;
-    LOG(INFO) << "begin to process publish version. transaction_id=" << transaction_id;
+    VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {

@@ -65,10 +65,14 @@ struct AddBatchCounter {
     int64_t add_batch_wait_execution_time_us = 0;
     // number of add_batch call
     int64_t add_batch_num = 0;
+    // time passed between marked close and finish close
+    int64_t close_wait_time_ms = 0;
+
     AddBatchCounter& operator+=(const AddBatchCounter& rhs) {
         add_batch_execution_time_us += rhs.add_batch_execution_time_us;
         add_batch_wait_execution_time_us += rhs.add_batch_wait_execution_time_us;
         add_batch_num += rhs.add_batch_num;
+        close_wait_time_ms += rhs.close_wait_time_ms;
         return *this;
     }
     friend AddBatchCounter operator+(const AddBatchCounter& lhs, const AddBatchCounter& rhs) {
@@ -186,6 +190,7 @@ public:
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
                      int64_t* total_add_batch_num) {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
+        (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
         *serialize_batch_ns += _serialize_batch_ns;
         *mem_exceeded_block_ns += _mem_exceeded_block_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
@@ -274,6 +279,9 @@ private:
     // the previous RPC to be fully completed before the next copy.
     std::string _tuple_data_buffer;
     std::string* _tuple_data_buffer_ptr = nullptr;
+
+    // the timestamp when this node channel be marked closed and finished closed
+    uint64_t _close_time_ms = 0;
 };
 
 class IndexChannel {
