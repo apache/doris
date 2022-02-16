@@ -131,6 +131,8 @@ public:
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
+    inline bool is_empty() const { return _num_rows == 0; }
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  FilePathDesc path_desc);
@@ -306,6 +308,17 @@ private:
 
     std::unique_ptr<uint32_t[]> _dict_start_offset_array;
     std::unique_ptr<uint32_t[]> _dict_len_array;
+};
+
+class EmptyFileColumnIterator final : public ColumnIterator {
+public:
+    Status seek_to_first() override { return Status::OK(); }
+    Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override {
+        *n = 0;
+        return Status::OK();
+    }
+    ordinal_t get_current_ordinal() const override { return 0; }
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
