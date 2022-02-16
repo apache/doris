@@ -171,6 +171,7 @@ public class TransactionState implements Writable {
 
     private long dbId;
     private List<Long> tableIdList;
+    private int replicaNum = 0;
     private long transactionId;
     private String label;
     // requestId is used to judge whether a begin request is a internal retry request.
@@ -491,6 +492,14 @@ public class TransactionState implements Writable {
 
     public List<Long> getTableIdList() {
         return tableIdList;
+    }
+
+    public int getReplicaNum() {
+        return replicaNum;
+    }
+
+    public void setReplicaNum(int replicaNum) {
+        this.replicaNum = replicaNum;
     }
 
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {
