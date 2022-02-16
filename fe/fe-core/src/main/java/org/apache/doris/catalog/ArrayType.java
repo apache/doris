@@ -83,9 +83,6 @@ public class ArrayType extends Type {
 
     @Override
     public String toSql(int depth) {
-        if (depth >= MAX_NESTING_DEPTH) {
-            return "ARRAY<...>";
-        }
         return String.format("ARRAY<%s>", itemType.toSql(depth + 1));
     }
 
@@ -125,11 +122,7 @@ public class ArrayType extends Type {
         if (!Config.enable_complex_type_support) {
             return false;
         }
-
-        if (itemType.isNull()) {
-            return false;
-        }
-        return true;
+        return !itemType.isNull();
     }
 
     @Override
