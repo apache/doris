@@ -248,6 +248,7 @@ void check_required_instructions()
         if (!std::apply(write_retry, instruction_fail_to_string(fail)))
             _Exit(1);
         WRITE_ERROR(" instruction set.\n");
+        WRITE_ERROR("For example, if your CPU does not support AVX2, you need to rebuild the Doris BE with: USE_AVX2=0 sh build.sh --be");
         _Exit(1);
     }
 
