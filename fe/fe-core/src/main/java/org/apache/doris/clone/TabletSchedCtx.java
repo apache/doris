@@ -89,10 +89,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private static final long MAX_NOT_BEING_SCHEDULED_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
 
     /*
-     *  A clone task timeout is between Config.min_clone_task_timeout_sec and Config.max_clone_task_timeout_sec,
-     *  estimated by tablet size / MIN_CLONE_SPEED_MB_PER_SECOND.
+     * A clone task timeout is between Config.min_clone_task_timeout_sec and Config.max_clone_task_timeout_sec,
+     * estimated by tablet size / MIN_CLONE_SPEED_MB_PER_SECOND.
+     * We set a relatively small default value, so that the calculated timeout will be larger
+     * to ensure that the clone task can be completed even in the case of poor network environment.
      */
-    private static final long MIN_CLONE_SPEED_MB_PER_SECOND = 5; // 5MB/sec
+    private static final long MIN_CLONE_SPEED_MB_PER_SECOND = 1; // 1MB/sec
 
     /*
      * If a clone task is failed to run more than RUNNING_FAILED_COUNTER_THRESHOLD, it will be removed

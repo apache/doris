@@ -97,10 +97,15 @@ public:
     }
 
     // used to get content length
-    int64_t get_content_length() const {
-        double cl = 0.0f;
-        curl_easy_getinfo(_curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &cl);
-        return cl;
+    // return -1 as error
+    Status get_content_length(uint64_t* length) const {
+        curl_off_t cl;
+        auto code = curl_easy_getinfo(_curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &cl);
+        if (!code) {
+            *length = cl;
+            return Status::OK();
+        }
+        return Status::InternalError(fmt::format("failed to get content length. err code: {}", code));
     }
 
     long get_http_status() const {
