@@ -24,7 +24,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.base.Preconditions;
@@ -116,11 +115,8 @@ public class Partition extends MetaObject implements Writable {
 
         this.visibleVersion = PARTITION_INIT_VERSION;
         this.visibleVersionTime = System.currentTimeMillis();
-        this.visibleVersionHash = PARTITION_INIT_VERSION_HASH;
         // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
         this.nextVersion = PARTITION_INIT_VERSION + 1;
-        this.nextVersionHash = Util.generateVersionHash();
-        this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
 
         this.distributionInfo = distributionInfo;
     }
@@ -166,16 +162,7 @@ public class Partition extends MetaObject implements Writable {
             // MetaContext is not null means we are in a edit log replay thread.
             // if it is upgrade from old palo cluster, then should update next version info
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
-                // the partition is created and not import any data
-                if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
-                    this.nextVersion = PARTITION_INIT_VERSION + 1;
-                    this.nextVersionHash = Util.generateVersionHash();
-                    this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
-                } else {
-                    this.nextVersion = visibleVersion + 1;
-                    this.nextVersionHash = Util.generateVersionHash();
-                    this.committedVersionHash = visibleVersionHash;
-                }
+                throw new RuntimeException("FeMetaVersion = " + Catalog.getCurrentCatalogJournalVersion() + " is too low, should not happen");
             }
         }
     }
@@ -409,16 +396,7 @@ public class Partition extends MetaObject implements Writable {
             nextVersionHash = in.readLong();
             committedVersionHash = in.readLong();
         } else {
-            // the partition is created and not import any data
-            if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
-                this.nextVersion = PARTITION_INIT_VERSION + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
-            } else {
-                this.nextVersion = visibleVersion + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = visibleVersionHash;
-            }
+            throw new IOException("FeMetaVersion = " + Catalog.getCurrentCatalogJournalVersion() + " is too old, should not happen");
         }
         DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
         if (distriType == DistributionInfoType.HASH) {

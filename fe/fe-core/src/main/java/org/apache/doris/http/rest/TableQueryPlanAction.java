@@ -252,7 +252,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, node.versionHash, node.schemaHash));
+            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0l /*versionHash*/, node.schemaHash));
         });
         tQueryPlanInfo.tablet_info = tablet_info;
 
@@ -296,12 +296,10 @@ public class TableQueryPlanAction extends RestBaseAction {
         // ["host1:port1", "host2:port2", "host3:port3"]
         public List<String> routings = new ArrayList<>();
         public long version;
-        public long versionHash;
         public int schemaHash;
 
-        public Node(long version, long versionHash, int schemaHash) {
+        public Node(long version, int schemaHash) {
             this.version = version;
-            this.versionHash = versionHash;
             this.schemaHash = schemaHash;
         }
 

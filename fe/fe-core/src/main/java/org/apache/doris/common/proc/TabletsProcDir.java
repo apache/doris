@@ -44,8 +44,7 @@ import java.util.List;
 public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
-            .add("VersionHash").add("LstSuccessVersion").add("LstSuccessVersionHash")
-            .add("LstFailedVersion").add("LstFailedVersionHash").add("LstFailedTime")
+            .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("DataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
             .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
@@ -104,17 +103,14 @@ public class TabletsProcDir implements ProcDirInterface {
                             continue;
                         }
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
-                        // tabletId -- replicaId -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
+                        // tabletId -- replicaId -- backendId -- version -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
                         tabletInfo.add(replica.getBackendId());
                         tabletInfo.add(replica.getSchemaHash());
                         tabletInfo.add(replica.getVersion());
-                        tabletInfo.add(replica.getVersionHash());
                         tabletInfo.add(replica.getLastSuccessVersion());
-                        tabletInfo.add(replica.getLastSuccessVersionHash());
                         tabletInfo.add(replica.getLastFailedVersion());
-                        tabletInfo.add(replica.getLastFailedVersionHash());
                         tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
                         tabletInfo.add(replica.getDataSize());
                         tabletInfo.add(replica.getRowCount());

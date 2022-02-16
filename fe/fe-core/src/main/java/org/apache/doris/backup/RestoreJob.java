@@ -924,9 +924,7 @@ public class RestoreJob extends AbstractJob {
         OlapTable localOlapTbl = (OlapTable) localTbl;
         genFileMapping(localOlapTbl, localPartition, tblInfo.id, backupPartInfo,
                 true /* overwrite when commit */);
-        restoredVersionInfo.put(localOlapTbl.getId(), localPartition.getId(),
-                Pair.create(backupPartInfo.version,
-                        backupPartInfo.versionHash));
+        restoredVersionInfo.put(localOlapTbl.getId(), localPartition.getId(), backupPartInfo.version);
         return false;
     }
 
@@ -945,7 +943,7 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),
-                            restoreReplica.getVersionHash(), indexMeta.getKeysType(), TStorageType.COLUMN,
+                            indexMeta.getKeysType(), TStorageType.COLUMN,
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
                             localTbl.getCopiedIndexes(),
@@ -990,7 +988,6 @@ public class RestoreJob extends AbstractJob {
 
         // save version info for creating replicas
         long visibleVersion = remotePart.getVisibleVersion();
-        long visibleVersionHash = remotePart.getVisibleVersionHash();
 
         // tablets
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1011,7 +1008,7 @@ public class RestoreJob extends AbstractJob {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = catalog.getNextId();
                             Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                    visibleVersion, visibleVersionHash, schemaHash);
+                                    visibleVersion, schemaHash);
                             newTablet.addReplica(newReplica, true /* is restore */);
                         }
                     }
@@ -1424,8 +1421,8 @@ public class RestoreJob extends AbstractJob {
                         }
                     }
 
-                    LOG.debug("restore set partition {} version in table {}, version: {}, version hash: {}",
-                            partId, tblId, entry.getValue().first, entry.getValue().second);
+                    LOG.debug("restore set partition {} version in table {}, version: {}",
+                            partId, tblId, entry.getValue());
                 }
             } finally {
                 tbl.writeUnlock();
@@ -1705,10 +1702,11 @@ public class RestoreJob extends AbstractJob {
         for (long tblId : restoredVersionInfo.rowKeySet()) {
             out.writeLong(tblId);
             out.writeInt(restoredVersionInfo.row(tblId).size());
-            for (Map.Entry<Long, Pair<Long, Long>> entry : restoredVersionInfo.row(tblId).entrySet()) {
+            for (Map.Entry<Long, Long> entry : restoredVersionInfo.row(tblId).entrySet()) {
                 out.writeLong(entry.getKey());
-                out.writeLong(entry.getValue().first);
-                out.writeLong(entry.getValue().second);
+                out.writeLong(entry.getValue());
+                // It is version hash in the past, but it useless but should compatible with old version so that write 0 here
+                out.writeLong(0l);
             }
         }
 
@@ -1782,8 +1780,9 @@ public class RestoreJob extends AbstractJob {
             for (int j = 0; j < innerSize; j++) {
                 long partId = in.readLong();
                 long version = in.readLong();
+                // Useless but read it to compatible with meta
                 long versionHash = in.readLong();
-                restoredVersionInfo.put(tblId, partId, Pair.create(version, versionHash));
+                restoredVersionInfo.put(tblId, partId, version);
             }
         }
 

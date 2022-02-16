@@ -44,12 +44,11 @@ public class PartitionCommitInfo implements Writable {
         
     }
 
-    public PartitionCommitInfo(long partitionId, long version, long versionHash, long visibleTime) {
+    public PartitionCommitInfo(long partitionId, long version, long visibleTime) {
         super();
         this.partitionId = partitionId;
         this.version = version;
         this.versionTime = visibleTime;
-        this.versionHash = versionHash;
     }
 
     @Override
@@ -62,8 +61,9 @@ public class PartitionCommitInfo implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_88) {
             long partitionId = in.readLong();
             long version = in.readLong();
+            // Useless, just read it for compatible
             long versionHash = in.readLong();
-            return new PartitionCommitInfo(partitionId, version, versionHash, System.currentTimeMillis());
+            return new PartitionCommitInfo(partitionId, version, System.currentTimeMillis());
         } else {
             String json = Text.readString(in);
             return GsonUtils.GSON.fromJson(json, PartitionCommitInfo.class);
@@ -80,10 +80,6 @@ public class PartitionCommitInfo implements Writable {
     
     public long getVersionTime() {
         return versionTime;
-    }
-
-    public long getVersionHash() {
-        return versionHash;
     }
 
     public void setVersion(long version) {
@@ -103,7 +99,6 @@ public class PartitionCommitInfo implements Writable {
         StringBuilder sb = new StringBuilder("partitionid=");
         sb.append(partitionId);
         sb.append(", version=").append(version);
-        sb.append(", versionHash=").append(versionHash);
         sb.append(", versionTime=").append(versionTime);
         return sb.toString();
     }

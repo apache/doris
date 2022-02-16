@@ -158,7 +158,6 @@ public class Replica implements Writable {
         }
         if (lastSuccessVersion < this.version) {
             this.lastSuccessVersion = this.version;
-            this.lastSuccessVersionHash = this.versionHash;
         } else {
             this.lastSuccessVersion = lastSuccessVersion;
         }
@@ -367,7 +366,7 @@ public class Replica implements Writable {
         }
     }
     
-    public synchronized void updateLastFailedVersion(long lastFailedVersion, long lastFailedVersionHash) {
+    public synchronized void updateLastFailedVersion(long lastFailedVersion) {
         updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, rowCount);
     }
 
@@ -380,8 +379,7 @@ public class Replica implements Writable {
      *      is already updated by load process, so we need to consider its version.
      */
     public boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter) {
-        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION
-                && versionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
             return true;
         }
         
@@ -422,8 +420,6 @@ public class Replica implements Writable {
         strBuffer.append(backendId);
         strBuffer.append(", version=");
         strBuffer.append(version);
-        strBuffer.append(", versionHash=");
-        strBuffer.append(versionHash);
         strBuffer.append(", dataSize=");
         strBuffer.append(dataSize);
         strBuffer.append(", rowCount=");

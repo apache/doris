@@ -3568,7 +3568,6 @@ public class Catalog {
             partition.updateVisibleVersionAndVersionHash(versionInfo.first, versionInfo.second);
         }
         long version = partition.getVisibleVersion();
-        long versionHash = partition.getVisibleVersionHash();
 
         short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -3579,7 +3578,7 @@ public class Catalog {
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
-            createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
+            createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version,
                     replicaAlloc, tabletMeta, tabletIdSet);
 
             boolean ok = false;
@@ -3601,7 +3600,7 @@ public class Catalog {
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId,
                             partitionId, indexId, tabletId,
                             shortKeyColumnCount, schemaHash,
-                            version, versionHash,
+                            version,
                             keysType,
                             storageType, storageMedium,
                             schema, bfColumns, bfFpp,
@@ -4515,7 +4514,7 @@ public class Catalog {
     }
 
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
-                               DistributionInfo distributionInfo, long version, long versionHash, ReplicaAllocation replicaAlloc,
+                               DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
                                TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
         DistributionInfoType distributionInfoType = distributionInfo.getType();
         if (distributionInfoType == DistributionInfoType.HASH) {
@@ -4572,7 +4571,7 @@ public class Catalog {
                 for (List<Long> backendIds : chosenBackendIds.values()) {
                     for (long backendId : backendIds) {
                         long replicaId = getNextId();
-                        Replica replica = new Replica(replicaId, backendId, replicaState, version, versionHash,
+                        Replica replica = new Replica(replicaId, backendId, replicaState, version,
                                 tabletMeta.getOldSchemaHash());
                         tablet.addReplica(replica);
                         totalReplicaNum++;

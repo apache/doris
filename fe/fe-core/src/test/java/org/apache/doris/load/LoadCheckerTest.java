@@ -262,10 +262,8 @@ public class LoadCheckerTest {
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
-        long newVersionHash = 1L;
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(new ArrayList<Source>());
         partitionLoadInfo.setVersion(newVersion);
-        partitionLoadInfo.setVersionHash(newVersionHash);
         Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<Long, PartitionLoadInfo>();
         idToPartitionLoadInfo.put(partitionId, partitionLoadInfo);
         TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);
@@ -343,10 +341,8 @@ public class LoadCheckerTest {
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
-        long newVersionHash = 0L;
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(new ArrayList<Source>());
         partitionLoadInfo.setVersion(newVersion);
-        partitionLoadInfo.setVersionHash(newVersionHash);
         Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<Long, PartitionLoadInfo>();
         idToPartitionLoadInfo.put(partitionId, partitionLoadInfo);
         TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);

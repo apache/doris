@@ -228,8 +228,7 @@ public class TabletInvertedIndex {
                                                         tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
                                             } else {
                                                 TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
-                                                        partitionCommitInfo.getVersion(),
-                                                        partitionCommitInfo.getVersionHash());
+                                                        partitionCommitInfo.getVersion(), 0);
                                                 synchronized (transactionsToPublish) {
                                                     ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
                                                     if (map == null) {

@@ -229,7 +229,6 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(partitionName);
                 partitionInfo.add(partition.getVisibleVersion());
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getVisibleVersionTime()));
-                partitionInfo.add(partition.getVisibleVersionHash());
                 partitionInfo.add(partition.getState());
 
                 if (tblPartitionInfo.getType() == PartitionType.RANGE

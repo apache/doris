@@ -166,7 +166,6 @@ public class CheckConsistencyJob {
             }
 
             checkedVersion = partition.getVisibleVersion();
-            checkedVersionHash = partition.getVisibleVersionHash();
             checkedSchemaHash = olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId());
 
             int sentTaskReplicaNum = 0;
@@ -188,7 +187,7 @@ public class CheckConsistencyJob {
                                                                      tabletMeta.getPartitionId(),
                                                                      tabletMeta.getIndexId(),
                                                                      tabletId, checkedSchemaHash,
-                                                                     checkedVersion, checkedVersionHash);
+                                                                     checkedVersion);
 
                 // add task to send
                 batchTask.addTask(task);

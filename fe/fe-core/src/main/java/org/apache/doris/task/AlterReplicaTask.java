@@ -41,7 +41,6 @@ public class AlterReplicaTask extends AgentTask {
     private int baseSchemaHash;
     private int newSchemaHash;
     private long version;
-    private long versionHash = 0;
     private long jobId;
     private AlterJobV2.JobType jobType;
 

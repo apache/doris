@@ -26,7 +26,6 @@ public class SnapshotTask extends AgentTask {
     private long jobId;
 
     private long version;
-    private long versionHash = 0L;
 
     private int schemaHash;
 
