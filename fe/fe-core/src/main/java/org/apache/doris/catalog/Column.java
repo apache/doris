@@ -159,6 +159,7 @@ public class Column implements Writable {
     public void createChildrenColumn(Type type, Column column) {
         if (type.isArrayType()) {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            c.setIsAllowNull(true);
             column.addChildrenColumn(c);
         }
     }
@@ -367,6 +368,7 @@ public class Column implements Writable {
 
             childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
             childrenTColumn.setColumnType(childrenTColumnType);
+            childrenTColumn.setIsAllowNull(children.isAllowNull());
 
             tColumn.setChildrenColumn(new ArrayList<>());
             tColumn.children_column.add(childrenTColumn);
