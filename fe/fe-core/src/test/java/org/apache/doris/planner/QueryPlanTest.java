@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -409,6 +410,28 @@ public class QueryPlanTest {
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
         createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as concat FROM test.test1;");
+
+        createTable("create table test.tbl_using_a\n" +
+                "(\n" +
+                "    k1 int,\n" +
+                "    k2 int,\n" +
+                "    v1 int sum\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"" +
+                ");");
+
+        createTable("create table test.tbl_using_b\n" +
+                "(\n" +
+                "    k1 int,\n" +
+                "    k2 int,\n" +
+                "    k3 int \n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"" +
+                ");");
 
     }
 
@@ -1986,6 +2009,21 @@ public class QueryPlanTest {
         sql = "SELECT k1 ,GROUPING(k2) FROM issue7971.t GROUP BY CUBE (k1) ORDER BY k1;";
         explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
         Assert.assertTrue(explainStr.contains("errCode = 2"));
+    }
+
+    @Test
+    public void testQueryWithUsingClause() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String iSql1 = "insert into test.tbl_using_a values(1,3,7),(2,2,8),(3,1,9)";
+        String iSql2 = "insert into test.tbl_using_b values(1,3,1),(3,1,1),(4,1,1),(5,2,1)";
+        UtFrameUtils.getSqlStmtExecutor(connectContext, iSql1);
+        UtFrameUtils.getSqlStmtExecutor(connectContext, iSql2);
+        String qSQL = "select t1.* from test.tbl_using_a t1 join test.tbl_using_b t2 using(k1,k2) where t1.k1 between 1 and 3 and t2.k3 between 1+0 and 3+0";
+        try {
+            UtFrameUtils.getSqlStmtExecutor(connectContext, qSQL);
+        } catch (AnalysisException e) {
+            Assert.fail();
+        }
     }
 
 }

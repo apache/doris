@@ -306,6 +306,10 @@ public class TableRef implements ParseNode, Writable {
         this.usingColNames = colNames;
     }
 
+    public List<String> getUsingClause() {
+        return this.usingColNames;
+    }
+
     public TableRef getLeftTblRef() {
         return leftTblRef;
     }

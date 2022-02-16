@@ -101,10 +101,10 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             public int compare(TableRef tableref1, TableRef tableref2) {
                 int i1 = 0;
                 int i2 = 0;
-                if (tableref1.getOnClause() != null) {
+                if (tableref1.getOnClause() != null || tableref1.getUsingClause() != null) {
                     i1 = 1;
                 }
-                if (tableref2.getOnClause() != null) {
+                if (tableref2.getOnClause() != null || tableref2.getUsingClause() != null) {
                     i2 = 1;
                 }
                 return i1 - i2;
