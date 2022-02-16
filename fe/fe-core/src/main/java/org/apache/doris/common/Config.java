@@ -563,6 +563,12 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 600; // 600s
 
     /**
+     * Default stream load pre-commit status timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
+
+    /**
      * Max load timeout applicable to all type of load except for stream load
      */
     @ConfField(mutable = true, masterOnly = true)
