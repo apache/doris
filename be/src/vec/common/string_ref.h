@@ -55,8 +55,12 @@ struct StringRef {
 
     explicit operator std::string() const { return to_string(); }
 
-    StringVal to_string_val() const {
+    StringVal to_string_val() {
         return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
+    }
+
+    static StringRef from_string_val(StringVal sv) {
+        return StringRef(reinterpret_cast<char*>(sv.ptr), sv.len);
     }
 };
 

@@ -23,14 +23,14 @@
 #include "util/hash_util.hpp"
 #include "vec/functions/function_variadic_arguments.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 struct MurmurHash2Impl64 {
     static constexpr auto name = "murmurHash2_64";
     using ReturnType = UInt64;
 
-    static Status empty_apply(IColumn& icolumn,
-                              size_t input_rows_count) {
+    static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
         vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(0xe28dbde7fe22e41c));
         return Status::OK();
@@ -42,8 +42,8 @@ struct MurmurHash2Impl64 {
         return Status::OK();
     }
 
-    static Status combine_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
-                                IColumn& icolumn) {
+    static Status combine_apply(const IDataType* type, const IColumn* column,
+                                size_t input_rows_count, IColumn& icolumn) {
         execute_any<false>(type, column, icolumn, input_rows_count);
         return Status::OK();
     }
@@ -58,7 +58,7 @@ struct MurmurHash2Impl64 {
             for (size_t i = 0; i < size; ++i) {
                 ReturnType val = HashUtil::murmur_hash2_64(
                         reinterpret_cast<const char*>(reinterpret_cast<const char*>(&vec_from[i])),
-                                                      sizeof(vec_from[i]), 0);
+                        sizeof(vec_from[i]), 0);
                 if (first)
                     col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 else
@@ -137,38 +137,20 @@ struct MurmurHash2Impl64 {
     }
 
     template <bool first>
-    static Status execute_any(const IDataType* from_type, const IColumn* icolumn,
-                              IColumn& col_to, size_t input_rows_count) {
+    static Status execute_any(const IDataType* from_type, const IColumn* icolumn, IColumn& col_to,
+                              size_t input_rows_count) {
         WhichDataType which(from_type);
-
-        if (which.is_uint8())
-            execute_int_type<UInt8, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_int16())
-            execute_int_type<UInt16, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_uint32())
-            execute_int_type<UInt32, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_uint64())
-            execute_int_type<UInt64, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_int8())
-            execute_int_type<Int8, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_int16())
-            execute_int_type<Int16, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_int32())
-            execute_int_type<Int32, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_int64())
-            execute_int_type<Int64, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_float32())
-            execute_int_type<Float32, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_float64())
-            execute_int_type<Float64, first>(icolumn, col_to, input_rows_count);
-        else if (which.is_string())
-            execute_string<first>(icolumn, col_to, input_rows_count);
-        else {
-            DCHECK(false);
-            return Status::NotSupported(fmt::format("Illegal column {} of argument of function {}",
-                                                    icolumn->get_name(), name));
+        if (which.is_string()) {
+            return execute_string<first>(icolumn, col_to, input_rows_count);
         }
-        return Status::OK();
+
+#define DISPATCH(TYPE, COLUMN_TYPE)   \
+    if (which.idx == TypeIndex::TYPE) \
+        return execute_int_type<TYPE, first>(icolumn, col_to, input_rows_count);
+        NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
+#undef DISPATCH
+        return Status::NotSupported(
+                fmt::format("argument_type {} not supported", from_type->get_name()));
     }
 };
 using FunctionMurmurHash2_64 = FunctionVariadicArgumentsBase<DataTypeUInt64, MurmurHash2Impl64>;
@@ -177,8 +159,7 @@ struct MurmurHash3Impl32 {
     static constexpr auto name = "murmur_hash3_32";
     using ReturnType = Int32;
 
-    static Status empty_apply(IColumn& icolumn,
-                              size_t input_rows_count) {
+    static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
         vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(0xe28dbde7fe22e41c));
         return Status::OK();
@@ -189,8 +170,8 @@ struct MurmurHash3Impl32 {
         return execute<true>(type, column, input_rows_count, icolumn);
     }
 
-    static Status combine_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
-                                IColumn& icolumn) {
+    static Status combine_apply(const IDataType* type, const IColumn* column,
+                                size_t input_rows_count, IColumn& icolumn) {
         return execute<false>(type, column, input_rows_count, icolumn);
     }
 
@@ -207,15 +188,14 @@ struct MurmurHash3Impl32 {
                 if (first) {
                     UInt32 val = HashUtil::murmur_hash3_32(
                             reinterpret_cast<const char*>(&data[current_offset]),
-                            offsets[i] - current_offset - 1,
-                            HashUtil::MURMUR3_32_SEED);
+                            offsets[i] - current_offset - 1, HashUtil::MURMUR3_32_SEED);
                     col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 } else {
                     assert_cast<ColumnVector<ReturnType>&>(col_to).get_data()[i] =
                             HashUtil::murmur_hash3_32(
-                            reinterpret_cast<const char*>(&data[current_offset]),
-                            offsets[i] - current_offset - 1,
-                            ext::bit_cast<UInt32>(col_to[i]));
+                                    reinterpret_cast<const char*>(&data[current_offset]),
+                                    offsets[i] - current_offset - 1,
+                                    ext::bit_cast<UInt32>(col_to[i]));
                 }
                 current_offset = offsets[i];
             }
@@ -224,17 +204,13 @@ struct MurmurHash3Impl32 {
             String value = col_from_const->get_value<String>().data();
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if (first) {
-                    UInt32 val = HashUtil::murmur_hash3_32(
-                            value.data(),
-                            value.size(),
-                            HashUtil::MURMUR3_32_SEED);
+                    UInt32 val = HashUtil::murmur_hash3_32(value.data(), value.size(),
+                                                           HashUtil::MURMUR3_32_SEED);
                     col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 } else {
                     assert_cast<ColumnVector<ReturnType>&>(col_to).get_data()[i] =
-                            HashUtil::murmur_hash3_32(
-                            value.data(),
-                            value.size(),
-                            ext::bit_cast<UInt32>(col_to[i]));
+                            HashUtil::murmur_hash3_32(value.data(), value.size(),
+                                                      ext::bit_cast<UInt32>(col_to[i]));
                 }
             }
         } else {
