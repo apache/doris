@@ -34,6 +34,10 @@ std::string StreamLoadContext::to_json() const {
     writer.Key("Label");
     writer.String(label.c_str());
 
+    writer.Key("TwoPhaseCommit");
+    std::string need_two_phase_commit = two_phase_commit ? "true" : "false";
+    writer.String(need_two_phase_commit.c_str());
+
     // status
     writer.Key("Status");
     switch (status.code()) {
