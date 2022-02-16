@@ -146,6 +146,7 @@ set(VEC_FILES
   functions/function_grouping.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
+  functions/least_greast.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
