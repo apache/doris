@@ -85,6 +85,18 @@ public class PartitionCommitInfo implements Writable {
     public long getVersionHash() {
         return versionHash;
     }
+
+    public void setVersion(long version) {
+        this.version = version;
+    }
+
+    public void setVersionTime(long versionTime) {
+        this.versionTime = versionTime;
+    }
+
+    public void setVersionHash(long versionHash) {
+        this.versionHash = versionHash;
+    }
     
     @Override
     public String toString() {

@@ -49,6 +49,8 @@ public class RestBaseController extends BaseController {
     protected static final String DB_KEY = "db";
     protected static final String TABLE_KEY = "table";
     protected static final String LABEL_KEY = "label";
+    protected static final String TXN_ID_KEY = "txn_id";
+    protected static final String TXN_OPERATION_KEY = "txn_operation";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,

@@ -63,6 +63,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 
+import org.apache.doris.transaction.DatabaseTransactionMgr;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -524,6 +526,19 @@ public class TabletScheduler extends MasterDaemon {
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
                 // If table is under ALTER process, do not allow to do balance.
                 throw new SchedException(Status.UNRECOVERABLE, "table's state is not NORMAL");
+            }
+
+            if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE) {
+                try {
+                    DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
+                    for (TransactionState transactionState : dbTransactionMgr.getPreCommittedTxnList()) {
+                        if(transactionState.getTableIdList().contains(tbl.getId())) {
+                            // If table releate to transaction with precommitted status, do not allow to do balance.
+                            throw new SchedException(Status.UNRECOVERABLE, "There exists PRECOMMITTED transaction releated to table");
+                        }
+                    }
+                } catch (AnalysisException e) {
+                }
             }
 
             if (statusPair.first != TabletStatus.VERSION_INCOMPLETE

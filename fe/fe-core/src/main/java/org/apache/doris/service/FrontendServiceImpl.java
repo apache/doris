@@ -76,6 +76,8 @@ import org.apache.doris.thrift.TIsMethodSupportedRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadCheckRequest;
+import org.apache.doris.thrift.TLoadTxn2PCRequest;
+import org.apache.doris.thrift.TLoadTxn2PCResult;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
@@ -107,6 +109,7 @@ import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -802,6 +805,134 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
+    }
+
+    @Override
+    public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+
+        TLoadTxnCommitResult result = new TLoadTxnCommitResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            loadTxnPreCommitImpl(request);
+        } catch (UserException e) {
+            LOG.warn("failed to pre-commit txn: {}: {}", request.getTxnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
+    private void loadTxnPreCommitImpl(TLoadTxnCommitRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        if (request.isSetAuthCode()) {
+        } else if (request.isSetAuthCodeUuid()) {
+            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        // get database
+        Catalog catalog = Catalog.getCurrentCatalog();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db;
+        if (request.isSetDbId() && request.getDbId() > 0) {
+            db = catalog.getDbNullable(request.getDbId());
+        } else {
+            db = catalog.getDbNullable(fullDbName);
+        }
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
+        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        Catalog.getCurrentGlobalTransactionMgr().preCommitTransaction2PC(
+                db, Lists.newArrayList(table), request.getTxnId(),
+                TabletCommitInfo.fromThrift(request.getCommitInfos()),
+                timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+    }
+
+    @Override
+    public TLoadTxn2PCResult loadTxn2PC(TLoadTxn2PCRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive txn 2PC request: {}, backend: {}", request, clientAddr);
+
+        TLoadTxn2PCResult result = new TLoadTxn2PCResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            loadTxn2PCImpl(request);
+        } catch (UserException e) {
+            LOG.warn("failed to {} txn {}: {}", request.getOperation(), request.getTxnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
+    private void loadTxn2PCImpl(TLoadTxn2PCRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        String dbName = request.getDb();
+        if (Strings.isNullOrEmpty(dbName)) {
+            throw new UserException("No database selected.");
+        }
+
+        String fullDbName = ClusterNamespace.getFullName(cluster, dbName);
+
+        // get database
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database database = catalog.getDbNullable(fullDbName);
+        if (database == null) {
+            throw new UserException("unknown database, database=" + fullDbName);
+        }
+
+        DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(database.getId());
+        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        if (transactionState == null) {
+            throw new UserException("transaction [" + request.getTxnId() + "] not found");
+        }
+        List<Long> tableIdList = transactionState.getTableIdList();
+        List<Table> tableList = database.getTablesOnIdOrderWithIgnoringWrongTableId(tableIdList);
+        for (Table table : tableList) {
+            // check auth
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    table.getName(), request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        String txnOperation = request.getOperation().trim();
+        if (txnOperation.equalsIgnoreCase("commit")) {
+            Catalog.getCurrentGlobalTransactionMgr().commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
+        } else if (txnOperation.equalsIgnoreCase("abort")) {
+            Catalog.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId());
+        } else {
+            throw new UserException("transaction operation should be \'commit\' or \'abort\'");
+        }
     }
 
     @Override

@@ -51,10 +51,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearTransactionTask;
-import org.apache.doris.task.PublishVersionTask;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -284,17 +281,18 @@ public class DatabaseTransactionMgr {
                         notAbortedTxns.add(txn);
                     }
                 }
-                // there should be at most 1 txn in PREPARE/COMMITTED/VISIBLE status
+                // there should be at most 1 txn in PREPARE/PRECOMMITTED/COMMITTED/VISIBLE status
                 Preconditions.checkState(notAbortedTxns.size() <= 1, notAbortedTxns);
                 if (!notAbortedTxns.isEmpty()) {
                     TransactionState notAbortedTxn = notAbortedTxns.get(0);
-                    if (requestId != null && notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                    if (requestId != null && (notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                            || notAbortedTxn.getTransactionStatus() == TransactionStatus.PRECOMMITTED)
                             && notAbortedTxn.getRequestId() != null && notAbortedTxn.getRequestId().equals(requestId)) {
                         // this may be a retry request for same job, just return existing txn id.
                         throw new DuplicatedRequestException(DebugUtil.printId(requestId),
                                 notAbortedTxn.getTransactionId(), "");
                     }
-                    throw new LabelAlreadyUsedException(label, notAbortedTxn.getTransactionStatus());
+                    throw new LabelAlreadyUsedException(notAbortedTxn);
                 }
             }
 
@@ -342,19 +340,10 @@ public class DatabaseTransactionMgr {
         this.usedQuotaDataBytes = usedQuotaDataBytes;
     }
 
-    /**
-     * commit transaction process as follows：
-     * 1. validate whether `Load` is cancelled
-     * 2. validate whether `Table` is deleted
-     * 3. validate replicas consistency
-     * 4. update transaction state version
-     * 5. persistent transactionState
-     * 6. update nextVersion because of the failure of persistent transaction resulting in error version
-     */
-    public void commitTransaction(List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
+    public void preCommitTransaction2PC(List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
                                   TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        // 1. check status
+        // check status
         // the caller method already own db lock, we do not obtain db lock here
         Database db = catalog.getDbOrMetaException(dbId);
         TransactionState transactionState;
@@ -372,12 +361,36 @@ public class DatabaseTransactionMgr {
 
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             LOG.debug("transaction is already visible: {}", transactionId);
-            return;
+            throw new TransactionCommitFailedException("transaction is already visible");
         }
+
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
             LOG.debug("transaction is already committed: {}", transactionId);
+            throw new TransactionCommitFailedException("transaction is already committed");
+        }
+
+        if (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED) {
+            LOG.debug("transaction is already pre-committed: {}", transactionId);
             return;
         }
+
+        Set<Long> errorReplicaIds = Sets.newHashSet();
+        Set<Long> totalInvolvedBackends = Sets.newHashSet();
+        Map<Long, Set<Long>> tableToPartition = new HashMap<>();
+
+        checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
+                          tableToPartition, totalInvolvedBackends);
+
+        unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition, totalInvolvedBackends, db);
+        LOG.info("transaction:[{}] successfully pre-committed", transactionState);
+    }
+
+    private void checkCommitStatus(List<Table> tableList, TransactionState transactionState,
+                                   List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
+                                   Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
+                                    Set<Long> totalInvolvedBackends) throws UserException {
+        Database db = catalog.getDbOrMetaException(dbId);
+
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
             transactionState.setTxnCommitAttachment(txnCommitAttachment);
@@ -385,12 +398,11 @@ public class DatabaseTransactionMgr {
 
         TabletInvertedIndex tabletInvertedIndex = catalog.getTabletInvertedIndex();
         Map<Long, Set<Long>> tabletToBackends = new HashMap<>();
-        Map<Long, Set<Long>> tableToPartition = new HashMap<>();
         Map<Long, Table> idToTable = new HashMap<>();
         for (int i = 0; i < tableList.size(); i++) {
             idToTable.put(tableList.get(i).getId(), tableList.get(i));
         }
-        // 2. validate potential exists problem: db->table->partition
+        // validate potential exists problem: db->table->partition
         // guarantee exist exception during a transaction
         // if index is dropped, it does not matter.
         // if table or partition is dropped during load, just ignore that tablet,
@@ -433,8 +445,6 @@ public class DatabaseTransactionMgr {
             }
             tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
         }
-        Set<Long> errorReplicaIds = Sets.newHashSet();
-        Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
             for (Partition partition : table.getAllPartitions()) {
@@ -511,15 +521,81 @@ public class DatabaseTransactionMgr {
                             LOG.warn("Failed to commit txn [{}]. "
                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
                                             + "while error backends {}",
-                                    transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum,
+                                    transactionState.getTransactionId(), tablet.getId(), successReplicaNum, quorumReplicaNum,
                                     Joiner.on(",").join(errorBackendIdsForTablet));
-                            throw new TabletQuorumFailedException(transactionId, tablet.getId(),
+                            throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
                                     successReplicaNum, quorumReplicaNum,
                                     errorBackendIdsForTablet);
                         }
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * commit transaction process as follows：
+     * 1. validate whether `Load` is cancelled
+     * 2. validate whether `Table` is deleted
+     * 3. validate replicas consistency
+     * 4. update transaction state version
+     * 5. persistent transactionState
+     * 6. update nextVersion because of the failure of persistent transaction resulting in error version
+     */
+    public void commitTransaction(List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
+                                  TxnCommitAttachment txnCommitAttachment, Boolean is2PC)
+            throws UserException {
+        // check status
+        // the caller method already own db lock, we do not obtain db lock here
+        Database db = catalog.getDbOrMetaException(dbId);
+        TransactionState transactionState;
+        readLock();
+        try {
+            transactionState = unprotectedGetTransactionState(transactionId);
+        } finally {
+            readUnlock();
+        }
+
+        if (transactionState == null) {
+            LOG.debug("transaction not found: {}", transactionId);
+            throw new TransactionCommitFailedException("transaction [" + transactionId + "] not found.");
+        }
+
+        if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
+            LOG.debug("transaction is already aborted: {}", transactionId);
+            throw new TransactionCommitFailedException("transaction [" + transactionId
+                    + "] is already aborted. abort reason: " + transactionState.getReason());
+        }
+
+        if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            LOG.debug("transaction is already visible: {}", transactionId);
+            if (is2PC) {
+                throw new TransactionCommitFailedException("transaction [" + transactionId
+                        + "] is already visible, not pre-committed.");
+            }
+            return;
+        }
+        if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+            LOG.debug("transaction is already committed: {}", transactionId);
+            if (is2PC) {
+                throw new TransactionCommitFailedException("transaction [" + transactionId
+                        + "] is already committed, not pre-committed.");
+            }
+            return;
+        }
+
+        if (is2PC && transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
+            LOG.debug("transaction is prepare, not pre-committed: {}", transactionId);
+            throw new TransactionCommitFailedException("transaction [" + transactionId
+                    + "] is prepare, not pre-committed.");
+        }
+
+        Set<Long> errorReplicaIds = Sets.newHashSet();
+        Set<Long> totalInvolvedBackends = Sets.newHashSet();
+        Map<Long, Set<Long>> tableToPartition = new HashMap<>();
+        if (!is2PC) {
+            checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
+                    tableToPartition, totalInvolvedBackends);
         }
 
         // before state transform
@@ -528,8 +604,11 @@ public class DatabaseTransactionMgr {
         boolean txnOperated = false;
         writeLock();
         try {
-            unprotectedCommitTransaction(transactionState, errorReplicaIds, tableToPartition, totalInvolvedBackends,
-                    db);
+            if (is2PC) {
+                unprotectedCommitTransaction2PC(transactionState, db);
+            } else {
+                unprotectedCommitTransaction(transactionState, errorReplicaIds, tableToPartition, totalInvolvedBackends, db);
+            }
             txnOperated = true;
         } finally {
             writeUnlock();
@@ -537,7 +616,7 @@ public class DatabaseTransactionMgr {
             transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
         }
 
-        // 6. update nextVersion because of the failure of persistent transaction resulting in error version
+        // update nextVersion because of the failure of persistent transaction resulting in error version
         updateCatalogAfterCommitted(transactionState, db);
         LOG.info("transaction:[{}] successfully committed", transactionState);
     }
@@ -641,6 +720,19 @@ public class DatabaseTransactionMgr {
             }
             // find the latest txn (which id is largest)
             return existingTxnIds.stream().max(Comparator.comparingLong(Long::valueOf)).get();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public List<TransactionState> getPreCommittedTxnList() {
+        readLock();
+        try {
+            // only send task to preCommitted transaction
+            return idToRunningTransactionState.values().stream()
+                    .filter(transactionState -> (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED))
+                    .sorted(Comparator.comparing(TransactionState::getPreCommitTime))
+                    .collect(Collectors.toList());
         } finally {
             readUnlock();
         }
@@ -837,6 +929,35 @@ public class DatabaseTransactionMgr {
         LOG.info("finish transaction {} successfully", transactionState);
     }
 
+    protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState, Set<Long> errorReplicaIds,
+                                                Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
+                                                Database db) {
+        // transaction state is modified during check if the transaction could committed
+        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
+            return;
+        }
+        // update transaction state version
+        transactionState.setPreCommitTime(System.currentTimeMillis());
+        transactionState.setTransactionStatus(TransactionStatus.PRECOMMITTED);
+        transactionState.setErrorReplicas(errorReplicaIds);
+        for (long tableId : tableToPartition.keySet()) {
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            for (long partitionId : tableToPartition.get(tableId)) {
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,-1, -1, -1);
+                tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
+            }
+            transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
+        }
+        // persist transactionState
+        unprotectUpsertTransactionState(transactionState, false);
+
+        // add publish version tasks. set task to null as a placeholder.
+        // tasks will be created when publishing version.
+        for (long backendId : totalInvolvedBackends) {
+            transactionState.addPublishVersionTask(backendId, null);
+        }
+    }
+
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
                                                 Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
                                                 Database db) {
@@ -868,6 +989,52 @@ public class DatabaseTransactionMgr {
         for (long backendId : totalInvolvedBackends) {
             transactionState.addPublishVersionTask(backendId, null);
         }
+    }
+
+    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
+        // transaction state is modified during check if the transaction could committed
+        if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
+            LOG.warn("Unknow exception. state of transaction [{}] changed, failed to commit transaction",
+                    transactionState.getTransactionId());
+            return;
+        }
+        // update transaction state version
+        transactionState.setCommitTime(System.currentTimeMillis());
+        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
+
+        Iterator<TableCommitInfo> tableCommitInfoIterator = transactionState.getIdToTableCommitInfos().values().iterator();
+        while (tableCommitInfoIterator.hasNext()) {
+            TableCommitInfo tableCommitInfo = tableCommitInfoIterator.next();
+            long tableId = tableCommitInfo.getTableId();
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            // table maybe dropped between commit and publish, ignore this error
+            if (table == null) {
+                tableCommitInfoIterator.remove();
+                LOG.warn("table {} is dropped, skip and remove it from transaction state {}",
+                        tableId,
+                        transactionState);
+                continue;
+            }
+            Iterator<PartitionCommitInfo> partitionCommitInfoIterator = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
+            while (partitionCommitInfoIterator.hasNext()) {
+                PartitionCommitInfo partitionCommitInfo = partitionCommitInfoIterator.next();
+                long partitionId = partitionCommitInfo.getPartitionId();
+                Partition partition = table.getPartition(partitionId);
+                // partition maybe dropped between commit and publish version, ignore this error
+                if (partition == null) {
+                    partitionCommitInfoIterator.remove();
+                    LOG.warn("partition {} is dropped, skip and remove it from transaction state {}",
+                            partitionId,
+                            transactionState);
+                    continue;
+                }
+                partitionCommitInfo.setVersion(partition.getNextVersion());
+                partitionCommitInfo.setVersionHash(partition.getNextVersionHash());
+                partitionCommitInfo.setVersionTime(System.currentTimeMillis());
+            }
+        }
+        // persist transactionState
+        editLog.logInsertTransactionState(transactionState);
     }
 
     // for add/update/delete TransactionState
@@ -992,27 +1159,65 @@ public class DatabaseTransactionMgr {
         LOG.info("abort transaction: {} successfully", transactionState);
     }
 
+    public void abortTransaction2PC(long transactionId) throws UserException {
+        LOG.info("begin to abort txn {}", transactionId);
+        if (transactionId < 0) {
+            LOG.info("transaction id is {}, less than 0, maybe this is an old type load job, ignore abort operation", transactionId);
+            return;
+        }
+        TransactionState transactionState;
+        readLock();
+        try {
+            transactionState = unprotectedGetTransactionState(transactionId);
+        } finally {
+            readUnlock();
+        }
+
+        if (transactionState == null) {
+            throw new TransactionNotFoundException("transaction [" + transactionId + "] not found");
+        }
+
+        // before state transform
+        transactionState.beforeStateTransform(TransactionStatus.ABORTED);
+        boolean txnOperated = false;
+        writeLock();
+        try {
+            txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
+        } finally {
+            writeUnlock();
+            transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
+        }
+
+        // send clear txn task to BE to clear the transactions on BE.
+        // This is because parts of a txn may succeed in some BE, and these parts of txn should be cleared
+        // explicitly, or it will be remained on BE forever
+        // (However the report process will do the diff and send clear txn tasks to BE, but that is our
+        // last defense)
+        if (txnOperated && transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
+            clearBackendTransactions(transactionState);
+        }
+        LOG.info("abort transaction: {} successfully", transactionState);
+    }
+
     private boolean unprotectAbortTransaction(long transactionId, String reason)
             throws UserException {
         TransactionState transactionState = unprotectedGetTransactionState(transactionId);
         if (transactionState == null) {
-            throw new TransactionNotFoundException("transaction not found", transactionId);
+            throw new TransactionNotFoundException("transaction [" + transactionId + "] not found.");
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            return false;
+            throw new TransactionNotFoundException("transaction [" + transactionId + "] is already aborted, " +
+                    "abort reason: " + transactionState.getReason());
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-            throw new UserException("transaction's state is already "
-                    + transactionState.getTransactionStatus() + ", could not abort");
+            throw new UserException("transaction [" + transactionId + "] is already "
+                    + transactionState.getTransactionStatus() + ", could not abort.");
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
         transactionState.setTransactionStatus(TransactionStatus.ABORTED);
         unprotectUpsertTransactionState(transactionState, false);
-        for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
-            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
-        }
         return true;
     }
 

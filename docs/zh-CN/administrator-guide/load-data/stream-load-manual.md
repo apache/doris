@@ -179,6 +179,28 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     3. 对于导入的某列类型包含范围限制的，如果原始数据能正常通过类型转换，但无法通过范围限制的，strict mode 对其也不产生影响。例如：如果类型是 decimal(1,0), 原始数据为 10，则属于可以通过类型转换但不在列声明的范围内。这种数据 strict 对其不产生影响。
 + merge\_type
     数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理
+    
++ two\_phase\_commit
+
+    Stream load 导入可以开启两阶段事务提交模式。开启方式为在 HEADER 中声明 ```two_phase_commit=true``` 。默认的两阶段批量事务提交为关闭。
+    两阶段批量事务提交模式的意思是：Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为PRECOMMITTED，用户手动触发commit操作之后，数据才可见。
+    
+    1. 用户可以调用如下接口对stream load事务触发commit操作：
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://fe_host:http_port/api/{db}/_stream_load_2pc
+    ```
+    或
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://be_host:webserver_port/api/{db}/_stream_load_2pc
+    ```
+    2. 用户可以调用如下接口对stream load事务触发abort操作：
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://fe_host:http_port/api/{db}/_stream_load_2pc
+    ```
+    或
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://be_host:webserver_port/api/{db}/_stream_load_2pc
+    ```
 
 #### strict mode 与 source data 的导入关系
 
