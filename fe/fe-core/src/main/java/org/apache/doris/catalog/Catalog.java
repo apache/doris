@@ -222,7 +222,10 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.StatisticsJobManager;
+import org.apache.doris.statistics.StatisticsJobScheduler;
 import org.apache.doris.statistics.StatisticsManager;
+import org.apache.doris.statistics.StatisticsTaskScheduler;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.system.Frontend;
@@ -415,7 +418,11 @@ public class Catalog {
     private DeployManager deployManager;
 
     private TabletStatMgr tabletStatMgr;
+    // statistics
     private StatisticsManager statisticsManager;
+    private StatisticsJobManager statisticsJobManager;
+    private StatisticsJobScheduler statisticsJobScheduler;
+    private StatisticsTaskScheduler statisticsTaskScheduler;
 
     private PaloAuth auth;
 
@@ -573,7 +580,11 @@ public class Catalog {
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
 
         this.tabletStatMgr = new TabletStatMgr();
+        // statistics
         this.statisticsManager = new StatisticsManager();
+        this.statisticsJobManager = new StatisticsJobManager();
+        this.statisticsJobScheduler = new StatisticsJobScheduler();
+        this.statisticsTaskScheduler = new StatisticsTaskScheduler();
 
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
@@ -731,9 +742,20 @@ public class Catalog {
         return checkpointer;
     }
 
+    // statistics
     public StatisticsManager getStatisticsManager() {
         return statisticsManager;
     }
+    public StatisticsJobManager getStatisticsJobManager() {
+        return statisticsJobManager;
+    }
+    public StatisticsJobScheduler getStatisticsJobScheduler() {
+        return statisticsJobScheduler;
+    }
+    public StatisticsTaskScheduler getStatisticsTaskScheduler() {
+        return statisticsTaskScheduler;
+    }
+
 
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
