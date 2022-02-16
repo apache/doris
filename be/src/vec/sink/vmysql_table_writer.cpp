@@ -15,76 +15,196 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/sink/vmysql_table_writer.h"
+
+#include <mysql/mysql.h>
+
 #include <sstream>
 
 #include "exprs/expr.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/mysql_table_sink.h"
-#include "runtime/runtime_state.h"
-#include "util/debug_util.h"
-#include "util/runtime_profile.h"
-#include "vec/sink/vmysql_table_writer.h"
+#include "util/types.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
+#include "vec/core/materialize_block.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 namespace vectorized {
-VMysqlTableSink::VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& t_exprs)
-        : _pool(pool),
-          _row_desc(row_desc),
-          _t_output_expr(t_exprs),
-          _mem_tracker(MemTracker::CreateTracker(-1, "VMysqlTableSink")) {
-    _name = "VMysqlTableSink";
+
+VMysqlTableWriter::VMysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_expr_ctxs)
+        : _vec_output_expr_ctxs(output_expr_ctxs) {}
+
+VMysqlTableWriter::~VMysqlTableWriter() {
+    if (_mysql_conn) {
+        mysql_close(_mysql_conn);
+    }
 }
 
-VMysqlTableSink::~VMysqlTableSink() {}
+Status VMysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string& tbl) {
+    _mysql_conn = mysql_init(nullptr);
+    if (_mysql_conn == nullptr) {
+        return Status::InternalError("Call mysql_init failed.");
+    }
 
-Status VMysqlTableSink::init(const TDataSink& t_sink) {
-    RETURN_IF_ERROR(DataSink::init(t_sink));
-    const TMysqlTableSink& t_mysql_sink = t_sink.mysql_table_sink;
+    MYSQL* res = mysql_real_connect(_mysql_conn, conn_info.host.c_str(), conn_info.user.c_str(),
+                                    conn_info.passwd.c_str(), conn_info.db.c_str(), conn_info.port,
+                                    nullptr, // unix socket
+                                    0);      // flags
+    if (res == nullptr) {
+        fmt::memory_buffer err_ss;
+        fmt::format_to(err_ss, "mysql_real_connect failed because : {}.", mysql_error(_mysql_conn));
+        return Status::InternalError(err_ss.data());
+    }
 
-    _conn_info.host = t_mysql_sink.host;
-    _conn_info.port = t_mysql_sink.port;
-    _conn_info.user = t_mysql_sink.user;
-    _conn_info.passwd = t_mysql_sink.passwd;
-    _conn_info.db = t_mysql_sink.db;
-    _mysql_tbl = t_mysql_sink.table;
+    // set character
+    if (mysql_set_character_set(_mysql_conn, "utf8")) {
+        fmt::memory_buffer err_ss;
+        fmt::format_to(err_ss, "mysql_set_character_set failed because : {}.",
+                       mysql_error(_mysql_conn));
+        return Status::InternalError(err_ss.data());
+    }
 
-    // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));
+    _mysql_tbl = tbl;
+
     return Status::OK();
 }
 
-Status VMysqlTableSink::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSink::prepare(state));
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
-    std::stringstream title;
-    title << "VMysqlTableSink (frag_id=" << state->fragment_instance_id() << ")";
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
+Status VMysqlTableWriter::append(vectorized::Block* block) {
+    Status status = Status::OK();
+    if (block == nullptr || block->rows() == 0) {
+        return status;
+    }
+
+    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _vec_output_expr_ctxs, *block, status);
+
+    auto num_rows = output_block.rows();
+    if (UNLIKELY(num_rows == 0)) {
+        return status;
+    }
+    materialize_block_inplace(output_block);
+    for (int i = 0; i < num_rows; ++i) {
+        RETURN_IF_ERROR(insert_row(output_block, i));
+    }
     return Status::OK();
 }
 
-Status VMysqlTableSink::open(RuntimeState* state) {
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
-    // create writer
-    _writer = state->obj_pool()->add(new doris::MysqlTableWriter(_output_expr_ctxs));
-    RETURN_IF_ERROR(_writer->open(_conn_info, _mysql_tbl));
-    return Status::OK();
-}
+Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
+    _insert_stmt_buffer.clear();
+    fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _mysql_tbl);
+    int num_columns = _vec_output_expr_ctxs.size();
 
-Status VMysqlTableSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented VMysqlTableSink::send(RuntimeState* state, RowBatch* batch)");
-}
+    for (int i = 0; i < num_columns; ++i) {
+        auto& column_ptr = block.get_by_position(i).column;
+        auto& type_ptr = block.get_by_position(i).type;
 
-Status VMysqlTableSink::send(RuntimeState* state, Block* block) {
-    return _writer->append(block);
-}
+        if (i != 0) {
+            fmt::format_to(_insert_stmt_buffer, "{}", ", ");
+        }
 
-Status VMysqlTableSink::close(RuntimeState* state, Status exec_status) {
-    VExpr::close(_output_expr_ctxs, state);
+        vectorized::ColumnPtr column;
+        if (type_ptr->is_nullable()) {
+            column = assert_cast<const vectorized::ColumnNullable&>(*column_ptr)
+                             .get_nested_column_ptr();
+            if (column_ptr->is_null_at(row)) {
+                fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
+                continue;
+            }
+        } else {
+            column = column_ptr;
+        }
+
+        switch (_vec_output_expr_ctxs[i]->root()->result_type()) {
+        case TYPE_BOOLEAN: {
+            auto& data = assert_cast<const vectorized::ColumnUInt8&>(*column).get_data();
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
+            break;
+        }
+        case TYPE_TINYINT: {
+            auto& data = assert_cast<const vectorized::ColumnInt8&>(*column).get_data();
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
+            break;
+        }
+        case TYPE_SMALLINT: {
+            auto& data = assert_cast<const vectorized::ColumnInt16&>(*column).get_data();
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
+            break;
+        }
+        case TYPE_INT: {
+            auto& data = assert_cast<const vectorized::ColumnInt32&>(*column).get_data();
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
+            break;
+        }
+        case TYPE_BIGINT: {
+            auto& data = assert_cast<const vectorized::ColumnInt64&>(*column).get_data();
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
+            break;
+        }
+        case TYPE_FLOAT: {
+            auto& data = assert_cast<const vectorized::ColumnFloat32&>(*column).get_data();
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
+            break;
+        }
+        case TYPE_DOUBLE: {
+            auto& data = assert_cast<const vectorized::ColumnFloat64&>(*column).get_data();
+            fmt::format_to(_insert_stmt_buffer, "{}", data[row]);
+            break;
+        }
+
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR: {
+            const auto& string_val =
+                    assert_cast<const vectorized::ColumnString&>(*column).get_data_at(row);
+            DCHECK(string_val.data != nullptr);
+            std::unique_ptr<char[]> buf(new char[2 * string_val.size + 1]);
+            mysql_real_escape_string(_mysql_conn, buf.get(), string_val.data, string_val.size);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", buf.get());
+
+            break;
+        }
+        case TYPE_DECIMALV2: {
+            DecimalV2Value value =
+                    (DecimalV2Value)
+                            assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>&>(
+                                    *column)
+                                    .get_data()[row];
+            fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
+            break;
+        }
+        case TYPE_DATE:
+        case TYPE_DATETIME: {
+            int64_t int_val = assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
+            vectorized::VecDateTimeValue value =
+                    binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(int_val);
+
+            char buf[64];
+            char* pos = value.to_string(buf);
+            std::string str(buf, pos - buf - 1);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+            break;
+        }
+        default: {
+            fmt::memory_buffer err_out;
+            fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
+                           _vec_output_expr_ctxs[i]->root()->type().type);
+            return Status::InternalError(err_out.data());
+        }
+        }
+    }
+
+    fmt::format_to(_insert_stmt_buffer, "{}", ")");
+
+    // Insert this to MySQL server
+    if (mysql_real_query(_mysql_conn, _insert_stmt_buffer.data(), _insert_stmt_buffer.size())) {
+        fmt::memory_buffer err_ss;
+        fmt::format_to(err_ss, "Insert to mysql server({}) failed, because: {}.",
+                       mysql_get_host_info(_mysql_conn), mysql_error(_mysql_conn));
+        return Status::InternalError(err_ss.data());
+    }
+
     return Status::OK();
 }
 } // namespace vectorized
