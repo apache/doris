@@ -146,7 +146,7 @@ Status CollectionValue::init_collection(FunctionContext* context, uint32_t size,
 }
 
 CollectionValue CollectionValue::from_collection_val(const CollectionVal& val) {
-    return CollectionValue(val.data, val.length, val.null_signs);
+    return CollectionValue(val.data, val.length, val.has_null, val.null_signs);
 }
 
 Status CollectionValue::set(uint32_t i, PrimitiveType type, const AnyVal* value) {

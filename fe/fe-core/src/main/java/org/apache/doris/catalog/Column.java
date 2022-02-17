@@ -161,6 +161,9 @@ public class Column implements Writable {
     public void createChildrenColumn(Type type, Column column) {
         if (type.isArrayType()) {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            // TODO We always set the item type in array nullable.
+            //  We may provide an alternative to configure this property of
+            //  the item type in array in future.
             c.setIsAllowNull(true);
             column.addChildrenColumn(c);
         }

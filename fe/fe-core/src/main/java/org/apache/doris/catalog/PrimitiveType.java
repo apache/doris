@@ -89,7 +89,6 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, STRING);
         builder.put(NULL_TYPE, BITMAP);
         builder.put(NULL_TYPE, TIME);
-        builder.put(NULL_TYPE, ARRAY);
         // Boolean
         builder.put(BOOLEAN, BOOLEAN);
         builder.put(BOOLEAN, TINYINT);
