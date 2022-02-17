@@ -258,16 +258,15 @@ public class PropertyAnalyzer {
         return tTabletType;
     }
 
-    public static Pair<Long, Long> analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
-        Pair<Long, Long> versionInfo = new Pair<>(Partition.PARTITION_INIT_VERSION,
-                Partition.PARTITION_INIT_VERSION_HASH);
+    public static Long analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
+        Long versionInfo = Partition.PARTITION_INIT_VERSION;
         if (properties != null && properties.containsKey(PROPERTIES_VERSION_INFO)) {
             String versionInfoStr = properties.get(PROPERTIES_VERSION_INFO);
             String[] versionInfoArr = versionInfoStr.split(COMMA_SEPARATOR);
+            // Still parse version and version hash, but version hash is useless, just keep compatible
             if (versionInfoArr.length == 2) {
                 try {
-                    versionInfo.first = Long.parseLong(versionInfoArr[0]);
-                    versionInfo.second = Long.parseLong(versionInfoArr[1]);
+                    versionInfo = Long.parseLong(versionInfoArr[0]);
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("version info number format error");
                 }

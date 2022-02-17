@@ -1028,7 +1028,6 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 partitionCommitInfo.setVersion(partition.getNextVersion());
-                partitionCommitInfo.setVersionHash(partition.getNextVersionHash());
                 partitionCommitInfo.setVersionTime(System.currentTimeMillis());
             }
         }
@@ -1545,7 +1544,7 @@ public class DatabaseTransactionMgr {
                 } // end for indices
                 long version = partitionCommitInfo.getVersion();
                 long versionTime = partitionCommitInfo.getVersionTime();
-                partition.updateVisibleVersionAndVersionHash(version, versionTime);
+                partition.updateVisibleVersionAndTime(version, versionTime);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}]",
                             transactionState, partition.getId(), version);

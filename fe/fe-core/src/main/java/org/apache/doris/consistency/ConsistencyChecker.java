@@ -376,7 +376,7 @@ public class ConsistencyChecker extends MasterDaemon {
             partition.setLastCheckTime(lastCheckTime);
             index.setLastCheckTime(lastCheckTime);
             tablet.setLastCheckTime(lastCheckTime);
-            tablet.setCheckedVersion(info.getCheckedVersion(), info.getCheckedVersionHash());
+            tablet.setCheckedVersion(info.getCheckedVersion());
 
             tablet.setIsConsistent(info.isConsistent());
         } finally {

@@ -74,7 +74,6 @@ public class AgentTaskTest {
     private int schemaHash1 = 60000;
     private int schemaHash2 = 60001;
     private long version = 1L;
-    private long versionHash = 70000L;
 
     private TStorageType storageType = TStorageType.COLUMN;
     private List<Column> columns;
@@ -122,13 +121,13 @@ public class AgentTaskTest {
         // push
         pushTask =
                 new PushTask(null, backendId1, dbId, tableId, partitionId, indexId1, tabletId1,
-                             replicaId1, schemaHash1, version, versionHash, "/home/a", 10L, 200, 80000L,
+                             replicaId1, schemaHash1, version, "/home/a", 10L, 200, 80000L,
                              TPushType.LOAD, null, false, TPriority.NORMAL);
 
         // clone
         cloneTask =
                 new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
-                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, -1, 3600);
+                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600);
 
         // rollup
         rollupTask =

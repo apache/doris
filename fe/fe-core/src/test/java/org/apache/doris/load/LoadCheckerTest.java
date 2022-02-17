@@ -81,7 +81,7 @@ public class LoadCheckerTest {
         label = "test_label";
  
         // mock catalog
-        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
+        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
         new Expectations() {
             {
                 catalog.getDbNullable(dbId);

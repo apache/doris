@@ -48,7 +48,6 @@ public class Partition extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Partition.class);
 
     public static final long PARTITION_INIT_VERSION = 1L;
-    public static final long PARTITION_INIT_VERSION_HASH = 0L;
 
     public enum PartitionState {
         NORMAL,
@@ -152,11 +151,11 @@ public class Partition extends MetaObject implements Writable {
                 name, visibleVersion, nextVersion);
     }
 
-    public void updateVisibleVersionAndVersionHash(long visibleVersion) {
-        updateVisibleVersionAndVersionHash(visibleVersion, System.currentTimeMillis());
+    public void updateVisibleVersion(long visibleVersion) {
+        updateVisibleVersionAndTime(visibleVersion, System.currentTimeMillis());
     }
 
-    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionTime) {
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.setVisibleVersion(visibleVersion, visibleVersionTime);
         if (MetaContext.get() != null) {
             // MetaContext is not null means we are in a edit log replay thread.
@@ -173,10 +172,6 @@ public class Partition extends MetaObject implements Writable {
 
     public long getVisibleVersionTime() {
         return visibleVersionTime;
-    }
-
-    public long getVisibleVersionHash() {
-        return visibleVersionHash;
     }
     
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
@@ -225,22 +220,9 @@ public class Partition extends MetaObject implements Writable {
     public void setNextVersion(long nextVersion) {
         this.nextVersion = nextVersion;
     }
-
-    public long getNextVersionHash() {
-        return nextVersionHash;
-    }
-
-    public void setNextVersionHash(long nextVersionHash, long committedVersionHash) {
-        this.nextVersionHash = nextVersionHash;
-        this.committedVersionHash = committedVersionHash;
-    }
     
     public long getCommittedVersion() {
         return this.nextVersion - 1;
-    }
-    
-    public long getCommittedVersionHash() {
-        return committedVersionHash;
     }
 
     public MaterializedIndex getIndex(long indexId) {
@@ -295,7 +277,6 @@ public class Partition extends MetaObject implements Writable {
         // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,
         // And the test case can continue to execute the logic of 'select best roll up'
         return ((visibleVersion != PARTITION_INIT_VERSION)
-                || (visibleVersionHash != PARTITION_INIT_VERSION_HASH)
                 || FeConstants.runningUnitTest);
     }
 
@@ -434,7 +415,6 @@ public class Partition extends MetaObject implements Writable {
         }
 
         return (visibleVersion == partition.visibleVersion)
-                && (visibleVersionHash == partition.visibleVersionHash)
                 && (baseIndex.equals(partition.baseIndex)
                 && distributionInfo.equals(partition.distributionInfo));
     }
@@ -458,7 +438,6 @@ public class Partition extends MetaObject implements Writable {
         }
 
         buffer.append("committedVersion: ").append(visibleVersion).append("; ");
-        buffer.append("committedVersionHash: ").append(visibleVersionHash).append("; ");
 
         buffer.append("distribution_info.type: ").append(distributionInfo.getType().name()).append("; ");
         buffer.append("distribution_info: ").append(distributionInfo.toString());

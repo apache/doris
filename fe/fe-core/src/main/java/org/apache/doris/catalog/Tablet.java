@@ -104,7 +104,6 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         checkedVersion = -1L;
-        checkedVersionHash = -1L;
 
         isConsistent = true;
     }
@@ -121,13 +120,8 @@ public class Tablet extends MetaObject implements Writable {
         return this.checkedVersion;
     }
 
-    public long getCheckedVersionHash() {
-        return this.checkedVersionHash;
-    }
-
-    public void setCheckedVersion(long checkedVersion, long checkedVersionHash) {
+    public void setCheckedVersion(long checkedVersion) {
         this.checkedVersion = checkedVersion;
-        this.checkedVersionHash = checkedVersionHash;
     }
 
     public void setIsConsistent(boolean good) {

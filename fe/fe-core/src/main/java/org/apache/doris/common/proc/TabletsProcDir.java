@@ -46,7 +46,7 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
             .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("DataSize").add("RowCount").add("State")
-            .add("LstConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
+            .add("LstConsistencyCheckTime").add("CheckVersion")
             .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
             .build();
 
@@ -118,7 +118,6 @@ public class TabletsProcDir implements ProcDirInterface {
 
                         tabletInfo.add(TimeUtils.longToTimeString(tablet.getLastCheckTime()));
                         tabletInfo.add(tablet.getCheckedVersion());
-                        tabletInfo.add(tablet.getCheckedVersionHash());
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
                         String metaUrl = String.format("http://%s:%d/api/meta/header/%d/%d",

@@ -281,8 +281,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         for (TScanRangeLocations scanRangeLocations : scanRangeLocationsList) {
             // only process palo(doris) scan range
             TPaloScanRange scanRange = scanRangeLocations.scan_range.palo_scan_range;
-            Node tabletRouting = new Node(Long.parseLong(scanRange.version),
-                    Long.parseLong(scanRange.version_hash), Integer.parseInt(scanRange.schema_hash));
+            Node tabletRouting = new Node(Long.parseLong(scanRange.version), Integer.parseInt(scanRange.schema_hash));
             for (TNetworkAddress address : scanRange.hosts) {
                 tabletRouting.addRouting(address.hostname + ":" + address.port);
             }

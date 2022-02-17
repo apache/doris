@@ -3533,7 +3533,7 @@ public class Catalog {
                                                  DistributionInfo distributionInfo,
                                                  TStorageMedium storageMedium,
                                                  ReplicaAllocation replicaAlloc,
-                                                 Pair<Long, Long> versionInfo,
+                                                 Long versionInfo,
                                                  Set<String> bfColumns,
                                                  double bfFpp,
                                                  Set<Long> tabletIdSet,
@@ -3565,7 +3565,7 @@ public class Catalog {
 
         // version and version hash
         if (versionInfo != null) {
-            partition.updateVisibleVersionAndVersionHash(versionInfo.first, versionInfo.second);
+            partition.updateVisibleVersion(versionInfo);
         }
         long version = partition.getVisibleVersion();
 
@@ -3863,7 +3863,7 @@ public class Catalog {
         }
 
         // analyze version info
-        Pair<Long, Long> versionInfo = null;
+        Long versionInfo = null;
         try {
             versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
         } catch (AnalysisException e) {
@@ -4255,7 +4255,7 @@ public class Catalog {
                     Preconditions.checkState(partitionId.size() == 1);
                     partition = olapTable.getPartition(partitionId.get(0));
                 }
-                sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
+                sb.append(partition.getVisibleVersion())
                         .append("\"");
             }
 
@@ -4431,7 +4431,7 @@ public class Catalog {
                         sb.append(")");
                     }
                     sb.append("(\"version_info\" = \"");
-                    sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
+                    sb.append(partition.getVisibleVersion())
                             .append("\"");
                     sb.append(");");
                     addPartitionStmt.add(sb.toString());

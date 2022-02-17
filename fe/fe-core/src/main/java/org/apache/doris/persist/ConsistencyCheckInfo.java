@@ -43,8 +43,7 @@ public class ConsistencyCheckInfo implements Writable {
     }
 
     public ConsistencyCheckInfo(long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                                long lastCheckTime, long checkedVersion, long checkedVersionHash,
-                                boolean isConsistent) {
+                                long lastCheckTime, long checkedVersion, boolean isConsistent) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -53,7 +52,6 @@ public class ConsistencyCheckInfo implements Writable {
 
         this.lastCheckTime = lastCheckTime;
         this.checkedVersion = checkedVersion;
-        this.checkedVersionHash = checkedVersionHash;
 
         this.isConsistent = isConsistent;
     }
@@ -84,10 +82,6 @@ public class ConsistencyCheckInfo implements Writable {
 
     public long getCheckedVersion() {
         return checkedVersion;
-    }
-
-    public long getCheckedVersionHash() {
-        return checkedVersionHash;
     }
 
     public boolean isConsistent() {

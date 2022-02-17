@@ -77,9 +77,6 @@ public class CatalogTestUtil {
     public static long testTabletId2 = 18;
 
     public static long testStartVersion = 12;
-    public static long testStartVersionHash = 12312;
-    public static long testPartitionCurrentVersionHash = 12312;
-    public static long testPartitionNextVersionHash = 123123123;
     public static long testRollupIndexId2 = 13;
     public static String testRollupIndex2 = "newRollupIndex";
     public static String testRollupIndex3 = "newRollupIndex2";
@@ -116,7 +113,7 @@ public class CatalogTestUtil {
         Catalog.getCurrentSystemInfo().addBackend(backend3);
         catalog.initDefaultCluster();
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
-                testStartVersion, testStartVersionHash);
+                testStartVersion);
         catalog.unprotectCreateDb(db);
         return catalog;
     }
@@ -172,7 +169,7 @@ public class CatalogTestUtil {
     }
 
     public static Database createSimpleDb(long dbId, long tableId, long partitionId, long indexId, long tabletId,
-            long version, long versionHash) {
+            long version) {
         Catalog.getCurrentInvertedIndex().clear();
 
         // replica
@@ -199,9 +196,8 @@ public class CatalogTestUtil {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
         Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
-        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersion(testStartVersion);
         partition.setNextVersion(testStartVersion + 1);
-        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
         // columns
         List<Column> columns = new ArrayList<Column>();
@@ -266,9 +262,8 @@ public class CatalogTestUtil {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(1);
         Partition partition = new Partition(testPartitionId2, testPartition2, index, distributionInfo);
-        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersion(testStartVersion);
         partition.setNextVersion(testStartVersion + 1);
-        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
         // columns
         List<Column> columns = new ArrayList<Column>();
