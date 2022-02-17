@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
@@ -48,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class TabletReplicaTooSlowTest {
     private static final Logger LOG = LogManager.getLogger(TabletReplicaTooSlowTest.class);
@@ -133,12 +135,15 @@ public class TabletReplicaTooSlowTest {
         for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
             long beId = cell.getColumnKey();
             Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+            List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash).collect(Collectors.toList());
             if (be == null) {
                 continue;
             }
             Replica replica = cell.getValue();
             replica.setVersionCount(versionCount);
             versionCount = versionCount + 200;
+
+            replica.setPathHash(pathHashes.get(0));
         }
     }
 
@@ -154,23 +159,25 @@ public class TabletReplicaTooSlowTest {
                 ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
         int maxLoop = 300;
-        boolean deleted = true;
+        boolean delete = false;
         while (maxLoop-- > 0) {
             Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
-
+            boolean found = false;
             for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
                 Replica replica = cell.getValue();
                 if (replica.getVersionCount() == 401) {
-                    LOG.info("slow replica is not deleted.");
-                    deleted = replica.isBad();
-                    break;
+                    if (replica.tooSlow()) {
+                        LOG.info("set to TOO_SLOW.");
+                    }
+                    found = true;
                 }
             }
-            if (deleted) {
+            if (!found) {
+                delete = true;
                 break;
             }
             Thread.sleep(1000);
         }
-        Assert.assertTrue(deleted);
+        Assert.assertTrue(delete);
     }
 }

@@ -2002,12 +2002,28 @@ public class QueryPlanTest {
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ")");
+        createTable("CREATE TABLE issue7971.`t1` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k21` smallint(6) NULL COMMENT \"\",\n" +
+                "  `k31` smallint(6) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")");
         String sql = "SELECT k1, k2, GROUPING(k1), GROUPING(k2), SUM(k3) FROM issue7971.t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k1), ( ) );";
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
         Assert.assertTrue(explainStr.contains("REPEAT_NODE"));
         sql = "SELECT k1 ,GROUPING(k2) FROM issue7971.t GROUP BY CUBE (k1) ORDER BY k1;";
         explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
         Assert.assertTrue(explainStr.contains("errCode = 2"));
+        sql = "select grouping_id(t1.k1), t1.k1, max(k2) from issue7971.t left join issue7971.t1 on t.k3 = t1.k1 group by grouping sets ((k1), ());";
+        explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertTrue(explainStr.contains("REPEAT_NODE"));
     }
 
     @Test
