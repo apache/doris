@@ -104,8 +104,7 @@ OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaH
     VLOG_NOTICE << "save tablet meta to meta store: key = " << key;
     OlapMeta* meta = store->get_meta();
 
-    LOG(INFO) << "save tablet meta "
-              << ", key:" << key << " meta_size=" << meta_binary.length();
+    VLOG_NOTICE << "save tablet meta, key:" << key << " meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
@@ -118,9 +117,9 @@ OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchem
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     OlapMeta* meta = store->get_meta();
-    LOG(INFO) << "start to remove tablet_meta, key:" << key;
+    VLOG_DEBUG << "start to remove tablet_meta, key:" << key;
     OLAPStatus res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
-    LOG(INFO) << "remove tablet_meta, key:" << key << ", res:" << res;
+    VLOG_NOTICE << "remove tablet_meta, key:" << key << ", res:" << res;
     return res;
 }
 

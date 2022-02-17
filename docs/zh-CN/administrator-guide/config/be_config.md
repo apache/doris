@@ -119,12 +119,6 @@ BaseCompaction触发条件之一：上一次BaseCompaction距今的间隔
 
 BaseCompaction触发条件之一：Cumulative文件数目要达到的限制，达到这个限制之后会触发BaseCompaction
 
-### `base_compaction_num_threads_per_disk`
-
-默认值：1
-
-每个磁盘执行BaseCompaction任务的线程数目
-
 ### `base_compaction_write_mbytes_per_sec`
 
 默认值：5（MB）
@@ -289,8 +283,14 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 ### `compaction_task_num_per_disk`
 
 * 类型：int32
-* 描述：每个磁盘可以并发执行的compaction任务数量。
+* 描述：每个磁盘（HDD）可以并发执行的compaction任务数量。
 * 默认值：2
+
+### `compaction_task_num_per_fast_disk`
+
+* 类型：int32
+* 描述：每个高速磁盘（SSD）可以并发执行的compaction任务数量。
+* 默认值：4
 
 ### `compress_rowbatches`
 * 类型：bool
@@ -330,12 +330,6 @@ BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 默认值：10 （s）
 
 CumulativeCompaction线程轮询的间隔
-
-### `cumulative_compaction_num_threads_per_disk`
-
-默认值：1
-
-每个磁盘执行CumulativeCompaction线程数
 
 ### `cumulative_compaction_skip_window_seconds`
 

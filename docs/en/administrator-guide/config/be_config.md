@@ -123,12 +123,6 @@ Default：5
 
 One of the triggering conditions of BaseCompaction: The limit of the number of Cumulative files to be reached. After reaching this limit, BaseCompaction will be triggered
 
-### `base_compaction_num_threads_per_disk`
-
-Defalut：1
-
-The number of threads that execute BaseCompaction tasks per disk
-
 ### base_compaction_trace_threshold
 
 * Type: int32
@@ -294,8 +288,14 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 ### `compaction_task_num_per_disk`
 
 * Type: int32
-* Description: The number of compaction tasks which execute in parallel for a disk.
+* Description: The number of compaction tasks which execute in parallel for a disk(HDD).
 * Default value: 2
+
+### `compaction_task_num_per_fast_disk`
+
+* Type: int32
+* Description: The number of compaction tasks which execute in parallel for a fast disk(SSD).
+* Default value: 4
 
 ### `compress_rowbatches`
 
@@ -334,12 +334,6 @@ One of the trigger conditions of BaseCompaction: Singleton file size limit, 100M
 Default：10 (s)
 
 CumulativeCompaction thread polling interval
-
-### `cumulative_compaction_num_threads_per_disk`
-
-Default：1
-
-The number of CumulativeCompaction threads per disk
 
 ### `cumulative_compaction_skip_window_seconds`
 

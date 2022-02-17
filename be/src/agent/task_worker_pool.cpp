@@ -252,7 +252,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
             _worker_thread_condition_variable.notify_one();
         }
         LOG(INFO) << "success to submit task. type=" << type_str << ", signature=" << signature
-                  << ", task_count_in_queue=" << task_count_in_queue;
+                  << ", queue size=" << task_count_in_queue;
     } else {
         LOG(INFO) << "fail to register task. type=" << type_str << ", signature=" << signature;
     }
@@ -280,8 +280,8 @@ void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t 
 
     std::string type_str;
     EnumToString(TTaskType, task_type, type_str);
-    LOG(INFO) << "remove task info. type=" << type_str << ", signature=" << signature
-              << ", queue_size=" << queue_size;
+    VLOG_NOTICE << "remove task info. type=" << type_str << ", signature=" << signature
+                << ", queue_size=" << queue_size;
     TRACE("remove task info");
 }
 
@@ -713,7 +713,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         }
 
         DorisMetrics::instance()->publish_task_request_total->increment(1);
-        LOG(INFO) << "get publish version task, signature:" << agent_task_req.signature;
+        VLOG_NOTICE << "get publish version task, signature:" << agent_task_req.signature;
 
         Status st;
         std::vector<TTabletId> error_tablet_ids;
