@@ -40,6 +40,17 @@ namespace doris::vectorized {
 using DataSet = std::vector<std::pair<std::vector<std::any>, std::any>>;
 using InputTypeSet = std::vector<std::any>;
 
+int64_t str_to_data_time(std::string datetime_str, bool data_time = true) {
+    VecDateTimeValue v;
+    v.from_date_str(datetime_str.c_str(), datetime_str.size());
+    if (data_time) { //bool data_time only to simplifly means data_time or data to cast, just use in time-functions uint test
+        v.to_datetime();
+    } else {
+        v.cast_to_date();
+    }
+    return binary_cast<VecDateTimeValue, Int64>(v);
+}
+
 namespace ut_type {
 using TINYINT = int8_t;
 using SMALLINT = int16_t;
@@ -53,19 +64,11 @@ using STRING = std::string;
 
 using DOUBLE = double;
 using FLOAT = float;
-inline auto DECIMAL = Decimal<Int128>::double_to_decimal;
-} // namespace ut_type
 
-int64_t str_to_data_time(std::string datetime_str, bool data_time = true) {
-    VecDateTimeValue v;
-    v.from_date_str(datetime_str.c_str(), datetime_str.size());
-    if (data_time) { //bool data_time only to simplifly means data_time or data to cast, just use in time-functions uint test
-        v.to_datetime();
-    } else {
-        v.cast_to_date();
-    }
-    return binary_cast<VecDateTimeValue, Int64>(v);
-}
+inline auto DECIMAL = Decimal<Int128>::double_to_decimal;
+
+using DATETIME = std::string;
+} // namespace ut_type
 
 template <typename ColumnType, typename Column, typename NullColumn>
 void insert_column_to_block(std::list<ColumnPtr>& columns, ColumnsWithTypeAndName& ctn,
@@ -250,8 +253,8 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
                 col->insert_data(reinterpret_cast<char*>(&value), 0);
             }
             insert_column_to_block<DataTypeDecimal<Decimal128>>(columns, ctn, std::move(col),
-                                                    std::move(null_map), block, col_name, i,
-                                                    is_const, row_size);
+                                                                std::move(null_map), block,
+                                                                col_name, i, is_const, row_size);
             arg_type.type = doris_udf::FunctionContext::TYPE_DECIMALV2;
         } else if (tp == TypeIndex::DateTime) {
             static std::string date_time_format("%Y-%m-%d %H:%i:%s");
