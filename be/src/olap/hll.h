@@ -88,6 +88,128 @@ public:
         _explicit_data_num = 1;
     }
 
+    HyperLogLog(const HyperLogLog& other) {
+        this->_type = other._type;
+        switch (other._type) {
+        case HLL_DATA_EMPTY:
+            break;
+        case HLL_DATA_EXPLICIT: {
+            this->_explicit_data_num = other._explicit_data_num;
+            _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
+            memcpy(_explicit_data, other._explicit_data,
+                   sizeof(*_explicit_data) * _explicit_data_num);
+            break;
+        }
+        case HLL_DATA_SPARSE:
+        case HLL_DATA_FULL: {
+            _registers = new uint8_t[HLL_REGISTERS_COUNT];
+            memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
+            break;
+        default:
+            break;
+        }
+        }
+    }
+
+    HyperLogLog(HyperLogLog&& other) {
+        this->_type = other._type;
+        switch (other._type) {
+        case HLL_DATA_EMPTY:
+            break;
+        case HLL_DATA_EXPLICIT: {
+            this->_explicit_data_num = other._explicit_data_num;
+            this->_explicit_data = other._explicit_data;
+            other._explicit_data_num = 0;
+            other._explicit_data = nullptr;
+            other._type = HLL_DATA_EMPTY;
+            break;
+        }
+        case HLL_DATA_SPARSE:
+        case HLL_DATA_FULL: {
+            this->_registers = other._registers;
+            other._registers = nullptr;
+            other._type = HLL_DATA_EMPTY;
+            break;
+        default:
+            break;
+        }
+        }
+    }
+
+    HyperLogLog& operator=(HyperLogLog&& other) {
+        if (this != &other) {
+            if (_registers) {
+                delete[] _registers;
+                _registers = nullptr;
+            }
+            if (_explicit_data) {
+                delete[] _explicit_data;
+                _explicit_data = nullptr;
+            }
+
+            _explicit_data_num = 0;
+            this->_type = other._type;
+            switch (other._type) {
+            case HLL_DATA_EMPTY:
+                break;
+            case HLL_DATA_EXPLICIT: {
+                this->_explicit_data_num = other._explicit_data_num;
+                this->_explicit_data = other._explicit_data;
+                other._explicit_data_num = 0;
+                other._explicit_data = nullptr;
+                other._type = HLL_DATA_EMPTY;
+                break;
+            }
+            case HLL_DATA_SPARSE:
+            case HLL_DATA_FULL: {
+                this->_registers = other._registers;
+                other._registers = nullptr;
+                other._type = HLL_DATA_EMPTY;
+                break;
+            default:
+                break;
+            }
+            }
+        }
+        return *this;
+    }
+
+    HyperLogLog& operator=(const HyperLogLog& other) {
+        if (this != &other) {
+            if (_registers) {
+                delete[] _registers;
+                _registers = nullptr;
+            }
+            if (_explicit_data) {
+                delete[] _explicit_data;
+                _explicit_data = nullptr;
+            }
+
+            _explicit_data_num = 0;
+            this->_type = other._type;
+            switch (other._type) {
+            case HLL_DATA_EMPTY:
+                break;
+            case HLL_DATA_EXPLICIT: {
+                this->_explicit_data_num = other._explicit_data_num;
+                _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
+                memcpy(_explicit_data, other._explicit_data,
+                       sizeof(*_explicit_data) * _explicit_data_num);
+                break;
+            }
+            case HLL_DATA_SPARSE:
+            case HLL_DATA_FULL: {
+                _registers = new uint8_t[HLL_REGISTERS_COUNT];
+                memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
+                break;
+            default:
+                break;
+            }
+            }
+        }
+        return *this;
+    }
+
     explicit HyperLogLog(const Slice& src);
 
     ~HyperLogLog() {
@@ -181,7 +303,6 @@ private:
     uint8_t* _registers = nullptr;
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(HyperLogLog);
 
     void _convert_explicit_to_register();
 

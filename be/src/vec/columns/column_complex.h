@@ -22,6 +22,7 @@
 
 #include <vector>
 
+#include "olap/hll.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
@@ -318,4 +319,20 @@ void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size,
 }
 
 using ColumnBitmap = ColumnComplexType<BitmapValue>;
+using ColumnHLL = ColumnComplexType<HyperLogLog>;
+
+template <typename T>
+struct is_complex : std::false_type {};
+
+template <>
+struct is_complex<BitmapValue> : std::true_type {};  
+//DataTypeBitMap::FieldType = BitmapValue
+
+template <>
+struct is_complex<HyperLogLog> : std::true_type {};  
+//DataTypeHLL::FieldType = HyperLogLog
+
+template <class T>
+constexpr bool is_complex_v = is_complex<T>::value;
+
 } // namespace doris::vectorized

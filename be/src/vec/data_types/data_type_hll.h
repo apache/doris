@@ -16,31 +16,29 @@
 // under the License.
 
 #pragma once
-#include "util/bitmap_value.h"
+#include "olap/hll.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
-class DataTypeBitMap : public IDataType {
+class DataTypeHLL : public IDataType {
 public:
-    DataTypeBitMap() = default;
-    ~DataTypeBitMap() override = default;
+    DataTypeHLL() = default;
+    ~DataTypeHLL() override = default;
 
-    using ColumnType = ColumnBitmap;
-    using FieldType = BitmapValue;
+    using ColumnType = ColumnHLL;
+    using FieldType = doris::HyperLogLog;
 
     std::string do_get_name() const override { return get_family_name(); }
-    const char* get_family_name() const override { return "BitMap"; }
+    const char* get_family_name() const override { return "HLL"; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::BitMap; }
+    TypeIndex get_type_id() const override { return TypeIndex::HLL; }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
     char* serialize(const IColumn& column, char* buf) const override;
     const char* deserialize(const char* buf, IColumn* column) const override;
-
     MutableColumnPtr create_column() const override;
 
     bool get_is_parametric() const override { return false; }
@@ -67,17 +65,17 @@ public:
 
     bool can_be_inside_low_cardinality() const override { return false; }
 
-    std::string to_string(const IColumn& column, size_t row_num) const { return "BitMap()"; }
-    void to_string(const IColumn &column, size_t row_num, BufferWritable &ostr) const override;
+    std::string to_string(const IColumn& column, size_t row_num) const { return "HLL()"; }
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     [[noreturn]] virtual Field get_default() const {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
         __builtin_unreachable();
     }
 
-    static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);
+    static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);
 
-    static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
+    static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
 };
 
 } // namespace doris::vectorized
