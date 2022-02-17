@@ -1277,7 +1277,7 @@ public class Config extends ConfigBase {
      * If set to true, Doris will check if the compiled and running versions of Java are compatible
      */
     @ConfField
-    public static boolean check_java_version = false;
+    public static boolean check_java_version = true;
 
     /**
      * control materialized view
