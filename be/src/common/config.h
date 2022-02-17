@@ -289,7 +289,10 @@ CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 CONF_mInt32(compaction_task_num_per_disk, "2");
+// compaction thread num for fast disk(typically .SSD), must be greater than 2.
+CONF_mInt32(compaction_task_num_per_fast_disk, "4");
 CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool { return config >= 2; });
+CONF_Validator(compaction_task_num_per_fast_disk, [](const int config) -> bool { return config >= 2; });
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -354,6 +357,7 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
+CONF_mBool(disable_stream_load_2pc, "true");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.

@@ -644,7 +644,7 @@ OLAPStatus move_to_trash(const std::filesystem::path& schema_hash_root,
             OLAP_SUCCESS, "access dir failed. [dir=" + source_parent_dir);
 
     if (sub_dirs.empty() && sub_files.empty()) {
-        LOG(INFO) << "remove empty dir " << source_parent_dir;
+        VLOG_NOTICE << "remove empty dir " << source_parent_dir;
         // no need to exam return status
         Env::Default()->delete_dir(source_parent_dir);
     }

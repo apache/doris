@@ -33,6 +33,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_window.cpp
   aggregate_functions/aggregate_function_stddev.cpp
   aggregate_functions/aggregate_function_topn.cpp
+  aggregate_functions/aggregate_function_approx_count_distinct.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   columns/collator.cpp
   columns/column.cpp
@@ -55,6 +56,7 @@ set(VEC_FILES
   core/materialize_block.cpp
   data_types/data_type.cpp
   data_types/data_type_bitmap.cpp
+  data_types/data_type_hll.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nullable.cpp
@@ -144,6 +146,7 @@ set(VEC_FILES
   functions/function_datetime_string_to_string.cpp
   functions/function_grouping.cpp
   functions/function_rpc.cpp
+  functions/function_convert_tz.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
@@ -151,6 +154,8 @@ set(VEC_FILES
   sink/result_sink.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
+  sink/vmysql_table_writer.cpp
+  sink/vmysql_table_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp

@@ -254,7 +254,10 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
     // row_tuples
     _row_desc.to_protobuf(output_batch->mutable_row_tuples());
     // tuple_offsets: must clear before reserve
+    // TODO(cmy): the tuple_offsets should be removed after v1.1.0, use new_tuple_offsets instead.
+    // keep tuple_offsets here is just for compatibility.
     output_batch->clear_tuple_offsets();
+    output_batch->mutable_tuple_offsets()->Reserve(_num_rows * _num_tuples_per_row);
     output_batch->clear_new_tuple_offsets();
     output_batch->mutable_new_tuple_offsets()->Reserve(_num_rows * _num_tuples_per_row);
     // is_compressed
@@ -279,7 +282,8 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
     int64_t offset = 0; // current offset into output_batch->tuple_data
     char* tuple_data = mutable_tuple_data->data();
     const auto& tuple_descs = _row_desc.tuple_descriptors();
-    const auto& mutable_tuple_offsets = output_batch->mutable_new_tuple_offsets();
+    const auto& mutable_tuple_offsets = output_batch->mutable_tuple_offsets();
+    const auto& mutable_new_tuple_offsets = output_batch->mutable_new_tuple_offsets();
 
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
@@ -288,10 +292,12 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
             if (row->get_tuple(j) == nullptr) {
                 // NULLs are encoded as -1
                 mutable_tuple_offsets->Add(-1);
+                mutable_new_tuple_offsets->Add(-1);
                 continue;
             }
             // Record offset before creating copy (which increments offset and tuple_data)
-            mutable_tuple_offsets->Add(offset);
+            mutable_tuple_offsets->Add((int32_t) offset);
+            mutable_new_tuple_offsets->Add(offset);
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
             CHECK_LE(offset, size);
         }
@@ -519,7 +525,9 @@ vectorized::Block RowBatch::convert_to_vec_block() const {
 size_t RowBatch::get_batch_size(const PRowBatch& batch) {
     size_t result = batch.tuple_data().size();
     result += batch.row_tuples().size() * sizeof(int32_t);
+    // TODO(cmy): remove batch.tuple_offsets
     result += batch.tuple_offsets().size() * sizeof(int32_t);
+    result += batch.new_tuple_offsets().size() * sizeof(int64_t);
     return result;
 }
 

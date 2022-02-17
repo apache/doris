@@ -30,7 +30,7 @@ under the License.
 
 1. [ ] 下载链接是否合法。
 2. [ ] 校验值和 PGP 签名是否合法。
-3. [ ] 是否包含 DISCLAIMER-WIP。
+3. [ ] 是否包含 DISCLAIMER 或 DISCLAIMER-WIP 文件。
 4. [ ] 代码是否和当前发布版本相匹配。
 5. [ ] LICENSE 和 NOTICE 文件是否正确。
 6. [ ] 所有文件都携带必要的协议说明。
@@ -60,6 +60,8 @@ CentOS: yum install gnupg
 Ubuntu: apt-get install gnupg
 ```
 
+这里以 Doris 主代码 release 为例。其他 release 类似。
+
 ``` shell
 gpg --import KEYS
 gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-incubating-src.tar.gz
@@ -68,20 +70,28 @@ sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
 ## 3. 验证源码协议头
 
-推荐使用 Apache RAT 验证源码协议，可以从以下链接下载：
+这里我们使用 [apache/skywalking-eyes](https://github.com/apache/skywalking-eyes) 进行源码协议头验证。
 
-``` shell
-wget http://mirrors.tuna.tsinghua.edu.cn/apache/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz
-tar zxvf apache-rat-0.13-bin.tar.gz
+进入源码目录，执行以下命令（需要 Docker 环境）：
+
+```
+docker run -it --rm -v $(pwd):/github/workspace apache/skywalking-eyes header check
 ```
 
-假设源码目录名称为 apache-doris-a.b.c-incubating-src，可以使用以下命令进行验证。
-这个命令会产生一个文件，其中列举了所有非 ASF 协议的文件。
+输出类似如下结果:
 
-``` shell
-/usr/java/jdk/bin/java  -jar apache-rat-0.13/apache-rat-0.13.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excludes 
 ```
+INFO GITHUB_TOKEN is not set, license-eye won't comment on the pull request
+INFO Loading configuration from file: .licenserc.yaml
+INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 0
+```
+
+其中 invalid 为 0 表示检查通过。
+
+> 部分非 Apache License 协议头的文件记录在 `.licenserc.yaml` 中。
 
 ## 4. 验证编译
 
-详细的编译步骤，请参阅 [编译文档](../installing/compilation.html)
+* Doris 主代码编译，请参阅 [编译文档](../installing/compilation.html)
+* Flink Doris Connector 编译，请参阅 [编译文档](../extending-doris/flink-doris-connector.md)
+* Spark Doris Connector 编译，请参阅 [编译文档](../extending-doris/spark-doris-connector.md)

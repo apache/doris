@@ -34,6 +34,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
@@ -140,6 +141,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::DATETIME;
     case TypeIndex::BitMap:
         return PGenericType::BITMAP;
+    case TypeIndex::HLL:
+        return PGenericType::HLL;
     default:
         return PGenericType::UNKNOWN;
     }
@@ -181,10 +184,12 @@ DataTypePtr IDataType::from_thrift(const doris::PrimitiveType& type, const bool 
             break;
         case TYPE_CHAR:
         case TYPE_VARCHAR:
-        case TYPE_HLL:
         case TYPE_STRING:
             result = std::make_shared<DataTypeString>();
             break;
+        case TYPE_HLL:
+            result = std::make_shared<DataTypeHLL>();
+            break;        
         case TYPE_OBJECT:
             result = std::make_shared<DataTypeBitMap>();
             break;
@@ -242,10 +247,12 @@ DataTypePtr IDataType::from_olap_engine(const doris::FieldType & type, const _Bo
             break;
         case OLAP_FIELD_TYPE_CHAR:
         case OLAP_FIELD_TYPE_VARCHAR:
-        case OLAP_FIELD_TYPE_HLL:
         case OLAP_FIELD_TYPE_STRING:
             result = std::make_shared<DataTypeString>();
             break;
+        case OLAP_FIELD_TYPE_HLL:
+            result = std::make_shared<DataTypeHLL>();
+            break;        
         case OLAP_FIELD_TYPE_OBJECT:
             result = std::make_shared<DataTypeBitMap>();
             break;

@@ -21,6 +21,7 @@
 #include "vec/columns/column_complex.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 class DataTypeBitMap : public IDataType {
@@ -78,14 +79,5 @@ public:
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
 };
-
-template <typename T>
-struct is_complex : std::false_type {};
-
-template <>
-struct is_complex<DataTypeBitMap::FieldType> : std::true_type {};
-
-template <class T>
-constexpr bool is_complex_v = is_complex<T>::value;
 
 } // namespace doris::vectorized

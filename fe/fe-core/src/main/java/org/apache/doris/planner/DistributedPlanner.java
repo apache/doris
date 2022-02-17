@@ -299,20 +299,6 @@ public class DistributedPlanner {
     }
 
     /**
-     * When broadcastCost and partitionCost are equal, there is no uniform standard for which join implementation is better.
-     * Some scenarios are suitable for broadcast join, and some scenarios are suitable for shuffle join.
-     * Therefore, we add a SessionVariable to help users choose a better join implementation.
-     */
-    private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost) {
-        String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
-        if (joinMethod.equalsIgnoreCase("broadcast")) {
-            return broadcastCost <= partitionCost;
-        } else {
-            return broadcastCost < partitionCost;
-        }
-    }
-
-    /**
      * There are 4 kinds of distributed hash join methods in Doris:
      * Colocate, Bucket Shuffle, Broadcast, Shuffle
      * The priority between these four distributed execution methods is following:

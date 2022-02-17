@@ -145,6 +145,24 @@ TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
 TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
 
+#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION)                                   \
+    struct CLASS {                                                                           \
+        using ReturnType = DataTypeInt32;                                                    \
+        static constexpr auto name = #NAME;                                                  \
+        static constexpr auto is_nullable = false;                                           \
+        static inline int64_t execute(const Int64& t0, const Int32 mode, bool& is_null) {    \
+            const auto& ts0 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t0);           \
+            is_null = !ts0.is_valid_date();                                                    \
+            return ts0.FUNCTION;                                                               \
+        }                                                                                      \
+        static DataTypes get_variadic_argument_types() {                                       \
+            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeInt32>()};  \
+        }                                                                                      \
+    }
+
+TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)));
+TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)));
+
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeOp {
     // use for (DateTime, DateTime) -> other_type
@@ -245,10 +263,14 @@ struct DateTimeAddIntervalImpl {
                     Op::vector_constant(sources->get_data(), col_to->get_data(),
                                         null_map->get_data(),
                                         delta_const_column->get_field().get<Int128>());
-                } else {
+                } else if (delta_const_column->get_field().get_type() == Field::Types::Int64) {
                     Op::vector_constant(sources->get_data(), col_to->get_data(),
                                         null_map->get_data(),
                                         delta_const_column->get_field().get<Int64>());
+                } else {
+                    Op::vector_constant(sources->get_data(), col_to->get_data(),
+                                        null_map->get_data(),
+                                        delta_const_column->get_field().get<Int32>());
                 }
             } else {
                 if (const auto* delta_vec_column0 =
@@ -296,12 +318,20 @@ template <typename Transform>
 class FunctionDateOrDateTimeComputation : public IFunction {
 public:
     static constexpr auto name = Transform::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+
     static FunctionPtr create() { return std::make_shared<FunctionDateOrDateTimeComputation>(); }
 
     String get_name() const override { return name; }
 
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() != 2 && arguments.size() != 3) {

@@ -68,6 +68,7 @@ void register_function_random(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
+void register_function_convert_tz(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -75,7 +76,7 @@ class SimpleFunctionFactory {
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
 
 public:
-    void register_function(const std::string& name, Creator ptr) {
+    void register_function(const std::string& name, const Creator& ptr) {
         DataTypes types = ptr()->get_variadic_argument_types();
         // types.empty() means function is not variadic
         if (!types.empty()) {
@@ -84,8 +85,8 @@ public:
 
         std::string key_str = name;
         if (!types.empty()) {
-            for (auto type : types) {
-                key_str.append(type->get_name());
+            for (const auto& type : types) {
+                key_str.append(type->get_family_name());
             }
         }
         function_creators[key_str] = ptr;
@@ -117,8 +118,8 @@ public:
                 key_str.append(arg.type->is_nullable()
                                        ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
                                                  ->get_nested_type()
-                                                 ->get_name()
-                                       : arg.type->get_name());
+                                                 ->get_family_name()
+                                       : arg.type->get_family_name());
             }
         }
 
@@ -185,6 +186,7 @@ public:
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
+            register_function_convert_tz(instance);
         });
         return instance;
     }

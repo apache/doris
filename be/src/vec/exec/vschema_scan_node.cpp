@@ -139,14 +139,18 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
 Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, 
                                                         SlotDescriptor* slot_desc,
                                                         vectorized::MutableColumnPtr* column_ptr) {
-    vectorized::MutableColumnPtr* col_ptr = column_ptr;
+    vectorized::IColumn* col_ptr = column_ptr->get();
     if (slot_desc->is_nullable()) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
         nullable_column->get_null_map_data().push_back(0);
-        col_ptr = reinterpret_cast<vectorized::MutableColumnPtr*>(&nullable_column->get_nested_column());
+        col_ptr = &nullable_column->get_nested_column();
     }
     switch (slot_desc->type().type) {
-        case TYPE_HLL:
+        case TYPE_HLL: {
+            HyperLogLog* hll_slot = reinterpret_cast<HyperLogLog*>(slot);
+            reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(*hll_slot);
+            break;            
+        }
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {

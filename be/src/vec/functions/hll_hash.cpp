@@ -20,73 +20,46 @@
 #include "udf/udf.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
 struct HLLHash {
     static constexpr auto name = "hll_hash";
 
-    using ReturnType = DataTypeString;
+    using ReturnType = DataTypeHLL;
 
     static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                        MutableColumnPtr& col_res) {
-        ColumnString::Chars& res_data = reinterpret_cast<ColumnString*>(col_res.get())->get_chars();
-        ColumnString::Offsets& res_offsets =
-                reinterpret_cast<ColumnString*>(col_res.get())->get_offsets();
-
+        auto* res_column = reinterpret_cast<ColumnHLL*>(col_res.get());
+        auto& res_data = res_column->get_data();
         size_t size = offsets.size();
-        res_offsets.resize(size);
-        res_data.reserve(data.size());
-
-        size_t prev_offset = 0;
-        size_t res_offset = 0;
 
         for (size_t i = 0; i < size; ++i) {
-            auto hash_string = HllFunctions::hll_hash(
-                    StringVal((uint8_t*)(&data[prev_offset]), offsets[i] - prev_offset - 1));
-
-            res_data.resize(res_data.size() + hash_string.length() + 1);
-            memcpy_small_allow_read_write_overflow15(&res_data[res_offset], hash_string.c_str(),
-                                                     hash_string.length());
-            res_offset += hash_string.length() + 1;
-            res_data[res_offset - 1] = 0;
-
-            res_offsets[i] = res_offset;
-            prev_offset = offsets[i];
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t str_size = offsets[i] - offsets[i - 1] - 1;
+            uint64_t hash_value = HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
+            res_data[i].update(hash_value);
         }
     }
 
     static void vector_nullable(const ColumnString::Chars& data,
                                 const ColumnString::Offsets& offsets, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
-        ColumnString::Chars& res_data = reinterpret_cast<ColumnString*>(col_res.get())->get_chars();
-        ColumnString::Offsets& res_offsets =
-                reinterpret_cast<ColumnString*>(col_res.get())->get_offsets();
 
+        auto* res_column = reinterpret_cast<ColumnHLL*>(col_res.get());
+        auto& res_data = res_column->get_data();
         size_t size = offsets.size();
-        res_offsets.resize(size);
-        res_data.reserve(data.size());
-
-        size_t prev_offset = 0;
-        size_t res_offset = 0;
 
         for (size_t i = 0; i < size; ++i) {
-            std::string hash_string;
             if (nullmap[i]) {
-                hash_string = HyperLogLog::empty();
+                continue;
             } else {
-                hash_string = HllFunctions::hll_hash(
-                        StringVal((uint8_t*)(&data[prev_offset]), offsets[i] - prev_offset - 1));
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                uint64_t hash_value = HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
+                res_data[i].update(hash_value);
             }
-
-            res_data.resize(res_data.size() + hash_string.length() + 1);
-            memcpy_small_allow_read_write_overflow15(&res_data[res_offset], hash_string.c_str(),
-                                                     hash_string.length());
-            res_offset += hash_string.length() + 1;
-            res_data[res_offset - 1] = 0;
-
-            res_offsets[i] = res_offset;
-            prev_offset = offsets[i];
         }
     }
 };

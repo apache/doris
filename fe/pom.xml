@@ -104,6 +104,7 @@ under the License.
         <module>fe-common</module>
         <module>spark-dpp</module>
         <module>fe-core</module>
+        <module>hive-udf</module>
     </modules>
     <properties>
         <doris.home>${basedir}/../</doris.home>

@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 
@@ -311,51 +311,14 @@ public:
                                     ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
                                               ->get_nested_type()
                                     : data_type);
-
-        // TODO: use template traits here.
-        if (which.is_uint8()) {
-            return execute_get_when_null<ColumnUInt8>(data_type, block, arguments, result,
-                                                      input_rows_count);
-        } else if (which.is_int16()) {
-            return execute_get_when_null<ColumnInt16>(data_type, block, arguments, result,
-                                                      input_rows_count);
-        } else if (which.is_uint32()) {
-            return execute_get_when_null<ColumnUInt32>(data_type, block, arguments, result,
-                                                       input_rows_count);
-        } else if (which.is_uint64()) {
-            return execute_get_when_null<ColumnUInt64>(data_type, block, arguments, result,
-                                                       input_rows_count);
-        } else if (which.is_int8()) {
-            return execute_get_when_null<ColumnInt8>(data_type, block, arguments, result,
-                                                     input_rows_count);
-        } else if (which.is_int16()) {
-            return execute_get_when_null<ColumnInt16>(data_type, block, arguments, result,
-                                                      input_rows_count);
-        } else if (which.is_int32()) {
-            return execute_get_when_null<ColumnInt32>(data_type, block, arguments, result,
-                                                      input_rows_count);
-        } else if (which.is_int64()) {
-            return execute_get_when_null<ColumnInt64>(data_type, block, arguments, result,
-                                                      input_rows_count);
-        } else if (which.is_date_or_datetime()) {
-            return execute_get_when_null<ColumnVector<DateTime>>(data_type, block, arguments,
-                                                                 result, input_rows_count);
-        } else if (which.is_float32()) {
-            return execute_get_when_null<ColumnFloat32>(data_type, block, arguments, result,
-                                                        input_rows_count);
-        } else if (which.is_float64()) {
-            return execute_get_when_null<ColumnFloat64>(data_type, block, arguments, result,
-                                                        input_rows_count);
-        } else if (which.is_decimal()) {
-            return execute_get_when_null<ColumnDecimal<Decimal128>>(data_type, block, arguments,
-                                                                    result, input_rows_count);
-        } else if (which.is_string()) {
-            return execute_get_when_null<ColumnString>(data_type, block, arguments, result,
-                                                       input_rows_count);
-        } else {
-            return Status::NotSupported(fmt::format("Unexpected type {} of argument of function {}",
-                                                    data_type->get_name(), get_name()));
-        }
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
+    if (which.idx == TypeIndex::TYPE)                                                  \
+        return execute_get_when_null<COLUMN_TYPE>(data_type, block, arguments, result, \
+                                                  input_rows_count);
+        TYPE_TO_COLUMN_TYPE(DISPATCH)
+#undef DISPATCH
+        return Status::NotSupported(
+                fmt::format("argument_type {} not supported", data_type->get_name()));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

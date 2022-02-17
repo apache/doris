@@ -142,10 +142,10 @@ vectorized::DataTypePtr Schema::get_data_type_ptr(FieldType type) {
 
         case OLAP_FIELD_TYPE_CHAR:
         case OLAP_FIELD_TYPE_VARCHAR:
-        case OLAP_FIELD_TYPE_HLL:
         case OLAP_FIELD_TYPE_STRING:
             return std::make_shared<vectorized::DataTypeString>();
-        
+        case OLAP_FIELD_TYPE_HLL:
+            return std::make_shared<vectorized::DataTypeHLL>();        
         case TYPE_OBJECT:
             return std::make_shared<vectorized::DataTypeBitMap>();
 
