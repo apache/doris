@@ -50,4 +50,5 @@ mysql> SELECT CURDATE() + 0;
 +---------------+
 ```
 ## keyword
-CURDATE
+
+    CURTIME,CURRENT_TIME
