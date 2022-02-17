@@ -49,7 +49,7 @@ under the License.
 CREATE SQL_BLOCK_RULE test_rule 
 PROPERTIES(
   "sql"="select * from order_analysis",
-  "global":"false",
+  "global"="false",
   "enable"="true",
   "sqlHash"=""
 )
