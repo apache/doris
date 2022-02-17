@@ -25,12 +25,13 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
 namespace doris::vectorized {
 
 struct PercentileApproxState {
     static constexpr double INIT_QUANTILE = -1.0;
-    PercentileApproxState() {}
-    ~PercentileApproxState() {}
+    PercentileApproxState() = default;
+    ~PercentileApproxState() = default;
 
     void init(double compression = 10000) {
         if (!init_flag) {
@@ -41,7 +42,7 @@ struct PercentileApproxState {
 
     void write(BufferWritable& buf) const {
         write_binary(init_flag, buf);
-        write_binary(targetQuantile, buf);
+        write_binary(target_quantile, buf);
 
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
@@ -53,7 +54,7 @@ struct PercentileApproxState {
 
     void read(BufferReadable& buf) {
         read_binary(init_flag, buf);
-        read_binary(targetQuantile, buf);
+        read_binary(target_quantile, buf);
 
         std::string str;
         read_binary(str, buf);
@@ -61,7 +62,7 @@ struct PercentileApproxState {
         digest->unserialize((uint8_t*)str.c_str());
     }
 
-    double get() const { return digest->quantile(targetQuantile); }
+    double get() const { return digest->quantile(target_quantile); }
 
     void merge(const PercentileApproxState& rhs) {
         if (init_flag) {
@@ -72,25 +73,25 @@ struct PercentileApproxState {
             digest->merge(rhs.digest.get());
             init_flag = true;
         }
-        if (targetQuantile == PercentileApproxState::INIT_QUANTILE) {
-            targetQuantile = rhs.targetQuantile;
+        if (target_quantile == PercentileApproxState::INIT_QUANTILE) {
+            target_quantile = rhs.target_quantile;
         }
     }
 
     void add(double source, double quantile) {
         digest->add(source);
-        targetQuantile = quantile;
+        target_quantile = quantile;
     }
 
     void reset() {
-        targetQuantile = INIT_QUANTILE;
+        target_quantile = INIT_QUANTILE;
         init_flag = false;
         digest.reset();
     }
 
     bool init_flag = false;
-    std::shared_ptr<TDigest> digest;
-    double targetQuantile = INIT_QUANTILE;
+    std::unique_ptr<TDigest> digest;
+    double target_quantile = INIT_QUANTILE;
 };
 
 class AggregateFunctionPercentileApprox
