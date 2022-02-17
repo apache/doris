@@ -119,6 +119,7 @@ set(VEC_FILES
   functions/function_utility.cpp
   functions/comparison_equal_for_null.cpp
   functions/function_json.cpp
+  functions/function_datetime_floor_ceil.cpp
   functions/hll_cardinality.cpp
   functions/hll_empty.cpp
   functions/hll_hash.cpp
