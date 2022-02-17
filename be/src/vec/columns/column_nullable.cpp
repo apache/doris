@@ -44,9 +44,10 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
 }
 
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
-    const auto& arr = get_null_map_data();
-    hash.update(arr[n]);
-    if (arr[n] == 0) get_nested_column().update_hash_with_value(n, hash);
+    if (is_null_at(n))
+        hash.update(0);
+    else
+        get_nested_column().update_hash_with_value(n, hash);
 }
 
 MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
