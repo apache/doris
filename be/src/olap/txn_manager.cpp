@@ -244,11 +244,11 @@ OLAPStatus TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         txn_tablet_map[key][tablet_info] = load_info;
         _insert_txn_partition_map_unlocked(transaction_id, partition_id);
-        LOG(INFO) << "commit transaction to engine successfully."
-                  << " partition_id: " << key.first << ", transaction_id: " << key.second
-                  << ", tablet: " << tablet_info.to_string()
-                  << ", rowsetid: " << rowset_ptr->rowset_id()
-                  << ", version: " << rowset_ptr->version().first;
+        VLOG_NOTICE << "commit transaction to engine successfully."
+                    << " partition_id: " << key.first << ", transaction_id: " << key.second
+                    << ", tablet: " << tablet_info.to_string()
+                    << ", rowsetid: " << rowset_ptr->rowset_id()
+                    << ", version: " << rowset_ptr->version().first;
     }
     return OLAP_SUCCESS;
 }
@@ -300,11 +300,11 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         auto it = txn_tablet_map.find(key);
         if (it != txn_tablet_map.end()) {
             it->second.erase(tablet_info);
-            LOG(INFO) << "publish txn successfully."
-                      << " partition_id: " << key.first << ", txn_id: " << key.second
-                      << ", tablet: " << tablet_info.to_string()
-                      << ", rowsetid: " << rowset_ptr->rowset_id() << ", version: " << version.first
-                      << "," << version.second;
+            VLOG_NOTICE << "publish txn successfully."
+                        << " partition_id: " << key.first << ", txn_id: " << key.second
+                        << ", tablet: " << tablet_info.to_string()
+                        << ", rowsetid: " << rowset_ptr->rowset_id() << ", version: " << version.first
+                        << "," << version.second;
             if (it->second.empty()) {
                 txn_tablet_map.erase(it);
                 _clear_txn_partition_map_unlocked(transaction_id, partition_id);

@@ -397,7 +397,11 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
-                _submit_compaction_task(tablet, compaction_type);
+                Status st = _submit_compaction_task(tablet, compaction_type);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to submit compaction task for tablet: " << tablet->tablet_id()
+                        << ", err: " << st.get_error_msg();
+                }
             }
             interval = config::generate_compaction_tasks_min_interval_ms;
         } else {
@@ -435,13 +439,14 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         // If so, the last Slot can be assigned to Base compaction,
         // otherwise, this Slot needs to be reserved for cumulative compaction.
         int count = copied_cumu_map[data_dir].size() + copied_base_map[data_dir].size();
-        if (count >= config::compaction_task_num_per_disk) {
+        int thread_per_disk = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk : config::compaction_task_num_per_disk;
+        if (count >= thread_per_disk) {
             // Return if no available slot
             need_pick_tablet = false;
             if (!check_score) {
                 continue;
             }
-        } else if (count >= config::compaction_task_num_per_disk - 1) {
+        } else if (count >= thread_per_disk - 1) {
             // Only one slot left, check if it can be assigned to base compaction task.
             if (compaction_type == CompactionType::BASE_COMPACTION) {
                 if (copied_cumu_map[data_dir].empty()) {
@@ -548,9 +553,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet, Compaction
                 "compaction task has already been submitted, tablet_id=$0, compaction_type=$1.",
                 tablet->tablet_id(), compaction_type));
     }
-    int64_t permits =
-            tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet);
-    if (permits > 0 && _permit_limiter.request(permits)) {
+    int64_t permits = 0;
+    Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
+    if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
         auto st = _compaction_thread_pool->submit_func([=]() {
           CgroupsMgr::apply_system_cgroup();
           tablet->execute_compaction(compaction_type);
@@ -573,9 +578,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet, Compaction
         // reset compaction
         tablet->reset_compaction(compaction_type);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-        return Status::InternalError(strings::Substitute(
-                "failed to prepare compaction task and calculate permits, tablet_id=$0, compaction_type=$1.",
-                tablet->tablet_id(), compaction_type));
+        if (st != OLAP_SUCCESS) {
+            return Status::InternalError(strings::Substitute(
+                        "failed to prepare compaction task and calculate permits, tablet_id=$0, compaction_type=$1, "
+                        "permit=$2, current_permit=$3, status=$4",
+                        tablet->tablet_id(), compaction_type, permits, _permit_limiter.usage(), st.get_error_msg()));
+        } else {
+            return Status::OK();
+        }
     }
 }
 

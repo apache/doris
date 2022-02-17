@@ -34,7 +34,7 @@ EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publi
 OLAPStatus EnginePublishVersionTask::finish() {
     OLAPStatus res = OLAP_SUCCESS;
     int64_t transaction_id = _publish_version_req.transaction_id;
-    LOG(INFO) << "begin to process publish version. transaction_id=" << transaction_id;
+    VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
@@ -108,9 +108,9 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
             partition_related_tablet_infos.erase(tablet_info);
-            LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
-                      << ", transaction_id=" << transaction_id << ", version=" << version.first
-                      << ", res=" << publish_status;
+            VLOG_NOTICE << "publish version successfully on tablet. tablet=" << tablet->full_name()
+                        << ", transaction_id=" << transaction_id << ", version=" << version.first
+                        << ", res=" << publish_status;
         }
 
         // check if the related tablet remained all have the version
