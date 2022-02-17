@@ -154,6 +154,7 @@ set(VEC_FILES
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
+  sink/vmysql_table_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp

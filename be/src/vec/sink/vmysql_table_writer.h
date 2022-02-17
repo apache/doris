@@ -14,63 +14,45 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
+
+#include <fmt/format.h>
+#include <mysql/mysql.h>
+
+#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "runtime/mysql_table_writer.h"
 
 namespace doris {
-
-class RowDescriptor;
-class TExpr;
-class TMysqlTableSink;
-class RuntimeState;
-class RuntimeProfile;
-class ExprContext;
-class MemTracker;
 namespace vectorized {
 
 class VExprContext;
-class VExpr;
-// This class is a sinker, which put input data to mysql table
-class VMysqlTableSink : public DataSink {
+class Block;
+class VMysqlTableWriter {
 public:
-    VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& t_exprs);
+    VMysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_exprs);
+    ~VMysqlTableWriter();
 
-    ~VMysqlTableSink();
+    // connect to mysql server
+    Status open(const MysqlConnInfo& conn_info, const std::string& tbl);
 
-    Status init(const TDataSink& thrift_sink) override;
+    Status begin_trans() { return Status::OK(); }
 
-    Status prepare(RuntimeState* state) override;
+    Status append(vectorized::Block* block);
 
-    Status open(RuntimeState* state) override;
+    Status abort_tarns() { return Status::OK(); }
 
-    Status send(RuntimeState* state, RowBatch* batch) override;
-
-    Status send(RuntimeState* state, vectorized::Block* block) override;
-    // Flush all buffered data and close all existing channels to destination
-    // hosts. Further send() calls are illegal after calling close().
-    Status close(RuntimeState* state, Status exec_status) override;
-
-    RuntimeProfile* profile() override { return _profile; }
+    Status finish_tarns() { return Status::OK(); }
 
 private:
-    // owned by RuntimeState
-    ObjectPool* _pool;
-    const RowDescriptor& _row_desc;
-    const std::vector<TExpr>& _t_output_expr;
-
-    std::vector<VExprContext*> _output_expr_ctxs;
-    MysqlConnInfo _conn_info;
+    Status insert_row(vectorized::Block& block, size_t row);
+    const std::vector<vectorized::VExprContext*>& _vec_output_expr_ctxs;
+    fmt::memory_buffer _insert_stmt_buffer;
     std::string _mysql_tbl;
-    MysqlTableWriter* _writer;
-
-    RuntimeProfile* _profile;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    MYSQL* _mysql_conn;
 };
 } // namespace vectorized
 } // namespace doris
-
