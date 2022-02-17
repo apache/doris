@@ -70,7 +70,7 @@ under the License.
 | OLAP_ERR_CHECKSUM_ERROR | -208 | Check value error |
 | OLAP_ERR_SIGNATURE_ERROR | -209 | Signature error |
 | OLAP_ERR_CATCH_EXCEPTION | -210 | Exception caught |
-| OLAP_ERR_PARSE_PROTOBUF_ERROR | -211 | Error parsing Protobuf
+| OLAP_ERR_PARSE_PROTOBUF_ERROR | -211 | Error parsing Protobuf|
 | OLAP_ERR_INVALID_ROOT_PATH | -222 | Invalid root directory |
 | OLAP_ERR_NO_AVAILABLE_ROOT_PATH | -223 | No valid root directory |
 | OLAP_ERR_CHECK_LINES_ERROR | -224 | Check the number of lines error |
@@ -87,6 +87,7 @@ under the License.
 | OLAP_ERR_TOO_MANY_VERSION | -235 | The tablet data version exceeds the maximum limit (default 500) |
 | OLAP_ERR_NOT_INITIALIZED | -236 | Cannot initialize |
 | OLAP_ERR_ALREADY_CANCELLED | -237 | Has been cancelled |
+| OLAP_ERR_TOO_MANY_SEGMENTS | -238 | usually occurs when the amount of imported data in the same batch is too large, resulting in too many segment files for a tablet |
 | Command execution exception code | | |
 | OLAP_ERR_CE_CMD_PARAMS_ERROR | -300 | Command parameter error |
 | OLAP_ERR_CE_BUFFER_TOO_SMALL | -301 | Too many small files in the buffer |
