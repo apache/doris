@@ -100,7 +100,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
+        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
     }
 
     // candidate_rowsets may not be continuous. Because some rowset may not be selected
@@ -124,14 +124,14 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             &_last_delete_version, &compaction_score);
 
     // Cumulative compaction will process with at least 1 rowset.
-    // So when there is no rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS:
+    // So when there is no rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION:
     if (_input_rowsets.empty()) {
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
-            return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
+            return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.
@@ -175,7 +175,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             }
         }
 
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
+        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
     }
 
     return OLAP_SUCCESS;

@@ -65,10 +65,14 @@ struct AddBatchCounter {
     int64_t add_batch_wait_execution_time_us = 0;
     // number of add_batch call
     int64_t add_batch_num = 0;
+    // time passed between marked close and finish close
+    int64_t close_wait_time_ms = 0;
+
     AddBatchCounter& operator+=(const AddBatchCounter& rhs) {
         add_batch_execution_time_us += rhs.add_batch_execution_time_us;
         add_batch_wait_execution_time_us += rhs.add_batch_wait_execution_time_us;
         add_batch_num += rhs.add_batch_num;
+        close_wait_time_ms += rhs.close_wait_time_ms;
         return *this;
     }
     friend AddBatchCounter operator+(const AddBatchCounter& lhs, const AddBatchCounter& rhs) {
@@ -186,6 +190,7 @@ public:
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
                      int64_t* total_add_batch_num) {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
+        (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
         *serialize_batch_ns += _serialize_batch_ns;
         *mem_exceeded_block_ns += _mem_exceeded_block_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
@@ -274,6 +279,9 @@ private:
     // the previous RPC to be fully completed before the next copy.
     std::string _tuple_data_buffer;
     std::string* _tuple_data_buffer_ptr = nullptr;
+
+    // the timestamp when this node channel be marked closed and finished closed
+    uint64_t _close_time_ms = 0;
 };
 
 class IndexChannel {
@@ -309,12 +317,17 @@ private:
     int64_t _index_id;
     int32_t _schema_hash;
 
+    // from backend channel to tablet_id
+    // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
+    // Because the destruct order of objects is opposite to the creation order.
+    // So NodeChannel will be destructured first.
+    // And the destructor function of NodeChannel waits for all RPCs to finish.
+    // This ensures that it is safe to use `_tablets_by_channel` in the callback function for the end of the RPC.
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
     // BeId -> channel
     std::unordered_map<int64_t, std::shared_ptr<NodeChannel>> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<std::shared_ptr<NodeChannel>>> _channels_by_tablet;
-    // from backend channel to tablet_id
-    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
 
     // lock to protect _failed_channels and _failed_channels_msgs
     mutable SpinLock _fail_lock;

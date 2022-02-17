@@ -92,9 +92,9 @@ OLAPStatus BetaRowset::split_range(const RowCursor& start_key, const RowCursor& 
 
 OLAPStatus BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
-    LOG(INFO) << "begin to remove files in rowset " << unique_id()
-              << ", version:" << start_version() << "-" << end_version()
-              << ", tabletid:" << _rowset_meta->tablet_id();
+    VLOG_NOTICE << "begin to remove files in rowset " << unique_id()
+                << ", version:" << start_version() << "-" << end_version()
+                << ", tabletid:" << _rowset_meta->tablet_id();
     bool success = true;
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
@@ -102,8 +102,8 @@ OLAPStatus BetaRowset::remove() {
         fs::BlockManager* block_mgr = fs::fs_util::block_manager(path_desc.storage_medium);
         if (!block_mgr->delete_block(path_desc).ok()) {
             char errmsg[64];
-            LOG(WARNING) << "failed to delete file. err=" << strerror_r(errno, errmsg, 64)
-                         << ", " << path_desc.debug_string();
+            VLOG_NOTICE << "failed to delete file. err=" << strerror_r(errno, errmsg, 64)
+                        << ", " << path_desc.debug_string();
             success = false;
         }
     }

@@ -346,6 +346,7 @@ Status NodeChannel::mark_close() {
         _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
         _pending_batches_num++;
         DCHECK(_pending_batches.back().second.eos());
+        _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
                   << " mark closed, left pending batch size: " << _pending_batches.size();
     }
@@ -367,14 +368,10 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    MonotonicStopWatch timer;
-    timer.start();
     while (!_add_batches_finished && !_cancelled) {
         SleepFor(MonoDelta::FromMilliseconds(1));
     }
-    timer.stop();
-    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms"
-                  << ", " << _load_info;
+    _close_time_ms = UnixMillis() - _close_time_ms; 
 
     if (_add_batches_finished) {
         {
@@ -979,7 +976,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // TODO need to be improved
         LOG(INFO) << "total mem_exceeded_block_ns=" << mem_exceeded_block_ns
                   << ", total queue_push_lock_ns=" << queue_push_lock_ns
-                  << ", total actual_consume_ns=" << actual_consume_ns;
+                  << ", total actual_consume_ns=" << actual_consume_ns
+                  << ", load id=" << print_id(_load_id);
 
         COUNTER_SET(_input_rows_counter, _number_input_rows);
         COUNTER_SET(_output_rows_counter, _number_output_rows);
@@ -1003,11 +1001,11 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
-           << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait execution time(ms)/num: ";
+           << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait execution time(ms)/close time(ms)/num: ";
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
                << ")(" << (pair.second.add_batch_wait_execution_time_us / 1000) << ")("
-               << pair.second.add_batch_num << ")} ";
+               << pair.second.close_wait_time_ms << ")(" << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
     } else {
