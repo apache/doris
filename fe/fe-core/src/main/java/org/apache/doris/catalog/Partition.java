@@ -156,7 +156,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
-        this.setVisibleVersion(visibleVersion, visibleVersionTime);
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
         if (MetaContext.get() != null) {
             // MetaContext is not null means we are in a edit log replay thread.
             // if it is upgrade from old palo cluster, then should update next version info
@@ -180,7 +180,7 @@ public class Partition extends MetaObject implements Writable {
         this.visibleVersionTime = System.currentTimeMillis();
     }
 
-    public void setVisibleVersion(long visibleVersion, long visibleVersionTime) {
+    public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = visibleVersionTime;
     }
