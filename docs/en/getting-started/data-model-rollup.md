@@ -450,7 +450,7 @@ The prefix index, which is based on sorting, implements an index method to query
 
 We use the prefix index of **36 bytes** of a row of data as the prefix index of this row of data. When a VARCHAR type is encountered, the prefix index is truncated directly. We give examples to illustrate:
 
-1. The prefix index of the following table structure is user_id (8 Bytes) + age (4 Bytes) + message (prefix 24 Bytes).
+1. The prefix index of the following table structure is user_id (8 Bytes) + age (4 Bytes) + message (prefix 20 Bytes).
 
 |ColumnName|Type|
 |---|---|
