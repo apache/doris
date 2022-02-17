@@ -120,7 +120,7 @@ void Minidump::_clean_old_minidump() {
 
         // list all files
         std::vector<std::string> files;
-        Status st = FileUtils::list_files(Env::Default(), config::minidump_dir, &files);
+        FileUtils::list_files(Env::Default(), config::minidump_dir, &files);
         for (auto it = files.begin(); it != files.end();) {
             if (!ends_with(*it, ".dmp")) {
                 it = files.erase(it);

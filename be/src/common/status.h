@@ -211,7 +211,7 @@ public:
     Slice message() const;
 
     TStatusCode::type code() const {
-        return ok() ? TStatusCode::OK : static_cast<TStatusCode::type>(_state[4]);
+        return ok() ? TStatusCode::OK : static_cast<TStatusCode::type>(_code);
     }
 
     int16_t precise_code() const {
@@ -257,9 +257,12 @@ private:
         _code = (char)code;
         _precise_code = precise_code;
 
+        // copy msg
         char* result =  _state + HEADER_LEN;
         uint32_t len = std::min<uint32_t>(len1, MESSAGE_LEN);
         memcpy(result, msg.data, len);
+
+        // copy msg2
         if (len2 > 0 && len < MESSAGE_LEN - 2) {
             result[len++] = ':'; 
             result[len++] = ' ';
