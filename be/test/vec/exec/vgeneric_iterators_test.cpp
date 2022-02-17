@@ -55,7 +55,11 @@ static void create_block(Schema& schema, vectorized::Block& block)
         ASSERT_TRUE(column_desc);
         auto data_type = Schema::get_data_type_ptr(column_desc->type());
         ASSERT_NE(data_type, nullptr);
-        vectorized::ColumnWithTypeAndName ctn(data_type->create_column(), data_type, column_desc->name());
+        if (column_desc->is_nullable()) {
+            data_type = std::make_shared<vectorized::DataTypeNullable>(std::move(data_type));
+        }
+        auto column = data_type->create_column();
+        vectorized::ColumnWithTypeAndName ctn(std::move(column), data_type, column_desc->name());
         block.insert(ctn);
     }
 }
@@ -79,16 +83,12 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     auto c1 = block.get_by_position(1).column;
     auto c2 = block.get_by_position(2).column;
 
-    ASSERT_TRUE(c0->is_numeric());
-    ASSERT_TRUE(c1->is_numeric());
-    ASSERT_TRUE(c2->is_numeric());
-
     int row_count = 0;
     size_t rows = block.rows();
     for (size_t i = 0; i < rows; ++i) {
-        ASSERT_EQ(row_count,     c0->get_int(i));
-        ASSERT_EQ(row_count + 1, c1->get_int(i));
-        ASSERT_EQ(row_count + 2, c2->get_int(i));
+        ASSERT_EQ(row_count,     (*c0)[i].get<int>());
+        ASSERT_EQ(row_count + 1, (*c1)[i].get<int>());
+        ASSERT_EQ(row_count + 2, (*c2)[i].get<int>());
         row_count++;
     }
 
@@ -122,10 +122,6 @@ TEST(VGenericIteratorsTest, Union) {
     auto c1 = block.get_by_position(1).column;
     auto c2 = block.get_by_position(2).column;
 
-    ASSERT_TRUE(c0->is_numeric());
-    ASSERT_TRUE(c1->is_numeric());
-    ASSERT_TRUE(c2->is_numeric());
-
     size_t row_count = 0;
     for (size_t i = 0; i < block.rows(); ++i) {
         size_t base_value = row_count;
@@ -135,9 +131,9 @@ TEST(VGenericIteratorsTest, Union) {
             base_value -= 100;
         }
 
-        ASSERT_EQ(base_value,     c0->get_int(i));
-        ASSERT_EQ(base_value + 1, c1->get_int(i));
-        ASSERT_EQ(base_value + 2, c2->get_int(i));
+        ASSERT_EQ(base_value,     (*c0)[i].get<int>());
+        ASSERT_EQ(base_value + 1, (*c1)[i].get<int>());
+        ASSERT_EQ(base_value + 2, (*c2)[i].get<int>());
         row_count++;
     }
 
@@ -172,10 +168,6 @@ TEST(VGenericIteratorsTest, Merge) {
     auto c1 = block.get_by_position(1).column;
     auto c2 = block.get_by_position(2).column;
 
-    ASSERT_TRUE(c0->is_numeric());
-    ASSERT_TRUE(c1->is_numeric());
-    ASSERT_TRUE(c2->is_numeric());
-
     size_t row_count = 0;
     for (size_t i = 0; i < block.rows(); ++i) {
         size_t base_value = row_count;
@@ -188,9 +180,9 @@ TEST(VGenericIteratorsTest, Merge) {
             base_value = row_count - 300;
         }
 
-        ASSERT_EQ(base_value,     c0->get_int(i));
-        ASSERT_EQ(base_value + 1, c1->get_int(i));
-        ASSERT_EQ(base_value + 2, c2->get_int(i));
+        ASSERT_EQ(base_value,     (*c0)[i].get<int>());
+        ASSERT_EQ(base_value + 1, (*c1)[i].get<int>());
+        ASSERT_EQ(base_value + 2, (*c2)[i].get<int>());
         row_count++;
     }
 
