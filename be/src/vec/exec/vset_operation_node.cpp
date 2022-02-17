@@ -54,7 +54,7 @@ struct HashTableBuild {
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
-                new (&emplace_result.get_mapped()) Mapped({0, k});
+                new (&emplace_result.get_mapped()) Mapped({k});
                 _operation_node->_valid_element_in_hash_tbl++;
             }
         }
