@@ -2091,23 +2091,39 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "20timestamp_avg_removeEPN9doris_udf15FunctionContextERKNS1_11DateTimeValEPNS1_9StringValE",
                 prefix + "22timestamp_avg_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, true, false, true));
+
         // Group_concat(string)
-        addBuiltin(AggregateFunction.createBuiltin("group_concat",
-                Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR, Type.VARCHAR, initNullString,
-                prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                stringValSerializeOrFinalize,
-                prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                false, false, false));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
+                        Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false));
         // Group_concat(string, string)
-        addBuiltin(AggregateFunction.createBuiltin("group_concat",
-                Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR), Type.VARCHAR, Type.VARCHAR,
-                initNullString,
-                prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
-                prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                stringValSerializeOrFinalize,
-                prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                false, false, false));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                        Type.VARCHAR, Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false));
+        // Group_concat(string) vectorized
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
+                        Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false, true));
+        // Group_concat(string, string) vectorized
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                        Type.VARCHAR, Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false, true));
 
         // analytic functions
         // Rank

@@ -76,6 +76,4 @@ public:
     virtual ~IAggregateFunctionCombinator() {}
 };
 
-using AggregateFunctionCombinatorPtr = std::shared_ptr<const IAggregateFunctionCombinator>;
-
 } // namespace doris::vectorized
