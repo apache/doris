@@ -39,6 +39,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmysql_table_writer.h"
 #include "vec/sink/vtablet_sink.h"
+#include "vec/sink/vmysql_table_sink.h"
 
 namespace doris {
 

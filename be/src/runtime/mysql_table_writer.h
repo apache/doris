@@ -17,15 +17,12 @@
 
 #ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
 #define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
+#include <mysql/mysql.h>
 
-#include <fmt/format.h>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#ifndef __DorisMysql
-#define __DorisMysql void
-#endif
 
 namespace doris {
 
@@ -42,15 +39,10 @@ struct MysqlConnInfo {
 class RowBatch;
 class TupleRow;
 class ExprContext;
-namespace vectorized {
-class VExprContext;
-class Block;
-}
 
 class MysqlTableWriter {
 public:
     MysqlTableWriter(const std::vector<ExprContext*>& output_exprs);
-    MysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_exprs);
     ~MysqlTableWriter();
 
     // connect to mysql server
@@ -60,8 +52,6 @@ public:
 
     Status append(RowBatch* batch);
 
-    Status append(vectorized::Block* block);
-
     Status abort_tarns() { return Status::OK(); }
 
     Status finish_tarns() { return Status::OK(); }
@@ -70,12 +60,8 @@ private:
     Status insert_row(TupleRow* row);
 
     const std::vector<ExprContext*>& _output_expr_ctxs;
-    //vectorized mode insert_row
-    Status insert_row(vectorized::Block& block, size_t row);
-    const std::vector<vectorized::VExprContext*>& _vec_output_expr_ctxs;
-    fmt::memory_buffer _insert_stmt_buffer;
     std::string _mysql_tbl;
-    __DorisMysql* _mysql_conn;
+    MYSQL* _mysql_conn;
 };
 
 } // namespace doris
