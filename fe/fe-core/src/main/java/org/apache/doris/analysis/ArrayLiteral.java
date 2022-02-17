@@ -17,12 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+
+import org.apache.commons.lang.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;

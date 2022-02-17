@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
