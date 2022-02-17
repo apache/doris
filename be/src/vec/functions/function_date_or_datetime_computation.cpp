@@ -49,6 +49,9 @@ using FunctionHoursDiff = FunctionDateOrDateTimeComputation<HoursDiffImpl>;
 using FunctionMinutesDiff = FunctionDateOrDateTimeComputation<MintueSDiffImpl>;
 using FunctionSecondsDiff = FunctionDateOrDateTimeComputation<SecondsDiffImpl>;
 
+using FunctionToYearWeekTwoArgs = FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl>;
+using FunctionToWeekTwoArgs = FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl>;
+
 struct NowFunctionName {
     static constexpr auto name = "now";
 };
@@ -103,6 +106,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddMinutes>();
     factory.register_function<FunctionAddHours>();
     factory.register_function<FunctionAddDays>();
+    factory.register_alias("days_add", "add_dates");
+    factory.register_alias("days_add", "date_add");
     factory.register_function<FunctionAddWeeks>();
     factory.register_function<FunctionAddMonths>();
     factory.register_function<FunctionAddYears>();
@@ -112,6 +117,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubMinutes>();
     factory.register_function<FunctionSubHours>();
     factory.register_function<FunctionSubDays>();
+    factory.register_alias("days_sub", "subdate");
+    factory.register_alias("days_sub", "date_sub");
     factory.register_function<FunctionSubMonths>();
     factory.register_function<FunctionSubYears>();
     factory.register_function<FunctionSubQuarters>();
@@ -126,6 +133,10 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHoursDiff>();
     factory.register_function<FunctionMinutesDiff>();
     factory.register_function<FunctionSecondsDiff>();
+
+    factory.register_function<FunctionToYearWeekTwoArgs>();
+    factory.register_function<FunctionToWeekTwoArgs>();
+
     factory.register_function<FunctionNow>();
     factory.register_function<FunctionCurrentTimestamp>();
     factory.register_function<FunctionLocalTime>();
