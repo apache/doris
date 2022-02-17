@@ -452,7 +452,7 @@ Doris 会自动命中这个 ROLLUP 表。
 
 我们将一行数据的前 **36 个字节** 作为这行数据的前缀索引。当遇到 VARCHAR 类型时，前缀索引会直接截断。我们举例说明：
 
-1. 以下表结构的前缀索引为 user_id(8Byte) + age(4Bytes) + message(prefix 20 Bytes)。
+1. 以下表结构的前缀索引为 user_id(8 Bytes) + age(4 Bytes) + message(prefix 24 Bytes)。
 
 |ColumnName|Type|
 |---|---|
