@@ -27,6 +27,7 @@
 
 #include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
+#include "olap/hll.h"
 
 namespace doris::vectorized {
 
@@ -67,6 +68,7 @@ enum class TypeIndex {
     AggregateFunction,
     LowCardinality,
     BitMap,
+    HLL,
 };
 
 struct Consted {
@@ -164,6 +166,10 @@ struct TypeName<String> {
 template <>
 struct TypeName<BitmapValue> {
     static const char* get() { return "BitMap"; }
+};
+template <>
+struct TypeName<HyperLogLog> {
+    static const char* get() { return "HLL"; }
 };
 
 template <typename T>
@@ -399,6 +405,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "LowCardinality";
     case TypeIndex::BitMap:
         return TypeName<BitmapValue>::get();
+    case TypeIndex::HLL:
+        return TypeName<HyperLogLog>::get();
     }
 
     __builtin_unreachable();

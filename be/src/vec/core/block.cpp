@@ -47,6 +47,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
@@ -111,6 +112,9 @@ inline DataTypePtr create_data_type(const PColumnMeta& pcolumn_meta) {
     }
     case PGenericType::BITMAP: {
         return std::make_shared<DataTypeBitMap>();
+    }
+    case PGenericType::HLL: {
+        return std::make_shared<DataTypeHLL>();
     }
     default: {
         LOG(FATAL) << fmt::format("Unknown data type: {}, data type name: {}", pcolumn_meta.type(),
@@ -784,7 +788,7 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
 
         if (!slot_desc->type().is_string_type() && !slot_desc->type().is_date_type()) {
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), data_ref.data, data_ref.size);
-        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT) {
+        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT && slot_desc->type() != TYPE_HLL) {
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), (const void*)(&data_ref),
                    sizeof(data_ref));
             // Copy the content of string
@@ -810,6 +814,13 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
             string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
             bitmap_value->write(string_slot->ptr);
             string_slot->len = size;
+        } else if (slot_desc->type() == TYPE_HLL) {
+            auto hll_value = (HyperLogLog*)(data_ref.data);
+            auto size = hll_value->max_serialized_size();
+            auto string_slot = dst->get_string_slot(slot_desc->tuple_offset());
+            string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
+            size_t actual_size = hll_value->serialize((uint8_t*)string_slot->ptr);
+            string_slot->len = actual_size;
         } else {
             VecDateTimeValue ts =
                     *reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data_ref.data);
