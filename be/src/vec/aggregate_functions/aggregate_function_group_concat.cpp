@@ -15,24 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/aggregate_functions/aggregate_function_topn.h>
+#include "vec/aggregate_functions/aggregate_function_group_concat.h"
 
 namespace doris::vectorized {
 
-AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const Array& parameters,
-                                                    const bool result_is_nullable) {
+const std::string AggregateFunctionGroupConcatImplStr::separator = ", ";
+
+AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& name,
+                                                            const DataTypes& argument_types,
+                                                            const Array& parameters,
+                                                            const bool result_is_nullable) {
     if (argument_types.size() == 1) {
         return AggregateFunctionPtr(
-                new AggregateFunctionTopN<AggregateFunctionTopNImplEmpty>(argument_types));
+                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>(
+                        argument_types));
     } else if (argument_types.size() == 2) {
         return AggregateFunctionPtr(
-                new AggregateFunctionTopN<AggregateFunctionTopNImplInt<StringDataImplTopN>>(
-                        argument_types));
-    } else if (argument_types.size() == 3) {
-        return AggregateFunctionPtr(
-                new AggregateFunctionTopN<AggregateFunctionTopNImplIntInt<StringDataImplTopN>>(
+                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>(
                         argument_types));
     }
 
@@ -41,8 +40,7 @@ AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
     return nullptr;
 }
 
-void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("topn", create_aggregate_function_topn);
+void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function("group_concat", create_aggregate_function_group_concat);
 }
-
 } // namespace doris::vectorized
