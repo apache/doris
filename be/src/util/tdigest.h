@@ -443,7 +443,7 @@ public:
     }
 
     uint32_t serialized_size() {
-        return sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3 +
+        return sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
                _processed.size() * sizeof(Centroid) + _unprocessed.size() * sizeof(Centroid) +
                _cumulative.size() * sizeof(Weight);
     }
