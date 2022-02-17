@@ -25,12 +25,10 @@ under the License.
 -->
 
 # curtime,current_time
-
-## Syntax
+## Description
+### Syntax
 
 `TIME CURTIME()`
-
-## Description
 
 Get the current date and return it in Time type
 
