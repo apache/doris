@@ -236,6 +236,31 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
+    public List<List<String>> getTxnStateInfoList(TransactionStatus status) {
+        List<List<String>> infos = Lists.newArrayList();
+        Collection<TransactionState> transactionStateCollection = null;
+        readLock();
+        try {
+            if (status == TransactionStatus.VISIBLE || status == TransactionStatus.ABORTED) {
+                transactionStateCollection = idToFinalStatusTransactionState.values();
+            } else {
+                transactionStateCollection = idToRunningTransactionState.values();
+            }
+            // get transaction order by txn id desc limit 'limit'
+            transactionStateCollection.stream()
+                    .filter(transactionState -> (transactionState.getTransactionStatus() == status))
+                    .sorted(TransactionState.TXN_ID_COMPARATOR)
+                    .forEach(t -> {
+                        List<String> info = Lists.newArrayList();
+                        getTxnStateInfo(t, info);
+                        infos.add(info);
+                    });
+        } finally {
+            readUnlock();
+        }
+        return infos;
+    }
+
     private void getTxnStateInfo(TransactionState txnState, List<String> info) {
         info.add(String.valueOf(txnState.getTransactionId()));
         info.add(txnState.getLabel());

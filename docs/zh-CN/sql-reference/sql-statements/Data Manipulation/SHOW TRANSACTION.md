@@ -27,7 +27,7 @@ under the License.
 # SHOW TRANSACTION
 ## description
 
-该语法用于查看指定 transaction id 或 label 的事务详情。
+该语法用于查看指定 transaction id 、指定label 或指定事务状态的事务详情。
 
 语法：
     
@@ -36,7 +36,8 @@ SHOW TRANSACTION
 [FROM db_name]
 WHERE
 [id = transaction_id]
-[label = label_name];
+[label = label_name]
+[status = transaction_status];
 ```
         
 返回结果示例：
@@ -48,6 +49,7 @@ WHERE
  TransactionStatus: VISIBLE
  LoadJobSourceType: INSERT_STREAMING
        PrepareTime: 2020-01-09 14:59:07
+     PreCommitTime: 2020-01-09 14:59:07
         CommitTime: 2020-01-09 14:59:09
         FinishTime: 2020-01-09 14:59:09
             Reason:
@@ -61,11 +63,13 @@ ErrorReplicasCount: 0
 * Coordinator：负责事务协调的节点
 * TransactionStatus：事务状态
     * PREPARE：准备阶段
+    * PRECOMMITTED：预提交阶段
     * COMMITTED：事务成功，但数据不可见
     * VISIBLE：事务成功且数据可见
     * ABORTED：事务失败
 * LoadJobSourceType：导入任务的类型。
 * PrepareTime：事务开始时间
+* PreCommitTime：事务预提交时间
 * CommitTime：事务提交成功的时间
 * FinishTime：数据可见的时间
 * Reason：错误信息
@@ -83,8 +87,13 @@ ErrorReplicasCount: 0
 
     SHOW TRANSACTION FROM db WHERE ID=4005;
 
-3. 查看 label 为 label_name的事务： 
+3. 查看 label 为 label_name的事务：
+ 
     SHOW TRANSACTION WHERE LABEL = 'label_name';
+    
+4. 查看 status 为 visible 的事务： 
+
+    SHOW TRANSACTION WHERE LABEL = 'visible';
 
 ## keyword
 

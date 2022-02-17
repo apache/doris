@@ -30,6 +30,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,6 +43,7 @@ public class ShowTransactionStmt extends ShowStmt {
     private Expr whereClause;
     private long txnId = -1;
     private String label = "";
+    private TransactionStatus status = TransactionStatus.UNKNOWN;
 
     public ShowTransactionStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
@@ -58,6 +60,10 @@ public class ShowTransactionStmt extends ShowStmt {
 
     public String getLabel() {
         return label;
+    }
+
+    public TransactionStatus getStatus() {
+        return status;
     }
 
     @Override
@@ -108,13 +114,29 @@ public class ShowTransactionStmt extends ShowStmt {
                 txnId = ((IntLiteral) whereClause.getChild(1)).getLongValue();
             } else if (leftKey.equalsIgnoreCase("label") && (whereClause.getChild(1) instanceof StringLiteral)) {
                 label = ((StringLiteral) whereClause.getChild(1)).getStringValue();
+            } else if (leftKey.equalsIgnoreCase("status") && (whereClause.getChild(1) instanceof StringLiteral)) {
+                String txnStatus = ((StringLiteral) whereClause.getChild(1)).getStringValue();
+                if (txnStatus.equalsIgnoreCase("prepare")) {
+                    status = TransactionStatus.PREPARE;
+                } else if (txnStatus.equalsIgnoreCase("precommitted")) {
+                    status = TransactionStatus.PRECOMMITTED;
+                } else if (txnStatus.equalsIgnoreCase("committed")) {
+                    status = TransactionStatus.COMMITTED;
+                } else if (txnStatus.equalsIgnoreCase("visible")) {
+                    status = TransactionStatus.VISIBLE;
+                } else if (txnStatus.equalsIgnoreCase("aborted")) {
+                    status = TransactionStatus.ABORTED;
+                } else {
+                    throw new AnalysisException("status should be prepare/precommitted/committed/visible/aborted");
+                }
             } else {
                 valid = false;
             }
         }
 
         if (!valid) {
-            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label'");
+            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label' " +
+                    "or status = 'prepare/precommitted/committed/visible/aborted'");
         }
     }
 
