@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# curdate,`current_date`
+# curdate,current_date
 ## description
 ### Syntax
 
@@ -52,4 +52,4 @@ mysql> SELECT CURDATE() + 0;
 
 ## keyword
 
-    CURDATE, CURRENT_DATE
+    CURDATE,CURRENT_DATE
