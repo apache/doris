@@ -30,7 +30,7 @@ under the License.
 
 Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。
 
-代码库地址：https://github.com/apache/incubator-doris-connectors
+代码库地址：https://github.com/apache/incubator-doris-flink-connector
 
 * 可以将`Doris`表映射为`DataStream`或者`Table`。
 
@@ -65,18 +65,13 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 ## 编译与安装
 
-在 `extension/flink-doris-connector/` 源码目录下执行：
-
-**注意**
-
-1. 这里如果你没有整体编译过 doris 源码，需要首先编译一次 Doris 源码，不然会出现 thrift 命令找不到的情况，需要到 `incubator-doris` 目录下执行 `sh build.sh`
-2. 建议在 doris 的 docker 编译环境 `apache/incubator-doris:build-env-1.2` 下进行编译，因为 1.3 下面的JDK 版本是 11，会存在编译问题。
+在源码目录下执行：
 
 ```bash
 sh build.sh 1.11.6 2.12 # flink 1.11.6 scala 2.12
 ```
 
-编译成功后，会在 `output/` 目录下生成文件 `doris-flink-1.0.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
+编译成功后，会在 `output/` 目录下生成文件 `doris-flink-1.11.6-2.12-1.0.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
 **备注**
 
@@ -104,8 +99,6 @@ enable_http_server_v2 = true
 **备注**
 
 `1.11.6 ` 可以根据flink 版本替换成替换成 `1.12.7` 或者 `1.13.5`
-
-
 
 ## 使用方法
 
