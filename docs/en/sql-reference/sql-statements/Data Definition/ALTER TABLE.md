@@ -54,6 +54,7 @@ under the License.
             2) If the bucket mode is not specified, the bucket method used by the built-in table is automatically used.
             3) If the bucket mode is specified, only the bucket number can be modified, and the bucket mode or bucket column cannot be modified.
             4) ["key"="value"] section can set some properties of the partition, see CREATE TABLE for details.
+            5) Adding partitions to non-partitioned table is not supported.           
 
     2. Delete the partition
         grammar:
@@ -376,9 +377,11 @@ under the License.
     
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
     
-        If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes
+        If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes.
+        (Note:Adding dynamic partition attributes to non-partitioned table is not supported)
     
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable"= "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end "= "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+       
 
     15. Modify the in_memory property of the table
 

@@ -54,6 +54,7 @@ under the License.
             2) 如果没有指定分桶方式，则自动使用建表使用的分桶方式
             3) 如指定分桶方式，只能修改分桶数，不可修改分桶方式或分桶列
             4) ["key"="value"] 部分可以设置分区的一些属性，具体说明见 CREATE TABLE
+            5) 如果建表时用户未显式创建Partition,则不支持通过ALTER的方式增加分区
 
     2. 删除分区
         语法：
@@ -376,7 +377,9 @@ under the License.
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
         
         如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
+        (注:非分区表不支持添加动态分区属性)        
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+
     15. 修改表的 in_memory 属性
 
         ALTER TABLE example_db.my_table set ("in_memory" = "true");
