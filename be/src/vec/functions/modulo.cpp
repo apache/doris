@@ -183,6 +183,7 @@ using FunctionPModulo = FunctionBinaryArithmeticToNullType<PModuloImpl, NamePMod
 void register_function_modulo(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionModulo>();
     factory.register_function<FunctionPModulo>();
+    factory.register_alias("mod", "fmod");
 }
 
 } // namespace doris::vectorized
