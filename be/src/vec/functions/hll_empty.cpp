@@ -20,19 +20,20 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/simple_function_factory.h"
-
+#include "vec/data_types/data_type_hll.h"
+#include "vec/columns/column_complex.h"
 namespace doris::vectorized {
 
 struct HLLEmptyImpl {
     static constexpr auto name = "hll_empty";
-    static auto get_return_type() { return std::make_shared<DataTypeString>(); }
-    static Field init_value() {
-        auto hll = HyperLogLog::empty();
-        return {hll.c_str(), hll.size()};
+    using ReturnColVec = ColumnHLL;
+    static auto get_return_type() { return std::make_shared<DataTypeHLL>(); }
+    static HyperLogLog init_value() {
+        return HyperLogLog{};
     }
 };
 
-using FunctionHLLEmpty = FunctionConst<HLLEmptyImpl>;
+using FunctionHLLEmpty = FunctionConst<HLLEmptyImpl, false>;
 
 void register_function_hll_empty(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHLLEmpty>();

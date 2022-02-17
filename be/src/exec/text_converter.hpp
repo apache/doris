@@ -185,7 +185,10 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
 
     // Parse the raw-text data. Translate the text string to internal format.
     switch (slot_desc->type().type) {
-    case TYPE_HLL:
+    case TYPE_HLL: {
+        reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(HyperLogLog(Slice(data, len)));
+        break;
+    }
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
         if (need_escape) {

@@ -160,18 +160,18 @@ void VOlapScanner::_convert_row_to_block(std::vector<vectorized::MutableColumnPt
         }
         case TYPE_HLL: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
+            auto* target_column = assert_cast<ColumnHLL*>(column_ptr);
+
+            target_column->insert_default();
+            HyperLogLog* pvalue = nullptr;
+            int pos = target_column->size() - 1;
+            pvalue = &target_column->get_element(pos);
             if (slice->size != 0) {
-                assert_cast<ColumnString*>(column_ptr)->insert_data(slice->data, slice->size);
-                // TODO: in vector exec engine, it is diffcult to set hll size = 0
-                // so we have to serialize here. which will cause two problem
-                //      1. some unnecessary mem malloc and delay mem release
-                //      2. some unnecessary CPU cost in serialize
+                HyperLogLog value;
+                value.deserialize(*slice);
+                *pvalue = std::move(value);
             } else {
-                auto* dst_hll = reinterpret_cast<HyperLogLog*>(slice->data);
-                std::string result(dst_hll->max_serialized_size(), '0');
-                int size = dst_hll->serialize((uint8_t*)result.c_str());
-                result.resize(size);
-                assert_cast<ColumnString*>(column_ptr)->insert_data(result.c_str(), size);
+                *pvalue = std::move(*reinterpret_cast<HyperLogLog*>(slice->data));
             }
             break;
         }

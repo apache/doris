@@ -239,26 +239,6 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                     }
                     break;
                 }
-                case TYPE_HLL: {
-                    auto column_string = assert_cast<const vectorized::ColumnString *>(real_column_ptr.get());
-
-                    for (int j = 0; j < num_rows; ++j) {
-                        if (!filter_bitmap->Get(j)) {
-                            auto str_val = column_string->get_data_at(j);
-                            bool invalid = false;
-                            error_msg.clear();
-                            if(!HyperLogLog::is_valid(Slice(str_val.data, str_val.size))) {
-                                fmt::format_to(error_msg, "Content of HLL type column is invalid. column name: {}; ", desc->col_name());
-                                invalid = true;
-                            }
-
-                            if (invalid) {
-                                RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
-                            }
-                        }
-                    }
-                    break;
-                }
                 default:
                     break;
             }
