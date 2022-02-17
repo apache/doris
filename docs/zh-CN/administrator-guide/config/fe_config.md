@@ -434,9 +434,9 @@ show data （其他用法：HELP SHOW DATA）
 
 ### check_java_version
 
-默认值：false
+默认值：true
 
-如果设置为 true，Doris 将检查已编译和运行的 Java 版本是否兼容
+Doris 将检查已编译和运行的 Java 版本是否兼容，如果不兼容将抛出Java版本不匹配的异常信息，并终止启动
 
 ### max_running_rollup_job_num_per_table
 
