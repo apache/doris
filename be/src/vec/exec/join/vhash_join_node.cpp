@@ -319,8 +319,7 @@ struct ProcessHashTableProbe {
         std::vector<void*> visited_map;
         visited_map.reserve(1.2 * _batch_size);
 
-#define visited_map_or(index, value)  do { if (value)  ((RowRef*)visited_map[index])->visited = 1; } while (0)
-#define visited_map_get(index) (((RowRef*)visited_map[index])->visited)
+#define VISITED_MAP_OR(index, value)  do { if (value)  ((RowRef*)visited_map[index])->visited = 1; } while (0)
 
         std::vector<bool> same_to_prev;
         same_to_prev.reserve(1.2 * _batch_size);
@@ -422,7 +421,7 @@ struct ProcessHashTableProbe {
                     }
 
                     if (join_hit) {
-                        visited_map_or(i, other_hit);
+                        VISITED_MAP_OR(i, other_hit);
                         filter_map.push_back(other_hit || !same_to_prev[i] ||
                                              (!column->get_bool(i - 1) && filter_map.back()));
                         // Here to keep only hit join conjunt and other join conjunt is true need to be output.
@@ -438,7 +437,7 @@ struct ProcessHashTableProbe {
             } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
                 for (int i = 0; i < column->size(); ++i) {
                     DCHECK(visited_map[i]);
-                    visited_map_or(i, column->get_bool(i));
+                    VISITED_MAP_OR(i, column->get_bool(i));
                 }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
                 auto new_filter_column = ColumnVector<UInt8>::create();
@@ -485,7 +484,7 @@ struct ProcessHashTableProbe {
                                  JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
                 for (int i = 0; i < column->size(); ++i) {
                     DCHECK(visited_map[i]);
-                    visited_map_or(i, column->get_bool(i));
+                    VISITED_MAP_OR(i, column->get_bool(i));
                 }
             } else {
                 // inner join do nothing
@@ -498,6 +497,8 @@ struct ProcessHashTableProbe {
                 Block::filter_block(output_block, result_column_id, orig_columns);
             }
         }
+
+#undef VISITED_MAP_OR
 
         return Status::OK();
     }

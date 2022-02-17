@@ -27,9 +27,9 @@ namespace doris::vectorized {
 struct RowRef {
     using SizeT = uint32_t; /// Do not use size_t cause of memory economy
 
-    // using union to represent two cases
-    // 1. when RowRefList containing only one RowRef, visited + blockptr are valid
-    // 2. when RowRefList contaning multi RowRef, it's used through next pointer
+    // using union to represent two cases for the purpose of memory saving
+    // 1. when RowRefList contains only one RowRef, use visited + blockptr
+    // 2. when RowRefList contains multi RowRef, use next to point to the next Batch
     union { 
         struct {
             uint64_t visited : 1;
@@ -46,7 +46,7 @@ struct RowRef {
     }
 
     void block(Block* ptr) {
-        DCHECK(((uint64_t)ptr & 0x0000000000000001) == 0); //the lowest bit must be 0, Arena.alloc() promised
+        DCHECK(((uint64_t)ptr & 0x0000000000000001) == 0); // the lowest bit must be 0, Arena.alloc() promised
         blockptr = ((uint64_t)ptr >> 1);
     }
 
