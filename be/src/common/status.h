@@ -249,7 +249,7 @@ private:
 
         // limited to MESSAGE_LEN
         if (UNLIKELY(size > MESSAGE_LEN)) {
-            LOG(INFO) << "warning: Status msg truncated" << std::endl;
+            LOG(WARNING) << "warning: Status msg truncated, " << to_string();
             size = MESSAGE_LEN;
         }
 
