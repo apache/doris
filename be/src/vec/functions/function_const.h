@@ -69,7 +69,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto column = Impl::ReturnColVec::create();
         column->get_data().emplace_back(Impl::init_value());
-        block.replace_by_position(result, ColumnConst::create(std::move(column), 1));
+        block.replace_by_position(result, ColumnConst::create(std::move(column), input_rows_count));
         return Status::OK();
     }
 };
@@ -92,8 +92,8 @@ private:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(
-                        input_rows_count == 0 ? 1 : input_rows_count, Impl::value);
+                block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                        Impl::value);
         return Status::OK();
     }
 };
