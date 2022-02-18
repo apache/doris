@@ -94,4 +94,8 @@ If invalid is 0, then the validation passes.
 
 ## 4. Verify compilation
 
-Please participate in the compilation documentation of each component to verify the compilation.
+Please see the compilation documentation of each component to verify the compilation.
+
+* For Doris Core, see [compilation documentation](../../installing/compilation.html)
+* Flink Doris Connector, see [compilation documentation](../../extending-doris/flink-doris-connector.md)
+* Spark Doris Connector, see [compilation documentation](../../extending-doris/spark-doris-connector.md)
