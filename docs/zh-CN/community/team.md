@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris 团队"
+    "title": "Doris 团队",
     "language": "zh-CN"
 }
 ---

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris Team"
+    "title": "Doris Team",
     "language": "en"
 }
 ---
