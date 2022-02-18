@@ -33,7 +33,6 @@ class SipHash;
 namespace doris::vectorized {
 
 class Arena;
-class ColumnGathererStream;
 class Field;
 
 /// Declares interface to store columns in memory.
