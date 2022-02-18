@@ -26,63 +26,52 @@ under the License.
 
 # 发布 Doris Connectors
 
-Doris Connectors 只 Doris Flink Connector 和 Doris Spark Connector。
+Doris Connectors 目前包含：
 
-其代码库独立于 Doris 主代码库，分别为：
+* Doris Flink Connector
+* Doris Spark Connector。
+
+其代码库独立于 Doris 主代码库，分别位于：
 
 - https://github.com/apache/incubator-doris-flink-connector
 - https://github.com/apache/incubator-doris-spark-connector
 
-Connectors 的发布流程和 Doris 主代码类似，都需要 Release Manger 进行代码准备、投票、发布等阶段。具体可参阅 [发布 Doris 主代码](./release-doris.md) 中的介绍。
+## 准备发布
 
-## 准备
+首先，请参阅 [发版准备](./release-prepare.md) 文档进行发版准备。
 
-### 1. 准备本地 maven 环境
+## 准备发布
 
-1. 生成主密码：`mvn --encrypt-master-password <password>` 这个密码仅用作加密后续的其他密码使用, 输出类似 `{VSb+6+76djkH/43...}` 之后创建 `~/.m2/settings-security.xml` 文件，内容是
-
-    ```
-    <settingsSecurity>
-      <master>{VSb+6+76djkH/43...}</master>
-    </settingsSecurity>
-    ```
-
-2. 加密 apache 密码： `mvn --encrypt-password <password>` 这个密码是apache 账号的密码 输出和上面类似`{GRKbCylpwysHfV...}` 在`~/.m2/settings.xml` 中加入
-
-	```
-    <servers>
-      <!-- To publish a snapshot of your project -->
-      <server>
-        <id>apache.snapshots.https</id>
-        <username>yangzhg</username>
-        <password>{GRKbCylpwysHfV...}</password>
-      </server>
-      <!-- To stage a release of your project -->
-      <server>
-        <id>apache.releases.https</id>
-        <username>yangzhg</username>
-        <password>{GRKbCylpwysHfV...}</password>
-      </server>
-    </servers>
-	```
-
-3. 准备 GPG KEY
-
-	可参阅 [发布 Doris 主代码](./release-doris.md) 中的 **生成新的签名** 一节。
-
-## 发布到 Maven
+首先，请参阅 [发版准备](./release-prepare.md) 文档进行发版准备。## 发布到 Maven
 
 我们以发布 Flink Connector v1.0.0 为例。
 
 ### 1. 准备分支
 
-在代码库中创建分支：branch-1.0.0，并 checkout 到该分支。
+在代码库中创建分支：branch-1.0，并 checkout 到该分支。
 
 ### 2. 发布到 Maven staging
 
 因为 Flink Connector 针对不同 Flink 版本（如 1.11, 1.12, 1.13）发布不同的 Release。因此我们需要针对每一个版本单独进行处理。
 
 下面我们以 Flink 版本 1.13.5，scala 版本 2.12 为例说明：
+
+先替换 pom.xml 中的 flink.version 和 scala.version：
+
+```
+cd flink-doris-connector/
+sed -i 's/\${flink.version}/1.13.5/g' pom.xml
+sed -i 's/\${scala.version}/2.12/g' pom.xml
+```
+
+替换后，提交本地修改：
+
+```
+git add . -u
+git commit -m "prepare for 1.13.5-2.12-1.0.0"
+```
+
+执行以下命令开始生成 release tag：
 
 ```bash
 cd flink-doris-connector/
@@ -112,10 +101,10 @@ mvn release:prepare -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" 
 最后，执行 perform:
 
 ```
-mvn release:perform -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -Dflink.version=1.13.5 -Dscala.version=2.12最后，执行 perform:
+mvn release:perform -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -Dflink.version=1.13.5 -Dscala.version=2.12
 ```
 
-执行成功后，在 [https://repository.apache.org](https://repository.apache.org) 里面的 stagingRepositories 可以找到刚刚发布的版本：
+执行成功后，在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 里面可以找到刚刚发布的版本：
 
 ![](/images/staging-repositories.png)
 
@@ -179,7 +168,7 @@ doris/flink-connector/1.0.0/
 
 其中 0.15 是 Doris 主代码的目录，而 `flink-connector/1.0.0` 下就是本次发布的内容了。
 
-注意，KEYS 文件的准备，可参阅 [发布 Doris 主代码](./release-doris.md) 中的介绍。
+注意，KEYS 文件的准备，可参阅 [发版准备](./release-prepare.md) 中的介绍。
 
 ### 4. 投票
 
@@ -269,29 +258,23 @@ Please vote accordingly:
 [1] vote thread in dev@doris
 ```
 
-## 完成 Release
+## 完成发布
 
-## 发布到SNAPSHOT
-### 1. 部署 flink connector
+请参阅 [完成发布](./release-complete.md) 文档完成所有发布流程。
 
-切换到 flink connector 目录， 我们以 flink 版本 1.11.6， scalar 2.12 为例
+## 附录：发布到 SNAPSHOT
 
-   ```
-   cd incubator-doris/extension/flink-doris-connector
-   export DORIS_HOME=$PWD/../../
-   source ${DORIS_HOME}/env.sh
-   if [ -f ${DORIS_HOME}/custom_env.sh ]; then source ${DORIS_HOME}/custom_env.sh; fi
-   mvn deploy -Dflink.version=1.11.6 -Dscala.version=2.12
-   ```
-### 2. 部署 Spark connector
+Snapshot 并非 Apache Release 版本，仅用于发版前的预览。在经过 PMC 讨论通过后，可以发布 Snapshot 版本
 
-切换到 spark connector 目录， 我们以 spark 版本 2.3.4， scalar 2.11 为例
+切换到 flink connector 目录， 我们以 flink 版本 1.13.5，scalar 2.12 为例
 
-   ```
-   cd incubator-doris/extension/spark-doris-connector
-   export DORIS_HOME=$PWD/../../
-   source ${DORIS_HOME}/env.sh
-   if [ -f ${DORIS_HOME}/custom_env.sh ]; then source ${DORIS_HOME}/custom_env.sh; fi
-   mvn deploy -Dscala.version=2.11 -Dspark.version=2.3.4
-   ```
+```
+cd flink-doris-connector
+mvn deploy -Dflink.version=1.13.5 -Dscala.version=2.12
+```
 
+之后你可以在这里看到 snapshot 版本：
+
+```
+https://repository.apache.org/content/repositories/snapshots/org/apache/doris/doris-flink-connector/
+```
