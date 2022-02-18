@@ -69,7 +69,7 @@ public class Table extends MetaObject implements Writable {
         ELASTICSEARCH,
         HIVE,
         ICEBERG,
-        TABLE_FUNCTION
+        TABLE_VALUED_FUNCTION
     }
 
     protected long id;

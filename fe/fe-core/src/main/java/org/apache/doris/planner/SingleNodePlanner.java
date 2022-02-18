@@ -1703,7 +1703,7 @@ public class SingleNodePlanner {
                 scanNode = new IcebergScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
                         null, -1);
                 break;
-            case TABLE_FUNCTION:
+            case TABLE_VALUED_FUNCTION:
             	scanNode = ((TableValuedFunctionRef)tblRef).getTableFunction().getScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
             	break;
             default:
