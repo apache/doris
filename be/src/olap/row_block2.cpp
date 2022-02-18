@@ -329,7 +329,8 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
 }
 
 Status RowBlockV2::convert_to_vec_block(vectorized::Block* block) {
-    for (int i = 0; i < _schema.column_ids().size(); ++i) {
+    DCHECK_LE(block->columns(), _schema.column_ids().size());
+    for (int i = 0; i < block->columns(); ++i) {
         auto cid = _schema.column_ids()[i];
         auto column = (*std::move(block->get_by_position(i).column)).assume_mutable();
         RETURN_IF_ERROR(_copy_data_to_column(cid, column));
