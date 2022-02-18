@@ -184,8 +184,9 @@ struct ProcessHashTableProbe {
         std::vector<uint32_t> items_counts(_probe_rows);
         auto& mcol = mutable_block.mutable_columns();
         int current_offset = 0;
-        std::vector<uint32_t> _build_index;
-        _build_index.reserve(1.2 * _batch_size);
+        int build_index_offset = 0;
+        int* build_block_index = (int*)malloc(sizeof(int) * 1.2 * _batch_size);
+        memset(build_block_index, -1, 1.2 * _batch_size);
 
         for (; _probe_index < _probe_rows;) {
             if constexpr (ignore_null) {
@@ -206,14 +207,14 @@ struct ProcessHashTableProbe {
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
                     if (mapped.get_row_count() == 1) {
                         ++repeat_count;
-                        _build_index.emplace_back(mapped.row_num);
+                        build_block_index[build_index_offset++] = mapped.row_num;
                     } else {
                         // prefetch is more useful while matching to multiple rows
                         if (_probe_index + 2 < _probe_rows)
                             key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2, _arena);
                         for (auto it = mapped.begin(); it.ok(); ++it) {
                             ++repeat_count;
-                            _build_index.emplace_back(it->row_num);
+                            build_block_index[build_index_offset++] = it->row_num;
                         }
                     }
                 }
@@ -239,7 +240,7 @@ struct ProcessHashTableProbe {
                         if constexpr (JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN && 
                                       JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
                             ++repeat_count;
-                            _build_index.emplace_back(mapped.row_num);
+                            build_block_index[build_index_offset++] = mapped.row_num;
                             _build_block_visited[mapped.row_num] = 1;
                         }
                     } else {
@@ -249,7 +250,7 @@ struct ProcessHashTableProbe {
                             if constexpr (JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN && 
                                           JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
                                 ++repeat_count;
-                                _build_index.emplace_back(it->row_num);
+                                build_block_index[build_index_offset++] = it->row_num;
                                 _build_block_visited[it->row_num] = 1;
                             }
                         }
@@ -275,18 +276,19 @@ struct ProcessHashTableProbe {
         if (_build_block.size() == 1) {
             for (int i = 0; i < _right_col_len; i++) {
                     auto &column = *_build_block[0].get_by_position(i).column;
-                for (int j = 0; j < _build_index.size(); j++) {
-                    mcol[i + _right_col_idx]->insert_from(column, _build_index[j]);
-                }
+                    mcol[i + _right_col_idx]->insert_indices_from(column, &build_block_index[0], &build_block_index[build_index_offset]);
             }
         } else {
             for (int i = 0; i < _right_col_len; i++) {
-                for (int j = 0; j < _build_index.size(); j++) {
-                    auto &column = *_blockptr[_build_index[j]]->get_by_position(i).column;
-                    mcol[i + _right_col_idx]->insert_from(column, _build_index[j]);
+                for (int j = 0; j < build_index_offset; j++) {
+                    auto &column = *_blockptr[build_block_index[j]]->get_by_position(i).column;
+                    mcol[i + _right_col_idx]->insert_from(column, build_block_index[j]);
                 }
             }
         }
+        // delete build_block_index
+        free(build_block_index);
+        build_block_index = nullptr;
 
         for (int i = 0; i < _right_col_idx; ++i) {
             auto& column = _probe_block.get_by_position(i).column;
