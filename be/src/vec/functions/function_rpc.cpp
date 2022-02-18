@@ -290,6 +290,24 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         }
         break;
     }
+    case TypeIndex::HLL: {
+        ptype->set_id(PGenericType::HLL);
+        arg->mutable_bytes_value()->Reserve(row_count);
+        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+            if constexpr (nullable) {
+                if (column->is_null_at(row_num)) {
+                    arg->add_bytes_value(nullptr);
+                } else {
+                    StringRef data = column->get_data_at(row_num);
+                    arg->add_bytes_value(data.data, data.size);
+                }
+            } else {
+                StringRef data = column->get_data_at(row_num);
+                arg->add_bytes_value(data.data, data.size);
+            }
+        }
+        break;
+    }
     default:
         LOG(INFO) << "unknown type: " << data_type->get_name();
         ptype->set_id(PGenericType::UNKNOWN);
@@ -469,6 +487,13 @@ void convert_to_column(MutableColumnPtr& column, const PValues& result) {
         }
         break;
     }
+    case PGenericType::HLL: {
+        column->reserve(result.bytes_value_size());
+        for (int i = 0; i < result.bytes_value_size(); ++i) {
+            column->insert_data(result.bytes_value(i).c_str(), result.bytes_value(i).size());
+        }
+        break;
+    }
     default: {
         LOG(WARNING) << "unknown PGenericType: " << result.type().DebugString();
         break;
@@ -516,6 +541,10 @@ Status RPCFnCall::execute(FunctionContext* context, Block& block, const ColumnNu
         return Status::InternalError(
                 fmt::format("call to rpc function {} failed: {}", _symbol, cntl.ErrorText())
                         .c_str());
+    }
+    if (!response.has_status() || !response.has_result()) {
+        return Status::InternalError(
+                fmt::format("call rpc function {} failed: status or result is not set.", _symbol));
     }
     if (response.status().status_code() != 0) {
         return Status::InternalError(fmt::format("call to rpc function {} failed: {}", _symbol,
