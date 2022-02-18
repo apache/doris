@@ -209,7 +209,7 @@ struct ProcessHashTableProbe {
                     if (mapped.get_row_count() == 1) {
                         ++repeat_count;
                         for (size_t j = 0; j < _right_col_len; ++j) {
-                            auto& column = *mapped.block->get_by_position(j).column;
+                            auto& column = *mapped.block()->get_by_position(j).column;
                             mcol[j + _right_col_idx]->insert_from(column, mapped.row_num);
                         }
                     } else {
@@ -219,7 +219,7 @@ struct ProcessHashTableProbe {
                         for (auto it = mapped.begin(); it.ok(); ++it) {
                             ++repeat_count;
                             for (size_t j = 0; j < _right_col_len; ++j) {
-                                auto& column = *it->block->get_by_position(j).column;
+                                auto& column = *it->block()->get_by_position(j).column;
                                 // TODO: interface insert from cause serious performance problems
                                 //  when column is nullable. Try to make more effective way
                                 mcol[j + _right_col_idx]->insert_from(column, it->row_num);
@@ -346,9 +346,9 @@ struct ProcessHashTableProbe {
 
                 for (auto it = mapped.begin(); it.ok(); ++it) {
                     ++current_offset;
-                    for (size_t j = 0; j < right_col_len; ++j) {
+                    for (size_t j = 0; j < _right_col_len; ++j) {
                         auto& column = *it->block()->get_by_position(j).column;
-                        mcol[j + right_col_idx]->insert_from(column, it->row_num);
+                        mcol[j + _right_col_idx]->insert_from(column, it->row_num);
                     }
                     visited_map.emplace_back(&(*it));
                 }
