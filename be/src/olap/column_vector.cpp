@@ -210,14 +210,19 @@ void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t size, boo
     DCHECK(start_idx + size <= capacity());
     for (size_t i = 0; i < size; ++i) {
         if (!is_null_at(start_idx + i)) {
-            _data[start_idx + i] = CollectionValue(
-                    _elements->mutable_cell_ptr(*(_offsets->scalar_cell_ptr(start_idx + i))),
-                    *(_offsets->scalar_cell_ptr(start_idx + i + 1)) -
-                            *(_offsets->scalar_cell_ptr(start_idx + i)),
-                    item_has_null,
-                    _elements->is_nullable() ? const_cast<bool*>(&_elements->null_signs()[*(
-                                                       _offsets->scalar_cell_ptr(start_idx + i))])
-                                             : nullptr);
+            auto next_offset = *(_offsets->scalar_cell_ptr(start_idx + i + 1));
+            auto offset = *(_offsets->scalar_cell_ptr(start_idx + i));
+            uint32_t length = next_offset - offset;
+            if (length == 0) {
+                _data[start_idx + i] = CollectionValue(length);
+            } else {
+                _data[start_idx + i] = CollectionValue(
+                        _elements->mutable_cell_ptr(offset),
+                        length,
+                        item_has_null,
+                        _elements->is_nullable() ? const_cast<bool*>(&_elements->null_signs()[offset])
+                                                 : nullptr);
+            }
         }
     }
 }

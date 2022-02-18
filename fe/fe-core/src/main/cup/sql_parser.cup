@@ -379,6 +379,7 @@ nonterminal CaseExpr case_expr;
 nonterminal ArrayList<CaseWhenClause> case_when_clause_list;
 nonterminal FunctionParams function_params;
 nonterminal Expr function_call_expr, array_expr;
+nonterminal ArrayLiteral array_literal;
 nonterminal StructField struct_field;
 nonterminal ArrayList<StructField> struct_field_list;
 nonterminal AnalyticWindow opt_window_clause;
@@ -4745,6 +4746,17 @@ function_call_expr ::=
   :}
   ;
 
+array_literal ::=
+  LBRACKET RBRACKET
+  {:
+    RESULT = new ArrayLiteral();
+  :}
+  | LBRACKET expr_list:list RBRACKET
+  {:
+    RESULT = new ArrayLiteral(list.toArray(new LiteralExpr[0]));
+  :}
+  ;
+
 array_expr ::=
   KW_ARRAY LPAREN function_params:params RPAREN
   {:
@@ -4792,6 +4804,8 @@ non_pred_expr ::=
   | literal:l
   {: RESULT = l; :}
   | array_expr:a
+  {: RESULT = a; :}
+  | array_literal:a
   {: RESULT = a; :}
   | function_call_expr:e
   {: RESULT = e; :}

@@ -821,6 +821,30 @@ TEST_F(ColumnReaderWriterTest, test_v_default_value) {
     test_v_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }
 
+TEST_F(ColumnReaderWriterTest, test_single_empty_array) {
+    size_t num_array = 1;
+    std::unique_ptr<uint8_t[]> array_is_null(new uint8_t[BitmapSize(num_array)]());
+    CollectionValue array(0);
+    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
+            &array, array_is_null.get(), num_array, "test_single_empty_array");
+}
+
+TEST_F(ColumnReaderWriterTest, test_mixed_empty_arrays) {
+    size_t num_array = 3;
+    std::unique_ptr<uint8_t[]> array_is_null(new uint8_t[BitmapSize(num_array)]());
+    std::unique_ptr<CollectionValue[]> collection_values(new CollectionValue[num_array]);
+    int data[] = {1, 2, 3};
+    for (int i = 0; i < num_array; ++ i) {
+        if (i % 2 == 1) {
+            new (&collection_values[i]) CollectionValue(0);
+        } else {
+            new (&collection_values[i]) CollectionValue(&data, 3, false, nullptr);
+        }
+    }
+    test_array_nullable_data<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE, BIT_SHUFFLE>(
+            collection_values.get(), array_is_null.get(), num_array, "test_mixed_empty_arrays");
+}
+
 } // namespace segment_v2
 } // namespace doris
 

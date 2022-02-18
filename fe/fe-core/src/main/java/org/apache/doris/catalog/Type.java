@@ -384,8 +384,10 @@ public abstract class Type {
     public static boolean canCastTo(Type t1, Type t2) {
         if (t1.isScalarType() && t2.isScalarType()) {
             return ScalarType.canCastTo((ScalarType) t1, (ScalarType) t2);
+        } else if (t1.isArrayType() && t2.isArrayType()) {
+            return ArrayType.canCastTo((ArrayType)t1, (ArrayType)t2);
         }
-        return false;
+        return t1.isNull();
     }
 
     /**
