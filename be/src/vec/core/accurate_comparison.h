@@ -27,6 +27,7 @@
 #include "util/binary_cast.hpp"
 
 #include "vec/common/nan_utils.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -487,8 +488,8 @@ struct EqualsOp {
 };
 
 template <>
-struct EqualsOp<VecDateTimeValue, VecDateTimeValue> {
-    static UInt8 apply(const Int64& a, const Int64& b) {
+struct EqualsOp<DecimalV2Value, DecimalV2Value> {
+    static UInt8 apply(const Int128& a, const Int128& b) {
         return a == b;
     }
 };
@@ -500,8 +501,8 @@ struct NotEqualsOp {
 };
 
 template <>
-struct NotEqualsOp<VecDateTimeValue, VecDateTimeValue> {
-    static UInt8 apply(const Int64& a, const Int64& b) {
+struct NotEqualsOp<DecimalV2Value, DecimalV2Value> {
+    static UInt8 apply(const Int128& a, const Int128& b) {
         return a != b;
     }
 };
@@ -516,9 +517,16 @@ struct LessOp {
 };
 
 template <>
-struct LessOp<VecDateTimeValue, VecDateTimeValue> {
-    static UInt8 apply(Int64 a, Int64 b) {
-        return binary_cast<Int64, VecDateTimeValue>(a) < binary_cast<Int64, VecDateTimeValue>(b);
+struct LessOp<DecimalV2Value, DecimalV2Value> {
+    static UInt8 apply(Int128 a, Int128 b) {
+        return binary_cast<Int128, DecimalV2Value>(a) < binary_cast<Int128, DecimalV2Value>(b);
+    }
+};
+
+template <>
+struct LessOp<StringRef, StringRef> {
+    static UInt8 apply(StringRef a, StringRef b) {
+        return a < b;
     }
 };
 
@@ -529,9 +537,16 @@ struct GreaterOp {
 };
 
 template <>
-struct GreaterOp<VecDateTimeValue, VecDateTimeValue> {
-    static UInt8 apply(Int64 a, Int64 b) {
-        return binary_cast<Int64, VecDateTimeValue>(a) > binary_cast<Int64, VecDateTimeValue>(b);
+struct GreaterOp<DecimalV2Value, DecimalV2Value> {
+    static UInt8 apply(Int128 a, Int128 b) {
+        return binary_cast<Int128, DecimalV2Value>(a) > binary_cast<Int128, DecimalV2Value>(b);
+    }
+};
+
+template <>
+struct GreaterOp<StringRef, StringRef> {
+    static UInt8 apply(StringRef a, StringRef b) {
+        return a > b;
     }
 };
 
@@ -545,9 +560,9 @@ struct LessOrEqualsOp {
 };
 
 template <>
-struct LessOrEqualsOp<VecDateTimeValue, VecDateTimeValue> {
-    static UInt8 apply(Int64 a, Int64 b) {
-        return binary_cast<Int64, VecDateTimeValue>(a) <= binary_cast<Int64, VecDateTimeValue>(b);
+struct LessOrEqualsOp<DecimalV2Value, DecimalV2Value> {
+    static UInt8 apply(Int128 a, Int128 b) {
+        return binary_cast<Int128, DecimalV2Value>(a) <= binary_cast<Int128, DecimalV2Value>(b);
     }
 };
 
@@ -558,9 +573,9 @@ struct GreaterOrEqualsOp {
 };
 
 template <>
-struct GreaterOrEqualsOp<VecDateTimeValue, VecDateTimeValue> {
-    static UInt8 apply(Int64 a, Int64 b) {
-        return binary_cast<Int64, VecDateTimeValue>(a) >= binary_cast<Int64, VecDateTimeValue>(b);
+struct GreaterOrEqualsOp<DecimalV2Value, DecimalV2Value> {
+    static UInt8 apply(Int128 a, Int128 b) {
+        return binary_cast<Int128, DecimalV2Value>(a) >= binary_cast<Int128, DecimalV2Value>(b);
     }
 };
 
