@@ -1253,7 +1253,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
-        if (targetType.getPrimitiveType().equals(type.getPrimitiveType())) {
+        if (targetType.getPrimitiveType() != PrimitiveType.ARRAY &&
+                targetType.getPrimitiveType() == type.getPrimitiveType()) {
             return this;
         }
         // bitmap must match exactly

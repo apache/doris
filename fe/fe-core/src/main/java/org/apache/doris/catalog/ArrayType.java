@@ -95,6 +95,10 @@ public class ArrayType extends Type {
         return otherArrayType.itemType.equals(itemType);
     }
 
+    public static boolean canCastTo(ArrayType type, ArrayType targetType) {
+        return Type.canCastTo(type.getItemType(), targetType.getItemType());
+    }
+
     @Override
     public void toThrift(TTypeDesc container) {
         TTypeNode node = new TTypeNode();
