@@ -75,7 +75,11 @@ public class RestBaseController extends BaseController {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            userInfo = authInfo.fullUserName + ":" + authInfo.password;
+            // Fix username@cluster:passwod is modified to cluster: username:passwod causes authentication failure
+            // @see https://github.com/apache/incubator-doris/issues/8100
+            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName) +
+                    "@" + ClusterNamespace.getClusterNameFromFullName(authInfo.fullUserName) +
+                    ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);
