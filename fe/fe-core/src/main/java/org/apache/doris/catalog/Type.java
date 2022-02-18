@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -660,6 +661,36 @@ public abstract class Type {
     }
 
     /**
+     * For schema change, convert data type to string,
+     * get the size of string representation
+     */
+    public int getColumnStringRepSize() throws DdlException {
+        if (isScalarType(PrimitiveType.FLOAT)) {
+            return 24; // see be/src/gutil/strings/numbers.h kFloatToBufferSize
+        }
+        if (isScalarType(PrimitiveType.DOUBLE)) {
+            return 32; // see be/src/gutil/strings/numbers.h kDoubleToBufferSize
+        }
+        if (isNumericType()) {
+            int size = getPrecision() + 1; // +1 for minus symbol
+            if (isScalarType(PrimitiveType.DECIMALV2)) {
+                size += 1; // +1 for decimal point
+            }
+            return size;
+        }
+        ScalarType t = (ScalarType) this;
+        switch (t.getPrimitiveType()) {
+            case CHAR:
+            case VARCHAR:
+                return t.getLength();
+            case STRING:
+                return 2147483647; // defined by be/src/olap/olap_define.h, OLAP_STRING_MAX_LENGTH
+            default:
+                throw new DdlException("Can not change " + t.getPrimitiveType() + " to char/varchar/string");
+        }
+    }
+
+    /**
      * JDBC data type description
      * For numeric types, returns the maximum precision for this type.
      * For non-numeric types, returns null.
@@ -676,6 +707,8 @@ public abstract class Type {
                 return 10;
             case BIGINT:
                 return 19;
+            case LARGEINT:
+                return 39;
             case FLOAT:
                 return 7;
             case DOUBLE:

@@ -386,6 +386,15 @@ public class Column implements Writable {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
+        if (type.isNumericType() && other.type.isStringType()) {
+            Integer lSize = type.getColumnStringRepSize();
+            Integer rSize = other.type.getColumnStringRepSize();
+            if (rSize < lSize) {
+                throw new DdlException("Can not change from wider type " + type.toSql() +
+                                        " to narrower type " + other.type.toSql());
+            }
+        }
+
         if (this.aggregationType != other.aggregationType) {
             throw new DdlException("Can not change aggregation type");
         }
