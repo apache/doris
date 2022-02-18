@@ -27,6 +27,7 @@
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
+#include "olap/uint24.h"
 
 namespace doris::vectorized {
 
@@ -130,6 +131,16 @@ private:
         res_data.set_end_ptr(t + sel_size);
     }
 
+    void insert_many_default_type(const char* data_ptr, size_t num) {
+        T* input_val_ptr = (T*)data_ptr;
+        T* res_val_ptr = (T*)data.get_end_ptr();
+        for (int i = 0; i < num; i++) {
+            res_val_ptr[i] = input_val_ptr[i];
+        }
+        res_val_ptr += num;
+        data.set_end_ptr(res_val_ptr);
+    }    
+
 public:
     bool is_numeric() const override { return IsNumber<T>; }
 
@@ -145,6 +156,55 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override {
         data.push_back(unaligned_load<T>(pos));
+    }
+
+    // note(wb) type of data_ptr element should be same with current column_vector's T
+    void insert_many_in_copy_way(const char* data_ptr, size_t num) {
+        char* res_ptr = (char*)data.get_end_ptr();
+        memcpy(res_ptr, data_ptr, num * sizeof(T));
+        res_ptr += num * sizeof(T);
+        data.set_end_ptr(res_ptr);
+    }
+ 
+    void insert_date_column(const char* data_ptr, size_t num) {
+        size_t value_size = sizeof(uint24_t);
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + value_size * i;
+            uint64_t value = 0;
+            value = *(unsigned char*)(cur_ptr + 2);
+            value <<= 8;
+            value |= *(unsigned char*)(cur_ptr + 1);
+            value <<= 8;
+            value |= *(unsigned char*)(cur_ptr);
+            vectorized::VecDateTimeValue date;
+            date.from_olap_date(value);
+            data.push_back_without_reserve(date);
+        }
+    }
+ 
+    void insert_datetime_column(const char* data_ptr, size_t num) {
+        size_t value_size = sizeof(uint64_t);
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + value_size * i;
+            uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
+            vectorized::VecDateTimeValue date(value);
+            data.push_back_without_reserve(date);
+        }
+    }
+ 
+    /*
+        use by date, datetime, basic type
+    */
+    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
+        if constexpr (std::is_same_v<T, vectorized::Int128>) {
+            insert_many_in_copy_way(data_ptr, num);
+        } else if (IColumn::is_date) {
+            insert_date_column(data_ptr, num);
+        } else if (IColumn::is_date_time) {
+            insert_datetime_column(data_ptr, num);
+        } else {
+            insert_many_default_type(data_ptr, num);
+        }
     }
 
     void insert_default() override { data.push_back(T()); }
@@ -212,20 +272,11 @@ public:
 
     void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
 
-    void insert_elements(void* elements, size_t num) {
+    void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
         auto new_size = old_size + num;
         data.resize(new_size);
-        memcpy(&data[old_size], elements, sizeof(value_type) * num);
-    }
-
-    void insert_elements(const value_type& element, size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        if constexpr (std::is_same_v<value_type, int8_t>) {
-            memset(&data[old_size], element, sizeof(value_type) * num);
-        } else if constexpr (std::is_same_v<value_type, uint8_t>) {
+        if constexpr (sizeof(value_type) == 1) {
             memset(&data[old_size], element, sizeof(value_type) * num);
         } else {
             for (size_t i = 0; i < num; ++i) {
@@ -244,22 +295,9 @@ public:
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
 
     // note(wb) this method is only used in storage layer now
-    ColumnPtr filter_by_selector(const uint16_t* sel, size_t sel_size, ColumnPtr* ptr = nullptr) override {
-        if (ptr == nullptr) {
-            auto res_ptr = vectorized::ColumnVector<T>::create();
-            if (sel_size == 0) {
-                return res_ptr;
-            }
-            insert_res_column(sel, sel_size, res_ptr.get());
-            return res_ptr;
-        } else {
-            auto res_ptr = (*std::move(*ptr)).assume_mutable();
-            if (sel_size == 0) {
-                return res_ptr;
-            }
-            insert_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<T>*>(res_ptr.get()));
-            return *ptr;
-        }
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        insert_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<T>*>(col_ptr));
+        return Status::OK();
     }
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
