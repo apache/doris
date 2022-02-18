@@ -469,7 +469,7 @@ public class CacheAnalyzer {
             addAllViewStmt(((SelectStmt) queryStmt).getTableRefs());
         } else if (queryStmt instanceof SetOperationStmt) {
             for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) queryStmt).getOperands()) {
-                addAllViewStmt(((SelectStmt) operand.getQueryStmt()).getTableRefs());
+                addAllViewStmt(operand.getQueryStmt());
             }
         }
     }

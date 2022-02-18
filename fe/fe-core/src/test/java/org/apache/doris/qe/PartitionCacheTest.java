@@ -1097,5 +1097,26 @@ public class PartitionCacheTest {
                 "eventdate, COUNT(userid) FROM view2 WHERE eventdate>=\"2020-01-12\" and " +
                 "eventdate<=\"2020-01-14\" GROUP BY eventdate|select eventdate, userid FROM appevent");
     }
+
+    @Test
+    public void testCacheLocalViewMultiOperand() {
+        Catalog.getCurrentSystemInfo();
+        StatementBase parseStmt = parseSql(
+                "SELECT COUNT(userid)\n" +
+                        "FROM (\n" +
+                        "    (SELECT userid FROM userprofile\n" +
+                        "    INTERSECT\n" +
+                        "    SELECT userid FROM userprofile)\n" +
+                        "    UNION\n" +
+                        "    SELECT userid FROM userprofile\n" +
+                        ") as tmp"
+        );
+        ArrayList<Long> selectedPartitionIds
+                = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
+        List<ScanNode> scanNodes = Lists.newArrayList(createProfileScanNode(selectedPartitionIds));
+        CacheAnalyzer ca = new CacheAnalyzer(context,parseStmt, scanNodes);
+        ca.checkCacheMode(0);
+        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+    }
 }
 
