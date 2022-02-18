@@ -17,18 +17,20 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
+
+import org.apache.commons.lang.StringUtils;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-
-import org.apache.commons.lang.StringUtils;
-import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 public class ArrayLiteral extends LiteralExpr {
 
@@ -112,5 +114,19 @@ public class ArrayLiteral extends LiteralExpr {
     @Override
     public Expr clone() {
         return new ArrayLiteral(this);
+    }
+
+    @Override
+    public Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+        if (!targetType.isArrayType()) {
+            return super.uncheckedCastTo(targetType);
+        }
+        ArrayLiteral literal = new ArrayLiteral(this);
+        for (int i = 0; i < children.size(); ++ i) {
+            Expr child = children.get(i);
+            literal.children.set(i, child.uncheckedCastTo(((ArrayType)targetType).getItemType()));
+        }
+        literal.setType(targetType);
+        return literal;
     }
 }

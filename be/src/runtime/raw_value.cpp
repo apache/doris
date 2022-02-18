@@ -324,6 +324,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
             ArrayIterator src_iter = src->iterator(children_type);
             ArrayIterator val_iter = val->iterator(children_type);
 
+            val->set_has_null(src->has_null());
             val->copy_null_signs(src);
 
             while (src_iter.has_next() && val_iter.has_next()) {

@@ -61,6 +61,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 
 public class UtFrameUtils {
@@ -123,6 +124,14 @@ public class UtFrameUtils {
             stmt.analyze(analyzer);
         }
         return statementBases;
+    }
+
+    public static String generateRandomFeRunningDir(Class testSuiteClass) {
+        return generateRandomFeRunningDir(testSuiteClass.getSimpleName());
+    }
+
+    public static String generateRandomFeRunningDir(String testSuiteName) {
+        return "fe" + "/mocked/" + testSuiteName + "/" + UUID.randomUUID().toString() + "/";
     }
 
     public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
