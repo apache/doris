@@ -1,7 +1,7 @@
 ---
 {
-"title": "发布 Doris Connectors",
-"language": "zh-CN"
+"title": "Release Doris Connectors",
+"language": "en"
 }
 ---
 
@@ -24,39 +24,35 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 发布 Doris Connectors
+# Releases Doris Connectors
 
-Doris Connectors 目前包含：
+Doris Connectors currently contains:
 
 * Doris Flink Connector
-* Doris Spark Connector。
+* Doris Spark Connector
 
-其代码库独立于 Doris 主代码库，分别位于：
+The code base is separate from the main Doris code base and is located at:
 
 - https://github.com/apache/incubator-doris-flink-connector
 - https://github.com/apache/incubator-doris-spark-connector
 
-## 准备发布
+## Preparing for release
 
-首先，请参阅 [发版准备](./release-prepare.md) 文档进行发版准备。
+First, see the [release preparation](./release-prepare.md) documentation to prepare for the release. ## Releasing to Maven
 
-## 准备发布
+Let's take the example of releasing Flink Connector v1.0.0.
 
-首先，请参阅 [发版准备](./release-prepare.md) 文档进行发版准备。## 发布到 Maven
+### 1. Prepare the branch
 
-我们以发布 Flink Connector v1.0.0 为例。
+Create a branch in the codebase: branch-1.0, and checkout to that branch.
 
-### 1. 准备分支
+### 2. release to Maven staging
 
-在代码库中创建分支：branch-1.0，并 checkout 到该分支。
+Since Flink Connector releases different releases for different Flink versions (e.g. 1.11, 1.12, 1.13), we need to handle each version separately.
 
-### 2. 发布到 Maven staging
+Let's take Flink version 1.13.5 and scala version 2.12 as an example.
 
-因为 Flink Connector 针对不同 Flink 版本（如 1.11, 1.12, 1.13）发布不同的 Release。因此我们需要针对每一个版本单独进行处理。
-
-下面我们以 Flink 版本 1.13.5，scala 版本 2.12 为例说明：
-
-先替换 pom.xml 中的 flink.version 和 scala.version：
+First, replace flink.version and scala.version in pom.xml with
 
 ```
 cd flink-doris-connector/
@@ -64,14 +60,14 @@ sed -i 's/\${flink.version}/1.13.5/g' pom.xml
 sed -i 's/\${scala.version}/2.12/g' pom.xml
 ```
 
-替换后，提交本地修改：
+After replacing, commit the local changes to.
 
 ```
 git add . -u
 git commit -m "prepare for 1.13.5-2.12-1.0.0"
 ```
 
-执行以下命令开始生成 release tag：
+Execute the following command to start generating the release tag.
 
 ```bash
 cd flink-doris-connector/
@@ -79,50 +75,50 @@ mvn release:clean -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -D
 mvn release:prepare -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -Dflink.version=1.13.5 -Dscala.version=2.12 -DpushChanges=false
 ```
 
-其中 `-DpushChanges=false` 表示执行过程中，不会向代码库推送新生成的分支和 tag。
+where `-DpushChanges=false` means that the newly generated branches and tags are not pushed to the codebase during execution.
 
-在执行 `release:prepare` 命令后，会要求提供以下三个信息：
+After executing the `release:prepare` command, the following three pieces of information will be requested.
 
-1. Doris Flink Connector 的版本信息， 我们默认就可以，可以直接回车或者输入自己想要的版本。版本格式为 `{flink.version}-{scala.version}-{connector.version}`，如 `1.13.5-2.12-1.0.0`。
-2. Doris Flink Connector 的 release tag, release 过程会在本地生成一个 tag。我们使用默认的 tag 名称即可，如 `1.13.5-2.12-1.0.0`。
-3. Doris Flink Connector 下一个版本的版本号。这个版本号只是用于生成本地分支时使用，无实际意义。我们按规则填写一个即可，比如当前要发布的版本是：`1.13.5-2.12-1.0.0`，那么下一个版本号填写 `1.13.5-2.12-1.0.1` 即可。
+1. the version of the Doris Flink Connector, which we can do by default, either by entering a carriage return or by typing in the version you want. The version format is `{flink.version}-{scala.version}-{connector.version}`, e.g. `1.13.5-2.12-1.0.0`. 2.
+2. The release tag of Doris Flink Connector, the release process will generate a tag locally, we can use the default tag name, such as `1.13.5-2.12-1.0.0`.
+The version number of the next version of Doris Flink Connector. This version number is only used for generating local branches and has no real meaning. For example, if the current release is `1.13.5-2.12-1.0.0`, then the next version number should be `1.13.5-2.12-1.0.1`.
 ```
 
-`mvn release:prepare` 可能会要求输入 GPG passphrase。如果出现 `gpg: no valid OpenPGP data found` 错误，则可以执行 `export GPG_TTY=$(tty)` 后在尝试。
+`mvn release:prepare` may ask for GPG passphrase, if you get `gpg: no valid OpenPGP data found` error, you can try after executing `export GPG_TTY=$(tty)`.
 
-`mvn release:prepare` 执行成功后，会在本地生成一个 tag 和一个 branch。并且当前分支会新增两个 commit。第一个 commit 对应的是新生成的 tag，第二个则是下一个版本的 branch。可以通过 `git log` 查看。
+If `mvn release:prepare` succeeds, a tag and a branch will be created locally, and two new commits will be added to the current branch, the first one corresponding to the newly created tag and the second one to the branch of the next release, which can be viewed via `git log`.
 
-本地 tag 确认无误后，需要将 tag 推送到代码库：
+Once the local tag is verified, you need to push the tag to the repository.
 
 `git push upstream --tags`
 
-其中 upstream 指向 `apache/incubator-doris-flink-connector` 代码库。
+where upstream points to the `apache/incubator-doris-flink-connector` repository.
 
-最后，执行 perform:
+Finally, execute perform:
 
 ```
 mvn release:perform -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -Dflink.version=1.13.5 -Dscala.version=2.12
 ```
 
-执行成功后，在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 里面可以找到刚刚发布的版本：
+After successful execution, the version just released can be found in [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories)
 
 ![](/images/staging-repositories.png)
 
-**注意需要包含 `.asc` 签名文件。**
+**Note that the `.asc` signature file needs to be included.**
 
-如果操作有误。需要将本地 tag，代码库中的 tag 以及本地新生成的两个 commit 删除。并将 staging drop 掉。然后重新执行上述步骤。
+If there is an error. You need to delete the local tag, the tag in the codebase, and the two newly generated local commits. And drop the staging. Then re-execute the above steps.
 
-检查完毕后，点击图中的 `close` 按钮完成 staging 发布。
+After checking, click the `close` button in the figure to finish staging release.
 
-### 3. 准备 svn
+### 3. Prepare svn
 
-检出 svn 仓库：
+Check out the svn repository.
 
 ```
 svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 ```
 
-打包 tag 源码，并生成签名文件和sha256校验文件。这里我们以 `1.13.5-2.12-1.0.0` 为例。其他 tag 操作相同
+Package the tag source code and generate the signature file and sha256 checksum file. Here we take `1.13.5-2.12-1.0.0` as an example.
 
 ```
 git archive --format=tar 1.13.5-2.12-1.0.0 --prefix=apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src/ | gzip > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
@@ -130,7 +126,7 @@ gpg -u xxx@apache.org --armor --output apache-doris-flink-connector-1.13.5-2.12-
 sha512sum apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
 ```
 
-最终得到三个文件：
+The end result is three files:
 
 ```
 apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
@@ -138,13 +134,13 @@ apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.asc
 apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
 ```
 
-将这三个文件移动到 svn 目录下：
+Move these three files to the svn directory:
 
 ```
 doris/flink-connector/1.0.0/
 ```
 
-最终 svn 目录结构类似：
+The final svn directory structure will look like this:
 
 ```
 |____0.15
@@ -166,13 +162,13 @@ doris/flink-connector/1.0.0/
 | | |____apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
 ```
 
-其中 0.15 是 Doris 主代码的目录，而 `flink-connector/1.0.0` 下就是本次发布的内容了。
+Where 0.15 is the directory of Doris main code, and under `flink-connector/1.0.0` is the content of this release.
 
-注意，KEYS 文件的准备，可参阅 [发版准备](./release-prepare.md) 中的介绍。
+Note that the preparation of the KEYS file can be found in [release preparation](. /release-prepare.md).
 
-### 4. 投票
+### 4. Polling
 
-在 dev@doris 邮件组发起投票，模板如下：
+Initiate a poll in the dev@doris mailgroup, with the following template.
 
 ```
 Hi All,
@@ -213,7 +209,7 @@ Please vote accordingly:
 [ ] -1 disapprove with the reason
 ```
 
-dev 邮件组通过后，再发送邮件到 general@incubator 邮件组进行 IPMC 投票。
+After the dev mail group is approved, send an email to the general@incubator mail group for IPMC voting.
 
 ```
 Hi All,
@@ -258,22 +254,22 @@ Please vote accordingly:
 [1] vote thread in dev@doris
 ```
 
-## 完成发布
+## Completing the release
 
-请参阅 [完成发布](./release-complete.md) 文档完成所有发布流程。
+Please refer to the [Release Completion](./release-complete.md) document to complete the release process.
 
-## 附录：发布到 SNAPSHOT
+## Appendix: Releasing to SNAPSHOT
 
-Snapshot 并非 Apache Release 版本，仅用于发版前的预览。在经过 PMC 讨论通过后，可以发布 Snapshot 版本
+Snapshot is not an Apache Release version and is only used for pre-release previews. Snapshot versions can be released after discussion and approval by the PMC
 
-切换到 flink connector 目录， 我们以 flink 版本 1.13.5，scalar 2.12 为例
+Switch to the flink connector directory, we will use flink version 1.13.5, scalar 2.12 as an example
 
 ```
 cd flink-doris-connector
 mvn deploy -Dflink.version=1.13.5 -Dscala.version=2.12
 ```
 
-之后你可以在这里看到 snapshot 版本：
+After that you can see the snapshot version here.
 
 ```
 https://repository.apache.org/content/repositories/snapshots/org/apache/doris/doris-flink-connector/

@@ -299,7 +299,13 @@ https://downloads.apache.org/incubator/doris/KEYS
 
 对于 Doris Connector 等组件，需要使用 maven 进行版本发布。
 
-1. 生成主密码：`mvn --encrypt-master-password <password>` 这个密码仅用作加密后续的其他密码使用, 输出类似 `{VSb+6+76djkH/43...}` 之后创建 `~/.m2/settings-security.xml` 文件，内容是
+1. 生成主密码
+
+    `mvn --encrypt-master-password <password>`
+    
+    这个密码仅用作加密后续的其他密码使用, 输出类似 `{VSb+6+76djkH/43...}`
+    
+    之后创建 `~/.m2/settings-security.xml` 文件，内容是
 
     ```
     <settingsSecurity>
@@ -307,7 +313,13 @@ https://downloads.apache.org/incubator/doris/KEYS
     </settingsSecurity>
     ```
 
-2. 加密 apache 密码： `mvn --encrypt-password <password>` 这个密码是apache 账号的密码 输出和上面类似`{GRKbCylpwysHfV...}` 在 `~/.m2/settings.xml` 中加入
+2. 加密 apache 密码
+
+    `mvn --encrypt-password <password>`
+    
+    这个密码是apache 账号的密码 输出和上面类似`{GRKbCylpwysHfV...}`
+    
+    在 `~/.m2/settings.xml` 中加入
 
 	```
     <servers>

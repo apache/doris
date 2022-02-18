@@ -1,7 +1,7 @@
 ---
 {
-    "title": "发布 Doris 主代码",
-    "language": "zh-CN"
+    "title": "Release Doris Core",
+    "language": "en"
 }
 ---
 
@@ -24,55 +24,55 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 发布 Doris Core
+# Release Doris Core
 
-Doris Core 指发布 https://github.com/apache/incubator-doris 中的内容。
+Doris Core refers to the content published in https://github.com/apache/incubator-doris.
 
-## 准备发布
+## Preparing for release
 
-首先，请参阅 [发版准备](./release-prepare.md) 文档进行发版准备。
+First, see the [release preparation](./release-prepare.md) documentation for release preparation.
 
-### 准备分支
+### Preparing a branch
 
-发布前需要先新建一个分支。例如：
+You need to create a new branch before releasing. For example.
 
 ```
 $ git checkout -b branch-0.9
 ```
 
-这个分支要进行比较充分的测试，使得功能可用，bug收敛，重要bug都得到修复。
-这个过程需要等待社区，看看是否有必要的patch需要在这个版本合入，如果有，需要把它 cherry-pick 到发布分支。
+This branch should be more fully tested to make features available, bugs converged, and important bugs fixed.
+This process requires waiting for the community to see if there are any necessary patches that need to be merged in for this release, and if so, cherry-picking it to the release branch.
 
-### 清理issue
+### Clean up issues
 
-将属于这个版本的所有 issue 都过一遍，关闭已经完成的，如果没法完成的，推迟到更晚的版本。
+Go through all the issues that belong to this release, close the ones that are done, and if they can't be done, defer them to a later release.
 
-### 合并必要的Patch
+### Merge necessary patches
 
-在发布等待过程中，可能会有比较重要的Patch合入，如果社区有人说要有重要的Bug需要合入，那么 Release Manager 需要评估并将重要的Patch合入到发布分支中。
+If someone in the community says there are important bugs that need to be merged in, then the Release Manager needs to evaluate and merge the important patches into the release branch.
 
-## 验证分支
+## Validation branch
 
-### 稳定性测试
+### Stability testing
 
-将打好的分支交给 QA 同学进行稳定性测试。如果在测试过程中，出现需要修复的问题，则如果在测试过程中，出现需要修复的问题，待修复好后，需要将修复问题的 PR 合入到待发版本的分支中。
+Pass the batched branch to the QA students for stability testing. If during the testing process, there are issues that need to be fixed, then if during the testing process, there are issues that need to be fixed, then after they are fixed, the PRs that fix the issues need to be merged into the branch of the pending release.
 
-待整个分支稳定后，才能准备发版本。
+Only after the whole branch is stable, can you prepare to release the version.
 
-### 编译验证
+### Compile verification
 
-请参阅编译文档进行编译，以确保源码编译正确性。
+Please refer to the compilation documentation for compilation to ensure that the source code is compiled correctly.
 
-### 准备 Release Nodes
+### Prepare Release Nodes
 
-## 社区发布投票流程
+## Community Posting Voting Process
 
-### 打 tag
+### Tagging
 
-当上述分支已经比较稳定后，就可以在此分支上打 tag。
-记得在创建 tag 时，修改 `gensrc/script/gen_build_version.sh` 中的 `build_version` 变量。如 `build_version="0.10.0-release"`
+Once the above branch is more stable, you can tag this branch.
+Remember to modify the `build_version` variable in `gensrc/script/gen_build_version.sh` when creating the tag. For example `build_version="0.10.0-release"`
 
-例如：
+Example:
 
 ```
 $ git checkout branch-0.9
@@ -87,9 +87,9 @@ To git@github.com:apache/incubator-doris.git
 $ git tag
 ```
 
-### 打包、签名上传
+### Package, sign and upload
 
-如下步骤，也需要通过 SecureCRT 等终端直接登录用户账户，不能通过 su - user 或者 ssh 转，否则密码输入 box 会显示不出来而报错。
+For the following steps, you also need to log in to the user account directly through a terminal such as SecureCRT, not through `su - user` or `ssh`, otherwise the password input box will not be displayed and an error will be reported.
 
 ```
 $ git checkout 0.9.0-rc01
@@ -105,13 +105,13 @@ $ sha512sum apache-doris-0.9.0-incubating-src.tar.gz > apache-doris-0.9.0-incuba
 $ sha512sum --check apache-doris-0.9.0-incubating-src.tar.gz.sha512
 ```
 
-然后将打包的内容上传到svn仓库中，首先下载 svn 库：
+Then upload the packaged content to the svn repository by first downloading the svn library at:
 
 ```
 svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 ```
 
-将之前得到的全部文件组织成以下svn路径
+Organize all the previously obtained files into the following svn path:
 
 ```
 ./doris/
@@ -122,14 +122,14 @@ svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 `-- KEYS
 ```
 
-上传这些文件
+Upload these file:
 
 ```
 svn add 0.11.0-rc1
 svn commit -m "Add 0.11.0-rc1"
 ```
 
-### 发邮件到社区 dev@doris.apache.org 进行投票
+### Email the community at dev@doris.apache.org to vote
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -158,8 +158,9 @@ https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
-To verify and build, you can refer to following link:
-http://doris.incubator.apache.org/community/release-and-verify/release-verify.html
+To verify and build, you can refer to following wiki:
+https://github.com/apache/incubator-doris/wiki/How-to-verify-Apache-Release
+https://wiki.apache.org/incubator/IncubatorReleaseChecklist
 
 The vote will be open for at least 72 hours.
 [ ] +1 Approve the release
@@ -185,7 +186,7 @@ of the completeness or stability of the code, it does indicate
 that the project has yet to be fully endorsed by the ASF.
 ```
 
-### 投票通过后，发 Result 邮件
+### After the vote is approved, send the Result email
 
 [Result][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -205,9 +206,9 @@ xxx
 
 ```
 
-### 发邮件到 general@incubator.apache.org 进行投票
+### Email general@incubator.apache.org to vote
 
-**如非孵化器项目，请跳过**
+**If not an incubator program, please skip**
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -287,13 +288,13 @@ of the completeness or stability of the code, it does indicate
 that the project has yet to be fully endorsed by the ASF.
 ```
 
-邮件的 thread 连接可以在这里找到：
+The thread link for the email can be found here.
 
 `https://lists.apache.org/list.html?dev@doris.apache.org`
 
-### 发 Result 邮件到 general@incubator.apache.org
+### Send Result email to general@incubator.apache.org
 
-**如非孵化器项目，请跳过**
+**If not an incubator project, please skip**
 
 [RESULT][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -318,6 +319,6 @@ Best Regards,
 xxx
 ```
 
-## 完成发布
+## Completing the release
 
-请参阅 [完成发布](./release-complete.md) 文档完成所有发布流程。
+Please refer to the [Release Completion](./release-complete.md) document to complete the release process.
