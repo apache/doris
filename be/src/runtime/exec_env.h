@@ -47,6 +47,7 @@ class MemTracker;
 class StorageEngine;
 class PoolMemTrackerRegistry;
 class PriorityThreadPool;
+class PriorityWorkStealingThreadPool;
 class ReservationTracker;
 class ResultBufferMgr;
 class ResultQueueMgr;
@@ -145,6 +146,7 @@ public:
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
+    size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
     StorageEngine* storage_engine() { return _storage_engine; }
     void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
@@ -170,6 +172,8 @@ private:
 private:
     bool _is_init;
     std::vector<StorePath> _store_paths;
+    // path => store index
+    std::map<std::string, size_t> _store_path_map;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
     DataStreamMgr* _stream_mgr = nullptr;
