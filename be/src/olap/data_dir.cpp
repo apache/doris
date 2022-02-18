@@ -352,55 +352,6 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
             .string();
 }
 
-OLAPStatus DataDir::_clean_unfinished_converting_data() {
-    auto clean_unifinished_tablet_meta_func = [this](int64_t tablet_id, int32_t schema_hash,
-                                                     const std::string& value) -> bool {
-        TabletMetaManager::remove(this, tablet_id, schema_hash, HEADER_PREFIX);
-        LOG(INFO) << "successfully clean temp tablet meta for tablet=" << tablet_id << "."
-                  << schema_hash << "from data dir: " << _path_desc.filepath;
-        return true;
-    };
-    OLAPStatus clean_unfinished_meta_status = TabletMetaManager::traverse_headers(
-            _meta, clean_unifinished_tablet_meta_func, HEADER_PREFIX);
-    if (clean_unfinished_meta_status != OLAP_SUCCESS) {
-        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
-        LOG(WARNING) << "there is failure when clean temp tablet meta from data dir="
-                     << _path_desc.filepath;
-    } else {
-        LOG(INFO) << "successfully clean temp tablet meta from data dir=" << _path_desc.filepath;
-    }
-    auto clean_unifinished_rowset_meta_func = [this](TabletUid tablet_uid, RowsetId rowset_id,
-                                                     const std::string& value) -> bool {
-        RowsetMetaManager::remove(_meta, tablet_uid, rowset_id);
-        LOG(INFO) << "successfully clean temp rowset meta for rowset_id=" << rowset_id
-                  << " from data dir=" << _path_desc.filepath;
-        return true;
-    };
-    OLAPStatus clean_unfinished_rowset_meta_status =
-            RowsetMetaManager::traverse_rowset_metas(_meta, clean_unifinished_rowset_meta_func);
-    if (clean_unfinished_rowset_meta_status != OLAP_SUCCESS) {
-        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
-        LOG(FATAL) << "fail to clean temp rowset meta from data dir=" << _path_desc.filepath;
-    } else {
-        LOG(INFO) << "success to clean temp rowset meta from data dir=" << _path_desc.filepath;
-    }
-    return OLAP_SUCCESS;
-}
-
-bool DataDir::convert_old_data_success() {
-    return _convert_old_data_success;
-}
-
-OLAPStatus DataDir::set_convert_finished() {
-    OLAPStatus res = _meta->set_tablet_convert_finished();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "save convert flag failed after convert old tablet. dir="
-                   << _path_desc.filepath;
-        return res;
-    }
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
     auto check_incompatible_old_func = [this](int64_t tablet_id, int32_t schema_hash,
                                               const std::string& value) -> bool {
