@@ -36,6 +36,7 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
+#include "util/priority_work_stealing_thread_pool.hpp"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -1436,6 +1437,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 PriorityThreadPool::Task task;
                 task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
                 task.priority = _nice;
+                task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
                 (*iter)->start_wait_worker_timer();
                 if (thread_pool->offer(task)) {
                     olap_scanners.erase(iter++);
