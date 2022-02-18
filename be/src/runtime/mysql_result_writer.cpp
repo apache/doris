@@ -185,7 +185,11 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
                 buf_ret = _add_row_value(index, children_type, iter.value());
                 buf_ret = _row_buffer->push_string("'", 1);
             } else {
-                buf_ret = _add_row_value(index, children_type, iter.value());
+                if (!iter.value()) {
+                    buf_ret = _row_buffer->push_string("NULL", 4);
+                } else {
+                    buf_ret = _add_row_value(index, children_type, iter.value());
+                }
             }
 
             iter.next();

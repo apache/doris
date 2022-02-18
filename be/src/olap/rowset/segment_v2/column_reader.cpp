@@ -127,7 +127,7 @@ Status ColumnReader::init() {
                     "Bad file $0: invalid column index type $1", _path_desc.filepath, index_meta.type()));
         }
     }
-    if (_ordinal_index_meta == nullptr) {
+    if (!is_empty() && _ordinal_index_meta == nullptr) {
         return Status::Corruption(strings::Substitute(
                 "Bad file $0: missing ordinal index for column $1", _path_desc.filepath, _meta.column_id()));
     }
@@ -339,6 +339,10 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
 }
 
 Status ColumnReader::new_iterator(ColumnIterator** iterator) {
+    if (is_empty()) {
+        *iterator = new EmptyFileColumnIterator();
+        return Status::OK();
+    }
     if (is_scalar_type((FieldType)_meta.type())) {
         *iterator = new FileColumnIterator(this);
         return Status::OK();
@@ -427,7 +431,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
 
     // read item
     size_t item_size = array_batch->get_item_size(dst->current_offset(), *n);
-    if (item_size > 0) {
+    if (item_size >= 0) {
         bool item_has_null = false;
         ColumnVectorBatch* item_vector_batch = array_batch->elements();
 
