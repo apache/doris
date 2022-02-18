@@ -553,6 +553,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         PriorityThreadPool::Task task;
         task.work_function = std::bind(&VOlapScanNode::scanner_thread, this, *iter);
         task.priority = _nice;
+        task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
         (*iter)->start_wait_worker_timer();
         if (thread_pool->offer(task)) {
             olap_scanners.erase(iter++);
