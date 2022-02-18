@@ -50,12 +50,12 @@ public:
         }
     }
 
-    uint32_t serialized_size() {
+    uint32_t serialized_size() const {
         return sizeof(uint32_t) + sizeof(int64_t) * _counts.size() +
                sizeof(uint32_t) * _counts.size();
     }
 
-    void serialize(uint8_t* writer) {
+    void serialize(uint8_t* writer) const {
         uint32_t size = _counts.size();
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
@@ -82,7 +82,7 @@ public:
         }
     }
 
-    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts, double position) {
+    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts, double position) const {
         long lower = std::floor(position);
         long higher = std::ceil(position);
 
@@ -107,7 +107,7 @@ public:
         return (higher - position) * lower_key + (position - lower) * higher_key;
     }
 
-    doris_udf::DoubleVal terminate(double quantile) {
+    doris_udf::DoubleVal terminate(double quantile) const {
         if (_counts.empty()) {
             return doris_udf::DoubleVal();
         }
