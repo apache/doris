@@ -230,7 +230,7 @@ private:
 
 private:
     Status _hash_table_build(RuntimeState* state);
-    Status _process_build_block(RuntimeState* state, Block& block, uint8_t blk_ind);
+    Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
     Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
                                      bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);

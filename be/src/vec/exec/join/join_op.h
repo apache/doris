@@ -28,15 +28,14 @@ struct RowRef {
 
     // const Block* block = nullptr;
     SizeT row_num = 0;
-
-    uint8_t block_index = 0;
+    uint8_t block_offset;
     // Use in right join to mark row is visited
     // TODO: opt the varaible to use it only need
     bool visited = false;
 
     RowRef() {}
-    RowRef(uint8_t block_index, size_t row_num_count, bool is_visited = false)
-            : row_num(row_num_count), block_index(block_index), visited(is_visited) {}
+    RowRef(size_t row_num_count, uint8_t block_offset_, bool is_visited = false)
+            : row_num(row_num_count), block_offset(block_offset_), visited(is_visited) {}
 };
 
 /// Single linked list of references to rows. Used for ALL JOINs (non-unique JOINs)
@@ -117,7 +116,7 @@ struct RowRefList : RowRef {
     };
 
     RowRefList() {}
-    RowRefList(uint8_t block_index, size_t row_num_) : RowRef(block_index, row_num_) {}
+    RowRefList(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
 
     ForwardIterator begin() { return ForwardIterator(this); }
     ForwardIterator end() { return ForwardIterator::end(); }

@@ -42,14 +42,14 @@ using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext, bool ignore_null, bool build_unique>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                          HashJoinNode* join_node, int batch_size, uint8_t blk_ind)
+                          HashJoinNode* join_node, int batch_size, uint8_t offset)
             : _rows(rows),
               _skip_rows(0),
               _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
               _join_node(join_node),
               _batch_size(batch_size),
-              _blk_ind(blk_ind) {}
+              _offset(offset) {}
 
     Status operator()(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map,
                       bool has_runtime_filter) {
@@ -89,14 +89,14 @@ struct ProcessHashTableBuild {
             }
 
             if (emplace_result.is_inserted()) {
-                new (&emplace_result.get_mapped()) Mapped({_blk_ind, k});
+                new (&emplace_result.get_mapped()) Mapped({k, _offset});
                 if (has_runtime_filter) {
                     inserted_rows.push_back(k);
                 }
             } else {
                 if constexpr (!build_unique) {
                     /// The first element of the list is stored in the value of the hash table, the rest in the pool.
-                    emplace_result.get_mapped().insert({_blk_ind, k}, _join_node->_arena);
+                    emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
                     if (has_runtime_filter) {
                         inserted_rows.push_back(k);
                     }
@@ -119,7 +119,7 @@ private:
     ColumnRawPtrs& _build_raw_ptrs;
     HashJoinNode* _join_node;
     int _batch_size;
-    uint8_t _blk_ind;
+    uint8_t _offset;
 };
 
 template <class HashTableContext>
@@ -179,20 +179,21 @@ struct ProcessHashTableProbe {
 
         KeyGetter key_getter(_probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
-        std::vector<uint32_t> items_counts(_probe_rows);
+        uint32_t items_counts[_probe_rows];
         auto& mcol = mutable_block.mutable_columns();
         int current_offset = 0;
-        std::vector<std::pair<uint8_t, uint32_t>> _build_index;
-        _build_index.reserve(1.2 * _batch_size);
+        //build_block_index size may be largger than _batch_size, 100 is safety.
+        int build_block_row_num[_batch_size + 100];
+        int build_block_offset[_batch_size + 100];
 
         for (; _probe_index < _probe_rows;) {
             if constexpr (ignore_null) {
                 if ((*null_map)[_probe_index]) {
-                    items_counts[_probe_index++] = 0;
+                    items_counts[_probe_index++] = (uint32_t)0;
                     continue;
                 }
             }
-            int repeat_count = 0;
+            int last_offset = current_offset;
             auto find_result = (*null_map)[_probe_index]
                                 ? decltype(key_getter.find_key(hash_table_ctx.hash_table, _probe_index,
                                                                 _arena)) {nullptr, false}
@@ -203,25 +204,27 @@ struct ProcessHashTableProbe {
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
                     if (mapped.get_row_count() == 1) {
-                        ++repeat_count;
-                        _build_index.emplace_back(std::make_pair(mapped.block_index, mapped.row_num));
+                        build_block_row_num[current_offset] = mapped.row_num;
+                        build_block_offset[current_offset] = mapped.block_offset;
+                        ++current_offset;
                     } else {
                         // prefetch is more useful while matching to multiple rows
                         if (_probe_index + 2 < _probe_rows)
                             key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2, _arena);
                         for (auto it = mapped.begin(); it.ok(); ++it) {
-                            ++repeat_count;
-                            _build_index.emplace_back(std::make_pair(it->block_index, it->row_num));
+                            build_block_row_num[current_offset] = it->row_num;
+                            build_block_offset[current_offset] = it->block_offset;
+                            ++current_offset;
                         }
                     }
                 }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
                 if (!find_result.is_found()) {
-                    ++repeat_count;
+                    ++current_offset;
                 }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
                 if (find_result.is_found()) { 
-                    ++repeat_count;
+                    ++current_offset;
                 }
             } else {
                 if (_probe_index + 2 < _probe_rows)
@@ -233,21 +236,30 @@ struct ProcessHashTableProbe {
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
                     if (mapped.get_row_count() == 1) {
                         mapped.visited = true;
+                        current_offset++;
                         // right semi/anti join should dispose the data in hash table
                         // after probe data eof
                         if constexpr (JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN && 
                                       JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
-                            ++repeat_count;
-                            _build_index.emplace_back(std::make_pair(mapped.block_index, mapped.row_num));
+                            for (size_t j = 0; j < _right_col_len; ++j) {
+                                auto& column = *_build_block[mapped.block_offset].get_by_position(j).column;
+                                mcol[j + _right_col_idx]->insert_from(column, mapped.row_num);
+                            }
                         }
                     } else {
                         for (auto it = mapped.begin(); it.ok(); ++it) {
+
                             // right semi/anti join should dispose the data in hash table
                             // after probe data eof
                             if constexpr (JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN && 
                                           JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
-                                ++repeat_count;
-                                _build_index.emplace_back(std::make_pair(it->block_index, it->row_num));
+                                current_offset++;
+                                for (size_t j = 0; j < _right_col_len; ++j) {
+                                    auto& column = *_build_block[it->block_offset].get_by_position(j).column;
+                                    // TODO: interface insert from cause serious performance problems
+                                    //  when column is nullable. Try to make more effective way
+                                    mcol[j + _right_col_idx]->insert_from(column, it->row_num);
+                                }
                             }
                             it->visited = true;
                         }
@@ -255,46 +267,44 @@ struct ProcessHashTableProbe {
                 } else if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN || 
                                      JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
                     // only full outer / left outer need insert the data of right table
-                    ++repeat_count;
+                    ++current_offset;
                     for (size_t j = 0; j < _right_col_len; ++j) {
                         DCHECK(mcol[j + _right_col_idx]->is_nullable());
                         assert_cast<ColumnNullable *>(mcol[j + _right_col_idx].get())->insert_data(nullptr, 0);
                     }
                 }
             }
-            items_counts[_probe_index++] = repeat_count;
-            current_offset += repeat_count;
+            items_counts[_probe_index++] = (uint32_t)(current_offset - last_offset);
             if (current_offset >= _batch_size) {
                 break;
             }
         }
 
-        // insert all match build rows
-        if (_build_block.size() == 1) {
-            for (int i = 0; i < _right_col_len; i++) {
-                    auto &column = *_build_block[0].get_by_position(i).column;
-                for (int j = 0; j < _build_index.size(); j++) {
-                    mcol[i + _right_col_idx]->insert_from(column, _build_index[j].second);
+        // insert all matched build rows
+        if constexpr (JoinOpType::value ==TJoinOp::INNER_JOIN) {
+            if (_build_block.size() == 1) {
+                for (int i = 0; i < _right_col_len; i++) {
+                        auto &column = *_build_block[0].get_by_position(i).column;
+                        mcol[i + _right_col_idx]->insert_indices_from(column, &build_block_row_num[0], &build_block_row_num[current_offset]);
                 }
-            }
-        } else {
-            for (int i = 0; i < _right_col_len; i++) {
-                for (int j = 0; j < _build_index.size(); j++) {
-                    auto &column = *_build_block[_build_index[j].first].get_by_position(i).column;
-                    mcol[i + _right_col_idx]->insert_from(column, _build_index[j].second);
+            } else {
+                for (int i = 0; i < _right_col_len; i++) {
+                    for (int j = 0; j < current_offset; j++) {
+                        auto &column = *_build_block[build_block_offset[j]].get_by_position(i).column;
+                        mcol[i + _right_col_idx]->insert_from(column, build_block_row_num[j]);
+                    }
                 }
             }
         }
 
         for (int i = 0; i < _right_col_idx; ++i) {
             auto& column = _probe_block.get_by_position(i).column;
-            column->replicate(items_counts.data(), current_offset, *mcol[i]);
+            column->replicate(&items_counts[0], current_offset, *mcol[i]);
         }
         output_block->swap(mutable_block.to_block());
 
         return Status::OK();
     }
-
     // In the presence of other join conjunt, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunt. so the sturct of mutable block
     // and output block may be different
@@ -318,9 +328,6 @@ struct ProcessHashTableProbe {
         std::vector<bool> same_to_prev;
         same_to_prev.reserve(1.2 * _batch_size);
 
-        std::vector<std::pair<uint8_t, uint32_t>> _build_index;
-        _build_index.reserve(1.2 * _batch_size);
-
         int current_offset = 0;
 
         for (; _probe_index < _probe_rows;) {
@@ -343,7 +350,10 @@ struct ProcessHashTableProbe {
 
                 for (auto it = mapped.begin(); it.ok(); ++it) {
                     ++current_offset;
-                    _build_index.emplace_back(std::make_pair(it->block_index, it->row_num));
+                    for (size_t j = 0; j < _right_col_len; ++j) {
+                        auto& column = *_build_block[it->block_offset].get_by_position(j).column;
+                        mcol[j + _right_col_idx]->insert_from(column, it->row_num);
+                    }
                     visited_map.emplace_back(&it->visited);
                 }
                 same_to_prev.emplace_back(false);
@@ -383,13 +393,6 @@ struct ProcessHashTableProbe {
             offset_data[i] = current_offset;
         }
 
-        // insert all match build rows
-        for (int i = 0; i < _right_col_len; i++) {
-            for (int j = 0; j < _build_index.size(); j++) {
-                auto &column = *_build_block[_build_index[j].first].get_by_position(i).column;
-                mcol[i + _right_col_idx]->insert_from(column, _build_index[j].second);
-            }
-        }
         output_block->swap(mutable_block.to_block());
         for (int i = 0; i < _right_col_idx; ++i) {
             auto& column = _probe_block.get_by_position(i).column;
@@ -511,10 +514,10 @@ struct ProcessHashTableProbe {
         auto& iter = hash_table_ctx.iter;
         auto block_size = 0;
 
-        auto insert_from_hash_table = [&](uint8_t block_index, uint32_t row_num) {
+        auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
             block_size++;
             for (size_t j = 0; j < _right_col_len; ++j) {
-                auto& column = *_build_block[block_index].get_by_position(j).column;
+                auto& column = *_build_block[offset].get_by_position(j).column;
                 mcol[j + _right_col_idx]->insert_from(column, row_num);
             }
         };
@@ -524,10 +527,10 @@ struct ProcessHashTableProbe {
             for (auto it = mapped.begin(); it.ok(); ++it) {
                 if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
                     if (it->visited)
-                        insert_from_hash_table(it->block_index, it->row_num);
+                        insert_from_hash_table(it->block_offset, it->row_num);
                 } else {
                     if (!it->visited)
-                        insert_from_hash_table(it->block_index, it->row_num);
+                        insert_from_hash_table(it->block_offset, it->row_num);
                 }
             }
         }
@@ -874,6 +877,7 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     }
     uint8_t index = 0;
     bool eos = false;
+    int64_t last_mem_used = 0;
     while (!eos) {
         block.clear();
         RETURN_IF_CANCELLED(state);
@@ -892,20 +896,23 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
             }
         }
 
-        if (_mem_used > 2 * 1024UL * 1024UL * 1024UL) {
+        // make one block for each 4 gigabytes
+        if (_mem_used - last_mem_used > 4 * 1024UL * 1024UL * 1024UL) {
             for (int i = 0; i < right_col_len; ++i) {
                 _build_block.emplace_back(Block({ColumnWithTypeAndName(std::move(columns[i]),_right_table_data_types[i], "")}));
             }
+
             RETURN_IF_ERROR(_process_build_block(state, _build_block[index], index));
             RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
             ++index;
             for (int i = 0; i < right_col_len; i++) {
                 columns[i] = _right_table_data_types[i]->create_column();
             }
+            last_mem_used = _mem_used;
         }
     }
 
-    for (int i = 0; i < _right_table_data_types.size(); ++i) {
+    for (int i = 0; i < right_col_len; ++i) {
         _build_block.emplace_back(Block({ColumnWithTypeAndName(std::move(columns[i]),_right_table_data_types[i], "")}));
     }
 
@@ -1010,7 +1017,7 @@ Status HashJoinNode::extract_probe_join_column(Block& block, NullMap& null_map,
     return Status::OK();
 }
 
-Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t blk_ind) {
+Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t offset) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
     if (rows == 0) {
@@ -1048,7 +1055,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
 #define CALL_BUILD_FUNCTION(HAS_NULL, BUILD_UNIQUE)                                           \
     ProcessHashTableBuild<HashTableCtxType, HAS_NULL, BUILD_UNIQUE> hash_table_build_process( \
-            rows, block, raw_ptrs, this, state->batch_size(), blk_ind);                       \
+            rows, block, raw_ptrs, this, state->batch_size(), offset);                       \
     st = hash_table_build_process(arg, &null_map_val, has_runtime_filter);
                     if (std::pair {has_null, _build_unique} == std::pair {true, true}) {
                         CALL_BUILD_FUNCTION(true, true);
