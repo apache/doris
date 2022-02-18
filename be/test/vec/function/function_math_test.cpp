@@ -379,6 +379,28 @@ TEST(MathFunctionTest, round_test) {
     }
 }
 
+TEST(MathFunctionTest, least_test) {
+    std::string func_name = "least";
+
+    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+
+    DataSet data_set = {{{3, 2}, 2}, {{3, 3}, 3}, {{Null(), -2}, Null()},
+                            {{193, -2}, -2},   {{193, -1}, -1}};
+
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
+TEST(MathFunctionTest, greatest_test) {
+    std::string func_name = "greatest";
+
+    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+
+    DataSet data_set = {{{3, 2}, 3}, {{3, 3}, 3}, {{Null(), -2}, Null()},
+                            {{193, -2}, 193},   {{193, -1}, 193}};
+
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
 TEST(MathFunctionTest, bin_test) {
     std::string func_name = "bin";
 
