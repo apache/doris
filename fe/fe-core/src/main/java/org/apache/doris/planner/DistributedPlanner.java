@@ -50,7 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import avro.shaded.com.google.common.collect.Maps;
+import com.google.common.collect.Maps;
 
 /**
  * The distributed planner is responsible for creating an executable, distributed plan

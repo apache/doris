@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import avro.shaded.com.google.common.collect.Lists;
 import org.apache.commons.collections.ListUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
@@ -37,7 +36,7 @@ import java.io.File;
 import java.util.List;
 import java.util.UUID;
 
-import avro.shaded.com.google.common.collect.Lists;
+import com.google.common.collect.Lists;
 
 /**
  * @author wangcong

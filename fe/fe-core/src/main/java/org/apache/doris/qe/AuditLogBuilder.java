@@ -17,8 +17,8 @@
 
 package org.apache.doris.qe;
 
-import avro.shaded.com.google.common.collect.Maps;
-import avro.shaded.com.google.common.collect.Sets;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DigitalVersion;

@@ -148,6 +148,28 @@ std::string BrokerTableDescriptor::debug_string() const {
     return out.str();
 }
 
+HiveTableDescriptor::HiveTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+HiveTableDescriptor::~HiveTableDescriptor() {}
+
+std::string HiveTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "HiveTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
+IcebergTableDescriptor::IcebergTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+IcebergTableDescriptor::~IcebergTableDescriptor() {}
+
+std::string IcebergTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "IcebergTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
 EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
 EsTableDescriptor::~EsTableDescriptor() {}
@@ -523,6 +545,12 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::ES_TABLE:
             desc = pool->add(new EsTableDescriptor(tdesc));
+            break;
+        case TTableType::HIVE_TABLE:
+            desc = pool->add(new HiveTableDescriptor(tdesc));
+            break;
+        case TTableType::ICEBERG_TABLE:
+            desc = pool->add(new IcebergTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

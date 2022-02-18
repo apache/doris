@@ -599,6 +599,14 @@ under the License.
             <artifactId>iceberg-hive-metastore</artifactId>
             <scope>provided</scope>
         </dependency>
+
+        <!-- For Iceberg, must be consistent with Iceberg version -->
+        <dependency>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
+            <version>1.10.1</version>
+        </dependency>
+
     </dependencies>
     <build>
         <finalName>palo-fe</finalName>

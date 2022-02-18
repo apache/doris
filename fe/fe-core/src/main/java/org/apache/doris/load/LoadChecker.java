@@ -63,7 +63,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import avro.shaded.com.google.common.collect.Lists;
+import com.google.common.collect.Lists;
 
 public class LoadChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadChecker.class);
