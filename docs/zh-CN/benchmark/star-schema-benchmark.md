@@ -82,6 +82,22 @@ sh gen-ssb-data.sh -s 100 -c 100
 
 4. 导入数据
 
+    0. 准备 'doris-cluster.conf' 文件。
+	
+        在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `doris-cluster.conf` 文件中。
+        
+        文件位置和 `load-dimension-data.sh` 平级。
+   
+        文件内容包括 FE 的 ip，HTTP 端口，用户名，密码以及待导入数据的 DB 名称：
+   
+        ```
+        export FE_HOST="xxx"
+        export FE_HTTP_PORT="8030"
+        export USER="root"
+        export PASSWORD='xxx'
+        export DB="ssb"
+        ```
+
     1. 导入 4 张维度表数据（customer, part, supplier and date）
     
         因为这4张维表数据量较小，导入较简单，我们使用以下命令先导入这4表的数据：
