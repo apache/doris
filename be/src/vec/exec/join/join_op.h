@@ -29,13 +29,9 @@ struct RowRef {
     // const Block* block = nullptr;
     SizeT row_num = 0;
 
-    // Use in right join to mark row is visited
-    // TODO: opt the varaible to use it only need
-    bool visited = false;
-
     RowRef() {}
-    RowRef(size_t row_num_count, bool is_visited = false)
-            : row_num(row_num_count), visited(is_visited) {}
+    RowRef(size_t row_num_count)
+            : row_num(row_num_count) {}
 };
 
 /// Single linked list of references to rows. Used for ALL JOINs (non-unique JOINs)

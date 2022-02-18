@@ -167,6 +167,7 @@ struct ProcessHashTableProbe {
               _probe_block(join_node->_probe_block),
               _probe_index(join_node->_probe_index),
               _probe_raw_ptrs(join_node->_probe_columns),
+              _build_block_visited(join_node->_build_block_visited),
               _rows_returned_counter(join_node->_rows_returned_counter) {}
 
     // Only process the join with no other join conjunt, because of no other join conjunt
@@ -233,13 +234,13 @@ struct ProcessHashTableProbe {
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
                     if (mapped.get_row_count() == 1) {
-                        mapped.visited = true;
                         // right semi/anti join should dispose the data in hash table
                         // after probe data eof
                         if constexpr (JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN && 
                                       JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
                             ++repeat_count;
                             _build_index.emplace_back(mapped.row_num);
+                            _build_block_visited[mapped.row_num] = 1;
                         }
                     } else {
                         for (auto it = mapped.begin(); it.ok(); ++it) {
@@ -249,8 +250,8 @@ struct ProcessHashTableProbe {
                                           JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
                                 ++repeat_count;
                                 _build_index.emplace_back(it->row_num);
+                                _build_block_visited[it->row_num] = 1;
                             }
-                            it->visited = true;
                         }
                     }
                 } else if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN || 
@@ -313,7 +314,7 @@ struct ProcessHashTableProbe {
 
         // use in right join to change visited state after
         // exec the vother join conjunt
-        std::vector<bool*> visited_map;
+        std::vector<uint8_t*> visited_map;
         visited_map.reserve(1.2 * _batch_size);
 
         std::vector<bool> same_to_prev;
@@ -345,7 +346,7 @@ struct ProcessHashTableProbe {
                 for (auto it = mapped.begin(); it.ok(); ++it) {
                     ++current_offset;
                     _build_index.emplace_back(it->row_num);
-                    visited_map.emplace_back(&it->visited);
+                    visited_map.emplace_back(&_build_block_visited[it->row_num]);
                 }
                 same_to_prev.emplace_back(false);
                 for (int i = 0; i < current_offset - origin_offset - 1; ++i) {
@@ -524,10 +525,10 @@ struct ProcessHashTableProbe {
             auto& mapped = iter->get_second();
             for (auto it = mapped.begin(); it.ok(); ++it) {
                 if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
-                    if (it->visited)
+                    if (_build_block_visited[it->row_num])
                         insert_from_hash_table(it->row_num);
                 } else {
-                    if (!it->visited)
+                    if (!_build_block_visited[it->row_num])
                         insert_from_hash_table(it->row_num);
                 }
             }
@@ -562,7 +563,7 @@ private:
     int& _probe_index;
     ColumnRawPtrs& _probe_raw_ptrs;
     Arena _arena;
-
+    std::vector<uint8_t>& _build_block_visited;
     ProfileCounter* _rows_returned_counter;
 };
 
@@ -916,6 +917,11 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(_process_build_block(state, _build_block[index], _blockptr.size()));
     RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
     _blockptr.insert(_blockptr.end(), _build_block[index].rows(), &_build_block[index]);
+
+    // inner join && left semi && left anti do not need visited
+    if (!(_join_op == TJoinOp::INNER_JOIN || _build_unique)) {
+        _build_block_visited.assign(_build_block[index].rows(), (uint8_t)0);
+    }
 
     return std::visit(
             [&](auto&& arg) -> Status {

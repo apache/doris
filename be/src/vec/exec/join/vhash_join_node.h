@@ -205,6 +205,7 @@ private:
 
     std::vector<Block> _build_block;
     std::vector<Block*> _blockptr;
+    std::vector<uint8_t> _build_block_visited;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;

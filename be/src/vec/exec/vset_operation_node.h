@@ -81,6 +81,7 @@ protected:
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
 
+    std::vector<uint8_t> _build_block_visited;
     Block _build_block;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
@@ -117,8 +118,8 @@ void VSetOperationNode::refresh_hash_table() {
                         auto it = mapped.begin();
 
                         if constexpr (keep_matched) { //intersected
-                            if (it->visited) {
-                                it->visited = false;
+                            if (_build_block_visited[it->row_num]) {
+                                _build_block_visited[it->row_num] = false;
                                 if (is_need_shrink)
                                     tmp_hash_table.hash_table.insert(iter->get_value());
                             } else {
@@ -126,7 +127,7 @@ void VSetOperationNode::refresh_hash_table() {
                                 iter->set_zero();
                             }
                         } else { //except
-                            if (!it->visited && is_need_shrink) {
+                            if (!_build_block_visited[it->row_num] && is_need_shrink) {
                                 tmp_hash_table.hash_table.insert(iter->get_value());
                             }
                         }
@@ -152,6 +153,7 @@ struct HashTableProbe {
               _batch_size(batch_size),
               _probe_rows(probe_rows),
               _build_block(operation_node->_build_block),
+              _build_block_visited(operation_node->_build_block_visited),
               _probe_block(operation_node->_probe_block),
               _probe_index(operation_node->_probe_index),
               _num_rows_returned(operation_node->_num_rows_returned),
@@ -171,8 +173,8 @@ struct HashTableProbe {
             auto find_result = key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
             if (find_result.is_found()) { //if found, marked visited
                 auto it = find_result.get_mapped().begin();
-                if (!(it->visited)) {
-                    it->visited = true;
+                if (!_build_block_visited[it->row_num]) {
+                    _build_block_visited[it->row_num] = true;
                     if constexpr (is_intersected) //intersected
                         _operation_node->_valid_element_in_hash_tbl++;
                     else
@@ -204,11 +206,11 @@ struct HashTableProbe {
             auto& value = iter->get_second();
             auto it = value.begin();
             if constexpr (is_intersected) {
-                if (it->visited) { //intersected: have done probe, so visited values it's the result
+                if (_build_block_visited[it->row_num]) { //intersected: have done probe, so visited values it's the result
                     add_result_columns(value, block_size);
                 }
             } else {
-                if (!it->visited) { //except: haven't visited values it's the needed result
+                if (!_build_block_visited[it->row_num]) { //except: haven't visited values it's the needed result
                     add_result_columns(value, block_size);
                 }
             }
@@ -233,6 +235,7 @@ private:
     const int _batch_size;
     const size_t _probe_rows;
     const Block& _build_block;
+    std::vector<uint8_t> & _build_block_visited;
     const Block& _probe_block;
     int& _probe_index;
     int64_t& _num_rows_returned;

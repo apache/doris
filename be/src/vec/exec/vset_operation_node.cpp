@@ -256,6 +256,9 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         _build_block.insert({std::move(columns[i]),_left_table_data_types[i], ""});
     }
 
+    // inner join && left semi && left anti do not need visited
+    _build_block_visited.assign(_build_block.rows(), (uint8_t)0);
+
     RETURN_IF_ERROR(process_build_block(_build_block));
     RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
     return Status::OK();
