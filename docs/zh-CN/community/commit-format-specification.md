@@ -45,7 +45,7 @@ Commit 分为“标题”和“内容”。原则上标题全部小写。内容�
         * style：代码风格调整
         * typo：代码或文档勘误
         * refactor：代码重构（不涉及功能变动）
-        * performance：性能优化
+        * performance/optimize：性能优化
         * test：单元测试的添加或修复
         * chore：构建工具的修改
         * revert：回滚
@@ -77,6 +77,7 @@ Commit 分为“标题”和“内容”。原则上标题全部小写。内容�
         * log
         * cache
         * config
+        * vectorization
         
         几点说明：
         
