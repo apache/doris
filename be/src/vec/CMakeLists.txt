@@ -35,6 +35,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_topn.cpp
   aggregate_functions/aggregate_function_approx_count_distinct.cpp
   aggregate_functions/aggregate_function_group_concat.cpp
+  aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   columns/collator.cpp
   columns/column.cpp
