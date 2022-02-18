@@ -29,7 +29,7 @@ import java.util.List;
 
 // Table function that generate int64 numbers
 // have a single column number
-public class TableFunctionNumbers extends TableFunction {
+public class NumbersTableValuedFunction extends TableValuedFunctionInf {
 
     public static final String NAME = "numbers";
 
@@ -38,7 +38,7 @@ public class TableFunctionNumbers extends TableFunction {
     private long totalNumbers;
     private int tabletsNum = 1;
 
-    public TableFunctionNumbers(List<String> params) throws UserException {
+    public NumbersTableValuedFunction(List<String> params) throws UserException {
         if (params.size() < 1 || params.size() > 2) {
             throw new UserException(
                     "numbers table function only support numbers(10000 /*total numbers*/) or numbers(10000, 2 /*number of tablets to run*/)");
@@ -51,7 +51,7 @@ public class TableFunctionNumbers extends TableFunction {
 
     @Override
     public String getTableName() {
-        return "TableFunctionNumbers";
+        return "NumbersTableValuedFunction";
     }
 
     @Override
@@ -63,7 +63,7 @@ public class TableFunctionNumbers extends TableFunction {
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new TableFunctionNumbersScanNode(id, desc, SCANNODE_NAME, totalNumbers, tabletsNum);
+        return new NumbersTableValuedFunctionScanNode(id, desc, SCANNODE_NAME, totalNumbers, tabletsNum);
     }
 
 }

@@ -19,31 +19,31 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
-import org.apache.doris.tablefunction.TableFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionInf;
 
 import java.util.List;
 
-public class TableFunctionRef extends TableRef {
+public class TableValuedFunctionRef extends TableRef {
 
     private Table table;
-    private TableFunction tableFunction;
+    private TableValuedFunctionInf tableFunction;
 
-    public TableFunctionRef(String funcName, String alias, List<String> params) throws UserException {
+    public TableValuedFunctionRef(String funcName, String alias, List<String> params) throws UserException {
         super(new TableName(null, "#table_function#" + funcName), alias);
-        this.tableFunction = TableFunction.getTableFunction(funcName, params);
+        this.tableFunction = TableValuedFunctionInf.getTableFunction(funcName, params);
         if (hasExplicitAlias())
             return;
         aliases_ = new String[] { "#table_function#" + funcName };
     }
 
-    public TableFunctionRef(TableFunctionRef other) {
+    public TableValuedFunctionRef(TableValuedFunctionRef other) {
         super(other);
         this.tableFunction = other.tableFunction;
     }
 
     @Override
     public TableRef clone() {
-        return new TableFunctionRef(this);
+        return new TableValuedFunctionRef(this);
     }
 
     @Override
@@ -68,7 +68,7 @@ public class TableFunctionRef extends TableRef {
         analyzeJoin(analyzer);
     }
 
-    public TableFunction getTableFunction() {
+    public TableValuedFunctionInf getTableFunction() {
         return tableFunction;
     }
 

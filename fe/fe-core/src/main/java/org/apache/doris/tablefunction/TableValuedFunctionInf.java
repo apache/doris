@@ -27,7 +27,7 @@ import org.apache.doris.planner.ScanNode;
 
 import java.util.List;
 
-public abstract class TableFunction {
+public abstract class TableValuedFunctionInf {
 
     public abstract String getTableName();
 
@@ -41,9 +41,9 @@ public abstract class TableFunction {
     }
 
     // All table functions should be registered here
-    public static TableFunction getTableFunction(String funcName, List<String> params) throws UserException {
-        if (funcName.equalsIgnoreCase(TableFunctionNumbers.NAME)) {
-            return new TableFunctionNumbers(params);
+    public static TableValuedFunctionInf getTableFunction(String funcName, List<String> params) throws UserException {
+        if (funcName.equalsIgnoreCase(NumbersTableValuedFunction.NAME)) {
+            return new NumbersTableValuedFunction(params);
         }
         throw new UserException("Could not find table function " + funcName);
 	}

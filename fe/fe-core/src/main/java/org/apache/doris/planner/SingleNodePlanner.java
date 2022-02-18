@@ -44,7 +44,7 @@ import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableFunctionRef;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -1704,7 +1704,7 @@ public class SingleNodePlanner {
                         null, -1);
                 break;
             case TABLE_FUNCTION:
-            	scanNode = ((TableFunctionRef)tblRef).getTableFunction().getScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
+            	scanNode = ((TableValuedFunctionRef)tblRef).getTableFunction().getScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
             	break;
             default:
                 break;
@@ -1873,7 +1873,7 @@ public class SingleNodePlanner {
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException {
         PlanNode scanNode = null;
-        if (tblRef instanceof BaseTableRef || tblRef instanceof TableFunctionRef) {
+        if (tblRef instanceof BaseTableRef || tblRef instanceof TableValuedFunctionRef) {
             scanNode = createScanNode(analyzer, tblRef, selectStmt);
         }
         
@@ -2157,7 +2157,7 @@ public class SingleNodePlanner {
      * @param analyzer
      */
     private void materializeTableResultForCrossJoinOrCountStar(TableRef tblRef, Analyzer analyzer) {
-        if (tblRef instanceof BaseTableRef || tblRef instanceof TableFunctionRef) {
+        if (tblRef instanceof BaseTableRef || tblRef instanceof TableValuedFunctionRef) {
             materializeSlotForEmptyMaterializedTableRef(tblRef, analyzer);
         } else if (tblRef instanceof InlineViewRef) {
             materializeInlineViewResultExprForCrossJoinOrCountStar((InlineViewRef) tblRef, analyzer);

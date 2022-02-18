@@ -42,9 +42,9 @@ import java.util.Collections;
 import java.util.List;
 
 // TODO yiguolei: not accept any pushdown filters
-public class TableFunctionNumbersScanNode extends ScanNode {
+public class NumbersTableValuedFunctionScanNode extends ScanNode {
 
-    private static final Logger LOG = LogManager.getLogger(TableFunctionNumbersScanNode.class);
+    private static final Logger LOG = LogManager.getLogger(NumbersTableValuedFunctionScanNode.class);
 
     private List<Backend> backendList;
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
@@ -53,7 +53,7 @@ public class TableFunctionNumbersScanNode extends ScanNode {
 
     boolean isFinalized = false;
 
-    public TableFunctionNumbersScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, long numbers, int tabletNum) {
+    public NumbersTableValuedFunctionScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, long numbers, int tabletNum) {
         super(id, desc, planNodeName);
         this.numbers = numbers;
         this.numTablets = tabletNum;
