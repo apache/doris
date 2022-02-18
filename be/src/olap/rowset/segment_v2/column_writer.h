@@ -307,6 +307,9 @@ public:
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
     inline Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    inline bool has_empty_items() const {
+        return _item_writer->get_next_rowid() == 0;
+    }
 
 private:
     std::unique_ptr<ScalarColumnWriter> _length_writer;
@@ -314,7 +317,7 @@ private:
     std::unique_ptr<ColumnWriter> _item_writer;
     ColumnWriterOptions _opts;
     ordinal_t _current_length_page_first_ordinal = 0;
-    ordinal_t _lengh_sum_in_cur_page = 0;
+    ordinal_t _length_sum_in_cur_page = 0;
 };
 
 } // namespace segment_v2

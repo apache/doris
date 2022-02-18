@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -34,6 +31,11 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -159,6 +161,10 @@ public class Column implements Writable {
     public void createChildrenColumn(Type type, Column column) {
         if (type.isArrayType()) {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            // TODO We always set the item type in array nullable.
+            //  We may provide an alternative to configure this property of
+            //  the item type in array in future.
+            c.setIsAllowNull(true);
             column.addChildrenColumn(c);
         }
     }
@@ -367,6 +373,7 @@ public class Column implements Writable {
 
             childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
             childrenTColumn.setColumnType(childrenTColumnType);
+            childrenTColumn.setIsAllowNull(children.isAllowNull());
 
             tColumn.setChildrenColumn(new ArrayList<>());
             tColumn.children_column.add(childrenTColumn);
