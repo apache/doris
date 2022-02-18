@@ -739,6 +739,7 @@ void SegmentIterator::_init_current_block(vectorized::Block* block, std::vector<
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
             }
+            current_columns[cid]->reserve(_opts.block_row_max);
         }
     }
 }
@@ -749,18 +750,14 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block, bool is
     }
  }
 
-void SegmentIterator::_output_column_by_sel_idx(vectorized::Block* block, const std::vector<ColumnId>& columnIds,
+Status SegmentIterator::_output_column_by_sel_idx(vectorized::Block* block, const std::vector<ColumnId>& columnIds,
         uint16_t* sel_rowid_idx, uint16_t select_size, bool is_block_mem_reuse) {
     for (auto cid : columnIds) {
-        auto &column_ptr = _current_return_columns[cid];
-        if (is_block_mem_reuse) {
-            column_ptr->filter_by_selector(sel_rowid_idx, select_size,
-                &block->get_by_position(_schema_block_id_map[cid]).column);
-        } else {
-            block->replace_by_position(_schema_block_id_map[cid],
-                (*column_ptr).get_ptr()->filter_by_selector(sel_rowid_idx, select_size));
-        }
+        int block_cid = _schema_block_id_map[cid];
+        RETURN_IF_ERROR(block->copy_column_data_to_block(is_block_mem_reuse, 
+            _current_return_columns[cid].get(), sel_rowid_idx, select_size, block_cid, _opts.block_row_max));
     }
+    return Status::OK();
  }
 
 
@@ -884,7 +881,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
-    _read_columns_by_index(nrows_read_limit, nrows_read, !_col_predicates.empty());
+    _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += nrows_read;
@@ -923,8 +920,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // When predicate column and no-predicate column are both basic type, lazy materialization is eliminate
         // So output block directly after vectorization evaluation
         if (_is_all_column_basic_type) {
-            _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
-            return Status::OK();
+            return _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
         }
 
         // step 2: evaluate short ciruit predicate
@@ -943,9 +939,9 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _output_non_pred_columns(block, is_mem_reuse);
 
         // 4.2 output short circuit predicate column
-        _output_column_by_sel_idx(block, _short_cir_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
+        RETURN_IF_ERROR(_output_column_by_sel_idx(block, _short_cir_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse));
         // 4.3 output vectorizatioin predicate column
-        _output_column_by_sel_idx(block, _vec_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
+        return _output_column_by_sel_idx(block, _vec_pred_column_ids, sel_rowid_idx, selected_size, is_mem_reuse);
     }
 
     return Status::OK();

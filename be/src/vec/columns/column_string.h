@@ -157,6 +157,24 @@ public:
         offsets.push_back(new_size);
     }
 
+    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+        for (size_t i = 0; i < num; i++) {
+            uint32_t len = len_array[i];
+            uint32_t start_offset = start_offset_array[i];
+            insert_data(data_array + start_offset, len);
+        }
+    };
+ 
+    void insert_many_dict_data (const int32_t* data_array, size_t start_index, const uint32_t* start_offset_array, 
+        const uint32_t* len_array, char* dict_data, size_t num) override {
+        for (int i = 0; i < num; i++, start_index++) {
+            int32_t codeword = data_array[start_index];
+            uint32_t start_offset = start_offset_array[codeword];
+            uint32_t str_len = len_array[codeword];
+            insert_data(dict_data + start_offset, str_len);
+        }
+    }
+
     /// Like getData, but inserting data should be zero-ending (i.e. length is 1 byte greater than real string size).
     void insert_data_with_terminating_zero(const char* pos, size_t length) {
         const size_t old_size = chars.size();
