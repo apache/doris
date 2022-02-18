@@ -81,8 +81,7 @@ After executing the `release:prepare` command, the following three pieces of inf
 
 1. the version of the Doris Flink Connector, which we can do by default, either by entering a carriage return or by typing in the version you want. The version format is `{flink.version}-{scala.version}-{connector.version}`, e.g. `1.13.5-2.12-1.0.0`. 2.
 2. The release tag of Doris Flink Connector, the release process will generate a tag locally, we can use the default tag name, such as `1.13.5-2.12-1.0.0`.
-The version number of the next version of Doris Flink Connector. This version number is only used for generating local branches and has no real meaning. For example, if the current release is `1.13.5-2.12-1.0.0`, then the next version number should be `1.13.5-2.12-1.0.1`.
-```
+3. The version number of the next version of Doris Flink Connector. This version number is only used for generating local branches and has no real meaning. For example, if the current release is `1.13.5-2.12-1.0.0`, then the next version number should be `1.13.5-2.12-1.0.1`.
 
 `mvn release:prepare` may ask for GPG passphrase, if you get `gpg: no valid OpenPGP data found` error, you can try after executing `export GPG_TTY=$(tty)`.
 

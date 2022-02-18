@@ -714,15 +714,20 @@ module.exports = [
     title: "Apache Community",
     directoryPath: "community/",
     children: [
-      "members",
+      "team",
       "gitter",
       "subscribe-mail-list",
       "feedback",
-      "how-to-contribute",
-      "how-to-deploy-to-maven",
-      "committer-guide",
-      "commit-format-specification",
-      "pull-request",
+      {
+          title: "How to Contribute",
+          directoryPath: "how-to-contribute/",
+          children: [
+              "how-to-contribute",
+              "committer-guide",
+              "commit-format-specification",
+              "pull-request",
+          ],
+      },
       {
           title: "Release Process & Verification",
           directoryPath: "release-and-verify/",

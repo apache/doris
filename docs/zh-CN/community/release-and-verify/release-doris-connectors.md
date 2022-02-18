@@ -86,7 +86,6 @@ mvn release:prepare -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" 
 1. Doris Flink Connector 的版本信息， 我们默认就可以，可以直接回车或者输入自己想要的版本。版本格式为 `{flink.version}-{scala.version}-{connector.version}`，如 `1.13.5-2.12-1.0.0`。
 2. Doris Flink Connector 的 release tag, release 过程会在本地生成一个 tag。我们使用默认的 tag 名称即可，如 `1.13.5-2.12-1.0.0`。
 3. Doris Flink Connector 下一个版本的版本号。这个版本号只是用于生成本地分支时使用，无实际意义。我们按规则填写一个即可，比如当前要发布的版本是：`1.13.5-2.12-1.0.0`，那么下一个版本号填写 `1.13.5-2.12-1.0.1` 即可。
-```
 
 `mvn release:prepare` 可能会要求输入 GPG passphrase。如果出现 `gpg: no valid OpenPGP data found` 错误，则可以执行 `export GPG_TTY=$(tty)` 后在尝试。
 

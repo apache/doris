@@ -1,6 +1,6 @@
 ---
 {
-    "title": "PMC Members & Committer",
+    "title": "Doris Team"
     "language": "en"
 }
 ---
@@ -33,8 +33,6 @@ under the License.
 | [wenming](https://people.apache.org/committer-index.html#wenming) | moonming        | Ming Wen          |
 | [shaofengshi](https://people.apache.org/committer-index.html#shaofengshi) | shaofengshi     | Shao Feng Shi     |
 | [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang     | Willem Ning Jiang |
-
-
 
 We'd like to thank the following committers to the Apache Doris (incubating) project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
 
@@ -77,3 +75,7 @@ We'd like to thank the following committers to the Apache Doris (incubating) pro
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93         | Zuo Wei        |
+
+## Contributor
+
+[All Contributors](https://github.com/apache/incubator-doris/graphs/contributors)

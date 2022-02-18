@@ -1,6 +1,6 @@
 ---
 {
-    "title": "PMC Members & Committer",
+    "title": "Doris 团队"
     "language": "zh-CN"
 }
 ---
@@ -61,7 +61,6 @@ under the License.
 | [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao               | Zheng Shao    |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 
-
 ## Committers (29)
 
 (如下列表不包含上述 PPMC 成员)
@@ -76,3 +75,7 @@ under the License.
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93         | Zuo Wei        |
+
+## Contributor
+
+[All Contributors](https://github.com/apache/incubator-doris/graphs/contributors)
