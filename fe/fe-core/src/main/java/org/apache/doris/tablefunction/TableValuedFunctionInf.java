@@ -36,7 +36,7 @@ public abstract class TableValuedFunctionInf {
     public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
 
     public Table getTable() {
-        Table table = new Table(-1, getTableName(), TableType.TABLE_FUNCTION, getTableColumns());
+        Table table = new Table(-1, getTableName(), TableType.TABLE_VALUED_FUNCTION, getTableColumns());
         return table;
     }
 
