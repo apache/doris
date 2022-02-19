@@ -374,9 +374,9 @@ struct ToNumberMonotonicity {
             Float64 right_float = right.get<Float64>();
 
             if (left_float >= std::numeric_limits<T>::min() &&
-                left_float <= std::numeric_limits<T>::max() &&
+                left_float <= static_cast<Float64>(std::numeric_limits<T>::max()) &&
                 right_float >= std::numeric_limits<T>::min() &&
-                right_float <= std::numeric_limits<T>::max())
+                right_float <= static_cast<Float64>(std::numeric_limits<T>::max()))
                 return {true};
 
             return {};

@@ -102,8 +102,6 @@ private:
     std::deque<std::shared_ptr<RowBatch>> _batch_queue;
 
     int _num_running_scanners;
-    // Indicate if all scanners have been finished scan worker
-    bool _all_scanners_finished;
 
     std::atomic<bool> _scan_finished;
 

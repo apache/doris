@@ -121,7 +121,10 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
 }
 
 void ParquetReaderWrap::close() {
-    _parquet->Close();
+    arrow::Status st = _parquet->Close();
+    if (!st.ok()) {
+        LOG(WARNING) << "close parquet file error";
+    }
 }
 
 Status ParquetReaderWrap::size(int64_t* size) {
@@ -537,7 +540,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
 ParquetFile::ParquetFile(FileReader* file) : _file(file) {}
 
 ParquetFile::~ParquetFile() {
-    Close();
+    arrow::Status st = Close();
+    if (!st.ok()) {
+        LOG(WARNING) << "close parquet file error";
+    }
 }
 
 arrow::Status ParquetFile::Close() {

@@ -91,7 +91,7 @@ Status HttpService::start() {
                                       error_log_download_action);
 
     // Register BE health action
-    HealthAction* health_action = _pool.add(new HealthAction(_env));
+    HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // Register Tablets Info action
@@ -124,7 +124,7 @@ Status HttpService::start() {
 
 #ifndef BE_TEST
     // Register BE checksum action
-    ChecksumAction* checksum_action = _pool.add(new ChecksumAction(_env));
+    ChecksumAction* checksum_action = _pool.add(new ChecksumAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
 
     // Register BE reload tablet action
@@ -136,7 +136,7 @@ Status HttpService::start() {
                                       restore_tablet_action);
 
     // Register BE snapshot action
-    SnapshotAction* snapshot_action = _pool.add(new SnapshotAction(_env));
+    SnapshotAction* snapshot_action = _pool.add(new SnapshotAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
 #endif
 

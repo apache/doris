@@ -68,7 +68,6 @@ public:
 private:
     Status prepare_exprs(RuntimeState* state);
 
-    ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;
     std::shared_ptr<arrow::Schema> _arrow_schema;

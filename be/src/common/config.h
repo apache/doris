@@ -208,7 +208,7 @@ CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");
 CONF_mInt32(snapshot_expire_time_sec, "172800");
-// It is only a recommended value. When the disk space is insufficient, 
+// It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
@@ -408,9 +408,6 @@ CONF_Bool(enable_quadratic_probing, "false");
 
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
-
-// for partition
-CONF_Bool(enable_partitioned_aggregation, "true");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");

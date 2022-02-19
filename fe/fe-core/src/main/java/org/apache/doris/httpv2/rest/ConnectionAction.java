@@ -65,9 +65,9 @@ public class ConnectionAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Missing connection_id");
         }
 
-        long connectionId = -1;
+        int connectionId = -1;
         try {
-            connectionId = Long.valueOf(connStr.trim());
+            connectionId = Integer.valueOf(connStr.trim());
         } catch (NumberFormatException e) {
             return ResponseEntityBuilder.badRequest("Invalid connection id: " + e.getMessage());
         }

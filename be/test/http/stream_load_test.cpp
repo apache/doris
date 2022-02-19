@@ -33,7 +33,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 
-class mg_connection;
+struct mg_connection;
 
 namespace doris {
 

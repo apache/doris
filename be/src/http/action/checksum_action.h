@@ -28,18 +28,14 @@ class ExecEnv;
 
 class ChecksumAction : public HttpHandler {
 public:
-    explicit ChecksumAction(ExecEnv* exec_env);
+    explicit ChecksumAction();
 
     virtual ~ChecksumAction() {}
 
     void handle(HttpRequest* req) override;
 
 private:
-    int64_t do_checksum(int64_t tablet_id, int64_t version,
-                        int32_t schema_hash, HttpRequest* req);
-
-    ExecEnv* _exec_env;
-
+    int64_t do_checksum(int64_t tablet_id, int64_t version, int32_t schema_hash, HttpRequest* req);
 }; // end class ChecksumAction
 
 } // end namespace doris

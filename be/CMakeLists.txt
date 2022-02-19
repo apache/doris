@@ -327,16 +327,12 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
 #    integers
-#  -Wno-unknown-pragmas: suppress warnings for unknown (compiler specific) pragmas
-#  -Wno-deprecated: gutil contains deprecated headers
-#  -Wno-vla: we use C99-style variable-length arrays
 #  -pthread: enable multithreaded malloc
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -pthread -Werror")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
@@ -364,96 +360,6 @@ if (COMPILER_CLANG)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
     endif()
-
-    # TODO: Fix all these warnings
-    add_compile_options(
-        -Wno-address-of-packed-member
-        -Wno-ambiguous-reversed-operator
-        -Wno-atomic-implicit-seq-cst
-        -Wno-cast-align
-        -Wno-cast-qual
-        -Wno-comma
-        -Wno-conditional-uninitialized
-        -Wno-constant-conversion
-        -Wno-covered-switch-default
-        -Wno-delete-abstract-non-virtual-dtor
-        -Wno-delete-non-abstract-non-virtual-dtor
-        -Wno-deprecated
-        -Wno-deprecated-copy-with-dtor
-        -Wno-deprecated-copy-with-user-provided-copy
-        -Wno-deprecated-copy-with-user-provided-dtor
-        -Wno-deprecated-declarations
-        -Wno-deprecated-this-capture
-        -Wno-documentation
-        -Wno-embedded-directive
-        -Wno-enum-compare-switch
-        -Wno-extra-semi
-        -Wno-extra-semi-stmt
-        -Wno-format-nonliteral
-        -Wno-frame-larger-than
-        -Wno-gnu-label-as-value
-        -Wno-gnu-redeclared-enum
-        -Wno-gnu-statement-expression
-        -Wno-gnu-zero-variadic-macro-arguments
-        -Wno-header-hygiene
-        -Wno-ignored-qualifiers
-        -Wno-implicit-const-int-float-conversion
-        -Wno-implicit-exception-spec-mismatch
-        -Wno-implicit-fallthrough
-        -Wno-inconsistent-missing-destructor-override
-        -Wno-inconsistent-missing-override
-        -Wno-instantiation-after-specialization
-        -Wno-macro-redefined
-        -Wno-mismatched-new-delete
-        -Wno-mismatched-tags
-        -Wno-missing-field-initializers
-        -Wno-missing-noreturn
-        -Wno-newline-eof
-        -Wno-non-virtual-dtor
-        -Wno-null-conversion
-        -Wno-null-dereference
-        -Wno-old-style-cast
-        -Wno-overloaded-virtual
-        -Wno-pedantic
-        -Wno-pessimizing-move
-        -Wno-pragma-once-outside-header
-        -Wno-reserved-identifier
-        -Wno-reserved-macro-identifier
-        -Wno-return-type
-        -Wno-shadow
-        -Wno-shadow-field
-        -Wno-shadow-field-in-constructor
-        -Wno-shadow-uncaptured-local
-        -Wno-shift-count-overflow
-        -Wno-sign-compare
-        -Wno-string-plus-int
-        -Wno-suggest-destructor-override
-        -Wno-suggest-override
-        -Wno-tautological-constant-out-of-range-compare
-        -Wno-tautological-unsigned-zero-compare
-        -Wno-undef
-        -Wno-uninitialized
-        -Wno-unknown-pragmas
-        -Wno-unknown-warning-option
-        -Wno-unreachable-code
-        -Wno-unreachable-code-break
-        -Wno-unreachable-code-return
-        -Wno-unused-but-set-variable
-        -Wno-unused-const-variable
-        -Wno-unused-exception-parameter
-        -Wno-unused-function
-        -Wno-unused-lambda-capture
-        -Wno-unused-local-typedef
-        -Wno-unused-macros
-        -Wno-unused-member-function
-        -Wno-unused-parameter
-        -Wno-unused-private-field
-        -Wno-unused-result
-        -Wno-unused-value
-        -Wno-unused-variable
-        -Wno-variadic-macros
-        -Wno-zero-as-null-pointer-constant
-    )
 endif ()
 
 # https://github.com/boostorg/uuid/issues/92

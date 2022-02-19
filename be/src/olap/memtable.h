@@ -28,7 +28,7 @@
 
 namespace doris {
 
-class ContiguousRow;
+struct ContiguousRow;
 class RowsetWriter;
 class Schema;
 class SlotDescriptor;
@@ -47,14 +47,14 @@ public:
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     void insert(const Tuple* tuple);
-    /// Flush 
+    /// Flush
     OLAPStatus flush();
     OLAPStatus close();
 
     int64_t flush_size() const { return _flush_size; }
 
 private:
-    class RowCursorComparator: public RowComparator {
+    class RowCursorComparator : public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
         virtual int operator()(const char* left, const char* right) const;
@@ -71,18 +71,18 @@ public:
     /// The iterator of memtable, so that the data in this memtable
     /// can be visited outside.
     class Iterator {
-        public:
-            Iterator(MemTable* mem_table);
-            ~Iterator() {}
+    public:
+        Iterator(MemTable* mem_table);
+        ~Iterator() {}
 
-            void seek_to_first();
-            bool valid();
-            void next();
-            ContiguousRow get_current_row();
+        void seek_to_first();
+        bool valid();
+        void next();
+        ContiguousRow get_current_row();
 
-        private:
-            MemTable* _mem_table;
-            Table::Iterator _it;
+    private:
+        MemTable* _mem_table;
+        Table::Iterator _it;
     };
 
 private:
@@ -92,7 +92,6 @@ private:
     int64_t _tablet_id;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
-    TupleDescriptor* _tuple_desc;
     // the slot in _slot_descs are in order of tablet's schema
     const std::vector<SlotDescriptor*>* _slot_descs;
     KeysType _keys_type;
@@ -109,7 +108,7 @@ private:
     // The object buffer pool for convert tuple to row
     ObjectPool _agg_buffer_pool;
     // Only the rows will be inserted into SkipList can acquire the owner ship from
-    // `_agg_buffer_pool` 
+    // `_agg_buffer_pool`
     ObjectPool _agg_object_pool;
 
     size_t _schema_size;

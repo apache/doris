@@ -30,7 +30,7 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-HealthAction::HealthAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+HealthAction::HealthAction() {}
 
 void HealthAction::handle(HttpRequest* req) {
     std::stringstream ss;

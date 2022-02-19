@@ -323,9 +323,6 @@ private:
     /// Expose the minimum reduction factor to continue growing the hash tables.
     RuntimeProfile::Counter* preagg_streaming_ht_min_reduction_;
 
-    /// The estimated number of input rows from the planner.
-    int64_t estimated_input_cardinality_;
-
     /////////////////////////////////////////
     /// BEGIN: Members that must be Reset()
 

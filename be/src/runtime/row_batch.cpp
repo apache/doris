@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 
@@ -58,13 +57,9 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
     _tuple_ptrs_size = _capacity * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    if (config::enable_partitioned_aggregation) {
-        _mem_tracker->Consume(_tuple_ptrs_size);
-        _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
-        DCHECK(_tuple_ptrs != nullptr);
-    } else {
-        _tuple_ptrs = (Tuple**)(_tuple_data_pool.allocate(_tuple_ptrs_size));
-    }
+    _mem_tracker->Consume(_tuple_ptrs_size);
+    _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
+    DCHECK(_tuple_ptrs != nullptr);
 }
 
 // TODO: we want our input_batch's tuple_data to come from our (not yet implemented)
@@ -90,13 +85,9 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    if (config::enable_partitioned_aggregation) {
-        _mem_tracker->Consume(_tuple_ptrs_size);
-        _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
-        DCHECK(_tuple_ptrs != nullptr);
-    } else {
-        _tuple_ptrs = (Tuple**)_tuple_data_pool.allocate(_tuple_ptrs_size);
-    }
+    _mem_tracker->Consume(_tuple_ptrs_size);
+    _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
+    DCHECK(_tuple_ptrs != nullptr);
 
     char* tuple_data = nullptr;
     if (input_batch.is_compressed()) {
@@ -234,12 +225,10 @@ void RowBatch::clear() {
     for (int i = 0; i < _blocks.size(); ++i) {
         _blocks[i]->del();
     }
-    if (config::enable_partitioned_aggregation) {
-        DCHECK(_tuple_ptrs != nullptr);
-        free(_tuple_ptrs);
-        _mem_tracker->Release(_tuple_ptrs_size);
-        _tuple_ptrs = nullptr;
-    }
+    DCHECK(_tuple_ptrs != nullptr);
+    free(_tuple_ptrs);
+    _mem_tracker->Release(_tuple_ptrs_size);
+    _tuple_ptrs = nullptr;
     _cleared = true;
 }
 
@@ -247,8 +236,8 @@ RowBatch::~RowBatch() {
     clear();
 }
 
-Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, size_t* compressed_size,
-                           std::string* allocated_buf) {
+Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
+                           size_t* compressed_size, std::string* allocated_buf) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
@@ -333,8 +322,11 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
         *compressed_size = pb_size;
         if (pb_size > std::numeric_limits<int32_t>::max()) {
             // the protobuf has a hard limit of 2GB for serialized data.
-            return Status::InternalError(fmt::format("The rowbatch is large than 2GB({}), can not send by Protobuf. "
-                        "please set BE config 'transfer_data_by_brpc_attachment' to true and restart BE.", pb_size));
+            return Status::InternalError(
+                    fmt::format("The rowbatch is large than 2GB({}), can not send by Protobuf. "
+                                "please set BE config 'transfer_data_by_brpc_attachment' to true "
+                                "and restart BE.",
+                                pb_size));
         }
     } else {
         *uncompressed_size = pb_size + size;
@@ -343,11 +335,10 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size, s
     return Status::OK();
 }
 
-// when row from files can't fill into tuple with schema limitation, increase the _num_uncommitted_rows in row batch, 
+// when row from files can't fill into tuple with schema limitation, increase the _num_uncommitted_rows in row batch,
 void RowBatch::increase_uncommitted_rows() {
     _num_uncommitted_rows++;
 }
-
 
 void RowBatch::add_io_buffer(DiskIoMgr::BufferDescriptor* buffer) {
     DCHECK(buffer != nullptr);
@@ -411,9 +402,6 @@ void RowBatch::reset() {
     }
     _blocks.clear();
     _auxiliary_mem_usage = 0;
-    if (!config::enable_partitioned_aggregation) {
-        _tuple_ptrs = (Tuple**)(_tuple_data_pool.allocate(_tuple_ptrs_size));
-    }
     _need_to_return = false;
     _flush = FlushMode::NO_FLUSH_RESOURCES;
     _needs_deep_copy = false;
@@ -557,14 +545,8 @@ void RowBatch::acquire_state(RowBatch* src) {
     _num_rows = src->_num_rows;
     _capacity = src->_capacity;
     _need_to_return = src->_need_to_return;
-    if (!config::enable_partitioned_aggregation) {
-        // Tuple pointers are allocated from tuple_data_pool_ so are transferred.
-        _tuple_ptrs = src->_tuple_ptrs;
-        src->_tuple_ptrs = nullptr;
-    } else {
-        // tuple_ptrs_ were allocated with malloc so can be swapped between batches.
-        std::swap(_tuple_ptrs, src->_tuple_ptrs);
-    }
+    // tuple_ptrs_ were allocated with malloc so can be swapped between batches.
+    std::swap(_tuple_ptrs, src->_tuple_ptrs);
     src->transfer_resource_ownership(this);
 }
 

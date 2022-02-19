@@ -37,7 +37,6 @@ static const std::string SK = "SK";
 static const std::string ENDPOINT = "http://bj.bcebos.com";
 static const std::string BUCKET = "bos://yang-repo/";
 static const std::string BROKER_IP = "127.0.0.1";
-static const int BROKER_PORT = 8111;
 class StorageBackendTest : public testing::Test {
 public:
     StorageBackendTest()

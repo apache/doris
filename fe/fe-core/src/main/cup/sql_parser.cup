@@ -3506,15 +3506,15 @@ restore_stmt ::=
 kill_stmt ::=
     KW_KILL INTEGER_LITERAL:value
     {:
-        RESULT = new KillStmt(true, value.longValue());
+        RESULT = new KillStmt(true, value.intValue());
     :}
     | KW_KILL KW_CONNECTION INTEGER_LITERAL:value
     {:
-        RESULT = new KillStmt(true, value.longValue());
+        RESULT = new KillStmt(true, value.intValue());
     :}
     | KW_KILL KW_QUERY INTEGER_LITERAL:value
     {:
-        RESULT = new KillStmt(false, value.longValue());
+        RESULT = new KillStmt(false, value.intValue());
     :}
     ;
 

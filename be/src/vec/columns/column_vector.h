@@ -22,12 +22,12 @@
 
 #include <cmath>
 
+#include "olap/uint24.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
-#include "olap/uint24.h"
 
 namespace doris::vectorized {
 
@@ -120,8 +120,9 @@ private:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
-    void insert_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<T>* res_ptr) {
-        auto& res_data = res_ptr->data; 
+    void insert_res_column(const uint16_t* sel, size_t sel_size,
+                           vectorized::ColumnVector<T>* res_ptr) {
+        auto& res_data = res_ptr->data;
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
         T* t = (T*)res_data.get_end_ptr();
@@ -139,7 +140,7 @@ private:
         }
         res_val_ptr += num;
         data.set_end_ptr(res_val_ptr);
-    }    
+    }
 
 public:
     bool is_numeric() const override { return IsNumber<T>; }
@@ -165,7 +166,7 @@ public:
         res_ptr += num * sizeof(T);
         data.set_end_ptr(res_ptr);
     }
- 
+
     void insert_date_column(const char* data_ptr, size_t num) {
         size_t value_size = sizeof(uint24_t);
         for (int i = 0; i < num; i++) {
@@ -181,7 +182,7 @@ public:
             data.push_back_without_reserve(date);
         }
     }
- 
+
     void insert_datetime_column(const char* data_ptr, size_t num) {
         size_t value_size = sizeof(uint64_t);
         for (int i = 0; i < num; i++) {
@@ -191,7 +192,7 @@ public:
             data.push_back_without_reserve(date);
         }
     }
- 
+
     /*
         use by date, datetime, basic type
     */
@@ -270,7 +271,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const int* indices_begin,
+                             const int* indices_end) override;
 
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();

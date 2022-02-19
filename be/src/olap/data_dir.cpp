@@ -58,7 +58,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
-static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
@@ -353,8 +352,8 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
 }
 
 OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
-    auto check_incompatible_old_func = [this](int64_t tablet_id, int32_t schema_hash,
-                                              const std::string& value) -> bool {
+    auto check_incompatible_old_func = [](int64_t tablet_id, int32_t schema_hash,
+                                          const std::string& value) -> bool {
         // if strict check incompatible old format, then log fatal
         if (config::storage_strict_check_incompatible_old_format) {
             LOG(FATAL)
@@ -478,7 +477,7 @@ OLAPStatus DataDir::load() {
     // 1. add committed rowset to txn map
     // 2. add visible rowset to tablet
     // ignore any errors when load tablet or rowset, because fe will repair them after report
-    int64_t tablet_not_found = 0;
+    int64_t invalid_rowset_counter = 0;
     for (auto rowset_meta : dir_rowset_metas) {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id(),
                                                              rowset_meta->tablet_schema_hash());
@@ -487,7 +486,7 @@ OLAPStatus DataDir::load() {
             VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
                         << ", schema hash: " << rowset_meta->tablet_schema_hash()
                         << ", for rowset: " << rowset_meta->rowset_id() << ", skip this rowset";
-            ++tablet_not_found;
+            ++invalid_rowset_counter;
             continue;
         }
         RowsetSharedPtr rowset;
@@ -535,10 +534,15 @@ OLAPStatus DataDir::load() {
                          << " schema hash: " << rowset_meta->tablet_schema_hash()
                          << " txn: " << rowset_meta->txn_id()
                          << " current valid tablet uid: " << tablet->tablet_uid();
+            ++invalid_rowset_counter;
         }
     }
+    // At startup, we only count these invalid rowset, but do not actually delete it.
+    // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
+    // which is cleaned up uniformly by the background cleanup thread.
     LOG(INFO) << "finish to load tablets from " << _path_desc.filepath << ", total rowset meta: "
-              << dir_rowset_metas.size() << ", tablet not found: " << tablet_not_found;
+              << dir_rowset_metas.size() << ", invalid rowset num: " << invalid_rowset_counter;
+
     return OLAP_SUCCESS;
 }
 

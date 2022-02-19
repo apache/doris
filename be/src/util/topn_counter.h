@@ -31,7 +31,7 @@ namespace doris {
 
 static const uint32_t DEFAULT_SPACE_EXPAND_RATE = 50;
 
-class Slice;
+struct Slice;
 
 class Counter {
 public:

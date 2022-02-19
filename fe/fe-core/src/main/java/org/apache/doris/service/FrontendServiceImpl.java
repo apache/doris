@@ -426,7 +426,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Map<String, String> map = Maps.newHashMap();
         result.setVariables(map);
         // Find connect
-        ConnectContext ctx = exeEnv.getScheduler().getContext(params.getThreadId());
+        ConnectContext ctx = exeEnv.getScheduler().getContext((int) params.getThreadId());
         if (ctx == null) {
             return result;
         }
