@@ -417,6 +417,7 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
     std::set<int64_t> _partition_ids;
+    // only used for partition with random distribution
     std::map<int64_t, int64_t> _partition_to_tablet_map;
 
     Bitmap _filter_bitmap;
