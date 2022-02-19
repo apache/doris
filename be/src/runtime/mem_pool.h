@@ -163,6 +163,12 @@ public:
 
     static constexpr int DEFAULT_ALIGNMENT = 8;
 
+#if defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)
+    static constexpr int DEFAULT_PADDING_SIZE = 0x10;
+#else
+    static constexpr int DEFAULT_PADDING_SIZE = 0x0;
+#endif
+
 private:
     friend class MemPoolTest;
     static const int INITIAL_CHUNK_SIZE = 4 * 1024;
@@ -204,9 +210,22 @@ private:
     }
 
     uint8_t * allocate_from_current_chunk(int64_t size, int alignment) {
+        // Manually ASAN poisoning is complicated and it is hard to make
+        // it work right. There are illustrated examples in
+        // http://blog.hostilefork.com/poison-memory-without-asan/.
+        //
+        // Stacks of use after poison do not provide enough information
+        // to resolve bug, while stacks of use afer free provide.
+        // https://github.com/google/sanitizers/issues/191
+        //
+        // We'd better implement a mempool using malloc/free directly,
+        // thus asan works natively. However we cannot do it in a short
+        // time, so we make manual poisoning work as much as possible.
+        // I refers to https://github.com/mcgov/asan_alignment_example.
+
         ChunkInfo& info = chunks_[current_chunk_idx_];
         int64_t aligned_allocated_bytes =
-                BitUtil::RoundUpToPowerOf2(info.allocated_bytes, alignment);
+                BitUtil::RoundUpToPowerOf2(info.allocated_bytes + DEFAULT_PADDING_SIZE, alignment);
         if (aligned_allocated_bytes + size <= info.chunk.size) {
             // Ensure the requested alignment is respected.
             int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
