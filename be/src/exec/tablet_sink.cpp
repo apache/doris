@@ -685,7 +685,13 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     if (table_sink.__isset.send_batch_parallelism && table_sink.send_batch_parallelism > 1) {
         _send_batch_parallelism = table_sink.send_batch_parallelism;
     }
-
+    if (table_sink.partition.distributed_columns.empty()) {
+        if (table_sink.__isset.single_tablet_load_per_sink && table_sink.single_tablet_load_per_sink) {
+            findTabletMode = FindTabletMode::FIND_TABLET_EVERY_SINK;
+        } else {
+            findTabletMode = FindTabletMode::FIND_TABLET_EVERY_BATCH;
+        }
+    }
     return Status::OK();
 }
 
@@ -877,6 +883,9 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     bool stop_processing = false;
+    if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
+        _partition_to_tablet_map.clear();
+    }
     for (int i = 0; i < batch->num_rows(); ++i) {
         Tuple* tuple = batch->get_row(i)->get_tuple(0);
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
@@ -899,6 +908,13 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
                 return Status::EndOfFile("Encountered unqualified data, stop processing");
             }
             continue;
+        }
+        if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
+            if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
+                _partition_to_tablet_map.emplace(partition->id, tablet_index);
+            } else {
+                tablet_index = _partition_to_tablet_map[partition->id];
+            }
         }
         _partition_ids.emplace(partition->id);
         for (int j = 0; j < partition->indexes.size(); ++j) {

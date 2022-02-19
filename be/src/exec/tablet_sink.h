@@ -417,6 +417,7 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
     std::set<int64_t> _partition_ids;
+    std::map<int64_t, int64_t> _partition_to_tablet_map;
 
     Bitmap _filter_bitmap;
 
@@ -470,6 +471,11 @@ protected:
 
     // TODO(cmy): this should be removed after we switch to rpc attachment by default.
     bool _transfer_data_by_brpc_attachment = false;
+
+    enum FindTabletMode {
+        FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK
+    };
+    FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 };
 
 } // namespace stream_load

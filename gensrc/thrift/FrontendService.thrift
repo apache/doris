@@ -597,6 +597,7 @@ struct TStreamLoadPutRequest {
     34: optional string auth_code_uuid
     35: optional i32 send_batch_parallelism
     36: optional double max_filter_ratio
+    37: optional bool single_tablet_load_per_sink
 }
 
 struct TStreamLoadPutResult {

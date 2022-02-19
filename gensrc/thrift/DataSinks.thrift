@@ -141,6 +141,7 @@ struct TOlapTableSink {
     13: required Descriptors.TPaloNodesInfo nodes_info
     14: optional i64 load_channel_timeout_s // the timeout of load channels in second
     15: optional i32 send_batch_parallelism
+    16: optional bool single_tablet_load_per_sink
 }
 
 struct TDataSink {
