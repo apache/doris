@@ -43,16 +43,14 @@
 namespace doris {
 namespace stream_load {
 
-NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id,
-                         int32_t schema_hash)
-        : _parent(parent), _index_channel(index_channel), _node_id(node_id), _schema_hash(schema_hash) {
-
+NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id)
+        : _parent(parent), _index_channel(index_channel), _node_id(node_id) {
     if (_parent->_transfer_data_by_brpc_attachment) {
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
 }
 
-NodeChannel::~NodeChannel() {
+NodeChannel::~NodeChannel() noexcept {
     if (_open_closure != nullptr) {
         if (_open_closure->unref()) {
             delete _open_closure;
@@ -459,7 +457,8 @@ void NodeChannel::try_send_batch() {
     if (row_batch->num_rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr);
+        Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
+                                         &compressed_bytes, _tuple_data_buffer_ptr);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             return;
@@ -499,8 +498,8 @@ void NodeChannel::try_send_batch() {
 
     if (_parent->_transfer_data_by_brpc_attachment && request.has_row_batch()) {
         request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
-            ReusableClosure<PTabletWriterAddBatchResult>>(
-                    &request, _tuple_data_buffer, _add_batch_closure);
+                                              ReusableClosure<PTabletWriterAddBatchResult>>(
+                &request, _tuple_data_buffer, _add_batch_closure);
     }
     _add_batch_closure->set_in_flight();
     _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
@@ -550,7 +549,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 // NodeChannel is not added to the _parent->_pool.
                 // Because the deconstruction of NodeChannel may take a long time to wait rpc finish.
                 // but the ObjectPool will hold a spin lock to delete objects.
-                channel = std::make_shared<NodeChannel>(_parent, this, node_id, _schema_hash);
+                channel = std::make_shared<NodeChannel>(_parent, this, node_id);
                 _node_channels.emplace(node_id, channel);
             } else {
                 channel = it->second;
@@ -797,7 +796,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                 tablets.emplace_back(std::move(tablet_with_partition));
             }
         }
-        auto channel = _pool->add(new IndexChannel(this, index->index_id, index->schema_hash));
+        auto channel = _pool->add(new IndexChannel(this, index->index_id));
         RETURN_IF_ERROR(channel->init(state, tablets));
         _channels.emplace_back(channel);
     }

@@ -27,7 +27,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-
 #include "vec/core/block.h"
 #include "vec/exec/vblocking_join_node.h"
 
@@ -40,18 +39,19 @@ namespace doris::vectorized {
 // the left child as necessary in get_next().
 class VCrossJoinNode final : public VBlockingJoinNode {
 public:
-    VCrossJoinNode(ObjectPool *pool, const TPlanNode &tnode, const DescriptorTbl &descs);
+    VCrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    Status prepare(RuntimeState *state) override;
+    Status prepare(RuntimeState* state) override;
 
+    using VBlockingJoinNode::get_next;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
-    Status close(RuntimeState *state) override;
+    Status close(RuntimeState* state) override;
 
 protected:
     void init_get_next(int first_left_row) override;
 
-    Status construct_build_side(RuntimeState *state) override;
+    Status construct_build_side(RuntimeState* state) override;
 
 private:
     // List of build blocks, constructed in prepare()
@@ -68,18 +68,18 @@ private:
     // if block can mem reuse, just clear data in block
     // else build a new block and alloc mem of column from left and right child block
     MutableColumns get_mutable_columns(Block* block);
-    
+
     // Processes a block from the left child.
     //  dst_columns: left_child_row and now_process_build_block to construct a bundle column of new block
     //  now_process_build_block: right child block now to process
-    void process_left_child_block(MutableColumns& dst_columns, const Block& now_process_build_block);
+    void process_left_child_block(MutableColumns& dst_columns,
+                                  const Block& now_process_build_block);
 
     // Returns a debug string for _build_rows. This is used for debugging during the
     // build list construction and before doing the join.
     std::string build_list_debug_string();
 };
 
-}
+} // namespace doris::vectorized
 
 #endif
-

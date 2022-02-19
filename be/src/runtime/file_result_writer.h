@@ -94,7 +94,7 @@ public:
     virtual Status close() override;
 
     // file result writer always return statistic result in one row
-    virtual int64_t get_written_rows() const { return 1; }
+    virtual int64_t get_written_rows() const override { return 1; }
 
 private:
     Status _write_csv_file(const RowBatch& batch);

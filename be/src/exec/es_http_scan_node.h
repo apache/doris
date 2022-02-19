@@ -29,9 +29,9 @@
 
 #include "common/status.h"
 #include "exec/es_http_scanner.h"
-#include "vec/exec/ves_http_scanner.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "vec/exec/ves_http_scanner.h"
 
 namespace doris {
 
@@ -100,12 +100,10 @@ private:
                         const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
 
     virtual Status scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
-            return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
+        return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
     };
 
     Status build_conjuncts_list();
-
-    bool _all_scanners_finished;
 
     std::vector<std::thread> _scanner_threads;
     std::vector<std::promise<Status>> _scanners_status;

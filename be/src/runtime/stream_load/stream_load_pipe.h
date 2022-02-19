@@ -22,10 +22,10 @@
 #include <mutex>
 
 #include "exec/file_reader.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/message_body_sink.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
@@ -148,7 +148,7 @@ public:
         return Status::OK();
     }
 
-    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
+    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override {
         return Status::InternalError("Not implemented");
     }
 

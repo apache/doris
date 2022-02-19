@@ -71,7 +71,7 @@ public:
         _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
     }
 
-    size_t count() const { return _count; }
+    size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
@@ -186,7 +186,7 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return Status::NotSupported("plain page not implement vec op now");
     };
 

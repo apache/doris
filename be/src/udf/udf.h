@@ -28,11 +28,11 @@
 // object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
 class FunctionContextImpl;
-class ColumnPtrWrapper;
+struct ColumnPtrWrapper;
 struct StringValue;
-struct BitmapValue;
-struct DecimalV2Value;
-struct DateTimeValue;
+class BitmapValue;
+class DecimalV2Value;
+class DateTimeValue;
 struct CollectionValue;
 } // namespace doris
 

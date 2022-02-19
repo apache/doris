@@ -38,10 +38,10 @@ protected:
 
     InfoFunc(const TExprNode& node);
 
-    virtual StringVal get_string_val(ExprContext* context, TupleRow*);
-    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
+    virtual StringVal get_string_val(ExprContext* context, TupleRow*) override;
+    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*) override;
 
-    virtual std::string debug_string() const;
+    virtual std::string debug_string() const override;
 
 private:
     static void* compute_fn(Expr* e, TupleRow* row);

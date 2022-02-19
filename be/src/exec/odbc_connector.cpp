@@ -59,7 +59,6 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
           _output_expr_ctxs(param.output_expr_ctxs),
           _is_open(false),
           _field_num(0),
-          _row_count(0),
           _env(nullptr),
           _dbc(nullptr),
           _stmt(nullptr) {}

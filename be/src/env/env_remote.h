@@ -34,7 +34,7 @@ class RemoteEnv : public Env {
 public:
     ~RemoteEnv() override {}
 
-    Status init_conf();
+    Status init_conf() override;
 
     Status new_sequential_file(const std::string& fname,
                                std::unique_ptr<SequentialFile>* result) override;
@@ -46,12 +46,14 @@ public:
     Status new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
                                   std::unique_ptr<RandomAccessFile>* result) override;
 
-    Status new_writable_file(const std::string& fname, std::unique_ptr<WritableFile>* result) override;
+    Status new_writable_file(const std::string& fname,
+                             std::unique_ptr<WritableFile>* result) override;
 
     Status new_writable_file(const WritableFileOptions& opts, const std::string& fname,
                              std::unique_ptr<WritableFile>* result) override;
 
-    Status new_random_rw_file(const std::string& fname, std::unique_ptr<RandomRWFile>* result) override;
+    Status new_random_rw_file(const std::string& fname,
+                              std::unique_ptr<RandomRWFile>* result) override;
 
     Status new_random_rw_file(const RandomRWFileOptions& opts, const std::string& fname,
                               std::unique_ptr<RandomRWFile>* result) override;
@@ -60,8 +62,7 @@ public:
 
     Status get_children(const std::string& dir, std::vector<std::string>* result) override;
 
-    Status iterate_dir(const std::string& dir,
-                       const std::function<bool(const char*)>& cb) override;
+    Status iterate_dir(const std::string& dir, const std::function<bool(const char*)>& cb) override;
 
     Status delete_file(const std::string& fname) override;
 
@@ -94,9 +95,7 @@ public:
 
     Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) override;
 
-    bool is_remote_env() override {
-        return true;
-    }
+    bool is_remote_env() override { return true; }
 
     std::shared_ptr<StorageBackend> get_storage_backend();
 

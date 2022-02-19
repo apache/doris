@@ -28,7 +28,7 @@ class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
 class MemTracker;
-class ResultFileOptions;
+struct ResultFileOptions;
 namespace vectorized {
 class VExprContext;
 
@@ -58,7 +58,6 @@ private:
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts;
 
-    ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;
 

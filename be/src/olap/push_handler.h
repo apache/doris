@@ -36,7 +36,7 @@ namespace doris {
 
 class BinaryFile;
 class BinaryReader;
-class ColumnMapping;
+struct ColumnMapping;
 class RowCursor;
 
 struct TabletVars {
@@ -197,7 +197,7 @@ public:
         return OLAP_SUCCESS;
     }
     bool eof() { return _eof; }
-    bool is_fill_tuple() { return  _fill_tuple; }
+    bool is_fill_tuple() { return _fill_tuple; }
     MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:

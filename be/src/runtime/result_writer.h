@@ -25,7 +25,7 @@ namespace doris {
 class Status;
 class RowBatch;
 class RuntimeState;
-class TypeDescriptor;
+struct TypeDescriptor;
 
 namespace vectorized {
 class Block;

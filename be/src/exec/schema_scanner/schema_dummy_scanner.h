@@ -27,7 +27,7 @@ class SchemaDummyScanner : public SchemaScanner {
 public:
     SchemaDummyScanner();
     virtual ~SchemaDummyScanner();
-    virtual Status start();
+    virtual Status start(RuntimeState* state = nullptr);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
 
 private:

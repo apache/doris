@@ -80,7 +80,7 @@ public:
     bool can_be_inside_low_cardinality() const override {
         return nested_data_type->can_be_inside_low_cardinality();
     }
-    std::string to_string(const IColumn& column, size_t row_num) const;
+    std::string to_string(const IColumn& column, size_t row_num) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
 

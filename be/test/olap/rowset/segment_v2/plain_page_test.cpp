@@ -229,7 +229,7 @@ TEST_F(PlainPageTest, TestPlainFloatBlockEncoderRandom) {
 
     std::unique_ptr<float[]> floats(new float[size]);
     for (int i = 0; i < size; i++) {
-        floats.get()[i] = random() + static_cast<float>(random()) / INT_MAX;
+        floats.get()[i] = random() + static_cast<float>(random()) / static_cast<float>(INT_MAX);
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_FLOAT,

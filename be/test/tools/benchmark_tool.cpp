@@ -135,7 +135,8 @@ private:
 
 class BinaryDictPageBenchmark : public BaseBenchmark {
 public:
-    BinaryDictPageBenchmark(const std::string& name, int iterations) : BaseBenchmark(name, iterations) {}
+    BinaryDictPageBenchmark(const std::string& name, int iterations)
+            : BaseBenchmark(name, iterations) {}
     virtual ~BinaryDictPageBenchmark() override {}
 
     virtual void init() override {}
@@ -428,7 +429,8 @@ private:
 
 class SegmentWriteByFileBenchmark : public SegmentBenchmark {
 public:
-    SegmentWriteByFileBenchmark(const std::string& name, int iterations, const std::string& file_str)
+    SegmentWriteByFileBenchmark(const std::string& name, int iterations,
+                                const std::string& file_str)
             : SegmentBenchmark(name + "/file_path:" + file_str, iterations) {
         std::ifstream file(file_str);
         assert(file.is_open());
@@ -458,7 +460,8 @@ private:
 
 class SegmentScanBenchmark : public SegmentBenchmark {
 public:
-    SegmentScanBenchmark(const std::string& name, int iterations, const std::string& column_type, int rows_number)
+    SegmentScanBenchmark(const std::string& name, int iterations, const std::string& column_type,
+                         int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
               _dataset(generate_dataset(rows_number)) {}
@@ -473,13 +476,11 @@ public:
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();
-        int rowid = 0;
         while (left > 0) {
             int rows_read = std::min(left, 1024);
             block.clear();
             iter->next_batch(&block);
             left -= rows_read;
-            rowid += rows_read;
         }
     }
 
@@ -520,13 +521,11 @@ public:
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();
-        int rowid = 0;
         while (left > 0) {
             int rows_read = std::min(left, 1024);
             block.clear();
             iter->next_batch(&block);
             left -= rows_read;
-            rowid += rows_read;
         }
     }
 

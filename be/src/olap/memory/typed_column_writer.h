@@ -40,11 +40,12 @@ private:
 template <class T>
 class UpdateType {
 public:
-    bool& isnull() { return *static_cast<bool*>(0); /*unused*/ }
+    bool& isnull() { return _fake_isnull; /*unused*/ }
     T& value() { return _value; }
 
 private:
     T _value;
+    bool _fake_isnull;
 };
 
 // ColumnWriter typed implementations

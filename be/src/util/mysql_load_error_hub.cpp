@@ -70,7 +70,7 @@ Status MysqlLoadErrorHub::write_mysql() {
         return st;
     }
 
-    Defer close_mysql_conn{[=]() { mysql_close(my_conn); }};
+    Defer close_mysql_conn {[=]() { mysql_close(my_conn); }};
 
     Status status;
     std::stringstream sql_stream;
@@ -96,12 +96,10 @@ Status MysqlLoadErrorHub::write_mysql() {
 Status MysqlLoadErrorHub::gen_sql(MYSQL* my_conn, const LoadErrorHub::ErrorMsg& error_msg,
                                   std::stringstream* sql_stream) {
     char* sql_start = &_escape_buff[0];
-    char* sql_end = sql_start;
     size_t msg_size = error_msg.msg.size();
     if (msg_size > EXPORTER_MAX_LINE_SIZE) {
         msg_size = EXPORTER_MAX_LINE_SIZE;
     }
-    sql_end += mysql_real_escape_string(my_conn, sql_start, error_msg.msg.c_str(), msg_size);
 
     (*sql_stream) << "insert into " << _info.table << " (job_id, error_msg) values("
                   << error_msg.job_id << ", '" << sql_start << "'); ";

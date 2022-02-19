@@ -21,15 +21,15 @@
 
 namespace doris {
 namespace vectorized {
-    /// Node that returns an empty result set, i.e., just sets eos_ in GetNext().
-    /// Corresponds to EmptySetNode.java in the FE.
-    class VEmptySetNode : public ExecNode {
-    public:
-        VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-        virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-            return Status::NotSupported("Not Implemented get RowBatch in vecorized execution.");
-        }
-        virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    };
+/// Node that returns an empty result set, i.e., just sets eos_ in GetNext().
+/// Corresponds to EmptySetNode.java in the FE.
+class VEmptySetNode : public ExecNode {
+public:
+    VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
+        return Status::NotSupported("Not Implemented get RowBatch in vecorized execution.");
+    }
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+};
 } // namespace vectorized
 } // namespace doris
