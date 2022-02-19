@@ -15,12 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// add a switch for storage layer vectorized
+// you can easily switch on/off storage layer vectorized using STORAGE_LAYER_VECTORIZED_SWITCH without changing other codes
+// 0:close storage layer vectorized (default value); 1:open
+#define STORAGE_LAYER_VECTORIZED_SWITCH 0
+
 #include "beta_rowset_reader.h"
-
 #include <utility>
-
 #include "olap/delete_handler.h"
+
+#if !STORAGE_LAYER_VECTORIZED_SWITCH
 #include "olap/generic_iterators.h"
+#else
+#include "vec/olap/vgeneric_iterators.h"
+#endif
+
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
@@ -118,11 +127,19 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
+#if !STORAGE_LAYER_VECTORIZED_SWITCH
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
         final_iterator = new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
     } else {
         final_iterator = new_union_iterator(iterators, _parent_tracker);
     }
+#else
+    if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
+        final_iterator = vectorized::new_merge_iterator(iterators, _parent_tracker);
+    } else {
+        final_iterator = vectorized::new_union_iterator(iterators, _parent_tracker);
+    }
+#endif
     auto s = final_iterator->init(read_options);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
@@ -180,6 +197,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
 
 OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+#if !STORAGE_LAYER_VECTORIZED_SWITCH
     bool is_first = true;
 
     do {
@@ -215,6 +233,16 @@ OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
         }
         is_first = false;
     } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
+#else // STORAGE_LAYER_VECTORIZED_SWITCH
+    auto s = _iterator->next_batch(block);
+    if (!s.ok()) {
+        if (s.is_end_of_file()) {
+            return OLAP_ERR_DATA_EOF;
+        } else {
+            LOG(WARNING) << "failed to read next block: " << s.to_string();
+        }
+    }
+#endif // STORAGE_LAYER_VECTORIZED_SWITCH
 
     return OLAP_SUCCESS;
 }
