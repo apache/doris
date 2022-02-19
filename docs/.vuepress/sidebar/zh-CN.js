@@ -713,6 +713,7 @@ module.exports = [
       "How-to-Share-blogs",
       "minidump",
       "bitmap-hll-file-format",
+      "regression-testing",
     ],
   },
   {
