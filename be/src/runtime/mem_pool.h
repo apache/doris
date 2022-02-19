@@ -203,26 +203,35 @@ private:
         return chunks_[current_chunk_idx_].allocated_bytes;
     }
 
+    uint8_t * allocate_from_current_chunk(int64_t size, int alignment) {
+        ChunkInfo& info = chunks_[current_chunk_idx_];
+        int64_t aligned_allocated_bytes =
+                BitUtil::RoundUpToPowerOf2(info.allocated_bytes, alignment);
+        if (aligned_allocated_bytes + size <= info.chunk.size) {
+            // Ensure the requested alignment is respected.
+            int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
+            uint8_t* result = info.chunk.data + aligned_allocated_bytes;
+            ASAN_UNPOISON_MEMORY_REGION(result, size);
+            DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
+            info.allocated_bytes += padding + size;
+            total_allocated_bytes_ += padding + size;
+            peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
+            DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
+            return result;
+        }
+        return nullptr;
+    }
+
     template <bool CHECK_LIMIT_FIRST>
     uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment) {
         DCHECK_GE(size, 0);
         if (UNLIKELY(size == 0)) return reinterpret_cast<uint8_t*>(&k_zero_length_region_);
 
         if (current_chunk_idx_ != -1) {
-            ChunkInfo& info = chunks_[current_chunk_idx_];
-            int64_t aligned_allocated_bytes =
-                    BitUtil::RoundUpToPowerOf2(info.allocated_bytes, alignment);
-            if (aligned_allocated_bytes + size <= info.chunk.size) {
-                // Ensure the requested alignment is respected.
-                int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
-                uint8_t* result = info.chunk.data + aligned_allocated_bytes;
-                ASAN_UNPOISON_MEMORY_REGION(result, size);
-                DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
-                info.allocated_bytes += padding + size;
-                total_allocated_bytes_ += padding + size;
-                DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
+            uint8_t* result = allocate_from_current_chunk(size, alignment);
+            if (result != nullptr) {
                 return result;
-            }
+	        }
         }
 
         // If we couldn't allocate a new chunk, return nullptr. malloc() guarantees alignment
@@ -230,16 +239,11 @@ private:
         // guarantee alignment.
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
-        if (UNLIKELY(!find_chunk(size, CHECK_LIMIT_FIRST))) return nullptr;
+        if (UNLIKELY(!find_chunk(size, CHECK_LIMIT_FIRST))) {
+            return nullptr;
+        }
 
-        ChunkInfo& info = chunks_[current_chunk_idx_];
-        uint8_t* result = info.chunk.data + info.allocated_bytes;
-        ASAN_UNPOISON_MEMORY_REGION(result, size);
-        DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
-        info.allocated_bytes += size;
-        total_allocated_bytes_ += size;
-        DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
-        peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
+        uint8_t* result = allocate_from_current_chunk(size, alignment);
         return result;
     }
 
