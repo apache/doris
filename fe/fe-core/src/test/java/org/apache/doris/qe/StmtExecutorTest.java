@@ -342,7 +342,7 @@ public class StmtExecutorTest {
         new Expectations(scheduler) {
             {
                 // suicide
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = ctx;
             }
         };
@@ -399,7 +399,7 @@ public class StmtExecutorTest {
         new Expectations(scheduler) {
             {
                 // suicide
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = killCtx;
             }
         };
@@ -420,7 +420,7 @@ public class StmtExecutorTest {
 
                 killStmt.getConnectionId();
                 minTimes = 0;
-                result = 1L;
+                result = 1;
 
                 killStmt.isConnectionKill();
                 minTimes = 0;
@@ -455,7 +455,7 @@ public class StmtExecutorTest {
         new Expectations(scheduler) {
             {
                 // suicide
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = killCtx;
             }
         };
@@ -475,7 +475,7 @@ public class StmtExecutorTest {
 
                 killStmt.getConnectionId();
                 minTimes = 0;
-                result = 1L;
+                result = 1;
 
                 killStmt.getRedirectStatus();
                 minTimes = 0;
@@ -490,7 +490,7 @@ public class StmtExecutorTest {
 
         new Expectations(scheduler) {
             {
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = null;
             }
         };
