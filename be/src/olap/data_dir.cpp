@@ -58,7 +58,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
-static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
@@ -353,8 +352,8 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
 }
 
 OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
-    auto check_incompatible_old_func = [this](int64_t tablet_id, int32_t schema_hash,
-                                              const std::string& value) -> bool {
+    auto check_incompatible_old_func = [](int64_t tablet_id, int32_t schema_hash,
+                                          const std::string& value) -> bool {
         // if strict check incompatible old format, then log fatal
         if (config::storage_strict_check_incompatible_old_format) {
             LOG(FATAL)

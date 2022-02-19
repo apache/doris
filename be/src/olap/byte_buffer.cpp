@@ -62,7 +62,7 @@ StorageByteBuffer* StorageByteBuffer::create(uint64_t capacity) {
     }
 
     SAFE_DELETE(buf);
-    SAFE_DELETE(memory);
+    SAFE_DELETE_ARRAY(memory);
     return nullptr;
 }
 

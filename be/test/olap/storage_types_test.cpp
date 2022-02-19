@@ -126,7 +126,7 @@ void common_test<OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
 TEST(TypesTest, copy_and_equal) {
     common_test<OLAP_FIELD_TYPE_BOOL>(true);
     common_test<OLAP_FIELD_TYPE_TINYINT>(112);
-    common_test<OLAP_FIELD_TYPE_SMALLINT>(54321);
+    common_test<OLAP_FIELD_TYPE_SMALLINT>(static_cast<short>(54321));
     common_test<OLAP_FIELD_TYPE_INT>(-123454321);
     common_test<OLAP_FIELD_TYPE_UNSIGNED_INT>(1234543212L);
     common_test<OLAP_FIELD_TYPE_BIGINT>(123454321123456789L);

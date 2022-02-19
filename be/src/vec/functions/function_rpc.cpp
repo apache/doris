@@ -495,8 +495,8 @@ void convert_to_block(Block& block, const PValues& result, size_t pos) {
                 null_map_data[i] = false;
             }
         }
-        block.replace_by_position(
-                pos, std::move(ColumnNullable::create(std::move(data_col), std::move(null_col))));
+        block.replace_by_position(pos,
+                                  ColumnNullable::create(std::move(data_col), std::move(null_col)));
     } else {
         auto column = data_type->create_column();
         convert_to_column<false>(column, result);

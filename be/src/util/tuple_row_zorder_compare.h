@@ -21,24 +21,24 @@
 #include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "olap/row.h"
+#include "olap/row_cursor.h"
+#include "olap/schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "olap/schema.h"
-#include "olap/row.h"
-#include "olap/row_cursor.h"
 
 namespace doris {
 class RowComparator {
 public:
-    RowComparator()=default;
+    RowComparator() = default;
     RowComparator(Schema* schema);
+    virtual ~RowComparator() = default;
     virtual int operator()(const char* left, const char* right) const;
 };
 
-class TupleRowZOrderComparator: public RowComparator {
-
+class TupleRowZOrderComparator : public RowComparator {
 private:
     typedef __uint128_t uint128_t;
     int _max_col_size = 0;
@@ -49,22 +49,23 @@ public:
     TupleRowZOrderComparator();
     TupleRowZOrderComparator(int sort_col_num);
     TupleRowZOrderComparator(Schema* schema, int sort_col_num);
+    virtual ~TupleRowZOrderComparator() {}
     int compare(const char* lhs, const char* rhs) const;
     void max_col_size(const RowCursor& rc);
     int compare_row(const RowCursor& lhs, const RowCursor& rhs);
-    template<typename U, typename LhsRowType>
+    template <typename U, typename LhsRowType>
     int compare_based_on_size(LhsRowType& lhs, LhsRowType& rhs) const;
-    template<typename U>
-    U get_shared_representation(const void *val, FieldType type) const;
-    template<typename U, typename T>
+    template <typename U>
+    U get_shared_representation(const void* val, FieldType type) const;
+    template <typename U, typename T>
     U inline get_shared_int_representation(const T val, U mask) const;
-    template<typename U, typename T>
-    U inline get_shared_float_representation(const void *val, U mask) const;
-    template<typename U>
-    U inline get_shared_string_representation(const char *char_ptr, int length) const;
+    template <typename U, typename T>
+    U inline get_shared_float_representation(const void* val, U mask) const;
+    template <typename U>
+    U inline get_shared_string_representation(const char* char_ptr, int length) const;
     virtual int operator()(const char* lhs, const char* rhs) const;
     int get_type_byte_size(FieldType type) const;
 };
-}
+} // namespace doris
 
 #endif //DORIS_TUPLE_ROW_ZORDER_COMPARE_H

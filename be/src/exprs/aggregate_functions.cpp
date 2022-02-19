@@ -2202,19 +2202,6 @@ void AggregateFunctions::first_val_update(FunctionContext* ctx, const T& src, T*
 }
 
 template <>
-void AggregateFunctions::first_val_update(FunctionContext* ctx, const IntVal& src, IntVal* dst) {
-    // The first call to FirstValUpdate sets the value of dst.
-    if (ctx->impl()->num_updates() > 1) {
-        return;
-    }
-    // num_updates is incremented before calling Update(), so it should never be 0.
-    // Remove() should never be called for FIRST_VALUE.
-    DCHECK_GT(ctx->impl()->num_updates(), 0);
-    DCHECK_EQ(ctx->impl()->num_removes(), 0);
-    *dst = src;
-}
-
-template <>
 void AggregateFunctions::first_val_update(FunctionContext* ctx, const StringVal& src,
                                           StringVal* dst) {
     if (ctx->impl()->num_updates() > 1) {
@@ -2272,26 +2259,9 @@ void AggregateFunctions::offset_fn_init(FunctionContext* ctx, StringVal* dst) {
     }
 }
 
-/*
-template <>
-void AggregateFunctions::offset_fn_init(FunctionContext* ctx, IntVal* dst) {
-    DCHECK_EQ(ctx->get_num_args(), 3);
-    DCHECK(ctx->is_arg_constant(1));
-    DCHECK(ctx->is_arg_constant(2));
-
-    //  DCHECK_EQ(*ctx->GetArgType(0), *ctx->GetArgType(2));
-    *dst = *static_cast<IntVal*>(ctx->get_constant_arg(2));
-}
-*/
 template <typename T>
 void AggregateFunctions::offset_fn_update(FunctionContext* ctx, const T& src, const BigIntVal&,
                                           const T& default_value, T* dst) {
-    *dst = src;
-}
-
-template <>
-void AggregateFunctions::offset_fn_update(FunctionContext* ctx, const IntVal& src, const BigIntVal&,
-                                          const IntVal& default_value, IntVal* dst) {
     *dst = src;
 }
 
@@ -2299,13 +2269,11 @@ void AggregateFunctions::offset_fn_update(FunctionContext* ctx, const IntVal& sr
 template void AggregateFunctions::init_zero_null<BigIntVal>(FunctionContext*, BigIntVal* dst);
 template void AggregateFunctions::init_zero_null<LargeIntVal>(FunctionContext*, LargeIntVal* dst);
 template void AggregateFunctions::init_zero_null<DoubleVal>(FunctionContext*, DoubleVal* dst);
-template void AggregateFunctions::init_zero_null<DecimalV2Val>(FunctionContext*, DecimalV2Val* dst);
 
 // Stamp out the templates for the types we need.
 template void AggregateFunctions::init_zero<BigIntVal>(FunctionContext*, BigIntVal* dst);
 template void AggregateFunctions::init_zero<LargeIntVal>(FunctionContext*, LargeIntVal* dst);
 template void AggregateFunctions::init_zero<DoubleVal>(FunctionContext*, DoubleVal* dst);
-template void AggregateFunctions::init_zero<DecimalV2Val>(FunctionContext*, DecimalV2Val* dst);
 
 template void AggregateFunctions::init_zero_not_null<BigIntVal>(FunctionContext*, BigIntVal* dst);
 
@@ -2329,9 +2297,6 @@ template void AggregateFunctions::sum_remove<FloatVal, DoubleVal>(FunctionContex
 template void AggregateFunctions::sum_remove<DoubleVal, DoubleVal>(FunctionContext*,
                                                                    const DoubleVal& src,
                                                                    DoubleVal* dst);
-template void AggregateFunctions::sum_remove<DecimalV2Val, DecimalV2Val>(FunctionContext*,
-                                                                         const DecimalV2Val& src,
-                                                                         DecimalV2Val* dst);
 template void AggregateFunctions::sum_remove<LargeIntVal, LargeIntVal>(FunctionContext*,
                                                                        const LargeIntVal& src,
                                                                        LargeIntVal* dst);
@@ -2379,8 +2344,9 @@ template void AggregateFunctions::sum<IntVal, BigIntVal>(FunctionContext*, const
                                                          BigIntVal* dst);
 template void AggregateFunctions::sum<BigIntVal, BigIntVal>(FunctionContext*, const BigIntVal& src,
                                                             BigIntVal* dst);
-template void AggregateFunctions::sum<LargeIntVal, LargeIntVal>(FunctionContext*, const LargeIntVal& src,
-                                                            LargeIntVal* dst);
+template void AggregateFunctions::sum<LargeIntVal, LargeIntVal>(FunctionContext*,
+                                                                const LargeIntVal& src,
+                                                                LargeIntVal* dst);
 template void AggregateFunctions::sum<FloatVal, DoubleVal>(FunctionContext*, const FloatVal& src,
                                                            DoubleVal* dst);
 template void AggregateFunctions::sum<DoubleVal, DoubleVal>(FunctionContext*, const DoubleVal& src,
@@ -2417,8 +2383,6 @@ template void AggregateFunctions::min<FloatVal>(FunctionContext*, const FloatVal
                                                 FloatVal* dst);
 template void AggregateFunctions::min<DoubleVal>(FunctionContext*, const DoubleVal& src,
                                                  DoubleVal* dst);
-template void AggregateFunctions::min<StringVal>(FunctionContext*, const StringVal& src,
-                                                 StringVal* dst);
 
 template void AggregateFunctions::avg_remove<doris_udf::BooleanVal>(doris_udf::FunctionContext*,
                                                                     doris_udf::BooleanVal const&,
@@ -2467,8 +2431,6 @@ template void AggregateFunctions::max<FloatVal>(FunctionContext*, const FloatVal
                                                 FloatVal* dst);
 template void AggregateFunctions::max<DoubleVal>(FunctionContext*, const DoubleVal& src,
                                                  DoubleVal* dst);
-template void AggregateFunctions::max<StringVal>(FunctionContext*, const StringVal& src,
-                                                 StringVal* dst);
 
 template void AggregateFunctions::pc_update(FunctionContext*, const BooleanVal&, StringVal*);
 template void AggregateFunctions::pc_update(FunctionContext*, const TinyIntVal&, StringVal*);
@@ -2619,8 +2581,7 @@ template void AggregateFunctions::first_val_update<FloatVal>(FunctionContext*, c
                                                              FloatVal* dst);
 template void AggregateFunctions::first_val_update<DoubleVal>(FunctionContext*,
                                                               const DoubleVal& src, DoubleVal* dst);
-template void AggregateFunctions::first_val_update<StringVal>(FunctionContext*,
-                                                              const StringVal& src, StringVal* dst);
+
 template void AggregateFunctions::first_val_update<DateTimeVal>(FunctionContext*,
                                                                 const DateTimeVal& src,
                                                                 DateTimeVal* dst);
@@ -2685,8 +2646,6 @@ template void AggregateFunctions::last_val_update<FloatVal>(FunctionContext*, co
                                                             FloatVal* dst);
 template void AggregateFunctions::last_val_update<DoubleVal>(FunctionContext*, const DoubleVal& src,
                                                              DoubleVal* dst);
-template void AggregateFunctions::last_val_update<StringVal>(FunctionContext*, const StringVal& src,
-                                                             StringVal* dst);
 template void AggregateFunctions::last_val_update<DateTimeVal>(FunctionContext*,
                                                                const DateTimeVal& src,
                                                                DateTimeVal* dst);
@@ -2711,8 +2670,6 @@ template void AggregateFunctions::last_val_remove<FloatVal>(FunctionContext*, co
                                                             FloatVal* dst);
 template void AggregateFunctions::last_val_remove<DoubleVal>(FunctionContext*, const DoubleVal& src,
                                                              DoubleVal* dst);
-template void AggregateFunctions::last_val_remove<StringVal>(FunctionContext*, const StringVal& src,
-                                                             StringVal* dst);
 template void AggregateFunctions::last_val_remove<DateTimeVal>(FunctionContext*,
                                                                const DateTimeVal& src,
                                                                DateTimeVal* dst);

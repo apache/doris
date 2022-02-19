@@ -36,7 +36,7 @@ namespace doris {
 
 class Tuple;
 class SlotDescriptor;
-class Slice;
+struct Slice;
 class TextConverter;
 class FileReader;
 class LineReader;
@@ -63,7 +63,7 @@ public:
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) override;
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
 
     // Close this scanner
     void close() override;

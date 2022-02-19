@@ -28,16 +28,16 @@ public:
     VSlotRef(const doris::TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
     virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id);
+                                  int* result_column_id) override;
     virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context);
+                                  VExprContext* context) override;
     virtual VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VSlotRef(*this));
     }
 
     virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const;
-    virtual bool is_constant() const { return false; }
+    virtual std::string debug_string() const override;
+    virtual bool is_constant() const override { return false; }
 
 private:
     FunctionPtr _function;

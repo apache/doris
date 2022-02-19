@@ -46,6 +46,8 @@ class TabletColumn;
 
 class TypeInfo {
 public:
+    virtual ~TypeInfo() = default;
+    ;
     virtual bool equal(const void* left, const void* right) const = 0;
     virtual int cmp(const void* left, const void* right) const = 0;
 
@@ -161,7 +163,7 @@ class ArrayTypeInfo : public TypeInfo {
 public:
     explicit ArrayTypeInfo(TypeInfo* item_type_info)
             : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
-
+    ~ArrayTypeInfo() = default;
     inline bool equal(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
         auto r_value = reinterpret_cast<const CollectionValue*>(right);
@@ -248,7 +250,7 @@ public:
         dest_value->shallow_copy(src_value);
     }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
+    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -308,7 +310,7 @@ public:
         return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
     }
 
-    OLAPStatus from_string(void* buf, const std::string& scan_key) const {
+    OLAPStatus from_string(void* buf, const std::string& scan_key) const override {
         return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
     }
 

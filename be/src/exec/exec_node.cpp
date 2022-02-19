@@ -24,7 +24,6 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/aggregation_node.h"
 #include "exec/analytic_eval_node.h"
 #include "exec/assert_num_rows_node.h"
 #include "exec/broker_scan_node.h"
@@ -60,27 +59,26 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
-#include "vec/exec/ves_http_scan_node.h"
+#include "vec/exec/vanalytic_eval_node.h"
+#include "vec/exec/vassert_num_rows_node.h"
 #include "vec/exec/vcross_join_node.h"
+#include "vec/exec/vempty_set_node.h"
+#include "vec/exec/ves_http_scan_node.h"
+#include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
+#include "vec/exec/vintersect_node.h"
 #include "vec/exec/vmysql_scan_node.h"
 #include "vec/exec/vodbc_scan_node.h"
 #include "vec/exec/volap_scan_node.h"
+#include "vec/exec/vrepeat_node.h"
+#include "vec/exec/vschema_scan_node.h"
+#include "vec/exec/vselect_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vunion_node.h"
-#include "vec/exec/vintersect_node.h"
-#include "vec/exec/vexcept_node.h"
-#include "vec/exec/vanalytic_eval_node.h"
-#include "vec/exec/vassert_num_rows_node.h"
-#include "vec/exec/vselect_node.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exec/vempty_set_node.h"
-#include "vec/exec/vschema_scan_node.h"
-#include "vec/exec/vrepeat_node.h"
 namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
@@ -455,11 +453,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         } else {
-            if (config::enable_partitioned_aggregation) {
-                *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new AggregationNode(pool, tnode, descs));
-            }
+            *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
         }
         return Status::OK();
 

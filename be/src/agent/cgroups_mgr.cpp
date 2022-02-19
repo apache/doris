@@ -54,10 +54,7 @@ std::map<TResourceType::type, std::string> CgroupsMgr::_s_resource_cgroups = {
         {TResourceType::type::TRESOURCE_IO_SHARE, "blkio.weight"}};
 
 CgroupsMgr::CgroupsMgr(ExecEnv* exec_env, const string& root_cgroups_path)
-        : _exec_env(exec_env),
-          _root_cgroups_path(root_cgroups_path),
-          _is_cgroups_init_success(false),
-          _cur_version(-1) {
+        : _root_cgroups_path(root_cgroups_path), _is_cgroups_init_success(false), _cur_version(-1) {
     if (s_global_cg_mgr == nullptr) {
         s_global_cg_mgr = this;
     }

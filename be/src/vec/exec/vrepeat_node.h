@@ -35,6 +35,7 @@ public:
 
     virtual Status prepare(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
+    using RepeatNode::get_next;
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     virtual Status close(RuntimeState* state) override;
 

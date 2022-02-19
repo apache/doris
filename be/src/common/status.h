@@ -306,5 +306,8 @@ private:
         }                                                                      \
     } while (false);
 } // namespace doris
+#ifdef WARN_UNUSED_RESULT
+#undef WARN_UNUSED_RESULT
+#endif
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))

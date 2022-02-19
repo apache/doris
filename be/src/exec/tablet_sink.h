@@ -151,7 +151,7 @@ private:
 class IndexChannel;
 class NodeChannel {
 public:
-    NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id, int32_t schema_hash);
+    NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
     ~NodeChannel() noexcept;
 
     // called before open, used to add tablet located in this backend
@@ -221,7 +221,6 @@ private:
     OlapTableSink* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
-    int32_t _schema_hash = 0;
     std::string _load_info;
     std::string _name;
 
@@ -286,8 +285,7 @@ private:
 
 class IndexChannel {
 public:
-    IndexChannel(OlapTableSink* parent, int64_t index_id, int32_t schema_hash)
-            : _parent(parent), _index_id(index_id), _schema_hash(schema_hash) {}
+    IndexChannel(OlapTableSink* parent, int64_t index_id) : _parent(parent), _index_id(index_id) {}
     ~IndexChannel();
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
@@ -315,7 +313,6 @@ private:
 
     OlapTableSink* _parent;
     int64_t _index_id;
-    int32_t _schema_hash;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -372,8 +369,8 @@ private:
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
     // set stop_processing is we want to stop the whole process now.
-    Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap, int* filtered_rows,
-                          bool* stop_processing);
+    Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap,
+                          int* filtered_rows, bool* stop_processing);
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.

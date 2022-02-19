@@ -43,20 +43,20 @@ public:
     ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~ExchangeNode() {}
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    virtual Status prepare(RuntimeState* state) override;
     // Blocks until the first batch is available for consumption via GetNext().
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
+    virtual Status open(RuntimeState* state) override;
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
-    virtual Status close(RuntimeState* state);
+    virtual Status close(RuntimeState* state) override;
 
     // the number of senders needs to be set after the c'tor, because it's not
     // recorded in TPlanNode, and before calling prepare()
     void set_num_senders(int num_senders) { _num_senders = num_senders; }
 
 protected:
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
+    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     // Implements GetNext() for the case where _is_merging is true. Delegates the GetNext()

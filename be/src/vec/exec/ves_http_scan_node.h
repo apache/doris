@@ -35,12 +35,13 @@ public:
     VEsHttpScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VEsHttpScanNode();
 
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
+    using EsHttpScanNode::get_next;
+    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     virtual Status close(RuntimeState* state) override;
 
 private:
-    virtual Status scanner_scan(std::unique_ptr<VEsHttpScanner> scanner);
+    virtual Status scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) override;
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
     std::mutex _block_queue_lock;

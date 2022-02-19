@@ -35,7 +35,7 @@
 namespace doris {
 
 class WrapperField;
-class RowCursorCell;
+struct RowCursorCell;
 
 enum CondOp {
     OP_NULL = -1, // invalid op

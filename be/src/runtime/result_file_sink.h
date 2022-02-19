@@ -35,7 +35,7 @@ class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
 class MemTracker;
-class ResultFileOptions;
+struct ResultFileOptions;
 
 class ResultFileSink : public DataStreamSender {
 public:
@@ -46,16 +46,16 @@ public:
                    const std::vector<TPlanFragmentDestination>& destinations, ObjectPool* pool,
                    int sender_id, DescriptorTbl& descs);
     virtual ~ResultFileSink();
-    virtual Status init(const TDataSink& thrift_sink);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
+    virtual Status init(const TDataSink& thrift_sink) override;
+    virtual Status prepare(RuntimeState* state) override;
+    virtual Status open(RuntimeState* state) override;
     // send data in 'batch' to this backend stream mgr
     // Blocks until all rows in batch are placed in the buffer
-    virtual Status send(RuntimeState* state, RowBatch* batch);
+    virtual Status send(RuntimeState* state, RowBatch* batch) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
-    virtual Status close(RuntimeState* state, Status exec_status);
-    virtual RuntimeProfile* profile() { return _profile; }
+    virtual Status close(RuntimeState* state, Status exec_status) override;
+    virtual RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 

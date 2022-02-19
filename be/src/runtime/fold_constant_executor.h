@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
-#include "exprs/expr_context.h"
-#include "exprs/expr.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "runtime/exec_env.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "runtime/exec_env.h"
+#include "runtime/tuple_row.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -39,6 +39,7 @@ public:
 
     // fold constant vexpr
     Status fold_constant_vexpr(const TFoldConstantParams& params, PConstantExprResult* response);
+
 private:
     // init runtime_state and mem_tracker
     Status _init(const TQueryGlobals& query_globals);
@@ -53,9 +54,7 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
     std::unique_ptr<MemPool> _mem_pool;
-    ExecEnv* _exec_env;
     ObjectPool _pool;
     static TUniqueId _dummy_id;
 };
-}
-
+} // namespace doris

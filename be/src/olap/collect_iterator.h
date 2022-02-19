@@ -53,7 +53,7 @@ private:
     // It currently contains two implementations, one is Level0Iterator,
     // which only reads data from the rowset reader, and the other is Level1Iterator,
     // which can read merged data from multiple LevelIterators through MergeHeap.
-    // By using Level1Iterator, some rowset readers can be merged in advance and 
+    // By using Level1Iterator, some rowset readers can be merged in advance and
     // then merged with other rowset readers.
     class LevelIterator {
     public:
@@ -68,13 +68,9 @@ private:
         virtual OLAPStatus next(const RowCursor** row, bool* delete_flag) = 0;
         virtual ~LevelIterator() = 0;
 
-        bool need_skip() const {
-            return _skip_row;
-        }
+        bool need_skip() const { return _skip_row; }
 
-        void set_need_skip(bool skip) const {
-            _skip_row = skip;
-        }
+        void set_need_skip(bool skip) const { _skip_row = skip; }
 
         // Only use in unique reader. Heap will set _skip_row = true.
         // when build heap find the row in LevelIterator have same key but lower version or sequence
@@ -86,27 +82,28 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(const bool reverse = false, int sequence_id_idx = -1) :
-            _reverse(reverse), _sequence_id_idx(sequence_id_idx) {}
+        LevelIteratorComparator(const bool reverse = false, int sequence_id_idx = -1)
+                : _reverse(reverse), _sequence_id_idx(sequence_id_idx) {}
         virtual bool operator()(const LevelIterator* a, const LevelIterator* b);
+        virtual ~LevelIteratorComparator() {}
 
     private:
         bool _reverse;
         int _sequence_id_idx;
     };
 
-    class LevelZorderIteratorComparator: public LevelIteratorComparator {
+    class LevelZorderIteratorComparator : public LevelIteratorComparator {
     public:
-        LevelZorderIteratorComparator(const bool reverse = false, int sequence_id_idx = -1, const size_t sort_col_num = 0) :
-            _reverse(reverse), _sequence_id_idx(sequence_id_idx), _sort_col_num(sort_col_num) {
+        LevelZorderIteratorComparator(const bool reverse = false, int sequence_id_idx = -1,
+                                      const size_t sort_col_num = 0)
+                : _reverse(reverse) {
             _comparator = TupleRowZOrderComparator(sort_col_num);
         }
         virtual bool operator()(const LevelIterator* a, const LevelIterator* b);
+        virtual ~LevelZorderIteratorComparator() = default;
 
     private:
         bool _reverse = false;
-        int _sequence_id_idx;
-        size_t _sort_col_num = 0;
         TupleRowZOrderComparator _comparator;
     };
 
@@ -119,8 +116,7 @@ private:
         std::shared_ptr<LevelIteratorComparator> _cmp;
     };
 
-    typedef std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
-                    BaseComparator>
+    typedef std::priority_queue<LevelIterator*, std::vector<LevelIterator*>, BaseComparator>
             MergeHeap;
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {
@@ -146,19 +142,19 @@ private:
         OLAPStatus _refresh_current_row_v2();
 
         RowsetReaderSharedPtr _rs_reader;
-        const RowCursor* _current_row = nullptr;  // It points to the returned row
+        const RowCursor* _current_row = nullptr; // It points to the returned row
         bool _is_delete = false;
         TabletReader* _reader = nullptr;
-        RowCursor _row_cursor;  // It points to rows inside `_row_block`, maybe not returned
+        RowCursor _row_cursor; // It points to rows inside `_row_block`, maybe not returned
         RowBlock* _row_block = nullptr;
     };
 
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-
         Level1Iterator(const std::list<LevelIterator*>& children, bool merge, bool reverse,
-                       int sequence_id_idx, uint64_t* merge_count, SortType sort_type, int sort_col_num);
+                       int sequence_id_idx, uint64_t* merge_count, SortType sort_type,
+                       int sort_col_num);
 
         OLAPStatus init() override;
 
@@ -195,7 +191,6 @@ private:
         // The child LevelIterator should be either in _heap or in _children
         std::unique_ptr<MergeHeap> _heap;
         // used when `_merge == false`
-        int _child_idx = 0;
         int _sequence_id_idx = -1;
 
         uint64_t* _merged_rows = nullptr;

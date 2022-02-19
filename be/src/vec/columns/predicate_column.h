@@ -17,14 +17,13 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
-
-#include "runtime/string_value.h"
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
-#include "vec/columns/column_string.h"
+#include "runtime/string_value.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_impl.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 
@@ -32,7 +31,7 @@ namespace doris::vectorized {
 
 /**
  * used to keep predicate column in storage layer
- * 
+ *
  *  T = predicate column type
  */
 template <typename T>
@@ -56,7 +55,8 @@ private:
         return value;
     }
 
-    void insert_date_to_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<Int64>* res_ptr) {
+    void insert_date_to_res_column(const uint16_t* sel, size_t sel_size,
+                                   vectorized::ColumnVector<Int64>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
             VecDateTimeValue date;
             date.from_olap_date(get_date_at(sel[i]));
@@ -64,7 +64,8 @@ private:
         }
     }
 
-    void insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<Int64>* res_ptr) {
+    void insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size,
+                                       vectorized::ColumnVector<Int64>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
             uint64_t value = data[sel[i]];
             vectorized::VecDateTimeValue date(value);
@@ -72,7 +73,8 @@ private:
         }
     }
 
-    void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnString* res_ptr) {
+    void insert_string_to_res_column(const uint16_t* sel, size_t sel_size,
+                                     vectorized::ColumnString* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& sv = reinterpret_cast<StringValue&>(data[n]);
@@ -80,7 +82,8 @@ private:
         }
     }
 
-    void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnDecimal<Decimal128>* res_ptr) {
+    void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
+                                      vectorized::ColumnDecimal<Decimal128>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& dv = reinterpret_cast<const decimal12_t&>(data[n]);
@@ -90,7 +93,8 @@ private:
     }
 
     template <typename Y>
-    void insert_default_value_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<Y>* res_ptr) {
+    void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
+                                         vectorized::ColumnVector<Y>* res_ptr) {
         static_assert(std::is_same_v<T, Y>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
@@ -102,7 +106,8 @@ private:
         res_data.set_end_ptr(y + sel_size);
     }
 
-    void insert_byte_to_res_column(const uint16_t* sel, size_t sel_size, vectorized::IColumn* res_ptr) {
+    void insert_byte_to_res_column(const uint16_t* sel, size_t sel_size,
+                                   vectorized::IColumn* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             char* ch_val = reinterpret_cast<char*>(&data[n]);
@@ -120,7 +125,7 @@ private:
         res_val_ptr += num;
         data.set_end_ptr(res_val_ptr);
     }
- 
+
     void insert_many_in_copy_way(const char* data_ptr, size_t num) {
         char* res_ptr = (char*)data.get_end_ptr();
         memcpy(res_ptr, data_ptr, num * sizeof(T));
@@ -139,20 +144,21 @@ public:
 
     size_t size() const override { return data.size(); }
 
-   [[noreturn]]  StringRef get_data_at(size_t n) const override {
-         LOG(FATAL) << "get_data_at not supported in PredicateColumnType";
+    [[noreturn]] StringRef get_data_at(size_t n) const override {
+        LOG(FATAL) << "get_data_at not supported in PredicateColumnType";
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-         LOG(FATAL) << "insert_from not supported in PredicateColumnType";
+        LOG(FATAL) << "insert_from not supported in PredicateColumnType";
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-         LOG(FATAL) << "insert_range_from not supported in PredicateColumnType";
+        LOG(FATAL) << "insert_range_from not supported in PredicateColumnType";
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override {
-         LOG(FATAL) << "insert_indices_from not supported in PredicateColumnType";
+    void insert_indices_from(const IColumn& src, const int* indices_begin,
+                             const int* indices_end) override {
+        LOG(FATAL) << "insert_indices_from not supported in PredicateColumnType";
     }
 
     void pop_back(size_t n) override {
@@ -160,7 +166,7 @@ public:
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
-         LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
+        LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
     }
 
     void insert_string_value(char* data_ptr, size_t length) {
@@ -181,7 +187,7 @@ public:
         memcpy(&val, data_ptr, sizeof(val));
         data.push_back_without_reserve(val);
     }
-    
+
     void insert_default_type(char* data_ptr, size_t length) {
         T* val = (T*)data_ptr;
         data.push_back_without_reserve(*val);
@@ -191,13 +197,13 @@ public:
         char* ch = const_cast<char*>(data_ptr);
         if constexpr (std::is_same_v<T, StringValue>) {
             insert_string_value(ch, length);
-         } else if constexpr (std::is_same_v<T, decimal12_t>) {
+        } else if constexpr (std::is_same_v<T, decimal12_t>) {
             insert_decimal_value(ch, length);
-         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
             insert_in_copy_way(ch, length);
-         } else {
+        } else {
             insert_default_type(ch, length);
-         }
+        }
     }
 
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
@@ -211,9 +217,10 @@ public:
             insert_many_default_type(data_ptr, num);
         }
     }
- 
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const uint32_t* start_offset_array, 
-        const uint32_t* len_array, char* dict_data, size_t num) override {
+
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index,
+                               const uint32_t* start_offset_array, const uint32_t* len_array,
+                               char* dict_data, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
             for (int i = 0; i < num; i++, start_index++) {
                 int32_t codeword = data_array[start_index];
@@ -223,8 +230,9 @@ public:
             }
         }
     }
- 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+
+    void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                 uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
@@ -234,34 +242,28 @@ public:
         }
     }
 
-    void insert_default() override { 
-        data.push_back(T()); 
-    }
+    void insert_default() override { data.push_back(T()); }
 
     void clear() override { data.clear(); }
 
-    size_t byte_size() const override { 
-         return data.size() * sizeof(T);
-    }
+    size_t byte_size() const override { return data.size() * sizeof(T); }
 
     size_t allocated_bytes() const override { return byte_size(); }
 
     void protect() override {}
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      IColumn::Permutation& res) const override {
+                         IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported in PredicateColumnType";
     }
 
-    void reserve(size_t n) override { 
-        data.reserve(n); 
-    }
+    void reserve(size_t n) override { data.reserve(n); }
 
-    [[noreturn]] const char* get_family_name() const override { 
+    [[noreturn]] const char* get_family_name() const override {
         LOG(FATAL) << "get_family_name not supported in PredicateColumnType";
     }
 
-   [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
+    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
         LOG(FATAL) << "clone_resized not supported in PredicateColumnType";
     }
 
@@ -299,20 +301,20 @@ public:
 
     // it's impossable to use ComplexType as key , so we don't have to implemnt them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
-                                                      char const*& begin) const {
+                                                      char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported in PredicateColumnType";
     }
 
-    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) {
+    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not supported in PredicateColumnType";
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int nan_direction_hint) const {
+                                int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in PredicateColumnType";
     }
 
-    void get_extremes(Field& min, Field& max) const {
+    void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not supported in PredicateColumnType";
     }
 
@@ -326,15 +328,16 @@ public:
     }
 
     [[noreturn]] bool structure_equals(const IColumn& rhs) const override {
-         LOG(FATAL) << "structure_equals not supported in PredicateColumnType";
+        LOG(FATAL) << "structure_equals not supported in PredicateColumnType";
     }
 
-    [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override {
-         LOG(FATAL) << "filter not supported in PredicateColumnType";
+    [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
+                                  ssize_t result_size_hint) const override {
+        LOG(FATAL) << "filter not supported in PredicateColumnType";
     };
 
-    [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override { 
-         LOG(FATAL) << "permute not supported in PredicateColumnType";
+    [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+        LOG(FATAL) << "permute not supported in PredicateColumnType";
     };
 
     Container& get_data() { return data; }
@@ -352,27 +355,49 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         if constexpr (std::is_same_v<T, StringValue>) {
-            insert_string_to_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnString*>(col_ptr));
+            insert_string_to_res_column(sel, sel_size,
+                                        reinterpret_cast<vectorized::ColumnString*>(col_ptr));
         } else if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_decimal_to_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnDecimal<Decimal128>*>(col_ptr));
+            insert_decimal_to_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnDecimal<Decimal128>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int8>) {
-            insert_default_value_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int8>*>(col_ptr));
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int8>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int16>) {
-            insert_default_value_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int16>*>(col_ptr));
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int16>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int32>) {
-            insert_default_value_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int32>*>(col_ptr));
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int32>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int64>) {
-            insert_default_value_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int64>*>(col_ptr));
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int64>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Float32>) {
-            insert_default_value_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float32>*>(col_ptr));
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float32>*>(
+                            col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Float64>) {
-            insert_default_value_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float64>*>(col_ptr));
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float64>*>(
+                            col_ptr));
         } else if constexpr (std::is_same_v<T, uint64_t>) {
-            insert_datetime_to_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+            insert_datetime_to_res_column(
+                    sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, uint24_t>) {
-            insert_date_to_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+            insert_date_to_res_column(sel, sel_size,
+                                      reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
-            insert_default_value_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int128>*>(col_ptr));
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int128>*>(
+                            col_ptr));
         } else if (std::is_same_v<T, bool>) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
         } else {
@@ -380,7 +405,6 @@ public:
         }
         return Status::OK();
     }
-
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data in predicate column";
@@ -395,4 +419,4 @@ private:
 };
 using ColumnStringValue = PredicateColumnType<StringValue>;
 
-} // namespace
+} // namespace doris::vectorized

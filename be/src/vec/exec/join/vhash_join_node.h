@@ -147,12 +147,12 @@ public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~HashJoinNode() override;
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos);
-    virtual Status close(RuntimeState* state);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    virtual Status prepare(RuntimeState* state) override;
+    virtual Status open(RuntimeState* state) override;
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    virtual Status close(RuntimeState* state) override;
     HashTableVariants& get_hash_table_variants() { return _hash_table_variants; }
     void init_join_op();
 
@@ -240,13 +240,13 @@ private:
     void _hash_table_init();
 
     template <class HashTableContext, bool ignore_null, bool build_unique>
-    friend class ProcessHashTableBuild;
+    friend struct ProcessHashTableBuild;
 
     template <class HashTableContext, class JoinOpType, bool ignore_null>
-    friend class ProcessHashTableProbe;
+    friend struct ProcessHashTableProbe;
 
     template <class HashTableContext>
-    friend class ProcessRuntimeFilterBuild;
+    friend struct ProcessRuntimeFilterBuild;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
