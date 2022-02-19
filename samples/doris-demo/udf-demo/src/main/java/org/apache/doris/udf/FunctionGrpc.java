@@ -73,10 +73,10 @@ public class FunctionGrpc extends PFunctionServiceGrpc.PFunctionServiceImplBase 
     
     @Override
     public void checkFn(FunctionService.PCheckFunctionRequest request, StreamObserver<FunctionService.PCheckFunctionResponse> responseObserver) {
-        // CREATE FUNCTION rpc_add(INT, INT), rpc_add is functionName
+        // symbol is functionName
         log.info("checkFn request={}", request);
         int status = 0;
-        if ("rpc_add".equals(request.getFunction().getFunctionName())) {
+        if ("add_int".equals(request.getFunction().getFunctionName())) {
             // check inputs count
             if (request.getFunction().getInputsCount() != 2) {
                 status = -1;

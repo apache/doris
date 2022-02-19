@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Native User Defined Function Service",
+    "title": "Native User Defined Function",
     "language": "zh-CN"
 }
 ---
