@@ -728,7 +728,7 @@ public class StmtExecutor implements ProfileWriter {
     // Handle kill statement.
     private void handleKill() throws DdlException {
         KillStmt killStmt = (KillStmt) parsedStmt;
-        long id = killStmt.getConnectionId();
+        int id = killStmt.getConnectionId();
         ConnectContext killCtx = context.getConnectScheduler().getContext(id);
         if (killCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
