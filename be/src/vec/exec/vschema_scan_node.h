@@ -36,8 +36,8 @@ public:
     VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VSchemaScanNode();
     Status prepare(RuntimeState* state) override;
-
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
+    using SchemaScanNode::get_next;
+    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
 private:
     Status write_slot_to_vectorized_column(void* slot, SlotDescriptor* slot_desc,

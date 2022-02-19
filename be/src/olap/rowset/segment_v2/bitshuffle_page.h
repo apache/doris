@@ -37,8 +37,8 @@
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
-#include "vec/runtime/vdatetime_value.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -124,7 +124,7 @@ public:
         _remain_element_capacity = block_size / SIZE_OF_TYPE;
     }
 
-    size_t count() const { return _count; }
+    size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
@@ -217,9 +217,7 @@ public:
               _size_of_element(0),
               _cur_index(0) {}
 
-    ~BitShufflePageDecoder() {
-        ChunkAllocator::instance()->free(_chunk);
-    }
+    ~BitShufflePageDecoder() { ChunkAllocator::instance()->free(_chunk); }
 
     Status init() override {
         CHECK(!_parsed);
@@ -350,20 +348,20 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
             return Status::OK();
         }
- 
+
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
- 
+
         dst->insert_many_fix_len_data((char*)&_chunk.data[_cur_index * SIZE_OF_TYPE], max_fetch);
 
         *n = max_fetch;
         _cur_index += max_fetch;
- 
+
         return Status::OK();
     };
 
@@ -383,7 +381,8 @@ private:
     Status _decode() {
         if (_num_elements > 0) {
             int64_t bytes;
-            if (!ChunkAllocator::instance()->allocate_align(_num_element_after_padding * _size_of_element, &_chunk)) {
+            if (!ChunkAllocator::instance()->allocate_align(
+                        _num_element_after_padding * _size_of_element, &_chunk)) {
                 return Status::RuntimeError("Decoded Memory Alloc failed");
             }
             char* in = const_cast<char*>(&_data[BITSHUFFLE_PAGE_HEADER_SIZE]);

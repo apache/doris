@@ -203,7 +203,8 @@ void TaskWorkerPool::start() {
         break;
     case TaskWorkerType::SUBMIT_TABLE_COMPACTION:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback, this);
+        cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
+                             this);
         break;
     default:
         // pass
@@ -298,8 +299,9 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
             break;
         } else {
             DorisMetrics::instance()->finish_task_requests_failed->increment(1);
-            LOG(WARNING) << "finish task failed. type=" << to_string(finish_task_request.task_type) << ", signature="
-                         << finish_task_request.signature <<  ", status_code=" << result.status.status_code;
+            LOG(WARNING) << "finish task failed. type=" << to_string(finish_task_request.task_type)
+                         << ", signature=" << finish_task_request.signature
+                         << ", status_code=" << result.status.status_code;
             try_time += 1;
         }
         sleep(config::sleep_one_second);
@@ -534,8 +536,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     if (status == DORIS_SUCCESS) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
-        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2, signature, task_type,
-                                          &error_msgs, process_name);
+        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
         OLAPStatus sc_status = _env->storage_engine()->execute_task(&engine_task);
         if (sc_status != OLAP_SUCCESS) {
             if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
@@ -1072,9 +1073,9 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         TStatus task_status;
 
         uint32_t checksum = 0;
-        EngineChecksumTask engine_task(
-                check_consistency_req.tablet_id, check_consistency_req.schema_hash,
-                check_consistency_req.version, &checksum);
+        EngineChecksumTask engine_task(check_consistency_req.tablet_id,
+                                       check_consistency_req.schema_hash,
+                                       check_consistency_req.version, &checksum);
         OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "check consistency failed. status: " << res
@@ -1690,8 +1691,8 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
                 continue;
             }
 
-            Status status = StorageEngine::instance()->submit_compaction_task(
-                    tablet_ptr, compaction_type);
+            Status status =
+                    StorageEngine::instance()->submit_compaction_task(tablet_ptr, compaction_type);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to submit table compaction task. " << status.to_string();
             }

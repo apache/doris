@@ -33,7 +33,7 @@ namespace doris {
 
 class ExecEnv;
 class StorageBackend;
-class FileStat;
+struct FileStat;
 
 /*
  * Upload:

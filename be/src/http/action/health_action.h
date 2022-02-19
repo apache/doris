@@ -27,14 +27,11 @@ class ExecEnv;
 // Get BE health state from http API.
 class HealthAction : public HttpHandler {
 public:
-    HealthAction(ExecEnv* exec_env);
+    HealthAction();
 
-    virtual ~HealthAction(){};
+    virtual ~HealthAction() {};
 
     void handle(HttpRequest* req) override;
-
-private:
-    ExecEnv* _exec_env;
 };
 
 } // end namespace doris

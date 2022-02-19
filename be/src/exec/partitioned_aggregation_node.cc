@@ -125,7 +125,6 @@ PartitionedAggregationNode::PartitionedAggregationNode(ObjectPool* pool, const T
           num_passthrough_rows_(nullptr),
           preagg_estimated_reduction_(nullptr),
           preagg_streaming_ht_min_reduction_(nullptr),
-          //    estimated_input_cardinality_(tnode.agg_node.estimated_input_cardinality),
           singleton_output_tuple_(nullptr),
           singleton_output_tuple_returned_(true),
           partition_eos_(false),
@@ -623,7 +622,6 @@ bool PartitionedAggregationNode::ShouldExpandPreaggHashTables() const {
     const int64_t input_rows = _children[0]->rows_returned();
     const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
     // TODO chenhao
-    //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
     double current_reduction = static_cast<double>(aggregated_input_rows) / ht_rows;
 
     // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be

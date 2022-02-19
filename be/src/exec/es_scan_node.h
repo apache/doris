@@ -47,7 +47,7 @@ public:
 
 protected:
     // Write debug string of this into out.
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
+    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     Status open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params);

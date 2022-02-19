@@ -60,7 +60,7 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    std::string to_string(const IColumn& column, size_t row_num) const;
+    std::string to_string(const IColumn& column, size_t row_num) const override;
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 

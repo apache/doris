@@ -42,7 +42,6 @@ private:
 
     Status fill_one_row(Tuple* tuple, MemPool* pool);
 
-    int _index;
     static SchemaScanner::ColumnDesc _s_vars_columns[];
 
     TShowVariableResult _var_result;

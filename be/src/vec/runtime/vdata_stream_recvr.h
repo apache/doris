@@ -89,7 +89,7 @@ public:
 
 private:
     class SenderQueue;
-    friend class ReceiveQueueSortCursorImpl;
+    friend struct ReceiveQueueSortCursorImpl;
 
     bool exceeds_limit(int batch_size) {
         return _num_buffered_bytes + batch_size > _total_buffer_limit;
@@ -140,7 +140,7 @@ public:
 
 private:
     std::condition_variable _cv;
-}; 
+};
 
 class VDataStreamRecvr::SenderQueue {
 public:

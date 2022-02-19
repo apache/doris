@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "env/env_posix.h"
+
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -23,13 +25,12 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#include <memory>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "env/env_posix.h"
 #include "gutil/gscoped_ptr.h"
 #include "gutil/macros.h"
 #include "gutil/port.h"
@@ -288,10 +289,9 @@ public:
     Status read_all(std::string* content) const override {
         std::fstream fs(_filename.c_str(), std::fstream::in);
         if (!fs.is_open()) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::IOError(
-                            strings::Substitute("failed to open cluster id file $0", _filename)),
-                    "open file failed");
+            RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
+                                                   "failed to open cluster id file $0", _filename)),
+                                           "open file failed");
         }
         std::string data;
         fs >> data;
@@ -303,7 +303,8 @@ public:
                     Status::Corruption(strings::Substitute(
                             "read_all from file $0 is corrupt. [eofbit=$1 failbit=$2 badbit=$3]",
                             _filename, fs.rdstate() & std::fstream::eofbit,
-                            fs.rdstate() & std::fstream::failbit, fs.rdstate() & std::fstream::badbit)),
+                            fs.rdstate() & std::fstream::failbit,
+                            fs.rdstate() & std::fstream::badbit)),
                     "read_all is error");
         }
         return Status::OK();
@@ -449,8 +450,8 @@ public:
 
     ~PosixRandomRWFile() { WARN_IF_ERROR(close(), "Failed to close " + _filename); }
 
-    Status read_at(uint64_t offset, const Slice* result) const override {
-        return readv_at(offset, result, 1);
+    Status read_at(uint64_t offset, const Slice& result) const override {
+        return readv_at(offset, &result, 1);
     }
 
     Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const override {
@@ -531,8 +532,7 @@ Status PosixEnv::init_conf() {
     return Status::OK();
 }
 
-Status PosixEnv::new_sequential_file(const string& fname,
-                                     std::unique_ptr<SequentialFile>* result) {
+Status PosixEnv::new_sequential_file(const string& fname, std::unique_ptr<SequentialFile>* result) {
     FILE* f;
     POINTER_RETRY_ON_EINTR(f, fopen(fname.c_str(), "r"));
     if (f == nullptr) {
@@ -544,12 +544,13 @@ Status PosixEnv::new_sequential_file(const string& fname,
 
 // get a RandomAccessFile pointer without file cache
 Status PosixEnv::new_random_access_file(const std::string& fname,
-                              std::unique_ptr<RandomAccessFile>* result) {
+                                        std::unique_ptr<RandomAccessFile>* result) {
     return new_random_access_file(RandomAccessFileOptions(), fname, result);
 }
 
-Status PosixEnv::new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
-                              std::unique_ptr<RandomAccessFile>* result) {
+Status PosixEnv::new_random_access_file(const RandomAccessFileOptions& opts,
+                                        const std::string& fname,
+                                        std::unique_ptr<RandomAccessFile>* result) {
     int fd;
     RETRY_ON_EINTR(fd, open(fname.c_str(), O_RDONLY));
     if (fd < 0) {
@@ -564,7 +565,7 @@ Status PosixEnv::new_writable_file(const string& fname, std::unique_ptr<Writable
 }
 
 Status PosixEnv::new_writable_file(const WritableFileOptions& opts, const string& fname,
-                         std::unique_ptr<WritableFile>* result) {
+                                   std::unique_ptr<WritableFile>* result) {
     int fd;
     RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
 
@@ -581,7 +582,7 @@ Status PosixEnv::new_random_rw_file(const string& fname, std::unique_ptr<RandomR
 }
 
 Status PosixEnv::new_random_rw_file(const RandomRWFileOptions& opts, const string& fname,
-                          std::unique_ptr<RandomRWFile>* result) {
+                                    std::unique_ptr<RandomRWFile>* result) {
     int fd;
     RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
     result->reset(new PosixRandomRWFile(fname, fd, opts.sync_on_close));
@@ -609,8 +610,7 @@ Status PosixEnv::get_children(const std::string& dir, std::vector<std::string>* 
     return Status::OK();
 }
 
-Status PosixEnv::iterate_dir(const std::string& dir,
-                   const std::function<bool(const char*)>& cb) {
+Status PosixEnv::iterate_dir(const std::string& dir, const std::function<bool(const char*)>& cb) {
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
         return io_error(dir, errno);

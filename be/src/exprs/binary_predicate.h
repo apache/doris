@@ -40,16 +40,16 @@ protected:
     virtual std::string debug_string() const;
 };
 
-#define BIN_PRED_CLASS_DEFINE(CLASS)                                             \
-    class CLASS : public BinaryPredicate {                                       \
-    public:                                                                      \
-        CLASS(const TExprNode& node) : BinaryPredicate(node) {}                  \
-        virtual ~CLASS() {}                                                      \
-        virtual Expr* clone(ObjectPool* pool) const override {                   \
-            return pool->add(new CLASS(*this));                                  \
-        }                                                                        \
-                                                                                 \
-        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row); \
+#define BIN_PRED_CLASS_DEFINE(CLASS)                                                      \
+    class CLASS : public BinaryPredicate {                                                \
+    public:                                                                               \
+        CLASS(const TExprNode& node) : BinaryPredicate(node) {}                           \
+        virtual ~CLASS() {}                                                               \
+        virtual Expr* clone(ObjectPool* pool) const override {                            \
+            return pool->add(new CLASS(*this));                                           \
+        }                                                                                 \
+                                                                                          \
+        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override; \
     };
 
 #define BIN_PRED_CLASSES_DEFINE(TYPE)     \
@@ -72,16 +72,16 @@ BIN_PRED_CLASSES_DEFINE(StringVal)
 BIN_PRED_CLASSES_DEFINE(DateTimeVal)
 BIN_PRED_CLASSES_DEFINE(DecimalV2Val)
 
-#define BIN_PRED_FOR_NULL_CLASS_DEFINE(CLASS)                                    \
-    class CLASS : public BinaryPredicate {                                       \
-    public:                                                                      \
-        CLASS(const TExprNode& node) : BinaryPredicate(node) {}                  \
-        virtual ~CLASS() {}                                                      \
-        virtual Expr* clone(ObjectPool* pool) const override {                   \
-            return pool->add(new CLASS(*this));                                  \
-        }                                                                        \
-                                                                                 \
-        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row); \
+#define BIN_PRED_FOR_NULL_CLASS_DEFINE(CLASS)                                             \
+    class CLASS : public BinaryPredicate {                                                \
+    public:                                                                               \
+        CLASS(const TExprNode& node) : BinaryPredicate(node) {}                           \
+        virtual ~CLASS() {}                                                               \
+        virtual Expr* clone(ObjectPool* pool) const override {                            \
+            return pool->add(new CLASS(*this));                                           \
+        }                                                                                 \
+                                                                                          \
+        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override; \
     };
 
 #define BIN_PRED_FOR_NULL_CLASSES_DEFINE(TYPE) BIN_PRED_FOR_NULL_CLASS_DEFINE(EqForNull##TYPE##Pred)

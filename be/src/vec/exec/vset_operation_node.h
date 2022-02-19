@@ -90,9 +90,9 @@ protected:
     RuntimeProfile::Counter* _probe_timer; // time to probe
 
     template <class HashTableContext>
-    friend class HashTableBuild;
+    friend struct HashTableBuild;
     template <class HashTableContext, bool is_intersected>
-    friend class HashTableProbe;
+    friend struct HashTableProbe;
 };
 
 template <bool keep_matched>

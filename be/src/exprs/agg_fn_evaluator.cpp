@@ -14,16 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warray-bounds"
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
 #pragma GCC diagnostic ignored "-Wstringop-overflow="
+#endif
 
 #include "exprs/agg_fn_evaluator.h"
 
 #include <sstream>
 
 #include "common/logging.h"
-#include "exec/aggregation_node.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
@@ -951,4 +956,8 @@ std::string AggFnEvaluator::debug_string() const {
 
 } // namespace doris
 
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic pop
+#endif

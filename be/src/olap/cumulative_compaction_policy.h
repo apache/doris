@@ -64,9 +64,9 @@ public:
     /// param all_rowsets, all rowsets in tablet.
     /// param current_cumulative_point, current cumulative point value.
     /// return score, the result score after calculate.
-    virtual void calc_cumulative_compaction_score(TabletState state,
-            const std::vector<RowsetMetaSharedPtr>& all_rowsets, int64_t current_cumulative_point,
-            uint32_t* score) = 0;
+    virtual void calc_cumulative_compaction_score(
+            TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+            int64_t current_cumulative_point, uint32_t* score) = 0;
 
     /// This function implements the policy which represents how to pick the candidate rowsets for compaction.
     /// This base class gives a unified implementation. Its derived classes also can override this function each other.
@@ -156,11 +156,12 @@ public:
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calc_cumulative_compaction_score(TabletState state,
+                                          const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
 
-    std::string name() { return CUMULATIVE_NUM_BASED_POLICY; }
+    std::string name() override { return CUMULATIVE_NUM_BASED_POLICY; }
 };
 
 /// SizeBased cumulative compaction policy implemention. SizeBased policy which derives CumulativeCompactionPolicy is a optimized
@@ -206,15 +207,17 @@ public:
     /// Its main policy is judging the output rowset size whether satisfied the promotion size.
     /// If it satisfied, this policy will update the cumulative point.
     void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-                                 RowsetSharedPtr _output_rowset, Version& last_delete_version);
+                                 RowsetSharedPtr _output_rowset,
+                                 Version& last_delete_version) override;
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calc_cumulative_compaction_score(TabletState state,
+                                          const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
 
-    std::string name() { return CUMULATIVE_SIZE_BASED_POLICY; }
+    std::string name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
 
 private:
     /// calculate promotion size using current base rowset meta size and promotion configs

@@ -31,16 +31,16 @@ class CaseExpr : public Expr {
 public:
     virtual ~CaseExpr();
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new CaseExpr(*this)); }
-    virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row);
-    virtual TinyIntVal get_tiny_int_val(ExprContext* ctx, TupleRow* row);
-    virtual SmallIntVal get_small_int_val(ExprContext* ctx, TupleRow* row);
-    virtual IntVal get_int_val(ExprContext* ctx, TupleRow* row);
-    virtual BigIntVal get_big_int_val(ExprContext* ctx, TupleRow* row);
-    virtual FloatVal get_float_val(ExprContext* ctx, TupleRow* row);
-    virtual DoubleVal get_double_val(ExprContext* ctx, TupleRow* row);
-    virtual StringVal get_string_val(ExprContext* ctx, TupleRow* row);
-    virtual DateTimeVal get_datetime_val(ExprContext* ctx, TupleRow* row);
-    virtual DecimalV2Val get_decimalv2_val(ExprContext* ctx, TupleRow* row);
+    virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row) override;
+    virtual TinyIntVal get_tiny_int_val(ExprContext* ctx, TupleRow* row) override;
+    virtual SmallIntVal get_small_int_val(ExprContext* ctx, TupleRow* row) override;
+    virtual IntVal get_int_val(ExprContext* ctx, TupleRow* row) override;
+    virtual BigIntVal get_big_int_val(ExprContext* ctx, TupleRow* row) override;
+    virtual FloatVal get_float_val(ExprContext* ctx, TupleRow* row) override;
+    virtual DoubleVal get_double_val(ExprContext* ctx, TupleRow* row) override;
+    virtual StringVal get_string_val(ExprContext* ctx, TupleRow* row) override;
+    virtual DateTimeVal get_datetime_val(ExprContext* ctx, TupleRow* row) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* ctx, TupleRow* row) override;
 
 protected:
     friend class Expr;
@@ -51,13 +51,13 @@ protected:
 
     CaseExpr(const TExprNode& node);
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                           ExprContext* context);
+                           ExprContext* context) override;
     virtual Status open(RuntimeState* state, ExprContext* context,
-                        FunctionContext::FunctionStateScope scope);
+                        FunctionContext::FunctionStateScope scope) override;
     virtual void close(RuntimeState* state, ExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+                       FunctionContext::FunctionStateScope scope) override;
 
-    virtual std::string debug_string() const;
+    virtual std::string debug_string() const override;
 
     bool has_case_expr() { return _has_case_expr; }
 

@@ -88,8 +88,6 @@ typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
 typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
 typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
-const int DEFAULT_MULTI_DISTINCT_COUNT_STRING_BUFFER_SIZE = 1024;
-
 NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool,
                                      const std::shared_ptr<MemTracker>& tracker, bool is_clone)
         : _total_mem_consumption(0),
