@@ -177,7 +177,7 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
 * Start FE
 
-	`sh bin/start_fe.sh --daemon`
+	`bin/start_fe.sh --daemon`
 
 	The FE process starts and enters the background execution. Logs are stored in the log/ directory by default. If startup fails, you can view error messages by looking at log/fe.log or log/fe.out.
 
@@ -236,7 +236,7 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
 * Start BE
 
-	`sh bin/start_be.sh --daemon`
+	`bin/start_be.sh --daemon`
 
 	The BE process will start and go into the background for execution. Logs are stored in be/log/directory by default. If startup fails, you can view error messages by looking at be/log/be.log or be/log/be.out.
 
@@ -256,7 +256,7 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 * Start Broker
 
-	`sh bin /start'u broker.sh --daemon ` start Broker
+	`bin/start_broker.sh --daemon ` start Broker
 
 * Add Broker
 
