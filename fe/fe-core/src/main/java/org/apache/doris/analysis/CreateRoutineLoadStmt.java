@@ -157,6 +157,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int sendBatchParallelism = 1;
+    private boolean singleTabletLoadPerSink = false;
     /**
      * RoutineLoad support json data.
      * Require Params:
@@ -238,6 +239,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
+    }
+
+    public boolean isSingleTabletLoadPerSink() {
+        return singleTabletLoadPerSink;
     }
 
     public boolean isStrictMode() {

@@ -33,6 +33,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -93,13 +94,18 @@ public class OlapTableSink extends DataSink {
         this.partitionIds = partitionIds;
     }
 
-    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism) throws AnalysisException {
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
+                     int sendBatchParallelism, boolean singleTabletLoadPerSink) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
         tSink.setDbId(dbId);
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
+        if (singleTabletLoadPerSink && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+            throw new AnalysisException("if single_tablet_load_per_sink set to true, the olap table must be with random distribution");
+        }
+        tSink.setSingleTabletLoadPerSink(singleTabletLoadPerSink);
         tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlapTableSink(tSink);
 

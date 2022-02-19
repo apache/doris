@@ -167,6 +167,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
+    protected boolean singleTabletLoadPerSink = false;
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
 
@@ -286,10 +287,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getSendBatchParallelism() > 0) {
             this.sendBatchParallelism = stmt.getSendBatchParallelism();
         }
+        if (stmt.isSingleTabletLoadPerSink()) {
+            this.singleTabletLoadPerSink = stmt.isSingleTabletLoadPerSink();
+        }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(this.execMemLimit));
         jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+        jobProperties.put(LoadStmt.SINGLE_TABLET_LOAD_PER_SINK, String.valueOf(this.singleTabletLoadPerSink));
 
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
@@ -549,6 +554,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
+    }
+
+    @Override
+    public boolean isSingleTabletLoadPerSink() {
+        return singleTabletLoadPerSink;
     }
 
     @Override

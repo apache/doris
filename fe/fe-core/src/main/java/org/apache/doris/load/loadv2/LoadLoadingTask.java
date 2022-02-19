@@ -67,6 +67,7 @@ public class LoadLoadingTask extends LoadTask {
     private final int loadParallelism;
     private final int sendBatchParallelism;
     private final boolean loadZeroTolerance;
+    private final boolean singleTabletLoadPerSink;
 
     private LoadingTaskPlanner planner;
 
@@ -78,7 +79,7 @@ public class LoadLoadingTask extends LoadTask {
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
                            long txnId, LoadTaskCallback callback, String timezone,
                            long timeoutS, int loadParallelism, int sendBatchParallelism,
-                           boolean loadZeroTolerance, RuntimeProfile profile) {
+                           boolean loadZeroTolerance, RuntimeProfile profile, boolean singleTabletLoadPerSink) {
         super(callback, TaskType.LOADING);
         this.db = db;
         this.table = table;
@@ -96,6 +97,7 @@ public class LoadLoadingTask extends LoadTask {
         this.sendBatchParallelism = sendBatchParallelism;
         this.loadZeroTolerance = loadZeroTolerance;
         this.jobProfile = profile;
+        this.singleTabletLoadPerSink = singleTabletLoadPerSink;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum, UserIdentity userInfo) throws UserException {
