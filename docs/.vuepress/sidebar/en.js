@@ -345,10 +345,6 @@ module.exports = [
               "concat_ws",
               "ends_with",
               "find_in_set",
-              "get_json_double",
-              "get_json_int",
-              "get_json_string",
-              "group_concat",
               "hex",
               "instr",
               "lcase",
@@ -396,6 +392,7 @@ module.exports = [
             directoryPath: "aggregate-functions/",
             children: [
               "approx_count_distinct",
+              "group_concat",
               "avg",
               "bitmap_union",
               "count",
@@ -453,6 +450,18 @@ module.exports = [
               "bitor",
               "bitxor",
               "bitnot"
+            ],
+          },
+          {
+            title: "json function",
+            directoryPath: "json-functions/",
+            children: [
+              "get_json_double",
+              "get_json_int",
+              "get_json_string",
+              "json_array",
+              "json_object",
+              "json_quote",
             ],
           },
           {
