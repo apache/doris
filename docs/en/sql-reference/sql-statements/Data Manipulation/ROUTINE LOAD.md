@@ -198,6 +198,9 @@ FROM data_source
 
     10. `send_batch_parallelism`
         Integer, Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
+    
+    11. `single_tablet_load_per_sink`
+        Boolean type, True means that sink can only import data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition. 
 
 6. data_source
 
