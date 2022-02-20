@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Commit Format Specification",
+    "title": "Commit 格式规范",
     "language": "en"
 }
 
@@ -25,45 +25,42 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+## Commit 格式规范
 
+Commit 分为“标题”和“内容”。原则上标题全部小写。内容首字母大写。
 
-## Commit Format Specification
-
-Commit is divided into ‘ title ’ and ‘ content ’ , the title should be lowercase and the contents  should be capitalized in principle .
-
-1. Title
+1. 标题
 
     `[<type>](<scope>) <subject> (#pr)`
-
+    
     * `<type>`
 
-        The types of this pull request are limited to the following types (all lowercase)
+        本次提交的类型，限定在以下类型（全小写）
         
-        * fix: Bug fix
-        * feature: New feature
-        * feature-wip: Feature works-in-porgress.
-        * improvement: Optimization and improvement for the original feature. 
-        * docs: Documents
-        * style: Code style adjustment
-        * typo: Code or Document correction
-        * refactor: Code refactoring (no function changes involved)
-        * performance: Performance optimization
-        * test: Addition or repair of unit test
-        * chore: Modification of build tool
-        * revert: Revert a previous commit
-        * deps: Modification of third-party dependency Library
-        * community: Such as modification of Github issue template.
+        * fix：bug修复
+        * feature：新增功能
+        * feature-wip：开发中的功能，比如某功能的部分代码。
+        * improvement：原有功能的优化和改进
+        * style：代码风格调整
+        * typo：代码或文档勘误
+        * refactor：代码重构（不涉及功能变动）
+        * performance/optimize：性能优化
+        * test：单元测试的添加或修复
+        * chore：构建工具的修改
+        * revert：回滚
+        * deps：第三方依赖库的修改
+        * community：社区相关的修改，如修改 Github Issue 模板等。
 
-        Some tips：
+        几点说明：
         
-        1. If there are multiple types in one commit, multiple types need to be added
-        2. If code refactoring brings performance improvement,  [refactor][optimize] can be added at the same time
-        3. There should be no other types than those listed above. If necessary, you need to add new types to this document.
+        1. 如在一次提交中出现多种类型，需增加多个类型。
+        2. 如代码重构带来了性能提升，可以同时添加 [refactor][optimize]
+        3. 不得出现如上所列类型之外的其他类型。如有必要，需要将新增类型添加到这个文档中。
 
     * `<scope>`
 
-        Because there are many functional modules, only part of the module scope of the design submitted this time is listed here, which will be continuously improved according to the needs in the future.
-
+        本次提交设计的模块范围。因为功能模块繁多，在此仅罗列部分，后续根据需求不断完善。
+        
         * planner
         * meta
         * storage
@@ -79,18 +76,20 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * log
         * cache
         * config
-
-        Some tips：
-
-        1. Try to use options that already exist in the list. If you need to add, please update this document in time
+        * vectorization
+        * docs
+        
+        几点说明：
+        
+        1. 尽量使用列表中已存在的选项。如需添加，请及时更新本文档。
 
     * `<subject>`
 
-        The title should clearly indicate the main contents of this commit as far as possible.
+        标题需尽量清晰表明本次提交的主要内容。
 
-2. Content
+2. 内容
 
-    commit message should follow the following format: 
+    commit message 需遵循以下格式：
     
     ```
     issue：#7777
@@ -98,10 +97,10 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
     your message
     ```
     
-    1. If there is no issue, it can be left blank. Issue can also appear in message.
-    1. One line should not exceed 100 characters
+    1. 如无 issue，可不填。issue 也可以出现在 message 里。
+    1. 一行原则不超过100个字符。
 
-3. Example
+3. 示例
 
     ```
     [fix](executor) change DateTimeValue's memory layout to load (#7022)
