@@ -176,7 +176,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 * 启动FE
 
-    `sh bin/start_fe.sh --daemon`
+    `bin/start_fe.sh --daemon`
 
     FE进程启动进入后台执行。日志默认存放在 log/ 目录下。如启动失败，可以通过查看 log/fe.log 或者 log/fe.out 查看错误信息。
 
@@ -235,7 +235,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 * 启动 BE
 
-    `sh bin/start_be.sh --daemon`
+    `bin/start_be.sh --daemon`
 
     BE 进程将启动并进入后台执行。日志默认存放在 be/log/ 目录下。如启动失败，可以通过查看 be/log/be.log 或者 be/log/be.out 查看错误信息。
 
@@ -255,7 +255,7 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
  * 启动 Broker
 
-    `sh bin/start_broker.sh --daemon` 启动 Broker。
+    `bin/start_broker.sh --daemon` 启动 Broker。
 
 * 添加 Broker
 
