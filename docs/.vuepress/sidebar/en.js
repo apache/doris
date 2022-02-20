@@ -255,7 +255,8 @@ module.exports = [
         directoryPath: "udf/",
         children: [
           "contribute-udf",
-          "user-defined-function",
+          "native-user-defined-function",
+          "remote-user-defined-function",
         ],
       },
     ],

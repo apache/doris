@@ -1,6 +1,6 @@
 ---
 {
-    "title": "User Defined Function",
+    "title": "Native User Defined Function",
     "language": "zh-CN"
 }
 ---
