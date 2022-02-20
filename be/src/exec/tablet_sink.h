@@ -473,6 +473,12 @@ protected:
     // TODO(cmy): this should be removed after we switch to rpc attachment by default.
     bool _transfer_data_by_brpc_attachment = false;
 
+    // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
+    // should compute tablet index for every row
+    // FIND_TABLET_EVERY_BATCH is only used for random distribution info, which indicates that we should
+    // compute tablet index for every row batch
+    // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
+    // only compute tablet index in the corresponding partition once for the whole time in olap table sink
     enum FindTabletMode {
         FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK
     };

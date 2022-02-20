@@ -107,6 +107,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
     public static final int DEFAULT_SEND_BATCH_PARALLELISM = 1;
+    public static final boolean DEFAULT_SINGLE_TABLET_LOAD_PER_SINK = false;
 
     protected static final String STAR_STRING = "*";
      /*
@@ -167,7 +168,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
-    protected boolean singleTabletLoadPerSink = false;
+    protected boolean singleTabletLoadPerSink = DEFAULT_SINGLE_TABLET_LOAD_PER_SINK;
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
 
