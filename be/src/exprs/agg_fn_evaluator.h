@@ -37,7 +37,7 @@ class AggregationNode;
 class TExprNode;
 
 // This class evaluates aggregate functions. Aggregate functions can either be
-// builtins or external UDAs. For both of types types, they can either use codegen
+// builtins or external UDAs. For both of types, they can either use codegen
 // or not.
 // This class provides an interface that's 1:1 with the UDA interface and serves
 // as glue code between the TupleRow/Tuple signature used by the AggregationNode

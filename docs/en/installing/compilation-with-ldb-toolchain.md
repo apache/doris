@@ -71,7 +71,7 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
 
     ```
     # install required system packages
-    yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2
+    sudo yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2
     
     # install autoconf-2.69
     wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
@@ -99,11 +99,11 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     After downloading, go to the Doris source directory, create the `custom_env.sh`, file, and set the PATH environment variable, e.g.
     
     ```
-    export JAVA_HOME=/path/to/jave/
+    export JAVA_HOME=/path/to/java/
     export PATH=$JAVA_HOME/bin:$PATH
     export PATH=/path/to/maven/bin:$PATH
     export PATH=/path/to/node/bin:$PATH
-    export PATH=/path/to/ldb-toolchain/bin:$PATH
+    export PATH=/path/to/ldb_toolchain/bin:$PATH
     ```
 
 ## Compiling Doris
