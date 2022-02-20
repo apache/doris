@@ -295,8 +295,7 @@ Status OlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition** partition,
-                                          uint32_t* tablet_index) const {
+bool OlapTablePartitionParam::find_partition(Tuple* tuple, const OlapTablePartition** partition) const {
     const TOlapTablePartition& t_part = _t_param.partitions[0];
     auto it = t_part.__isset.in_keys ? _partitions_map->find(tuple) : _partitions_map->upper_bound(tuple);
     if (it == _partitions_map->end()) {
@@ -304,10 +303,13 @@ bool OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition
     }
     if (_part_contains(it->second, tuple)) {
         *partition = it->second;
-        *tablet_index = _compute_tablet_index(tuple, (*partition)->num_buckets);
         return true;
     }
     return false;
+}
+
+uint32_t OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition& partition) const {
+    return _compute_tablet_index(tuple, partition.num_buckets);
 }
 
 Status OlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,
@@ -541,18 +543,20 @@ Status VOlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool VOlapTablePartitionParam::find_tablet(BlockRow* block_row, const VOlapTablePartition** partition,
-                                           uint32_t* tablet_index) const {
+bool VOlapTablePartitionParam::find_partition(BlockRow* block_row, const VOlapTablePartition** partition) const {
     auto it = _is_in_partition ? _partitions_map->find(block_row) : _partitions_map->upper_bound(block_row);
     if (it == _partitions_map->end()) {
         return false;
     }
     if (_is_in_partition || _part_contains(it->second, block_row)) {
         *partition = it->second;
-        *tablet_index = _compute_tablet_index(block_row, (*partition)->num_buckets);
         return true;
     }
     return false;
+}
+
+uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row, const VOlapTablePartition& partition) const {
+    return _compute_tablet_index(block_row, partition.num_buckets);
 }
 
 Status VOlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,

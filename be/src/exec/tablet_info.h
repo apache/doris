@@ -156,8 +156,9 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this tuple in partition
-    bool find_tablet(Tuple* tuple, const OlapTablePartition** partitions,
-                     uint32_t* tablet_index) const;
+    bool find_partition(Tuple* tuple, const OlapTablePartition** partition) const;
+
+    uint32_t find_tablet(Tuple* tuple, const OlapTablePartition& partition) const;
 
     const std::vector<OlapTablePartition*>& get_partitions() const { return _partitions; }
     std::string debug_string() const;
@@ -264,9 +265,10 @@ public:
     int64_t table_id() const { return _t_param.table_id; }
     int64_t version() const { return _t_param.version; }
 
-    // return true if we found this tuple in partition
-    bool find_tablet(BlockRow* block_row, const VOlapTablePartition** partitions,
-                     uint32_t* tablet_index) const;
+    // return true if we found this block_row in partition
+    bool find_partition(BlockRow* block_row, const VOlapTablePartition** partition) const;
+
+    uint32_t find_tablet(BlockRow* block_row, const VOlapTablePartition& partition) const;
 
     const std::vector<VOlapTablePartition*>& get_partitions() const { return _partitions; }
 

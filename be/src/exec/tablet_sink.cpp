@@ -892,8 +892,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             continue;
         }
         const OlapTablePartition* partition = nullptr;
-        uint32_t tablet_index = 0;
-        if (!_partition->find_tablet(tuple, &partition, &tablet_index)) {
+        if (!_partition->find_partition(tuple, &partition)) {
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
@@ -909,12 +908,16 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             }
             continue;
         }
+        uint32_t tablet_index = 0;
         if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
             if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
+                tablet_index = _partition->find_tablet(tuple,*partition);
                 _partition_to_tablet_map.emplace(partition->id, tablet_index);
             } else {
                 tablet_index = _partition_to_tablet_map[partition->id];
             }
+        } else {
+            tablet_index = _partition->find_tablet(tuple,*partition);
         }
         _partition_ids.emplace(partition->id);
         for (int j = 0; j < partition->indexes.size(); ++j) {
