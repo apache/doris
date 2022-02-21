@@ -2073,7 +2073,7 @@ Default: true
 Whether to use compressed format to send query plan structure. After it is turned on, the size of the query plan structure can be reduced by about 50%, thereby avoiding some "send fragment timeout" errors.
 However, in some high-concurrency small query scenarios, the concurrency may be reduced by about 10%.
 
-### force_drop_redundant_replica
+### enable_force_drop_redundant_replica
 
 Default: false
 
