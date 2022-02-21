@@ -54,7 +54,7 @@ import java.util.stream.Collectors;
  * A PlanFragment encapsulates the specific tree of execution nodes that
  * are used to produce the output of the plan fragment, as well as output exprs,
  * destination node, etc. If there are no output exprs, the full row that is
- * is produced by the plan root is marked as materialized.
+ * produced by the plan root is marked as materialized.
  *
  * A plan fragment can have one or many instances, each of which in turn is executed by
  * an individual node and the output sent to a specific instance of the destination

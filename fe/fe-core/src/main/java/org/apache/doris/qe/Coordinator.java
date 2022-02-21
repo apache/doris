@@ -145,7 +145,7 @@ public class Coordinator {
 
     private Set<Long> alreadySentBackendIds = Sets.newHashSet();
 
-    // Why we use query global?
+    // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
     // but, we execute `NOW()` distributed.
     // So we make a query global value here to make one `now()` value in one query process.
@@ -533,10 +533,10 @@ public class Coordinator {
                 // update memory limit for colocate join
                 if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
                     int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceNum);
-                    long newmemory = memoryLimit / rate;
+                    long newMemory = memoryLimit / rate;
 
                     for (TExecPlanFragmentParams tParam : tParams) {
-                        tParam.query_options.setMemLimit(newmemory);
+                        tParam.query_options.setMemLimit(newMemory);
                     }
                 }
 
@@ -1096,7 +1096,7 @@ public class Coordinator {
 
                 int inputFragmentIndex = 0;
                 int maxParallelism = 0;
-                // If the fragment has three children, then the first child and the second child are the child(both exchange node) of shuffle HashJoinNode,
+                // If the fragment has three children, then the first child and the second child are the children(both exchange node) of shuffle HashJoinNode,
                 // and the third child is the right child(ExchangeNode) of broadcast HashJoinNode.
                 // We only need to pay attention to the maximum parallelism among the two ExchangeNodes of shuffle HashJoinNode.
                 int childrenCount = (fatherNode != null) ? fatherNode.getChildren().size() : 1;
@@ -1116,7 +1116,7 @@ public class Coordinator {
                 }
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId).instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
-                    // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute several instances
+                    // get distinct host, when parallel_fragment_exec_instance_num > 1, single host may execute several instances
                     Set<TNetworkAddress> hostSet = Sets.newHashSet();
                     for (FInstanceExecParam execParams : fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
                         hostSet.add(execParams.host);
