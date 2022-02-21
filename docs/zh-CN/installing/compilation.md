@@ -173,7 +173,7 @@ under the License.
       enabled=1
       ```
    
-    安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
+    安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。(可以通过`alternatives --list`命令找到jdk的安装目录)
     注意： Doris 0.14.0 的版本仍然使用gcc7 的依赖编译，之后的代码将使用gcc10 的依赖
 
 2. 编译 Doris
