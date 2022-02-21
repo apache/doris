@@ -249,7 +249,14 @@ private:
 
         // limited to MESSAGE_LEN
         if (UNLIKELY(size > MESSAGE_LEN)) {
-            LOG(WARNING) << "warning: Status msg truncated, " << to_string();
+            std::string str = code_as_string();
+            str.append(": ");
+            str.append(msg.data, msg.size);
+            char buf[64] = {};
+            int n = snprintf(buf, sizeof(buf), " precise_code:%d ", precise_code);
+            str.append(buf, n);
+            str.append(msg2.data, msg2.size);
+            LOG(WARNING) << "warning: Status msg truncated, " << str;
             size = MESSAGE_LEN;
         }
 
