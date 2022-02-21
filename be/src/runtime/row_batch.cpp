@@ -110,7 +110,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     // convert input_batch.tuple_offsets into pointers
     int tuple_idx = 0;
     // For historical reasons, the original offset was stored using int32,
-    // so taht if a rowbatch is larger than 2GB, the passed offset may generate an error due to value overflow.
+    // so that if a rowbatch is larger than 2GB, the passed offset may generate an error due to value overflow.
     // So in the new version, a new_tuple_offsets structure is added to store offsets using int64.
     // Here, to maintain compatibility, both versions of offsets are used, with preference given to new_tuple_offsets.
     // TODO(cmy): in the next version, the original tuple_offsets should be removed.
