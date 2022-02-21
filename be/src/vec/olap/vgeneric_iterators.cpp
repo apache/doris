@@ -121,7 +121,7 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter) : _iter(iter) {}
+    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx) : _iter(iter), _sequence_id_idx(sequence_id_idx) {}
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
@@ -166,6 +166,15 @@ public:
         if (cmp_res != 0) {
             return cmp_res > 0;
         }
+        
+        if (_sequence_id_idx != -1) {
+            int col_cmp_res = this->_block.compare_column_at(_index_in_block, rhs._index_in_block, _sequence_id_idx, rhs._block, -1);
+            auto left_col = this->_block.get_by_position(_sequence_id_idx).column;
+            auto right_col = rhs._block.get_by_position(_sequence_id_idx).column;
+            if (col_cmp_res != 0) {
+                return col_cmp_res < 0;
+            }
+        }
         return this->data_id() < rhs.data_id();
     }
 
@@ -203,15 +212,15 @@ private:
     // Load next block into _block
     Status _load_next_block();
 
-private:
     RowwiseIterator* _iter;
 
-    // used to store data load from iteerator->next_batch(Vectorized::Block*)
+    // used to store data load from iterator->next_batch(Vectorized::Block*)
     vectorized::Block _block;
 
     bool _valid = false;
     size_t _index_in_block = -1;
     int _block_row_max = 4096;
+    int _sequence_id_idx = -1;
 };
 
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
@@ -259,7 +268,8 @@ Status VMergeIteratorContext::_load_next_block() {
 class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
-    VMergeIterator(std::vector<RowwiseIterator*>& iters, std::shared_ptr<MemTracker> parent) : _origin_iters(iters) {
+    VMergeIterator(std::vector<RowwiseIterator*>& iters, std::shared_ptr<MemTracker> parent, int sequence_id_idx) : 
+        _origin_iters(iters),_sequence_id_idx(sequence_id_idx) {
         // use for count the mem use of Block use in Merge
         _mem_tracker = MemTracker::CreateTracker(-1, "VMergeIterator", parent, false);
     }
@@ -297,6 +307,7 @@ private:
     VMergeHeap _merge_heap;
 
     int block_row_max = 0;
+    int _sequence_id_idx = -1;
 };
 
 Status VMergeIterator::init(const StorageReadOptions& opts) {
@@ -306,7 +317,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _schema = &(*_origin_iters.begin())->schema();
 
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(iter);
+        auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -403,11 +414,11 @@ Status VUnionIterator::next_batch(vectorized::Block* block) {
 }
 
 
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent, int sequence_id_idx) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new VMergeIterator(inputs, parent);
+    return new VMergeIterator(inputs, parent, sequence_id_idx);
 }
 
 RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent) {
