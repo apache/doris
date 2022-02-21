@@ -71,7 +71,7 @@ under the License.
 
     ```
     # install required system packages
-    yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2
+    sudo yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux wget git python2
     
     # install autoconf-2.69
     wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
@@ -99,11 +99,11 @@ under the License.
     下载完成后，进入到 doris 源码目录，创建 `custom_env.sh`，文件，并设置 PATH 环境变量，如：
     
     ```
-    export JAVA_HOME=/path/to/jave/
+    export JAVA_HOME=/path/to/java/
     export PATH=$JAVA_HOME/bin:$PATH
     export PATH=/path/to/maven/bin:$PATH
     export PATH=/path/to/node/bin:$PATH
-    export PATH=/path/to/ldb-toolchain/bin:$PATH
+    export PATH=/path/to/ldb_toolchain/bin:$PATH
     ```
 
 ## 编译 Doris
