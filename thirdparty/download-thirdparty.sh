@@ -72,6 +72,8 @@ md5sum_func() {
     return 0
 }
 
+# return 0 if download succeed.
+# return 1 if not.
 download_func() {
     local FILENAME=$1
     local DOWNLOAD_URL=$2
@@ -134,18 +136,18 @@ do
     if test "x$REPOSITORY_URL" = x; then
         URL=$TP_ARCH"_DOWNLOAD"
         download_func ${!NAME} ${!URL} $TP_SOURCE_DIR ${!MD5SUM}
-        if [ "$?"x == "0"x ]; then
+        if [ "$?"x != "0"x ]; then
             echo "Failed to download ${!NAME}"
             exit 1
         fi
     else
         URL="${REPOSITORY_URL}/${!NAME}"
         download_func ${!NAME} ${URL} $TP_SOURCE_DIR ${!MD5SUM}
-        if [ "$?x" == "0x" ]; then
+        if [ "$?x" != "0x" ]; then
             #try to download from home
             URL=$TP_ARCH"_DOWNLOAD"
             download_func ${!NAME} ${!URL} $TP_SOURCE_DIR ${!MD5SUM}
-            if [ "$?x" == "1x" ]; then
+            if [ "$?"x != "0"x ]; then
                 echo "Failed to download ${!NAME}"
                 exit 1 # download failed again exit.
             fi
