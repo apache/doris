@@ -498,7 +498,7 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0")
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
 
 SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=address -DADDRESS_SANITIZER")
-SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=leak -DLEAK_SANITIZER")
+SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O3 -gdwarf-2 -DNDEBUG -fsanitize=address -DADDRESS_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:

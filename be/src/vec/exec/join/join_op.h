@@ -26,7 +26,6 @@ namespace doris::vectorized {
 struct RowRef {
     using SizeT = uint32_t; /// Do not use size_t cause of memory economy
 
-    // const Block* block = nullptr;
     SizeT row_num = 0;
     uint8_t block_offset;
     // Use in right join to mark row is visited
@@ -119,7 +118,7 @@ struct RowRefList : RowRef {
     RowRefList(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
 
     ForwardIterator begin() { return ForwardIterator(this); }
-    ForwardIterator end() { return ForwardIterator::end(); }
+    static ForwardIterator end() { return ForwardIterator::end(); }
 
     /// insert element after current one
     void insert(RowRef&& row_ref, Arena& pool) {
@@ -139,6 +138,4 @@ private:
     uint32_t row_count = 1;
 };
 
-// using MapI32 = doris::vectorized::HashMap<UInt32, MappedAll, HashCRC32<UInt32>>;
-// using I32KeyType = doris::vectorized::ColumnsHashing::HashMethodOneNumber<MapI32::value_type, MappedAll, UInt32, false>;
 } // namespace doris::vectorized

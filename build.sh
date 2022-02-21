@@ -113,7 +113,7 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(nproc)/4+1]
+PARALLEL=$[$(nproc)/2+1]
 BUILD_BE=
 BUILD_FE=
 BUILD_BROKER=

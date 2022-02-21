@@ -162,10 +162,13 @@ struct ProcessHashTableProbe {
               _right_col_len(join_node->_right_col_len),
               _batch_size(batch_size),
               _probe_rows(probe_rows),
-              _build_block(join_node->_build_block),
+              _build_blocks(join_node->_build_blocks),
               _probe_block(join_node->_probe_block),
               _probe_index(join_node->_probe_index),
               _probe_raw_ptrs(join_node->_probe_columns),
+              _items_counts(join_node->_items_counts),
+              _build_block_offsets(join_node->_build_block_offsets),
+              _build_block_rows(join_node->_build_block_rows),
               _rows_returned_counter(join_node->_rows_returned_counter) {}
 
     // Only process the join with no other join conjunt, because of no other join conjunt
@@ -178,18 +181,26 @@ struct ProcessHashTableProbe {
         using Mapped = typename HashTableContext::Mapped;
 
         KeyGetter key_getter(_probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
-
-        uint32_t items_counts[_probe_rows];
         auto& mcol = mutable_block.mutable_columns();
         int current_offset = 0;
-        //build_block_index size may be largger than _batch_size, 100 is safety.
-        int build_block_row_num[_batch_size + 100];
-        int build_block_offset[_batch_size + 100];
+
+        _items_counts.resize(_probe_rows);
+        memset(_items_counts.data(), 0, sizeof(uint32_t) * _probe_rows);
+
+        constexpr auto is_right_join = JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
+                                       JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
+                                       JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN;
+
+        constexpr auto is_right_semi_anti_join = JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
+                                            JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN;
+
+        constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
+                                     JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
 
         for (; _probe_index < _probe_rows;) {
             if constexpr (ignore_null) {
                 if ((*null_map)[_probe_index]) {
-                    items_counts[_probe_index++] = (uint32_t)0;
+                    _items_counts[_probe_index++] = (uint32_t)0;
                     continue;
                 }
             }
@@ -198,100 +209,88 @@ struct ProcessHashTableProbe {
                                 ? decltype(key_getter.find_key(hash_table_ctx.hash_table, _probe_index,
                                                                 _arena)) {nullptr, false}
                                 : key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
-            if constexpr (JoinOpType::value == TJoinOp::INNER_JOIN) {
-                if (find_result.is_found()) {
-                    auto& mapped = find_result.get_mapped();
-                    // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
-                    // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                    if (mapped.get_row_count() == 1) {
-                        build_block_row_num[current_offset] = mapped.row_num;
-                        build_block_offset[current_offset] = mapped.block_offset;
-                        ++current_offset;
-                    } else {
-                        // prefetch is more useful while matching to multiple rows
-                        if (_probe_index + 2 < _probe_rows)
-                            key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2, _arena);
-                        for (auto it = mapped.begin(); it.ok(); ++it) {
-                            build_block_row_num[current_offset] = it->row_num;
-                            build_block_offset[current_offset] = it->block_offset;
-                            ++current_offset;
-                        }
-                    }
-                }
-            } else if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
+
+            if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
                 if (!find_result.is_found()) {
                     ++current_offset;
                 }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
-                if (find_result.is_found()) { 
+                if (find_result.is_found()) {
                     ++current_offset;
                 }
             } else {
-                if (_probe_index + 2 < _probe_rows)
-                    key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2, _arena);
-
                 if (find_result.is_found()) {
                     auto& mapped = find_result.get_mapped();
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
                     if (mapped.get_row_count() == 1) {
-                        mapped.visited = true;
-                        current_offset++;
-                        // right semi/anti join should dispose the data in hash table
-                        // after probe data eof
-                        if constexpr (JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN && 
-                                      JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
-                            for (size_t j = 0; j < _right_col_len; ++j) {
-                                auto& column = *_build_block[mapped.block_offset].get_by_position(j).column;
-                                mcol[j + _right_col_idx]->insert_from(column, mapped.row_num);
-                            }
+                        if constexpr (is_right_join)
+                            mapped.visited = true;
+
+                        if constexpr (!is_right_semi_anti_join) {
+                            _build_block_offsets[current_offset] = mapped.block_offset;
+                            _build_block_rows[current_offset] = mapped.row_num;
+                            ++current_offset;
                         }
                     } else {
-                        for (auto it = mapped.begin(); it.ok(); ++it) {
+                        // prefetch is more useful while matching to multiple rows
+                        if (_probe_index + 2 < _probe_rows)
+                            key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2, _arena);
 
-                            // right semi/anti join should dispose the data in hash table
-                            // after probe data eof
-                            if constexpr (JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN && 
-                                          JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
-                                current_offset++;
-                                for (size_t j = 0; j < _right_col_len; ++j) {
-                                    auto& column = *_build_block[it->block_offset].get_by_position(j).column;
-                                    // TODO: interface insert from cause serious performance problems
-                                    //  when column is nullable. Try to make more effective way
-                                    mcol[j + _right_col_idx]->insert_from(column, it->row_num);
+                        for (auto it = mapped.begin(); it.ok(); ++it) {
+                            if constexpr (!is_right_semi_anti_join) {
+                                if (current_offset < _batch_size) {
+                                    _build_block_offsets[current_offset] = mapped.block_offset;
+                                    _build_block_rows[current_offset] = mapped.row_num;
+                                } else {
+                                    _build_block_offsets.emplace_back(it->block_offset);
+                                    _build_block_rows.emplace_back(it->row_num);
                                 }
+                                ++current_offset;
                             }
-                            it->visited = true;
+                            if constexpr (is_right_join)
+                                it->visited = true;
                         }
                     }
-                } else if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN || 
-                                     JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
-                    // only full outer / left outer need insert the data of right table
-                    ++current_offset;
-                    for (size_t j = 0; j < _right_col_len; ++j) {
-                        DCHECK(mcol[j + _right_col_idx]->is_nullable());
-                        assert_cast<ColumnNullable *>(mcol[j + _right_col_idx].get())->insert_data(nullptr, 0);
+                } else {
+                    if constexpr (probe_all) {
+                        // only full outer / left outer need insert the data of right table
+                        _build_block_offsets[current_offset] = -1;
+                        _build_block_rows[current_offset] = -1;
+                        ++current_offset;
                     }
                 }
             }
-            items_counts[_probe_index++] = (uint32_t)(current_offset - last_offset);
+
+            _items_counts[_probe_index++] = (uint32_t)(current_offset - last_offset);
             if (current_offset >= _batch_size) {
                 break;
             }
         }
 
         // insert all matched build rows
-        if constexpr (JoinOpType::value ==TJoinOp::INNER_JOIN) {
-            if (_build_block.size() == 1) {
+        if constexpr (!is_right_semi_anti_join) {
+            if (_build_blocks.size() == 1) {
                 for (int i = 0; i < _right_col_len; i++) {
-                        auto &column = *_build_block[0].get_by_position(i).column;
-                        mcol[i + _right_col_idx]->insert_indices_from(column, &build_block_row_num[0], &build_block_row_num[current_offset]);
+                    auto& column = *_build_blocks[0].get_by_position(i).column;
+                    mcol[i + _right_col_idx]->insert_indices_from(column,
+                            _build_block_rows.data(), _build_block_rows.data() + current_offset);
                 }
             } else {
                 for (int i = 0; i < _right_col_len; i++) {
                     for (int j = 0; j < current_offset; j++) {
-                        auto &column = *_build_block[build_block_offset[j]].get_by_position(i).column;
-                        mcol[i + _right_col_idx]->insert_from(column, build_block_row_num[j]);
+                        if constexpr (probe_all) {
+                            if (_build_block_offsets[j] == -1) {
+                                DCHECK(mcol[i + _right_col_idx]->is_nullable());
+                                assert_cast<ColumnNullable *>(mcol[i + _right_col_idx].get())->insert_data(nullptr, 0);
+                            } else {
+                                auto& column = *_build_blocks[_build_block_offsets[j]].get_by_position(i).column;
+                                mcol[i + _right_col_idx]->insert_from(column, _build_block_rows[j]);
+                            }
+                        } else {
+                            auto &column = *_build_blocks[_build_block_offsets[j]].get_by_position(i).column;
+                            mcol[i + _right_col_idx]->insert_from(column, _build_block_rows[j]);
+                        }
                     }
                 }
             }
@@ -299,7 +298,7 @@ struct ProcessHashTableProbe {
 
         for (int i = 0; i < _right_col_idx; ++i) {
             auto& column = _probe_block.get_by_position(i).column;
-            column->replicate(&items_counts[0], current_offset, *mcol[i]);
+            column->replicate(&_items_counts[0], current_offset, *mcol[i]);
         }
         output_block->swap(mutable_block.to_block());
 
@@ -351,7 +350,7 @@ struct ProcessHashTableProbe {
                 for (auto it = mapped.begin(); it.ok(); ++it) {
                     ++current_offset;
                     for (size_t j = 0; j < _right_col_len; ++j) {
-                        auto& column = *_build_block[it->block_offset].get_by_position(j).column;
+                        auto& column = *_build_blocks[it->block_offset].get_by_position(j).column;
                         mcol[j + _right_col_idx]->insert_from(column, it->row_num);
                     }
                     visited_map.emplace_back(&it->visited);
@@ -517,7 +516,7 @@ struct ProcessHashTableProbe {
         auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
             block_size++;
             for (size_t j = 0; j < _right_col_len; ++j) {
-                auto& column = *_build_block[offset].get_by_position(j).column;
+                auto& column = *_build_blocks[offset].get_by_position(j).column;
                 mcol[j + _right_col_idx]->insert_from(column, row_num);
             }
         };
@@ -558,11 +557,15 @@ private:
     const int _right_col_len;
     const int _batch_size;
     const size_t _probe_rows;
-    const std::vector<Block>& _build_block;
+    const std::vector<Block>& _build_blocks;
     const Block& _probe_block;
     int& _probe_index;
     ColumnRawPtrs& _probe_raw_ptrs;
     Arena _arena;
+
+    std::vector<uint32_t>& _items_counts;
+    std::vector<int8_t>& _build_block_offsets;
+    std::vector<int>& _build_block_rows;
 
     ProfileCounter* _rows_returned_counter;
 };
@@ -579,8 +582,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _match_all_build(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _build_unique(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN),
-          _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
-                             _join_op == TJoinOp::LEFT_SEMI_JOIN),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
           _is_outer_join(_match_all_build || _match_all_probe) {
@@ -703,6 +704,9 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     _right_col_idx = _is_right_semi_anti ? 0 : _left_table_data_types.size();
     _right_col_len = _right_table_data_types.size();
+
+    _build_block_offsets.resize(state->batch_size());
+    _build_block_rows.resize(state->batch_size());
     return Status::OK();
 }
 
@@ -714,7 +718,6 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
 
     _mem_tracker->Release(_mem_used);
-
     return ExecNode::close(state);
 }
 
@@ -869,17 +872,15 @@ Status HashJoinNode::open(RuntimeState* state) {
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
     SCOPED_TIMER(_build_timer);
-    Block block;
-    int right_col_len = _right_table_data_types.size();
-    MutableColumns columns(right_col_len);
-    for (int i = 0; i < right_col_len; i++) {
-        columns[i] = _right_table_data_types[i]->create_column();
-    }
+    MutableBlock mutable_block(_right_table_data_types);
+
     uint8_t index = 0;
     bool eos = false;
     int64_t last_mem_used = 0;
+
+    Block block;
     while (!eos) {
-        block.clear();
+        block.clear_column_data();
         RETURN_IF_CANCELLED(state);
 
         RETURN_IF_ERROR(child(1)->get_next(state, &block, &eos));
@@ -887,36 +888,25 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         _mem_used += block.allocated_bytes();
         RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while getting next from the child 1.");
 
-        if (block.rows() != 0) {
-            int i = 0;
-            for (const auto &data : block) {
-                const auto & column = *data.column.get();
-                columns[i].get()->insert_range_from(column, 0, block.rows());
-                i++;
-            }
-        }
+        if (block.rows() != 0) { mutable_block.merge(block); }
 
         // make one block for each 4 gigabytes
-        if (_mem_used - last_mem_used > 4 * 1024UL * 1024UL * 1024UL) {
-            for (int i = 0; i < right_col_len; ++i) {
-                _build_block.emplace_back(Block({ColumnWithTypeAndName(std::move(columns[i]),_right_table_data_types[i], "")}));
-            }
-
-            RETURN_IF_ERROR(_process_build_block(state, _build_block[index], index));
+        constexpr static auto BUILD_BLOCK_MAX_SIZE =  4 * 1024UL * 1024UL * 1024UL;
+        if (_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE) {
+            _build_blocks.emplace_back(mutable_block.to_block());
+            // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
+            // which is better.
+            RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
             RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
+
+            mutable_block = MutableBlock(_right_table_data_types);
             ++index;
-            for (int i = 0; i < right_col_len; i++) {
-                columns[i] = _right_table_data_types[i]->create_column();
-            }
             last_mem_used = _mem_used;
         }
     }
 
-    for (int i = 0; i < right_col_len; ++i) {
-        _build_block.emplace_back(Block({ColumnWithTypeAndName(std::move(columns[i]),_right_table_data_types[i], "")}));
-    }
-
-    RETURN_IF_ERROR(_process_build_block(state, _build_block[index], index));
+    _build_blocks.emplace_back(mutable_block.to_block());
+    RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
     RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
     return std::visit(
@@ -944,10 +934,7 @@ Status HashJoinNode::extract_build_join_column(Block& block, NullMap& null_map,
             RETURN_IF_ERROR(_build_expr_ctxs[i]->execute(&block, &result_col_id));
         }
 
-        // TODO: opt the column is const
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-
+        // MutableBlock assume no const column in build block
         if (_is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         } else {
@@ -1024,8 +1011,6 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
         return Status::OK();
     }
     COUNTER_UPDATE(_build_rows_counter, rows);
-
-    materialize_block_inplace(block);
 
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
