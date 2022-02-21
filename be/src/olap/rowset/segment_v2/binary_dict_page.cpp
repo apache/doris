@@ -209,7 +209,7 @@ Status BinaryDictPageDecoder::init() {
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
 
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
-        _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        _data_page_decoder.reset(_bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
@@ -233,11 +233,9 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, uint32_t* start_offset_array, uint32_t* len_array) {
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
-    _bit_shuffle_ptr = reinterpret_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(_data_page_decoder.get());
-    _start_offset_array = start_offset_array;
-    _len_array = len_array;
+    _dict_word_info = dict_word_info;
 };
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
@@ -259,8 +257,8 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     const int32_t* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
-    dst->insert_many_dict_data(data_array, start_index, _start_offset_array, _len_array, 
-        _dict_decoder->_data.mutable_data(), max_fetch);
+    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch);
+
     _bit_shuffle_ptr->_cur_index += max_fetch;
  
     return Status::OK();
@@ -291,7 +289,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     for (int i = 0; i < len; ++i) {
         int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder
-        *out = Slice(&_dict_decoder->_data[_start_offset_array[codeword]], _len_array[codeword]);
+        *out = Slice(_dict_word_info[codeword].data, _dict_word_info[codeword].size);
         mem_len[i] = out->size;
         out++;
     }

@@ -73,20 +73,14 @@ public:
         // because every slice is unique
         ASSERT_EQ(slices.size(), dict_page_decoder->count());
 
-        uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
-        uint32_t dict_len_array[dict_page_decoder->_num_elems];
-        for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-            const uint32_t start_offset = dict_page_decoder->offset(i);
-            uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-            dict_start_offset_array[i] = start_offset;
-            dict_len_array[i] = len;
-        }
+        StringRef dict_word_info[dict_page_decoder->_num_elems];
+        dict_page_decoder->get_dict_word_info(dict_word_info);
 
         // decode
         PageDecoderOptions decoder_options;
         BinaryDictPageDecoder page_decoder(s.slice(), decoder_options);
 
-        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
+        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
 
         status = page_decoder.init();
         ASSERT_TRUE(status.ok());
@@ -177,21 +171,15 @@ public:
             status = dict_page_decoder->init();
             ASSERT_TRUE(status.ok());
 
-            uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
-            uint32_t dict_len_array[dict_page_decoder->_num_elems];
-            for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-                const uint32_t start_offset = dict_page_decoder->offset(i);
-                uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-                dict_start_offset_array[i] = start_offset;
-                dict_len_array[i] = len;
-            }
+            StringRef dict_word_info[dict_page_decoder->_num_elems];
+            dict_page_decoder->get_dict_word_info(dict_word_info);
 
             // decode
             PageDecoderOptions decoder_options;
             BinaryDictPageDecoder page_decoder(results[slice_index].slice(), decoder_options);
             status = page_decoder.init();
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
+            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
             ASSERT_TRUE(status.ok());
 
             //check values
