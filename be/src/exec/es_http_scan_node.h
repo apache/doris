@@ -99,7 +99,7 @@ private:
     Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
                         const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
 
-    virtual Status scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
+    virtual Status scanner_scan(std::unique_ptr<vectorized::VEsHttpScanner> scanner) {
         return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
     };
 
