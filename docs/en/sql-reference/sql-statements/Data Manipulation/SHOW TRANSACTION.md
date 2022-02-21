@@ -93,7 +93,7 @@ ErrorReplicasCount: 0
     
 4. View the transactions with status `visible`:
 
-   SHOW TRANSACTION WHERE LABEL = 'visible';
+   SHOW TRANSACTION WHERE STATUS = 'visible';
 
 ## keyword
 

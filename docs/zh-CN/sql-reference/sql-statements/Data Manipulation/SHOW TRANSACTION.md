@@ -93,7 +93,7 @@ ErrorReplicasCount: 0
     
 4. 查看 status 为 visible 的事务： 
 
-    SHOW TRANSACTION WHERE LABEL = 'visible';
+    SHOW TRANSACTION WHERE STATUS = 'visible';
 
 ## keyword
 
