@@ -361,7 +361,11 @@ struct SubBitmap {
                                 const TData2& limit_data, NullMap& null_map,
                                 size_t input_rows_count, TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i] || limit_data[i] <= 0) {
+            if (null_map[i]) {
+                continue;
+            }
+            if (limit_data[i] <= 0) {
+                null_map[i] = 1;
                 continue;
             }
             if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data[i], limit_data[i],
@@ -382,7 +386,11 @@ struct BitmapSubsetLimit {
                                 const TData2& limit_data, NullMap& null_map,
                                 size_t input_rows_count, TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i] || offset_data[i] < 0 || limit_data[i] < 0) {
+            if (null_map[i]) {
+                continue;
+            }
+            if (offset_data[i] < 0 || limit_data[i] < 0) {
+                null_map[i] = 1;
                 continue;
             }
             const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data[i], limit_data[i], &res[i]);
@@ -404,6 +412,7 @@ struct BitmapSubsetInRange {
                 continue;
             }
             if (range_start[i] >= range_end[i] || range_start[i] < 0 || range_end[i] < 0) {
+                null_map[i] = 1;
                 continue;
             }
             const_cast<TData1&>(bitmap_data)[i].sub_range(range_start[i], range_end[i], &res[i]);

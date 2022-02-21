@@ -25,142 +25,58 @@
 
 namespace doris::vectorized {
 
-struct BitmapAnd {
-    static constexpr auto name = "bitmap_and";
-    using ResultDataType = DataTypeBitMap;
-
-    static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,
-                                size_t input_rows_count, std::vector<BitmapValue>& res) {
-        auto& mid_data = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            res[row] = mid_data[row];
-        }
-
-        for (size_t col = 1; col < col_size; ++col) {
-            auto& col_data =
-                    assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data();
-            for (size_t row = 0; row < input_rows_count; ++row) {
-                res[row] &= col_data[row];
-            }
-        }
-        return Status::OK();
+#define BITMAP_FUNCTION_VARIADIC(CLASS, FUNCTION_NAME, OP)                                         \
+    struct CLASS {                                                                                 \
+        static constexpr auto name = #FUNCTION_NAME;                                               \
+        using ResultDataType = DataTypeBitMap;                                                     \
+        static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
+                                    size_t input_rows_count, std::vector<BitmapValue>& res) {      \
+            auto& mid_data =                                                                       \
+                    assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();       \
+            for (size_t row = 0; row < input_rows_count; ++row) {                                  \
+                res[row] = mid_data[row];                                                          \
+            }                                                                                      \
+            for (size_t col = 1; col < col_size; ++col) {                                          \
+                auto& col_data =                                                                   \
+                        assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data(); \
+                for (size_t row = 0; row < input_rows_count; ++row) {                              \
+                    res[row] OP col_data[row];                                                     \
+                }                                                                                  \
+            }                                                                                      \
+            return Status::OK();                                                                   \
+        }                                                                                          \
     }
-};
 
-struct BitmapOr {
-    static constexpr auto name = "bitmap_or";
-    using ResultDataType = DataTypeBitMap;
-
-    static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,
-                                size_t input_rows_count, std::vector<BitmapValue>& res) {
-        for (size_t col = 0; col < col_size; ++col) {
-            auto& col_data =
-                    assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data();
-            for (size_t row = 0; row < input_rows_count; ++row) {
-                res[row] |= col_data[row];
-            }
-        }
-        return Status::OK();
+#define BITMAP_FUNCTION_COUNT_VARIADIC(CLASS, FUNCTION_NAME, OP)                                   \
+    struct CLASS {                                                                                 \
+        static constexpr auto name = #FUNCTION_NAME;                                               \
+        using ResultDataType = DataTypeInt64;                                                      \
+        using TData = std::vector<BitmapValue>;                                                    \
+        using ResTData = typename ColumnVector<Int64>::Container;                                  \
+        static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
+                                    size_t input_rows_count, ResTData& res) {                      \
+            TData vals(input_rows_count);                                                          \
+            vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();        \
+            for (size_t col = 1; col < col_size; ++col) {                                          \
+                auto& col_data =                                                                   \
+                        assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data(); \
+                for (size_t row = 0; row < input_rows_count; ++row) {                              \
+                    vals[row] OP col_data[row];                                                    \
+                }                                                                                  \
+            }                                                                                      \
+            for (size_t row = 0; row < input_rows_count; ++row) {                                  \
+                res[row] = vals[row].cardinality();                                                \
+            }                                                                                      \
+            return Status::OK();                                                                   \
+        }                                                                                          \
     }
-};
 
-struct BitmapXor {
-    using ResultDataType = DataTypeBitMap;
-    static constexpr auto name = "bitmap_xor";
-
-    static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,
-                                size_t input_rows_count, std::vector<BitmapValue>& res) {
-        auto& mid_data = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            res[row] = mid_data[row];
-        }
-        
-        for (size_t col = 1; col < col_size; ++col) {
-            auto& col_data =
-                    assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data();
-            for (size_t row = 0; row < input_rows_count; ++row) {
-                res[row] ^= col_data[row];
-            }
-        }
-        return Status::OK();
-    }
-};
-
-struct BitmapOrCount {
-    static constexpr auto name = "bitmap_or_count";
-    using ResultDataType = DataTypeInt64;
-    using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<Int64>::Container;
-
-    static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,
-                                size_t input_rows_count, ResTData& res) {
-        TData vals(input_rows_count);
-        for (size_t col = 0; col < col_size; ++col) {
-            auto& col_data =
-                    assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data();
-            for (size_t row = 0; row < input_rows_count; ++row) {
-                vals[row] |= col_data[row];
-            }
-        }
-
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            res[row] = vals[row].cardinality();
-        }
-        return Status::OK();
-    }
-};
-
-struct BitmapAndCount {
-    static constexpr auto name = "bitmap_and_count";
-    using ResultDataType = DataTypeInt64;
-    using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<Int64>::Container;
-
-    static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,
-                                size_t input_rows_count, ResTData& res) {
-        TData vals(input_rows_count);
-        vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();
-
-        for (size_t col = 1; col < col_size; ++col) {
-            auto& col_data =
-                    assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data();
-            for (size_t row = 0; row < input_rows_count; ++row) {
-                vals[row] &= col_data[row];
-            }
-        }
-
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            res[row] = vals[row].cardinality();
-        }
-        return Status::OK();
-    }
-};
-
-struct BitmapXorCount {
-    static constexpr auto name = "bitmap_xor_count";
-    using ResultDataType = DataTypeInt64;
-    using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<Int64>::Container;
-
-    static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,
-                                size_t input_rows_count, ResTData& res) {
-        TData vals(input_rows_count);
-        vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();
-
-        for (size_t col = 1; col < col_size; ++col) {
-            auto& col_data =
-                    assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data();
-            for (size_t row = 0; row < input_rows_count; ++row) {
-                vals[row] ^= col_data[row];
-            }
-        }
-
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            res[row] = vals[row].cardinality();
-        }
-        return Status::OK();
-    }
-};
+BITMAP_FUNCTION_VARIADIC(BitmapOr, bitmap_or, |=);
+BITMAP_FUNCTION_VARIADIC(BitmapAnd, bitmap_and, &=);
+BITMAP_FUNCTION_VARIADIC(BitmapXor, bitmap_xor, ^=);
+BITMAP_FUNCTION_COUNT_VARIADIC(BitmapOrCount, bitmap_or_count, |=);
+BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=);
+BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=);
 
 template <typename Impl>
 class FunctionBitMapVariadic : public IFunction {
