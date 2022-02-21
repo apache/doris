@@ -101,16 +101,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
-    if (config::doris_enable_scanner_thread_pool_per_disk
-            && config::doris_scanner_thread_pool_thread_num >= store_paths.size()
-            && store_paths.size() > 0) {
-        _scan_thread_pool = new PriorityWorkStealingThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                               store_paths.size(),
-                                               config::doris_scanner_thread_pool_queue_size);
+    if (config::doris_enable_scanner_thread_pool_per_disk &&
+        config::doris_scanner_thread_pool_thread_num >= store_paths.size() &&
+        store_paths.size() > 0) {
+        _scan_thread_pool = new PriorityWorkStealingThreadPool(
+                config::doris_scanner_thread_pool_thread_num, store_paths.size(),
+                config::doris_scanner_thread_pool_queue_size);
         LOG(INFO) << "scan thread pool use PriorityWorkStealingThreadPool";
     } else {
         _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                               config::doris_scanner_thread_pool_queue_size);
+                                                   config::doris_scanner_thread_pool_queue_size);
         LOG(INFO) << "scan thread pool use PriorityThreadPool";
     }
 
@@ -136,7 +136,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _etl_job_mgr = new EtlJobMgr(this);
     _load_path_mgr = new LoadPathMgr(this);
     _disk_io_mgr = new DiskIoMgr();
-    _tmp_file_mgr = new TmpFileMgr(this), _bfd_parser = BfdParser::create();
+    _tmp_file_mgr = new TmpFileMgr(this);
+    _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
     _load_stream_mgr = new LoadStreamMgr();

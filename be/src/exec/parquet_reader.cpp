@@ -123,7 +123,7 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
 void ParquetReaderWrap::close() {
     arrow::Status st = _parquet->Close();
     if (!st.ok()) {
-        LOG(WARNING) << "close parquet file error";
+        LOG(WARNING) << "close parquet file error: " << st.ToString();
     }
 }
 
@@ -542,7 +542,7 @@ ParquetFile::ParquetFile(FileReader* file) : _file(file) {}
 ParquetFile::~ParquetFile() {
     arrow::Status st = Close();
     if (!st.ok()) {
-        LOG(WARNING) << "close parquet file error";
+        LOG(WARNING) << "close parquet file error: " << st.ToString();
     }
 }
 

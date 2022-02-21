@@ -557,7 +557,6 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
 
         if (flag == false) {
             LOG(INFO) << error_msg.str();
-            ;
             return false;
         }
     }
