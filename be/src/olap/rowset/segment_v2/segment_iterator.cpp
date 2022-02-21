@@ -592,8 +592,8 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 void SegmentIterator::_vec_init_lazy_materialization() {
     _is_pred_column.resize(_schema.columns().size(), false);
 
-    std::set<ColumnId>
-            pred_column_ids; // including short_cir_pred_col_id_set and vec_pred_col_id_set
+    // including short_cir_pred_col_id_set and vec_pred_col_id_set
+    std::set<ColumnId> pred_column_ids;
     _is_all_column_basic_type = true;
     bool is_predicate_column_exists = false;
     bool is_non_predicate_column_exists = false;
