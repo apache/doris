@@ -31,7 +31,7 @@ under the License.
     语法：
         RESTORE SNAPSHOT [db_name].{snapshot_name}
         FROM `repository_name`
-        ON (
+        ON/EXCLUDE (
             `table_name` [PARTITION (`p1`, ...)] [AS `tbl_alias`],
             ...
         )
@@ -40,10 +40,11 @@ under the License.
     说明：
         1. 同一数据库下只能有一个正在执行的 BACKUP 或 RESTORE 任务。
         2. ON 子句中标识需要恢复的表和分区。如果不指定分区，则默认恢复该表的所有分区。所指定的表和分区必须已存在于仓库备份中。
-        3. 可以通过 AS 语句将仓库中备份的表名恢复为新的表。但新表名不能已存在于数据库中。分区名称不能修改。
-        4. 可以将仓库中备份的表恢复替换数据库中已有的同名表，但须保证两张表的表结构完全一致。表结构包括：表名、列、分区、Rollup等等。
-        5. 可以指定恢复表的部分分区，系统会检查分区 Range 或者 List 是否能够匹配。
-        6. PROPERTIES 目前支持以下属性：
+        3. EXCLUDE 子句中标识不需要恢复的表和分区。除了所指定的表或分区之外仓库中所有其他表的所有分区将被恢复。
+        4. 可以通过 AS 语句将仓库中备份的表名恢复为新的表。但新表名不能已存在于数据库中。分区名称不能修改。
+        5. 可以将仓库中备份的表恢复替换数据库中已有的同名表，但须保证两张表的表结构完全一致。表结构包括：表名、列、分区、Rollup等等。
+        6. 可以指定恢复表的部分分区，系统会检查分区 Range 或者 List 是否能够匹配。
+        7. PROPERTIES 目前支持以下属性：
                 "backup_timestamp" = "2018-05-04-16-45-08"：指定了恢复对应备份的哪个时间版本，必填。该信息可以通过 `SHOW SNAPSHOT ON repo;` 语句获得。
                 "replication_num" = "3"：指定恢复的表或分区的副本数。默认为3。若恢复已存在的表或分区，则副本数必须和已存在表或分区的副本数相同。同时，必须有足够的 host 容纳多个副本。
                 "timeout" = "3600"：任务超时时间，默认为一天。单位秒。
@@ -71,6 +72,15 @@ under the License.
         PROPERTIES
         (
             "backup_timestamp"="2018-05-04-17-11-01"
+        );
+
+    3. 从 example_repo 中恢复备份 snapshot_3 中除了表 backup_tbl 的其他所有表到数据库 example_db1，时间版本为 "2018-05-04-18-12-18"。
+        RESTORE SNAPSHOT example_db1.`snapshot_3`
+        FROM `example_repo`
+        EXCLUDE ( `backup_tbl` )
+        PROPERTIES
+        (
+            "backup_timestamp"="2018-05-04-18-12-18"
         );
 
 ## keyword

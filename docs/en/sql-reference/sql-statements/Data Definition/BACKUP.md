@@ -30,7 +30,7 @@ This statement is used to backup data under the specified database. This command
 Grammar:
 BACKUP SNAPSHOT [db_name].{snapshot_name}
 TO `repository_name`
-ON (
+ON/EXCLUDE (
 `Table_name` [partition (`P1',...)],
 ...
 )
@@ -39,7 +39,8 @@ PROPERTIES ("key"="value", ...);
 Explain:
 1. Only one BACKUP or RESTORE task can be performed under the same database.
 2. The ON clause identifies the tables and partitions that need to be backed up. If no partition is specified, all partitions of the table are backed up by default.
-3. PROPERTIES currently supports the following attributes:
+3. The EXCLUDE clause identifies the tables and partitions that need not to be backed up. All partitions of all tables in the database except the specified tables or partitions will be backed up.
+4. PROPERTIES currently supports the following attributes:
 "Type" = "full": means that this is a full update (default).
 "Timeout" = "3600": Task timeout, default to one day. Unit seconds.
 
@@ -59,6 +60,11 @@ ON
 example_tbl PARTITION (p1,p2),
 Example:
 );
+
+3. Back up all tables in example_db except example_tbl to the warehouse example_repo:
+BACKUP SNAPSHOT example_db.snapshot_label3
+TO example_repo
+EXCLUDE (example_tbl);
 
 ## keyword
 BACKUP
