@@ -38,11 +38,6 @@ Status k_stream_load_plan_status;
 #endif
 
 Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
-    return execute_plan_fragment(ctx, nullptr);
-}
-
-Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx,
-                                                 std::shared_ptr<StreamLoadPipe> pipe) {
     DorisMetrics::instance()->txn_exec_plan_total->increment(1);
 // submit this params
 #ifndef BE_TEST
@@ -51,7 +46,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx,
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
-            ctx->put_result.params, [ctx, pipe, this](PlanFragmentExecutor* executor) {
+            ctx->put_result.params, [ctx, this](PlanFragmentExecutor* executor) {
                 ctx->commit_infos = std::move(executor->runtime_state()->tablet_commit_infos());
                 Status status = executor->status();
                 if (status.ok()) {
@@ -103,8 +98,18 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx,
                 ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
                 ctx->promise.set_value(status);
 
-                if (ctx->need_commit_self && pipe != nullptr) {
-                    if (pipe->closed() || !status.ok()) {
+                if (!status.ok() && ctx->body_sink != nullptr) {
+                    // In some cases, the load execution is exited early.
+                    // For example, when max_filter_ratio is 0 and illegal data is encountered
+                    // during stream loading, the entire load process is terminated early.
+                    // However, the http connection may still be sending data to stream_load_pipe
+                    // and waiting for it to be consumed.
+                    // Therefore, we need to actively cancel to end the pipe.
+                    ctx->body_sink->cancel(status.get_error_msg());
+                }
+
+                if (ctx->need_commit_self && ctx->body_sink != nullptr) {
+                    if (ctx->body_sink->cancelled() || !status.ok()) {
                         ctx->status = status;
                         this->rollback_txn(ctx);
                     } else {

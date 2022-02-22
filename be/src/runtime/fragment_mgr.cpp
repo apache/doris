@@ -511,7 +511,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(stream_load_cxt->id, pipe));
 
         RETURN_IF_ERROR(
-                _exec_env->stream_load_executor()->execute_plan_fragment(stream_load_cxt, pipe));
+                _exec_env->stream_load_executor()->execute_plan_fragment(stream_load_cxt));
         set_pipe(params.params.fragment_instance_id, pipe);
         return Status::OK();
     } else {

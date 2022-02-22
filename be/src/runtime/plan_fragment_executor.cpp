@@ -296,7 +296,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             _collect_query_statistics();
         }
 
-        auto st =_sink->send(runtime_state(), block);
+        auto st = _sink->send(runtime_state(), block);
         if (st.is_end_of_file()) {
             break;
         }
