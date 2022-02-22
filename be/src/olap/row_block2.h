@@ -29,6 +29,7 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "vec/columns/column.h"
 
 namespace doris {
 
@@ -110,6 +111,7 @@ public:
 
 private:
     Status _copy_data_to_column(int cid, vectorized::MutableColumnPtr& mutable_column_ptr);
+    Status _append_data_to_column(const ColumnVectorBatch* batch, uint16_t off, uint16_t len, vectorized::MutableColumnPtr& mutable_column_ptr);
 
     const Schema& _schema;
     size_t _capacity;

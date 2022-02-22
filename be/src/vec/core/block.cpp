@@ -44,6 +44,7 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -154,6 +155,12 @@ Block::Block(const PBlock& pblock) {
 
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = create_data_type(pcol_meta);
+/*
+=======
+    for (const auto& pcolumn : pblock.columns()) {
+        DataTypePtr type = DataTypeFactory::instance().create_data_type(pcolumn);
+>>>>>>> Add codes for ARRAY data type
+*/
         MutableColumnPtr data_column;
         if (pcol_meta.is_nullable()) {
             data_column = ColumnNullable::create(type->create_column(), ColumnUInt8::create());
@@ -752,6 +759,20 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
+/*
+=======
+        // name serialize
+        PColumn* pc = pblock->add_columns();
+        pc->set_name(c.name);
+        block_size_before_compress += c.name.size();
+
+        // type serialize
+        pc->set_type(c.type->get_pdata_type());
+
+        // content serialize
+        block_size_before_compress += c.type->serialize(*(c.column), pc);
+>>>>>>> Add codes for ARRAY data type
+*/
     }
 
     return Status::OK();

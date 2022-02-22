@@ -23,18 +23,8 @@
 #include <fmt/format.h>
 
 #include "common/logging.h"
-#include "olap/olap_common.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
@@ -148,6 +138,7 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
     }
 }
 
+/*
 DataTypePtr IDataType::from_thrift(const doris::PrimitiveType& type, const bool is_nullable){
     DataTypePtr result;
     switch (type) {
@@ -271,4 +262,6 @@ DataTypePtr IDataType::from_olap_engine(const doris::FieldType & type, const _Bo
 
     return result;
 }
+*/
+
 } // namespace doris::vectorized

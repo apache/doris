@@ -31,6 +31,7 @@
 #include "gen_cpp/FrontendService_types.h" // for TTupleId
 #include "gen_cpp/Types_types.h"
 #include "runtime/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 struct ColumnWithTypeAndName;
@@ -103,7 +104,7 @@ public:
 
     std::string debug_string() const;
 
-    doris::vectorized::MutableColumnPtr get_empty_mutable_column() const;
+    vectorized::MutableColumnPtr get_empty_mutable_column() const;
 
     doris::vectorized::DataTypePtr get_data_type_ptr() const;
 

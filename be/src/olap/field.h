@@ -298,7 +298,8 @@ public:
     void add_sub_field(std::unique_ptr<Field> sub_field) {
         _sub_fields.emplace_back(std::move(sub_field));
     }
-    Field* get_sub_field(int i) { return _sub_fields[i].get(); }
+    Field* get_sub_field(int i) const { return _sub_fields[i].get(); }
+    size_t get_sub_field_count() const { return _sub_fields.size(); }
 
 protected:
     const TypeInfo* _type_info;

@@ -69,7 +69,7 @@ public:
 
     bool is_nullable() const { return _nullable; }
 
-    bool is_null_at(size_t row_idx) { return _nullable && _null_signs[row_idx]; }
+    bool is_null_at(size_t row_idx) const { return _nullable && _null_signs[row_idx]; }
 
     void set_is_null(size_t idx, bool is_null) {
         if (_nullable) {

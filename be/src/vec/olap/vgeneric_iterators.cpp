@@ -22,6 +22,7 @@
 #include "olap/row.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor_cell.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -139,7 +140,7 @@ public:
             const auto& column_ids = schema.column_ids();
             for (size_t i = 0; i < schema.num_column_ids(); ++i) {
                 auto column_desc = schema.column(column_ids[i]);
-                auto data_type = Schema::get_data_type_ptr(column_desc->type());
+                auto data_type = Schema::get_data_type_ptr(*column_desc);
                 if (data_type == nullptr) {
                     return Status::RuntimeError("invalid data type");
                 }
