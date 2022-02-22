@@ -169,12 +169,12 @@ public:
         LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
     }
 
-    void insert_string_value(char* data_ptr, size_t length) {
-        StringValue sv(data_ptr, length);
+    void insert_string_value(const char* data_ptr, size_t length) {
+        StringValue sv((char*)data_ptr, length);
         data.push_back_without_reserve(sv);
     }
 
-    void insert_decimal_value(char* data_ptr, size_t length) {
+    void insert_decimal_value(const char* data_ptr, size_t length) {
         decimal12_t dc12_value;
         dc12_value.integer = *(int64_t*)(data_ptr);
         dc12_value.fraction = *(int32_t*)(data_ptr + sizeof(int64_t));
@@ -182,27 +182,26 @@ public:
     }
 
     // used for int128
-    void insert_in_copy_way(char* data_ptr, size_t length) {
+    void insert_in_copy_way(const char* data_ptr, size_t length) {
         T val {};
         memcpy(&val, data_ptr, sizeof(val));
         data.push_back_without_reserve(val);
     }
 
-    void insert_default_type(char* data_ptr, size_t length) {
+    void insert_default_type(const char* data_ptr, size_t length) {
         T* val = (T*)data_ptr;
         data.push_back_without_reserve(*val);
     }
 
     void insert_data(const char* data_ptr, size_t length) override {
-        char* ch = const_cast<char*>(data_ptr);
         if constexpr (std::is_same_v<T, StringValue>) {
-            insert_string_value(ch, length);
+            insert_string_value(data_ptr, length);
         } else if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_decimal_value(ch, length);
+            insert_decimal_value(data_ptr, length);
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
-            insert_in_copy_way(ch, length);
+            insert_in_copy_way(data_ptr, length);
         } else {
-            insert_default_type(ch, length);
+            insert_default_type(data_ptr, length);
         }
     }
 
@@ -218,15 +217,11 @@ public:
         }
     }
 
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index,
-                               const uint32_t* start_offset_array, const uint32_t* len_array,
-                               char* dict_data, size_t num) override {
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
-            for (int i = 0; i < num; i++, start_index++) {
+            for (size_t end_index = start_index+num; start_index < end_index; ++start_index) {
                 int32_t codeword = data_array[start_index];
-                uint32_t start_offset = start_offset_array[codeword];
-                uint32_t str_len = len_array[codeword];
-                insert_string_value(dict_data + start_offset, str_len);
+                insert_string_value(dict[codeword].data, dict[codeword].size);
             }
         }
     }
