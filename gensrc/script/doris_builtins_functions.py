@@ -1111,13 +1111,13 @@ visible_functions = [
 
     [['json_array'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris13JsonFunctions10json_arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
-            '', '', '', ''],
+            '', '', 'vec', ''],
     [['json_object'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris13JsonFunctions11json_objectEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
-            '', '', '', ''],
+            '', '', 'vec', ''],
     [['json_quote'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris13JsonFunctions10json_quoteEPN9doris_udf15FunctionContextERKNS1_9StringValE',
-            '', '', '', ''],
+            '', '', 'vec', ''],
 
     #hll function
     [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
