@@ -138,7 +138,7 @@ public:
 
     const Status& status() const { return _status; }
 
-    DataSink* get_sink() { return _sink.get(); }
+    DataSink* get_sink() const { return _sink.get(); }
 
     void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -245,7 +245,7 @@ private:
     // Idempotent.
     void stop_report_thread();
 
-    const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
+    const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
 
