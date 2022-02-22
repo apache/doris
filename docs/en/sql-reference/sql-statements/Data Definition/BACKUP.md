@@ -30,7 +30,7 @@ This statement is used to backup data under the specified database. This command
 Grammar:
 BACKUP SNAPSHOT [db_name].{snapshot_name}
 TO `repository_name`
-ON/EXCLUDE (
+[ON|EXCLUDE] (
 `Table_name` [partition (`P1',...)],
 ...
 )
