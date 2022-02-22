@@ -31,7 +31,7 @@ under the License.
     语法：
         RESTORE SNAPSHOT [db_name].{snapshot_name}
         FROM `repository_name`
-        ON/EXCLUDE (
+        [ON|EXCLUDE] (
             `table_name` [PARTITION (`p1`, ...)] [AS `tbl_alias`],
             ...
         )
