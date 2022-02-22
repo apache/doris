@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -1299,7 +1300,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public List<List<String>> getTasksShowInfo() {
         List<List<String>> rows = Lists.newArrayList();
-        routineLoadTaskInfoList.stream().forEach(entity -> rows.add(entity.getTaskShowInfo()));
+        routineLoadTaskInfoList.stream().forEach(entity -> {
+            try {
+                entity.setTxnStatus(Catalog.getCurrentCatalog().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId).getTransactionState(entity.getTxnId()).getTransactionStatus());
+                rows.add(entity.getTaskShowInfo());
+            } catch (AnalysisException e) {
+                LOG.warn("failed to setTxnStatus db: {}, txnId: {}", dbId, entity.getTxnId());
+            }
+        });
         return rows;
     }
 
