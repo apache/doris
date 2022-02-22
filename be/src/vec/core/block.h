@@ -23,6 +23,7 @@
 #include <initializer_list>
 #include <list>
 #include <set>
+#include <utility>
 #include <vector>
 #include <parallel_hashmap/phmap.h>
 
@@ -297,12 +298,21 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(MutableColumns&& columns, DataTypes&& data_types)
-            : _columns(std::move(columns)), _data_types(std::move(data_types)) {}
+    MutableBlock(DataTypes data_types) :  _columns(data_types.size()), _data_types(std::move(data_types)) {
+        for (int i = 0; i < _data_types.size(); ++i) {
+            _columns[i] = _data_types[i]->create_column();
+        }
+    }
+
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
     MutableBlock(Block&& block)
             : _columns(block.mutate_columns()), _data_types(block.get_data_types()) {}
+
+    void operator=(MutableBlock&& m_block) {
+        _columns = std::move(m_block._columns);
+        _data_types = std::move(m_block._data_types);
+    }
 
     size_t rows() const;
     size_t columns() const { return _columns.size(); }
@@ -364,9 +374,6 @@ public:
         _columns.clear();
         _data_types.clear();
     }
-
-    // TODO: use add_rows instead of this
-    // add_rows(Block* block,PODArray<Int32>& group,int group_num);
 };
 
 } // namespace vectorized
