@@ -30,7 +30,7 @@ under the License.
     语法：
         BACKUP SNAPSHOT [db_name].{snapshot_name}
         TO `repository_name`
-        ON/EXCLUDE (
+        [ON|EXCLUDE] (
             `table_name` [PARTITION (`p1`, ...)],
             ...
         )
