@@ -56,7 +56,8 @@ public class Partition extends MetaObject implements Writable {
         @Deprecated
         ROLLUP,
         @Deprecated
-        SCHEMA_CHANGE
+        SCHEMA_CHANGE,
+        RESTORE
     }
 
     @SerializedName(value = "id")

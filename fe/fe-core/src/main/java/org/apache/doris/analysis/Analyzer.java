@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -81,6 +82,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Repository of analysis state for single select block.
@@ -585,7 +587,17 @@ public class Analyzer {
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
+            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream().filter(
+                    partition -> partition.getState() == PartitionState.RESTORE
+            ).collect(Collectors.toList()).isEmpty();
+
+            if(!isNotRestoring){
+                // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
+                // support query that partitions is not restoring.
+            }else {
+                // if doing restore with table, throw exception here
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
+            }
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.
