@@ -55,8 +55,7 @@ namespace doris::vectorized {
         using ResTData = typename ColumnVector<Int64>::Container;                                  \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
                                     size_t input_rows_count, ResTData& res) {                      \
-            TData vals(input_rows_count);                                                          \
-            vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();        \
+            TData vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();  \
             for (size_t col = 1; col < col_size; ++col) {                                          \
                 auto& col_data =                                                                   \
                         assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data(); \
