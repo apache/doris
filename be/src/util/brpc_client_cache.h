@@ -123,15 +123,22 @@ public:
             LOG(WARNING) << "stub is null to: " << host_port;
             return false;
         }
+        std::string message = "hello doris!";
         PHandShakeRequest request;
+        request.set_hello(message);
         PHandShakeResponse response;
         brpc::Controller cntl;
         stub->hand_shake(&cntl, &request, &response, nullptr);
-        if (!cntl.Failed()) {
+        if (cntl.Failed()) {
+            LOG(WARNING) << "open brpc connection to " << host_port
+                         << " failed: " << cntl.ErrorText();
+            return false;
+        } else if (response.has_status() && response.has_hello() && response.hello() == message &&
+                   response.status().status_code() == 0) {
             return true;
         } else {
-            LOG(WARNING) << "open brpc connection to  " << host_port
-                         << " failed: " << cntl.ErrorText();
+            LOG(WARNING) << "open brpc connection to " << host_port
+                         << " failed: " << response.DebugString();
             return false;
         }
     }

@@ -204,6 +204,12 @@ Status RPCFnCall::_eval_children(ExprContext* context, TupleRow* row,
                                                  _rpc_function_symbol, cntl.ErrorText())
                                              .c_str());
     }
+    if (!response->has_status() || !response->has_result()) {
+        FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
+        fn_ctx->set_error(response->status().DebugString().c_str());
+        return Status::InternalError(fmt::format(
+                "call rpc function {} failed: status or result is not set.", _rpc_function_symbol));
+    }
     if (response->status().status_code() != 0) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         fn_ctx->set_error(response->status().DebugString().c_str());
