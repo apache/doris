@@ -83,10 +83,8 @@ struct CurrentDateFunctionName {
     static constexpr auto name = "current_date";
 };
 
-using FunctionCurDate =
-        FunctionCurrentDateOrDateTime<CurrentDateImpl<CurDateFunctionName>>;
-using FunctionCurrentDate =
-        FunctionCurrentDateOrDateTime<CurrentDateImpl<CurrentDateFunctionName>>;
+using FunctionCurDate = FunctionCurrentDateOrDateTime<CurrentDateImpl<CurDateFunctionName>>;
+using FunctionCurrentDate = FunctionCurrentDateOrDateTime<CurrentDateImpl<CurrentDateFunctionName>>;
 
 struct CurTimeFunctionName {
     static constexpr auto name = "curtime";
@@ -95,10 +93,8 @@ struct CurrentTimeFunctionName {
     static constexpr auto name = "current_time";
 };
 
-using FunctionCurTime =
-        FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
-using FunctionCurrentTime =
-        FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurrentTimeFunctionName>>;
+using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
+using FunctionCurrentTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurrentTimeFunctionName>>;
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
@@ -108,6 +104,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddDays>();
     factory.register_alias("days_add", "add_dates");
     factory.register_alias("days_add", "date_add");
+    factory.register_alias("days_add", "add_date");
     factory.register_function<FunctionAddWeeks>();
     factory.register_function<FunctionAddMonths>();
     factory.register_function<FunctionAddYears>();
@@ -119,6 +116,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubDays>();
     factory.register_alias("days_sub", "subdate");
     factory.register_alias("days_sub", "date_sub");
+    factory.register_alias("days_sub", "sub_date");
     factory.register_function<FunctionSubMonths>();
     factory.register_function<FunctionSubYears>();
     factory.register_function<FunctionSubQuarters>();
