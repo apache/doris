@@ -8,61 +8,34 @@
 
 namespace doris {
 
-inline const char* assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code,
-                                  const Slice& msg2) {
-    DCHECK(code != TStatusCode::OK);
-
-    const uint32_t len1 = msg.size;
-    const uint32_t len2 = msg2.size;
-    const uint32_t size = len1 + ((len2 > 0) ? (2 + len2) : 0);
-    auto result = new char[size + 7];
-    memcpy(result, &size, sizeof(size));
-    result[4] = static_cast<char>(code);
-    memcpy(result + 5, &precise_code, sizeof(precise_code));
-    memcpy(result + 7, msg.data, len1);
-    if (len2 > 0) {
-        result[7 + len1] = ':';
-        result[8 + len1] = ' ';
-        memcpy(result + 9 + len1, msg2.data, len2);
-    }
-    return result;
-}
-
-const char* Status::copy_state(const char* state) {
-    uint32_t size;
-    strings::memcpy_inlined(&size, state, sizeof(size));
-    auto result = new char[size + 7];
-    strings::memcpy_inlined(result, state, size + 7);
-    return result;
-}
-
-Status::Status(const TStatus& s) : _state(nullptr) {
+Status::Status(const TStatus& s) {
     if (s.status_code != TStatusCode::OK) {
         if (s.error_msgs.empty()) {
-            _state = assemble_state(s.status_code, Slice(), 1, Slice());
+            assemble_state(s.status_code, Slice(), 1, Slice());
         } else {
-            _state = assemble_state(s.status_code, s.error_msgs[0], 1, Slice());
+            assemble_state(s.status_code, s.error_msgs[0], 1, Slice());
         }
+    } else {
+        set_ok();
     }
 }
 
-Status::Status(const PStatus& s) : _state(nullptr) {
+Status::Status(const PStatus& s) {
     TStatusCode::type code = (TStatusCode::type)s.status_code();
     if (code != TStatusCode::OK) {
         if (s.error_msgs_size() == 0) {
-            _state = assemble_state(code, Slice(), 1, Slice());
+            assemble_state(code, Slice(), 1, Slice());
         } else {
-            _state = assemble_state(code, s.error_msgs(0), 1, Slice());
+            assemble_state(code, s.error_msgs(0), 1, Slice());
         }
+    } else {
+        set_ok();
     }
 }
 
-Status::Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2)
-        : _state(assemble_state(code, msg, precise_code, msg2)) {}
-
 void Status::to_thrift(TStatus* s) const {
     s->error_msgs.clear();
-    if (_state == nullptr) {
+    if (ok()) {
         s->status_code = TStatusCode::OK;
     } else {
         s->status_code = code();
@@ -74,7 +47,7 @@ void Status::to_thrift(TStatus* s) const {
 
 void Status::to_protobuf(PStatus* s) const {
     s->clear_error_msgs();
-    if (_state == nullptr) {
+    if (ok()) {
         s->set_status_code((int)TStatusCode::OK);
     } else {
         s->set_status_code(code());
@@ -84,9 +57,6 @@ void Status::to_protobuf(PStatus* s) const {
 }
 
 std::string Status::code_as_string() const {
-    if (_state == nullptr) {
-        return "OK";
-    }
     switch (code()) {
     case TStatusCode::OK:
         return "OK";
@@ -155,7 +125,7 @@ std::string Status::code_as_string() const {
 
 std::string Status::to_string() const {
     std::string result(code_as_string());
-    if (_state == nullptr) {
+    if (ok()) {
         return result;
     }
 
@@ -172,13 +142,11 @@ std::string Status::to_string() const {
 }
 
 Slice Status::message() const {
-    if (_state == nullptr) {
+    if (ok()) {
         return Slice();
     }
 
-    uint32_t length;
-    memcpy(&length, _state, sizeof(length));
-    return Slice(_state + 7, length);
+    return Slice(_state + HEADER_LEN, _length);
 }
 
 Status Status::clone_and_prepend(const Slice& msg) const {
