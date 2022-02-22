@@ -200,7 +200,8 @@ public:
 
     template <typename T>
     void test_convert_to_varchar(const std::string& type_name, int type_size, T val,
-                                 const std::string& expected_val, OLAPStatus expected_st) {
+                                 const std::string& expected_val, OLAPStatus expected_st,
+                                 int varchar_len = 255) {
         TabletSchema src_tablet_schema;
         SetTabletSchema("ConvertColumn", type_name, "REPLACE", type_size, false, false,
                         &src_tablet_schema);
@@ -221,7 +222,7 @@ public:
         helper.close();
 
         TabletSchema dst_tablet_schema;
-        SetTabletSchema("VarcharColumn", "VARCHAR", "REPLACE", 255, false, false,
+        SetTabletSchema("VarcharColumn", "VARCHAR", "REPLACE", varchar_len, false, false,
                         &dst_tablet_schema);
         create_columnReader(src_tablet_schema);
         RowCursor read_row;
@@ -619,38 +620,130 @@ TEST_F(TestColumn, ConvertVarcharToDouble2) {
 }
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar) {
-    test_convert_to_varchar<int8_t>("TINYINT", 1, 127, "127", OLAP_SUCCESS);
+    test_convert_to_varchar<int8_t>("TINYINT", 1, 127, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 3);
+    test_convert_to_varchar<int8_t>("TINYINT", 1, 127, "127", OLAP_SUCCESS, 3 + 2);
+    test_convert_to_varchar<int8_t>("TINYINT", 1, -127, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 4);
+    // 4: tinyint digit count + minus symbol, +2 for var len bytes
+    test_convert_to_varchar<int8_t>("TINYINT", 1, -127, "-127", OLAP_SUCCESS, 4 + 2);
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar) {
-    test_convert_to_varchar<int16_t>("SMALLINT", 2, 32767, "32767", OLAP_SUCCESS);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, 32767, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 5);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, 32767, "32767", OLAP_SUCCESS, 7);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, -32767, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 6);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, -32767, "-32767", OLAP_SUCCESS, 8);
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar) {
-    test_convert_to_varchar<int32_t>("INT", 4, 2147483647, "2147483647", OLAP_SUCCESS);
+    test_convert_to_varchar<int32_t>("INT", 4, 2147483647, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 10);
+    test_convert_to_varchar<int32_t>("INT", 4, 2147483647, "2147483647", OLAP_SUCCESS, 12);
+    test_convert_to_varchar<int32_t>("INT", 4, -2147483647, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 11);
+    test_convert_to_varchar<int32_t>("INT", 4, -2147483647, "-2147483647", OLAP_SUCCESS, 13);
 }
 
 TEST_F(TestColumn, ConvertBigIntToVarchar) {
+    test_convert_to_varchar<int64_t>("BIGINT", 8, 9223372036854775807, "",
+                                     OLAP_ERR_INPUT_PARAMETER_ERROR, 19);
     test_convert_to_varchar<int64_t>("BIGINT", 8, 9223372036854775807, "9223372036854775807",
-                                     OLAP_SUCCESS);
+                                     OLAP_SUCCESS, 21);
+    test_convert_to_varchar<int64_t>("BIGINT", 8, -9223372036854775807, "",
+                                     OLAP_ERR_INPUT_PARAMETER_ERROR, 20);
+    test_convert_to_varchar<int64_t>("BIGINT", 8, -9223372036854775807, "-9223372036854775807",
+                                     OLAP_SUCCESS, 22);
 }
 
 TEST_F(TestColumn, ConvertLargeIntToVarchar) {
-    test_convert_to_varchar<int128_t>("LARGEINT", 16, 1701411834604690, "1701411834604690",
-                                      OLAP_SUCCESS);
+    std::string str_val("170141183460469231731687303715884105727");
+    StringParser::ParseResult result;
+    int128_t int128_val = StringParser::string_to_int<int128_t>(str_val.c_str(),
+                                                                str_val.length(), &result);
+    DCHECK(result == StringParser::PARSE_SUCCESS);
+
+    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val,
+                                      "", OLAP_ERR_INPUT_PARAMETER_ERROR, 39);
+
+    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val,
+                                      str_val,
+                                      OLAP_SUCCESS, 41);
+
+    str_val = "-170141183460469231731687303715884105727";
+    int128_val = StringParser::string_to_int<int128_t>(str_val.c_str(),
+                                                       str_val.length(), &result);
+    DCHECK(result == StringParser::PARSE_SUCCESS);
+
+    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val,
+                                      "", OLAP_ERR_INPUT_PARAMETER_ERROR, 40);
+
+    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val,
+                                      str_val,
+                                      OLAP_SUCCESS, 42);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar) {
-    test_convert_to_varchar<float>("FLOAT", 4, 3.40282e+38, "3.40282e+38", OLAP_SUCCESS);
+    test_convert_to_varchar<float>("FLOAT", 4, 3.40282e+38, "3.40282e+38", OLAP_ERR_INPUT_PARAMETER_ERROR, 11);
+    test_convert_to_varchar<float>("FLOAT", 4, 3.40282e+38, "3.40282e+38", OLAP_SUCCESS, 13);
+    test_convert_to_varchar<float>("FLOAT", 4, 3402820000000000000l, "3.40282e+18", OLAP_SUCCESS, 13);
+
+    test_convert_to_varchar<float>("FLOAT", 4, -3.40282e+38, "-3.40282e+38", OLAP_ERR_INPUT_PARAMETER_ERROR, 12);
+    test_convert_to_varchar<float>("FLOAT", 4, -3.40282e+38, "-3.40282e+38", OLAP_SUCCESS, 14);
+    test_convert_to_varchar<float>("FLOAT", 4, -3402820000000000000l, "-3.40282e+18", OLAP_SUCCESS, 14);
+
+    test_convert_to_varchar<float>("FLOAT", 4, 1.17549435082228750796873653722224568e-38F,
+                                   "1.1754944e-38", OLAP_ERR_INPUT_PARAMETER_ERROR, 13);
+    test_convert_to_varchar<float>("FLOAT", 4, 1.17549435082228750796873653722224568e-38F,
+                                   "1.1754944e-38", OLAP_SUCCESS, 15);
+
+    test_convert_to_varchar<float>("FLOAT", 4, -1.17549435082228750796873653722224568e-38F,
+                                   "-1.1754944e-38", OLAP_ERR_INPUT_PARAMETER_ERROR, 14);
+    test_convert_to_varchar<float>("FLOAT", 4, -1.17549435082228750796873653722224568e-38F,
+                                   "-1.1754944e-38", OLAP_SUCCESS, 16);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar) {
-    test_convert_to_varchar<double>("DOUBLE", 8, 123.456, "123.456", OLAP_SUCCESS);
+    test_convert_to_varchar<double>("DOUBLE", 8, 123.456, "123.456", OLAP_ERR_INPUT_PARAMETER_ERROR, 7);
+    test_convert_to_varchar<double>("DOUBLE", 8, 123.456, "123.456", OLAP_SUCCESS, 9);
+
+    test_convert_to_varchar<double>("DOUBLE", 8, 1.79769313486231570814527423731704357e+308,
+                                    "1.7976931348623157e+308", OLAP_ERR_INPUT_PARAMETER_ERROR, 23);
+    test_convert_to_varchar<double>("DOUBLE", 8, 1.79769313486231570814527423731704357e+308,
+                                    "1.7976931348623157e+308", OLAP_SUCCESS, 25);
+
+    test_convert_to_varchar<double>("DOUBLE", 8, 1797693134862315708l,
+                                    "1.7976931348623158e+18", OLAP_ERR_INPUT_PARAMETER_ERROR, 22);
+    test_convert_to_varchar<double>("DOUBLE", 8, 1797693134862315708l,
+                                    "1.7976931348623158e+18", OLAP_SUCCESS, 24);
+
+    test_convert_to_varchar<double>("DOUBLE", 8, -1797693134862315708l,
+                                    "-1.7976931348623158e+18", OLAP_ERR_INPUT_PARAMETER_ERROR, 23);
+    test_convert_to_varchar<double>("DOUBLE", 8, -1797693134862315708l,
+                                    "-1.7976931348623158e+18", OLAP_SUCCESS, 25);
+
+    test_convert_to_varchar<double>("DOUBLE", 8, 2.22507385850720138309023271733240406e-308,
+                                    "2.2250738585072014e-308", OLAP_ERR_INPUT_PARAMETER_ERROR, 23);
+    test_convert_to_varchar<double>("DOUBLE", 8, 2.22507385850720138309023271733240406e-308,
+                                    "2.2250738585072014e-308", OLAP_SUCCESS, 25);
+
+    test_convert_to_varchar<double>("DOUBLE", 8, -2.22507385850720138309023271733240406e-308,
+                                    "-2.2250738585072014e-308", OLAP_ERR_INPUT_PARAMETER_ERROR, 24);
+    test_convert_to_varchar<double>("DOUBLE", 8, -2.22507385850720138309023271733240406e-308,
+                                    "-2.2250738585072014e-308", OLAP_SUCCESS, 26);
 }
 
 TEST_F(TestColumn, ConvertDecimalToVarchar) {
     decimal12_t val = {456, 789000000};
-    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000", OLAP_SUCCESS);
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val,
+                                         "456.789000000", OLAP_ERR_INPUT_PARAMETER_ERROR, 13);
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000", OLAP_SUCCESS, 15);
+
+    val = {999999999999999999, 999999999};
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 28);
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val,
+                                         "999999999999999999.999999999", OLAP_SUCCESS, 30);
+
+    val = {-999999999999999999, 999999999};
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 29);
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val,
+                                         "-999999999999999999.999999999", OLAP_SUCCESS, 31);
 }
 
 void CreateTabletSchema(TabletSchema& tablet_schema) {
