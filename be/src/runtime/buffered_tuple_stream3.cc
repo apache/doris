@@ -892,7 +892,7 @@ bool BufferedTupleStream3::AddRowSlow(TupleRow* row, Status* status) noexcept {
 }
 
 uint8_t* BufferedTupleStream3::AddRowCustomBeginSlow(int64_t size, Status* status) noexcept {
-    bool got_reservation;
+    bool got_reservation = false;
     *status = AdvanceWritePage(size, &got_reservation);
     if (!status->ok() || !got_reservation) {
         return nullptr;
