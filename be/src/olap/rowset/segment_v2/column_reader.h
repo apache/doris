@@ -320,17 +320,6 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
-class EmptyFileColumnIterator final : public ColumnIterator {
-public:
-    Status seek_to_first() override { return Status::OK(); }
-    Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override {
-        *n = 0;
-        return Status::OK();
-    }
-    ordinal_t get_current_ordinal() const override { return 0; }
-};
-
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
     explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* length_reader,
