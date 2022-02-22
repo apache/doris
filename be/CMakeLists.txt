@@ -386,38 +386,29 @@ if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
 endif()
 
 # For any gcc builds:
-#   -g: Enable symbols for profiler tools
+#   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
 set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 
 # For CMAKE_BUILD_TYPE=Debug
-#   -ggdb: Enable gdb debugging
-# Debug information is stored as dwarf2 to be as compatible as possible
-#   -Werror: compile warnings should be errors when using the toolchain compiler.
-# Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
-#   -gdwarf-2: Debug information is stored as dwarf2 to be as compatible as possible
-set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
+set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
 
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=address -DADDRESS_SANITIZER")
-SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=leak -DLEAK_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize=undefined")
-# Ignore a number of noisy errors with too many false positives:
-# TODO(zc):
-# SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-sanitize=alignment,function,vptr,float-divide-by-zero,float-cast-overflow")
-# Don't enforce wrapped signed integer arithmetic so that the sanitizer actually sees
+SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
+SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
