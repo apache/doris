@@ -115,7 +115,7 @@ public:
 
     bool is_dict_encoding() const;
 
-    void set_dict_decoder(PageDecoder* dict_decoder, uint32_t* start_offset_array = nullptr, uint32_t* len_array = nullptr);
+    void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
 
     ~BinaryDictPageDecoder();
 
@@ -130,8 +130,7 @@ private:
     // use as data buf.
     std::unique_ptr<ColumnVectorBatch> _batch;
 
-    uint32_t* _start_offset_array = nullptr;
-    uint32_t* _len_array = nullptr;
+    StringRef* _dict_word_info = nullptr;
 };
 
 } // namespace segment_v2

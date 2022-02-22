@@ -672,23 +672,15 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                                                    &_dict_page_handle, &dict_data, &dict_footer));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
-                _dict_decoder.reset(new BinaryPlainPageDecoder(dict_data));
+                _dict_decoder = std::make_unique<BinaryPlainPageDecoder>(dict_data);
                 RETURN_IF_ERROR(_dict_decoder->init());
 
                 auto* pd_decoder = (BinaryPlainPageDecoder*)_dict_decoder.get();
-                _dict_start_offset_array.reset(new uint32_t[pd_decoder->_num_elems]);
-                _dict_len_array.reset(new uint32_t[pd_decoder->_num_elems]);
-
-                // todo(wb) padding dict value for SIMD comparison
-                for (int i = 0; i < pd_decoder->_num_elems; i++) {
-                    const uint32_t start_offset = pd_decoder->offset(i);
-                    uint32_t len = pd_decoder->offset(i + 1) - start_offset;
-                    _dict_start_offset_array[i] = start_offset;
-                    _dict_len_array[i] = len;
-                }
+                _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
+                pd_decoder->get_dict_word_info(_dict_word_info.get());
             }
 
-            dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_start_offset_array.get(), _dict_len_array.get());
+            dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
         }
     }
     return Status::OK();

@@ -304,8 +304,7 @@ private:
     // current value ordinal
     ordinal_t _current_ordinal = 0;
 
-    std::unique_ptr<uint32_t[]> _dict_start_offset_array;
-    std::unique_ptr<uint32_t[]> _dict_len_array;
+    std::unique_ptr<StringRef[]> _dict_word_info;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
