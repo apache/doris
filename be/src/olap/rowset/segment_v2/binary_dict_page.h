@@ -99,34 +99,57 @@ private:
 
 class BinaryDictPageDecoder : public PageDecoder {
 public:
-    BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options);
+    BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options) 
+        : _data(data), _options(options)  {}
+
+    ~BinaryDictPageDecoder() {
+        if (_encoding_type == DICT_ENCODING) {
+            _bit_shuffle.~BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>();
+        } else {
+            _binary_plain.~BinaryPlainPageDecoder();
+        }
+    }
 
     Status init() override;
 
-    Status seek_to_position_in_page(size_t pos) override;
+    Status seek_to_position_in_page(size_t pos) override final {
+        if (_encoding_type == DICT_ENCODING)
+            return _bit_shuffle.seek_to_position_in_page(pos);
+        else
+            return _binary_plain.seek_to_position_in_page(pos);
+    }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst) override final;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override;
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override final;
 
-    size_t count() const override { return _data_page_decoder->count(); }
+    size_t count() const override final { 
+        return (_encoding_type == DICT_ENCODING) ? _bit_shuffle.count() : _binary_plain.count(); 
+    }
 
-    size_t current_index() const override { return _data_page_decoder->current_index(); }
+    size_t current_index() const override final { 
+        return (_encoding_type == DICT_ENCODING) ? _bit_shuffle.current_index() : _binary_plain.current_index();
+    }
 
-    bool is_dict_encoding() const;
+    bool is_dict_encoding() const {
+        return _encoding_type == DICT_ENCODING;
+    }
 
-    void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
-
-    ~BinaryDictPageDecoder();
+    void set_dict_word_info(StringRef* dict_word_info) {
+        _dict_word_info = dict_word_info;
+    }
 
 private:
     Slice _data;
     PageDecoderOptions _options;
-    std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder* _dict_decoder = nullptr;
-    BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
-    bool _parsed;
-    EncodingTypePB _encoding_type;
+
+    union {
+        BitShufflePageDecoder<OLAP_FIELD_TYPE_INT> _bit_shuffle;
+        BinaryPlainPageDecoder _binary_plain;
+    };
+
+    bool _parsed = false;
+    EncodingTypePB _encoding_type = UNKNOWN_ENCODING;
     // use as data buf.
     std::unique_ptr<ColumnVectorBatch> _batch;
 

@@ -185,13 +185,13 @@ public:
         return Status::OK();
     }
 
-    Status seek_to_position_in_page(size_t pos) override {
+    Status seek_to_position_in_page(size_t pos) override final {
         DCHECK_LE(pos, _num_elems);
         _cur_idx = pos;
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override {
+    Status next_batch(size_t* n, ColumnBlockView* dst) override final {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
             *n = 0;
@@ -230,7 +230,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override final {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
             *n = 0;
@@ -252,12 +252,12 @@ public:
         return Status::OK();
     };
 
-    size_t count() const override {
+    size_t count() const override final {
         DCHECK(_parsed);
         return _num_elems;
     }
 
-    size_t current_index() const override {
+    size_t current_index() const override final {
         DCHECK(_parsed);
         return _cur_idx;
     }
@@ -269,6 +269,8 @@ public:
     }
 
     void get_dict_word_info(StringRef* dict_word_info) {
+        if (_num_elems <= 0) return;
+
         char* data_begin = (char*)&_data[0];
         char* offset_ptr = (char*)&_data[_offsets_pos];
 

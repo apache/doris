@@ -187,13 +187,6 @@ Status BinaryDictPageBuilder::get_last_value(void* value) const {
     return Status::OK();
 }
 
-BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options)
-        : _data(data),
-          _options(options),
-          _data_page_decoder(nullptr),
-          _parsed(false),
-          _encoding_type(UNKNOWN_ENCODING) {}
-
 Status BinaryDictPageDecoder::init() {
     CHECK(!_parsed);
     if (_data.size < BINARY_DICT_PAGE_HEADER_SIZE) {
@@ -207,59 +200,43 @@ Status BinaryDictPageDecoder::init() {
         // copy the codewords into a temporary buffer first
         // And then copy the strings corresponding to the codewords to the destination buffer
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
-
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
-        _data_page_decoder.reset(_bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        auto status = (new (&_bit_shuffle) BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options))->init();
+        if (!status.ok()) return status;
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
+        auto status = (new (&_binary_plain) BinaryPlainPageDecoder(_data, _options))->init();
+        if (!status.ok()) return status;
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption(strings::Substitute("invalid encoding type:$0", _encoding_type));
     }
 
-    RETURN_IF_ERROR(_data_page_decoder->init());
     _parsed = true;
     return Status::OK();
 }
 
-BinaryDictPageDecoder::~BinaryDictPageDecoder() {}
-
-Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
-    return _data_page_decoder->seek_to_position_in_page(pos);
-}
-
-bool BinaryDictPageDecoder::is_dict_encoding() const {
-    return _encoding_type == DICT_ENCODING;
-}
-
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
-    _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
-    _dict_word_info = dict_word_info;
-};
-
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
     if (_encoding_type == PLAIN_ENCODING) {
-        return _data_page_decoder->next_batch(n, dst);
+        return _binary_plain.next_batch(n, dst);
     }
     // dictionary encoding
     DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
  
-    if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
+    if (PREDICT_FALSE(*n == 0 || _bit_shuffle._cur_index >= _bit_shuffle._num_elements)) {
         *n = 0;
         return Status::OK();
     }
  
-    size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle_ptr->_num_elements - _bit_shuffle_ptr->_cur_index));
+    size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle._num_elements - _bit_shuffle._cur_index));
     *n = max_fetch;
  
-    const int32_t* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
-    size_t start_index = _bit_shuffle_ptr->_cur_index;
+    const int32_t* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle._chunk.data);
+    size_t start_index = _bit_shuffle._cur_index;
 
     dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch);
 
-    _bit_shuffle_ptr->_cur_index += max_fetch;
+    _bit_shuffle._cur_index += max_fetch;
  
     return Status::OK();
  
@@ -267,11 +244,10 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (_encoding_type == PLAIN_ENCODING) {
-        return _data_page_decoder->next_batch(n, dst);
+        return _binary_plain.next_batch(n, dst);
     }
     // dictionary encoding
     DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
 
     if (PREDICT_FALSE(*n == 0)) {
         return Status::OK();
@@ -282,7 +258,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
 
     ColumnBlock column_block(_batch.get(), dst->column_block()->pool());
     ColumnBlockView tmp_block_view(&column_block);
-    RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
+    RETURN_IF_ERROR(_bit_shuffle.next_batch(n, &tmp_block_view));
     const auto len = *n;
 
     size_t mem_len[len];

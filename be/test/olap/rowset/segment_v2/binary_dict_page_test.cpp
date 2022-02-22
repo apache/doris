@@ -80,7 +80,7 @@ public:
         PageDecoderOptions decoder_options;
         BinaryDictPageDecoder page_decoder(s.slice(), decoder_options);
 
-        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
+        page_decoder.set_dict_word_info(dict_word_info);
 
         status = page_decoder.init();
         ASSERT_TRUE(status.ok());
@@ -179,7 +179,7 @@ public:
             BinaryDictPageDecoder page_decoder(results[slice_index].slice(), decoder_options);
             status = page_decoder.init();
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
+            page_decoder.set_dict_word_info(dict_word_info);
             ASSERT_TRUE(status.ok());
 
             //check values

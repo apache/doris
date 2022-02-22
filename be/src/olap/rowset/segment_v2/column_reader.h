@@ -255,15 +255,15 @@ public:
 
     Status seek_to_first() override;
 
-    Status seek_to_ordinal(ordinal_t ord) override;
+    Status seek_to_ordinal(ordinal_t ord) override final;
 
     Status seek_to_page_start();
 
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override final;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override final;
 
-    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+    ordinal_t get_current_ordinal() const override final { return _current_ordinal; }
 
     // get row ranges by zone map
     // - cond_column is user's query predicate
@@ -275,7 +275,7 @@ public:
 
     ParsedPage* get_current_page() { return _page.get(); }
 
-    bool is_nullable() { return _reader->is_nullable(); }
+    bool is_nullable() const { return _reader->is_nullable(); }
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page);
@@ -292,7 +292,7 @@ private:
     std::unique_ptr<ParsedPage> _page;
 
     // keep dict page decoder
-    std::unique_ptr<PageDecoder> _dict_decoder;
+    std::unique_ptr<BinaryPlainPageDecoder> _dict_decoder;
 
     // keep dict page handle to avoid released
     PageHandle _dict_page_handle;

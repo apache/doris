@@ -182,7 +182,7 @@ public:
             BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
             page_decoder.init();
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
+            page_decoder.set_dict_word_info(dict_word_info);
 
             //check values
             size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];

@@ -675,12 +675,12 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 _dict_decoder = std::make_unique<BinaryPlainPageDecoder>(dict_data);
                 RETURN_IF_ERROR(_dict_decoder->init());
 
-                auto* pd_decoder = (BinaryPlainPageDecoder*)_dict_decoder.get();
+                auto* pd_decoder = _dict_decoder.get();
                 _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
                 pd_decoder->get_dict_word_info(_dict_word_info.get());
             }
 
-            dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
+            dict_page_decoder->set_dict_word_info(_dict_word_info.get());
         }
     }
     return Status::OK();
