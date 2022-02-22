@@ -31,7 +31,7 @@ This statement is used to restore the data previously backed up by the BACKUP co
 Grammar:
 SNAPSHOT RESTORE [dbu name].{snapshot name}
 FROM `repository_name`
-ON/EXCLUDE (
+[ON|EXCLUDE] (
 "`Table `uname'[`partition (`p1',...)] [as `tbl `uu alias'],
 ...
 )
