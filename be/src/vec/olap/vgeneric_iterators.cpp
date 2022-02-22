@@ -169,8 +169,6 @@ public:
         
         if (_sequence_id_idx != -1) {
             int col_cmp_res = this->_block.compare_column_at(_index_in_block, rhs._index_in_block, _sequence_id_idx, rhs._block, -1);
-            auto left_col = this->_block.get_by_position(_sequence_id_idx).column;
-            auto right_col = rhs._block.get_by_position(_sequence_id_idx).column;
             if (col_cmp_res != 0) {
                 return col_cmp_res < 0;
             }
