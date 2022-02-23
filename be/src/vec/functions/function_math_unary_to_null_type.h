@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -14,9 +15,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionMathUnary.h
-// and modified by Doris
 
 #pragma once
 
@@ -30,12 +28,10 @@
 namespace doris::vectorized {
 
 template <typename Impl>
-class FunctionMathUnary : public IFunction {
+class FunctionMathUnaryToNullType : public IFunction {
 public:
     static constexpr auto name = Impl::name;
-    static constexpr bool has_variadic_argument =
-            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Impl>()))>;
-    static FunctionPtr create() { return std::make_shared<FunctionMathUnary>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMathUnaryToNullType>(); }
 
 private:
     String get_name() const override { return name; }
@@ -46,46 +42,13 @@ private:
         if (!is_number(arg)) {
             return nullptr;
         }
-        return std::make_shared<typename Impl::Type>();
+        return make_nullable(std::make_shared<typename Impl::Type>());
     }
 
-    DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Impl::get_variadic_argument_types();
-        return {};
-    }
-    
     template <typename T, typename ReturnType>
-    static void execute_in_iterations(const T* src_data, ReturnType* dst_data, size_t size) {
-        if constexpr (Impl::rows_per_iteration == 0) {
-            /// Process all data as a whole and use FastOps implementation
-
-            /// If the argument is integer, convert to Float64 beforehand
-            if constexpr (!std::is_floating_point_v<T>) {
-                PODArray<Float64> tmp_vec(size);
-                for (size_t i = 0; i < size; ++i) tmp_vec[i] = src_data[i];
-
-                Impl::execute(tmp_vec.data(), size, dst_data);
-            } else {
-                Impl::execute(src_data, size, dst_data);
-            }
-        } else {
-            const size_t rows_remaining = size % Impl::rows_per_iteration;
-            const size_t rows_size = size - rows_remaining;
-
-            for (size_t i = 0; i < rows_size; i += Impl::rows_per_iteration)
-                Impl::execute(&src_data[i], &dst_data[i]);
-
-            if (rows_remaining != 0) {
-                T src_remaining[Impl::rows_per_iteration];
-                memcpy(src_remaining, &src_data[rows_size], rows_remaining * sizeof(T));
-                memset(src_remaining + rows_remaining, 0,
-                       (Impl::rows_per_iteration - rows_remaining) * sizeof(T));
-                ReturnType dst_remaining[Impl::rows_per_iteration];
-
-                Impl::execute(src_remaining, dst_remaining);
-
-                memcpy(&dst_data[rows_size], dst_remaining, rows_remaining * sizeof(ReturnType));
-            }
+    static void execute_in_iterations(const T* src_data, ReturnType* dst_data, NullMap& null_map, size_t size) {
+        for (size_t i = 0; i < size; i++) {
+            Impl::execute(&src_data[i], &dst_data[i], null_map[i]);
         }
     }
 
@@ -98,9 +61,13 @@ private:
         auto& dst_data = dst->get_data();
         dst_data.resize(size);
 
-        execute_in_iterations(src_data.data(), dst_data.data(), size);
+        auto null_column = ColumnVector<UInt8>::create();
+        auto& null_map = null_column->get_data();
+        null_map.resize(size);
 
-        block.replace_by_position(result, std::move(dst));
+        execute_in_iterations(src_data.data(), dst_data.data(), null_map, size);
+
+        block.replace_by_position(result, ColumnNullable::create(std::move(dst), std::move(null_column)));
         return true;
     }
 
@@ -114,13 +81,17 @@ private:
         auto& dst_data = dst->get_data();
         dst_data.resize(size);
 
+        auto null_column = ColumnVector<UInt8>::create();
+        auto& null_map = null_column->get_data();
+        null_map.resize(size);
+
         for (size_t i = 0; i < size; ++i)
             dst_data[i] = convert_from_decimal<DataTypeDecimal<T>, DataTypeNumber<ReturnType>>(
                     src_data[i], scale);
 
-        execute_in_iterations(dst_data.data(), dst_data.data(), size);
+        execute_in_iterations(dst_data.data(), dst_data.data(), null_map, size);
 
-        block.replace_by_position(result, std::move(dst));
+        block.replace_by_position(result, ColumnNullable::create(std::move(dst), std::move(null_column)));
         return true;
     }
 
@@ -133,13 +104,11 @@ private:
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using Type = typename Types::RightType;
-            using ReturnType = std::conditional_t<
-                    Impl::always_returns_float64, Float64, Int64>;
             using ColVecType = std::conditional_t<IsDecimalNumber<Type>, ColumnDecimal<Type>,
                                                   ColumnVector<Type>>;
 
             const auto col_vec = check_and_get_column<ColVecType>(col.column.get());
-            return execute<Type, ReturnType>(block, col_vec, result);
+            return execute<Type, typename Impl::RetType>(block, col_vec, result);
         };
 
         if (!call_on_basic_type<void, true, true, true, false>(col.type->get_type_id(), call)) {
@@ -149,20 +118,5 @@ private:
         return Status::OK();
     }
 };
-
-template <typename Name, Float64(Function)(Float64), typename ReturnType = DataTypeFloat64>
-struct UnaryFunctionPlain {
-    using Type = ReturnType;
-    static constexpr auto name = Name::name;
-    static constexpr auto rows_per_iteration = 1;
-    static constexpr bool always_returns_float64 = std::is_same_v<Type, DataTypeFloat64>;
-
-    template <typename T, typename U>
-    static void execute(const T* src, U* dst) {
-        dst[0] = static_cast<Float64>(Function(static_cast<Float64>(src[0])));
-    }
-};
-
-#define UnaryFunctionVectorized UnaryFunctionPlain
 
 } // namespace doris::vectorized
