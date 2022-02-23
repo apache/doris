@@ -93,14 +93,17 @@ public class ReplicaPersistInfo implements Writable {
     private long backendId;
     
     private long version;
+    @Deprecated
     private long versionHash = 0L;
     private int schemaHash = -1;
     private long dataSize;
     private long rowCount;
     
     private long lastFailedVersion = -1L;
+    @Deprecated
     private long lastFailedVersionHash = 0L;
     private long lastSuccessVersion = -1L;
+    @Deprecated
     private long lastSuccessVersionHash = 0L;
 
     public static ReplicaPersistInfo createForAdd(long dbId, long tableId, long partitionId, long indexId,

@@ -73,6 +73,7 @@ public class Replica implements Writable {
     // the version could be queried
     @SerializedName(value = "version")
     private volatile long version;
+    @Deprecated
     @SerializedName(value = "versionHash")
     private long versionHash = 0L;
     private int schemaHash = -1;
@@ -86,6 +87,7 @@ public class Replica implements Writable {
     // the last load failed version
     @SerializedName(value = "lastFailedVersion")
     private long lastFailedVersion = -1L;
+    @Deprecated
     @SerializedName(value = "lastFailedVersionHash")
     private long lastFailedVersionHash = 0L;
     // not serialized, not very important
@@ -93,6 +95,7 @@ public class Replica implements Writable {
     // the last load successful version
     @SerializedName(value = "lastSuccessVersion")
     private long lastSuccessVersion = -1L;
+    @Deprecated
     @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
 
