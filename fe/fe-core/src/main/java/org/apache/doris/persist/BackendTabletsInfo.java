@@ -27,6 +27,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
+@Deprecated
+// replaced by BackendReplicaInfo
 public class BackendTabletsInfo implements Writable {
 
     private long backendId;

@@ -188,6 +188,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -745,12 +746,15 @@ public class Catalog {
     public StatisticsManager getStatisticsManager() {
         return statisticsManager;
     }
+
     public StatisticsJobManager getStatisticsJobManager() {
         return statisticsJobManager;
     }
+
     public StatisticsJobScheduler getStatisticsJobScheduler() {
         return statisticsJobScheduler;
     }
+
     public StatisticsTaskScheduler getStatisticsTaskScheduler() {
         return statisticsTaskScheduler;
     }
@@ -6929,6 +6933,35 @@ public class Catalog {
         }
     }
 
+    public void replayBackendReplicasInfo(BackendReplicasInfo backendReplicasInfo) {
+        long backendId = backendReplicasInfo.getBackendId();
+        List<BackendReplicasInfo.ReplicaReportInfo> replicaInfos = backendReplicasInfo.getReplicaReportInfos();
+
+        for (BackendReplicasInfo.ReplicaReportInfo info : replicaInfos) {
+            Replica replica = tabletInvertedIndex.getReplica(info.tabletId, backendId);
+            if (replica == null) {
+                LOG.warn("failed to find replica of tablet {} on backend {} when replaying backend report info",
+                        info.tabletId, backendId);
+                continue;
+            }
+
+            switch (info.type) {
+                case BAD:
+                    replica.setBad(true);
+                    break;
+                case MISSING_VERSION:
+                    // The absolute value is meaningless, as long as it is greater than 0.
+                    // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
+                    // it will be considered a version missing replica and will be handled accordingly.
+                    replica.setLastFailedVersion(1L);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    @Deprecated
     public void replayBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         List<Pair<Long, Integer>> tabletsWithSchemaHash = backendTabletsInfo.getTabletSchemaHash();
         if (!tabletsWithSchemaHash.isEmpty()) {

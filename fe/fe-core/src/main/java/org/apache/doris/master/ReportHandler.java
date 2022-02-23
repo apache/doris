@@ -42,6 +42,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
@@ -797,8 +798,7 @@ public class ReportHandler extends Daemon {
                 tabletRecoveryMap.size(), backendId);
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo(backendId);
-        backendTabletsInfo.setBad(true);
+        BackendReplicasInfo backendReplicasInfo = new BackendReplicasInfo(backendId);
         for (Long dbId : tabletRecoveryMap.keySet()) {
             Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -848,9 +848,7 @@ public class ReportHandler extends Daemon {
                                 if (replica.setBad(true)) {
                                     LOG.warn("set bad for replica {} of tablet {} on backend {}",
                                             replica.getId(), tabletId, backendId);
-                                    ReplicaPersistInfo replicaPersistInfo = ReplicaPersistInfo.createForReport(
-                                            dbId, tableId, partitionId, indexId, tabletId, backendId, replica.getId());
-                                    backendTabletsInfo.addReplicaInfo(replicaPersistInfo);
+                                    backendReplicasInfo.addBadReplica(tabletId);
                                 }
                                 break;
                             }
