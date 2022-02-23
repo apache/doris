@@ -274,6 +274,14 @@ public:
         return 0;
     }
 
+    //note(wb) no DCHECK here, because this method is only used after compare_at now, so no need to repeat check here.
+    // If this method is used in more places, you can add DCHECK case by case.
+    int compare_column_at(size_t n, size_t m, size_t col_idx, const Block& rhs, int nan_direction_hint) const {
+        auto res = get_by_position(col_idx).column->compare_at(n, m, *(rhs.get_by_position(col_idx).column),
+                                                             nan_direction_hint);
+        return res;
+    }
+
     doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int, bool padding_char = false);
 
 private:
