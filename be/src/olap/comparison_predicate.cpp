@@ -259,12 +259,31 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(LessEqualPredicate, <=)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterEqualPredicate, >=)
 
-// todo(wb) support it
-#define COMPARISON_PRED_COLUMN_EVALUATE_OR(CLASS, OP)                                        \
-    template <class type>                                                                    \
-    void CLASS<type>::evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, \
-                                  bool* flags) const {}
-
+#define COMPARISON_PRED_COLUMN_EVALUATE_OR(CLASS, OP)                                                                                                \
+    template <class type>                                                                                                                            \
+    void CLASS<type>::evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {                                    \
+        if (column.is_nullable()) {                                                                                                                  \
+            auto* nullable_column = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);                                            \
+            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<type>&>(nullable_column->get_nested_column()).get_data();      \
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(*(nullable_column->get_null_map_column_ptr())).get_data();\
+            for (uint16_t i = 0; i < size; i++) {                                                                                                    \
+                if (flags[i]) continue;                                                                                                              \
+                uint16_t idx = sel[i];                                                                                                               \
+                bool ret = !null_bitmap[idx] && (data_array[idx] OP _value);                                                                         \
+                flags[i] |= _opposite ? !ret : ret;                                                                                                  \
+            }                                                                                                                                        \
+        } else {                                                                                                                                     \
+            auto& predicate_column = reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);                                               \
+            auto& data_array = predicate_column.get_data();                                                                                          \
+            for (uint16_t i = 0; i < size; ++i) {                                                                                                    \
+                if (flags[i]) continue;                                                                                                              \
+                uint16_t idx = sel[i];                                                                                                               \
+                bool ret = data_array[idx] OP _value;                                                                                                \
+                flags[i] |= _opposite ? !ret : ret;                                                                                                  \
+            }                                                                                                                                        \
+        }                                                                                                                                            \
+    }
+ 
 COMPARISON_PRED_COLUMN_EVALUATE_OR(EqualPredicate, ==)
 COMPARISON_PRED_COLUMN_EVALUATE_OR(NotEqualPredicate, !=)
 COMPARISON_PRED_COLUMN_EVALUATE_OR(LessPredicate, <)
@@ -304,12 +323,31 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(LessEqualPredicate, <=)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(GreaterEqualPredicate, >=)
 
-//todo(wb) support it
-#define COMPARISON_PRED_COLUMN_EVALUATE_AND(CLASS, OP)                                        \
-    template <class type>                                                                     \
-    void CLASS<type>::evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, \
-                                   bool* flags) const {}
-
+#define COMPARISON_PRED_COLUMN_EVALUATE_AND(CLASS, OP)                                                                                               \
+    template <class type>                                                                                                                            \
+    void CLASS<type>::evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {                                   \
+        if (column.is_nullable()) {                                                                                                                  \
+            auto* nullable_column = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);                                            \
+            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<type>&>(nullable_column->get_nested_column()).get_data();      \
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(*(nullable_column->get_null_map_column_ptr())).get_data();\
+            for (uint16_t i = 0; i < size; i++) {                                                                                                    \
+                if (!flags[i]) continue;                                                                                                             \
+                uint16_t idx = sel[i];                                                                                                               \
+                bool ret = !null_bitmap[idx] && (data_array[idx] OP _value);                                                                         \
+                flags[i] &= _opposite ? !ret : ret;                                                                                                  \
+            }                                                                                                                                        \
+        } else {                                                                                                                                     \
+            auto& predicate_column = reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);                                               \
+            auto& data_array = predicate_column.get_data();                                                                                          \
+            for (uint16_t i = 0; i < size; ++i) {                                                                                                    \
+                if (!flags[i]) continue;                                                                                                             \
+                uint16_t idx = sel[i];                                                                                                               \
+                bool ret = data_array[idx] OP _value;                                                                                                \
+                flags[i] &= _opposite ? !ret : ret;                                                                                                  \
+            }                                                                                                                                        \
+        }                                                                                                                                            \
+    }
+ 
 COMPARISON_PRED_COLUMN_EVALUATE_AND(EqualPredicate, ==)
 COMPARISON_PRED_COLUMN_EVALUATE_AND(NotEqualPredicate, !=)
 COMPARISON_PRED_COLUMN_EVALUATE_AND(LessPredicate, <)
