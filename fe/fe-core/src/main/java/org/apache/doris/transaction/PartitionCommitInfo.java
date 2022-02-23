@@ -17,8 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -37,8 +35,6 @@ public class PartitionCommitInfo implements Writable {
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTime;
-    @SerializedName(value = "versionHash")
-    private long versionHash;
 
     public PartitionCommitInfo() {
         
@@ -58,16 +54,8 @@ public class PartitionCommitInfo implements Writable {
     }
 
     public static PartitionCommitInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_88) {
-            long partitionId = in.readLong();
-            long version = in.readLong();
-            // Useless, just read it for compatible
-            long versionHash = in.readLong();
-            return new PartitionCommitInfo(partitionId, version, System.currentTimeMillis());
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, PartitionCommitInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, PartitionCommitInfo.class);
     }
 
     public long getPartitionId() {
@@ -88,10 +76,6 @@ public class PartitionCommitInfo implements Writable {
 
     public void setVersionTime(long versionTime) {
         this.versionTime = versionTime;
-    }
-
-    public void setVersionHash(long versionHash) {
-        this.versionHash = versionHash;
     }
     
     @Override

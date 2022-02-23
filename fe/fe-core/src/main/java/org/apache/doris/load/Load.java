@@ -2916,7 +2916,7 @@ public class Load {
     private void updatePartitionVersion(Partition partition, long version, long jobId) {
         long partitionId = partition.getId();
         partition.updateVisibleVersion(version);
-        LOG.info("update partition version success. version: {},  job id: {}, partition id: {}",
+        LOG.info("update partition version success. version: {}, job id: {}, partition id: {}",
                 version, jobId, partitionId);
     }
 

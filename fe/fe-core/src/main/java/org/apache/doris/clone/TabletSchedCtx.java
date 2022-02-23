@@ -189,7 +189,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     
     private Tablet tablet = null;
     private long visibleVersion = -1;
-    private long visibleVersionHash = -1;
     private long committedVersion = -1;
     
     private Replica srcReplica = null;
