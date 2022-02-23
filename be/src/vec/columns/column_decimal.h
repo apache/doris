@@ -101,9 +101,13 @@ public:
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
-        data.reserve(size() + (indices_end - indices_begin));
-        for (auto x = indices_begin; x != indices_end; ++x) {
-            data.push_back_without_reserve(src_vec.get_element(*x));
+        auto origin_size = size();
+        auto new_size = indices_end - indices_begin;
+        data.resize(origin_size + new_size);
+
+        for (int i = 0; i < new_size; ++i) {
+            auto offset = *(indices_begin + i);
+            data[origin_size + i] = offset == -1 ? T{} : src_vec.get_element(offset);
         }
     }
 
