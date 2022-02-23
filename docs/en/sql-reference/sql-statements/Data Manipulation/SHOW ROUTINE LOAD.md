@@ -28,7 +28,7 @@ under the License.
 ## description
     This statement is used to show the running status of the Routine Load job
     grammar:
-        SHOW [ALL] ROUTINE LOAD [FOR jobName];
+        SHOW [ALL] ROUTINE LOAD [FOR jobName] [LIKE pattern];
 
     Result description:
 

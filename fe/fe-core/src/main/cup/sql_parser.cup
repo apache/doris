@@ -1873,7 +1873,7 @@ stop_routine_load_stmt ::=
     ;
 
 show_routine_load_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_wild_where
+    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowRoutineLoadStmt(jobLabel, false, null);
     :}
@@ -1881,11 +1881,11 @@ show_routine_load_stmt ::=
     {:
         RESULT = new ShowRoutineLoadStmt(jobLabel, true, null);
     :}
-    | KW_SHOW KW_ROUTINE KW_LOAD
+    | KW_SHOW KW_ROUTINE KW_LOAD opt_wild_where
     {:
         RESULT = new ShowRoutineLoadStmt(null, false, parser.wild);
     :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_wild_where
     {:
         RESULT = new ShowRoutineLoadStmt(null, true, parser.wild);
     :}

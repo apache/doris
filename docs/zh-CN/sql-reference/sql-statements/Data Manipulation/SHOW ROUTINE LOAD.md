@@ -28,7 +28,7 @@ under the License.
 ## description
     该语句用于展示 Routine Load 作业运行状态
     语法：
-        SHOW [ALL] ROUTINE LOAD [FOR jobName][LIKE pattern];
+        SHOW [ALL] ROUTINE LOAD [FOR jobName] [LIKE pattern];
 
     结果说明：
 
