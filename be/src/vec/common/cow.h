@@ -413,11 +413,6 @@ public:
         return MutablePtr(new Derived(std::forward<Args>(args)...));
     }
 
-    template <typename T>
-    static MutablePtr create(std::initializer_list<T>&& arg) {
-        return create(std::forward<std::initializer_list<T>>(arg));
-    }
-
     typename Base::MutablePtr clone() const override {
         return typename Base::MutablePtr(new Derived(static_cast<const Derived&>(*this)));
     }
