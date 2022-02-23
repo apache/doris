@@ -69,7 +69,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto column = Impl::ReturnColVec::create();
         column->get_data().emplace_back(Impl::init_value());
-        block.replace_by_position(result, ColumnConst::create(std::move(column), 1));
+        block.replace_by_position(result, ColumnConst::create(std::move(column), input_rows_count));
         return Status::OK();
     }
 };

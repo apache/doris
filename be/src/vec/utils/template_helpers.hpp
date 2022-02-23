@@ -66,4 +66,18 @@ IAggregateFunction* create_class_with_type(const IDataType& argument_type, TArgs
     return nullptr;
 }
 
+// We can use template lambda function in C++20, but now just use static function
+#define CONSTEXPR_LOOP_MATCH_DECLARE(EXECUTE)                                               \
+    template <int start, int end, template <int> typename Object, typename... TArgs>        \
+    static void constexpr_loop_match(int target, TArgs&&... args) {                         \
+        if constexpr (start < end) {                                                        \
+            if (start == target) {                                                          \
+                EXECUTE<Object<start>>(std::forward<TArgs>(args)...);                       \
+            } else {                                                                        \
+                constexpr_loop_match<start + 1, end, Object>(target,                        \
+                                                             std::forward<TArgs>(args)...); \
+            }                                                                               \
+        }                                                                                   \
+    }
+
 } // namespace  doris::vectorized

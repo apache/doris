@@ -165,13 +165,10 @@ public:
         }
     };
  
-    void insert_many_dict_data (const int32_t* data_array, size_t start_index, const uint32_t* start_offset_array, 
-        const uint32_t* len_array, char* dict_data, size_t num) override {
-        for (int i = 0; i < num; i++, start_index++) {
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) override {
+        for (size_t end_index = start_index+num; start_index < end_index; ++start_index) {
             int32_t codeword = data_array[start_index];
-            uint32_t start_offset = start_offset_array[codeword];
-            uint32_t str_len = len_array[codeword];
-            insert_data(dict_data + start_offset, str_len);
+            insert_data(dict[codeword].data, dict[codeword].size);
         }
     }
 
