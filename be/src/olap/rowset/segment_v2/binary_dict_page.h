@@ -105,7 +105,7 @@ public:
     ~BinaryDictPageDecoder() {
         if (_encoding_type == DICT_ENCODING) {
             _bit_shuffle.~BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>();
-        } else {
+        } else if (_encoding_type == PLAIN_ENCODING) {
             _binary_plain.~BinaryPlainPageDecoder();
         }
     }

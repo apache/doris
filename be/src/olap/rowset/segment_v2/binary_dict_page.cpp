@@ -199,14 +199,10 @@ Status BinaryDictPageDecoder::init() {
     if (_encoding_type == DICT_ENCODING) {
         // copy the codewords into a temporary buffer first
         // And then copy the strings corresponding to the codewords to the destination buffer
-        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
-        RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
-        auto status = (new (&_bit_shuffle) BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options))->init();
-        if (!status.ok()) return status;
+        RETURN_IF_ERROR((new (&_bit_shuffle) BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options))->init());
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        auto status = (new (&_binary_plain) BinaryPlainPageDecoder(_data, _options))->init();
-        if (!status.ok()) return status;
+        RETURN_IF_ERROR((new (&_binary_plain) BinaryPlainPageDecoder(_data, _options))->init());
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption(strings::Substitute("invalid encoding type:$0", _encoding_type));
@@ -253,6 +249,11 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         return Status::OK();
     }
     Slice* out = reinterpret_cast<Slice*>(dst->data());
+
+    if (!_batch) {
+        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
+        RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
+    }
 
     _batch->resize(*n);
 
