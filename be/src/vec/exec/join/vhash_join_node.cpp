@@ -194,6 +194,10 @@ struct ProcessHashTableProbe {
         constexpr auto is_right_semi_anti_join = JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
                                             JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN;
 
+        constexpr auto is_semi_anti_join = is_right_semi_anti_join ||
+                                    JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN ||
+                                    JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN;
+
         constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
                                      JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
 
@@ -269,7 +273,7 @@ struct ProcessHashTableProbe {
         }
 
         // insert all matched build rows
-        if constexpr (!is_right_semi_anti_join) {
+        if constexpr (!is_semi_anti_join) {
             if (_build_blocks.size() == 1) {
                 for (int i = 0; i < _right_col_len; i++) {
                     auto& column = *_build_blocks[0].get_by_position(i).column;
