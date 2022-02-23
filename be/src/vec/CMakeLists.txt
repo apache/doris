@@ -105,6 +105,7 @@ set(VEC_FILES
   exprs/vinfo_func.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
+  functions/function_bitmap_variadic.cpp
   functions/comparison.cpp
   functions/comparison_less.cpp
   functions/comparison_equals.cpp
