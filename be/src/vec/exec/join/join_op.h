@@ -26,15 +26,15 @@ namespace doris::vectorized {
 struct RowRef {
     using SizeT = uint32_t; /// Do not use size_t cause of memory economy
 
-    const Block* block = nullptr;
     SizeT row_num = 0;
+    uint8_t block_offset;
     // Use in right join to mark row is visited
     // TODO: opt the varaible to use it only need
     bool visited = false;
 
     RowRef() {}
-    RowRef(const Block* block_ptr, size_t row_num_count, bool is_visited = false)
-            : block(block_ptr), row_num(row_num_count), visited(is_visited) {}
+    RowRef(size_t row_num_count, uint8_t block_offset_, bool is_visited = false)
+            : row_num(row_num_count), block_offset(block_offset_), visited(is_visited) {}
 };
 
 /// Single linked list of references to rows. Used for ALL JOINs (non-unique JOINs)
@@ -115,10 +115,10 @@ struct RowRefList : RowRef {
     };
 
     RowRefList() {}
-    RowRefList(const Block* block_, size_t row_num_) : RowRef(block_, row_num_) {}
+    RowRefList(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
 
     ForwardIterator begin() { return ForwardIterator(this); }
-    ForwardIterator end() { return ForwardIterator::end(); }
+    static ForwardIterator end() { return ForwardIterator::end(); }
 
     /// insert element after current one
     void insert(RowRef&& row_ref, Arena& pool) {
@@ -138,6 +138,4 @@ private:
     uint32_t row_count = 1;
 };
 
-// using MapI32 = doris::vectorized::HashMap<UInt32, MappedAll, HashCRC32<UInt32>>;
-// using I32KeyType = doris::vectorized::ColumnsHashing::HashMethodOneNumber<MapI32::value_type, MappedAll, UInt32, false>;
 } // namespace doris::vectorized
