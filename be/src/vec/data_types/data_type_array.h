@@ -67,16 +67,11 @@ public:
     /// 1 for plain array, 2 for array of arrays and so on.
     size_t get_number_of_dimensions() const;
 
-/*
-    size_t serialize(const IColumn& column, PColumn* pcolumn) const override;
-    void deserialize(const PColumn& pcolumn, IColumn* column) const override;
-*/
-
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override {
-        return 0;
-    }
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
     char* serialize(const IColumn& column, char* buf) const override;
     const char* deserialize(const char* buf, IColumn* column) const override;
+
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
 };
 
 } // namespace doris::vectorized

@@ -22,7 +22,6 @@
 #include "olap/row.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor_cell.h"
-#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 

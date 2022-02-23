@@ -52,54 +52,46 @@ size_t DataTypeArray::get_number_of_dimensions() const {
     return 1 + nested_array->get_number_of_dimensions();   /// Every modern C++ compiler optimizes tail recursion.
 }
 
-/*
-size_t DataTypeArray::serialize(const IColumn& column, PColumn* pcolumn) const {
-    size_t size_before_compress = 0;
+int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
-    const auto& array_column = assert_cast<const ColumnArray&>(*ptr.get());
-
-    // set pcolumn data type
-    pcolumn->set_type(PColumn::ARRAY);
-
-    // compute the mem need to be allocate
-    auto off_len = (column.size() + 1) * sizeof(IColumn::Offset);
-    pcolumn->mutable_binary()->resize(off_len);
-    auto* data = pcolumn->mutable_binary()->data();
-
-    // serialize offsets of the array
-    *reinterpret_cast<IColumn::Offset*>(data) = column.size();
-    data += sizeof(IColumn::Offset);
-    memcpy(data, array_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
-
-    // serialize nested data of array
-    auto* sub_pcolumn = pcolumn->add_sub_columns();
-    size_before_compress += nested->serialize(*array_column.get_data_ptr(), sub_pcolumn);
-
-    return size_before_compress + compress_binary(pcolumn);
+    const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
+    return sizeof(IColumn::Offset) * (column.size() + 1) +
+               get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data());
 }
 
-void DataTypeArray::deserialize(const PColumn& pcolumn, IColumn* column) const {
-    auto* array_column = assert_cast<ColumnArray*>(column);
-    auto& offsets = array_column->get_offsets();
-    std::string uncompressed;
-    read_binary(pcolumn, &uncompressed);
-
-    // deserialize offsets of the array
-    auto* origin_data = uncompressed.data();
-    uint32_t column_len = *reinterpret_cast<IColumn::Offset*>(origin_data);
-    origin_data += sizeof(IColumn::Offset);
-    offsets.resize(column_len);
-    memcpy(offsets.data(), origin_data, sizeof(IColumn::Offset) * column_len);
-
-    // deserialize nested data of array
-    nested->deserialize(pcolumn.sub_columns(0), array_column->get_data_ptr()->assume_mutable());
-}
-*/
 char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
-    return nullptr;
+    auto ptr = column.convert_to_full_column_if_const();
+    const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
+
+    // column num
+    *reinterpret_cast<uint32_t*>(buf) = column.size();
+    buf += sizeof(IColumn::Offset);
+    // offsets
+    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
+    buf += column.size() * sizeof(IColumn::Offset);
+    // children
+    return get_nested_type()->serialize(data_column.get_data(), buf);
 }
+
 const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
-    return nullptr;
+    auto* data_column = assert_cast<ColumnArray*>(column);
+    auto& offsets = data_column->get_offsets();
+
+    // column num
+    uint32_t column_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    buf += sizeof(IColumn::Offset);
+    // offsets
+    offsets.resize(column_num);
+    memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * column_num);
+    buf += sizeof(IColumn::Offset) * column_num;
+    // children
+    return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable());
+}
+
+void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    auto children = col_meta->add_children();
+    get_nested_type()->to_pb_column_meta(children);
 }
 
 } // namespace doris::vectorized

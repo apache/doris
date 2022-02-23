@@ -126,7 +126,6 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
             buf_ret = _buffer.push_string("]", 1);
             _buffer.close_dynamic_mode();
-            LOG(INFO) << "row[" << i << "] buf[" << std::string(_buffer.buf(), _buffer.length()) << "]";
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     } else {
