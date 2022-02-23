@@ -598,7 +598,10 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     bool is_predicate_column_exists = false;
     bool is_non_predicate_column_exists = false;
 
-    if (!_col_predicates.empty()) {
+    std::set<ColumnId> del_cond_id_set;
+    _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
+
+    if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
         is_predicate_column_exists = true;
 
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
@@ -628,11 +631,16 @@ void SegmentIterator::_vec_init_lazy_materialization() {
         }
 
         // handle delete_condition
-        std::set<ColumnId> del_cond_id_set;
-        _opts.delete_condition_predicates.get()->get_all_column_ids(del_cond_id_set);
-        short_cir_pred_col_id_set.insert(del_cond_id_set.begin(), del_cond_id_set.end());
-        pred_column_ids.insert(del_cond_id_set.begin(), del_cond_id_set.end());
+        if (!del_cond_id_set.empty()) {
+            short_cir_pred_col_id_set.insert(del_cond_id_set.begin(), del_cond_id_set.end());
+            pred_column_ids.insert(del_cond_id_set.begin(), del_cond_id_set.end());
+            _is_all_column_basic_type = false;
 
+            for (auto cid : del_cond_id_set) {
+                _is_pred_column[cid] = true;
+            }
+        }
+        
         if (_schema.column_ids().size() > pred_column_ids.size()) {
             for (auto cid : _schema.column_ids()) {
                 if (!_is_pred_column[cid]) {
