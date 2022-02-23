@@ -28,7 +28,12 @@
 namespace doris::vectorized {
 
 TEST(ColumnNullableTest, HashTest) {
-    ColumnPtr column = ColumnVector<int>::create({10, 20});
+    MutableColumnPtr tmp_column = ColumnVector<int>::create();
+    auto val1 = 10;
+    auto val2 = 20;
+    tmp_column->insert_data((const char*)(&val1), 0);
+    tmp_column->insert_data((const char*)(&val2), 0);
+    ColumnPtr column = std::move(tmp_column);
     ASSERT_EQ(column->size(), 2);
 
     auto nullable_column = ColumnNullable::create(column, ColumnUInt8::create(column->size(), 0));
