@@ -41,7 +41,7 @@ public class FsBrokerTest {
     @BeforeClass
     public static void setup() {
         MetaContext context = new MetaContext();
-        context.setMetaVersion(FeMetaVersion.VERSION_73);
+        context.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         context.setThreadLocalInfo();
     }
 

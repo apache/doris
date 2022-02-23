@@ -115,7 +115,7 @@ public class OdbcCatalogResourceTest {
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_92);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
