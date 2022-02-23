@@ -3207,7 +3207,7 @@ public class Catalog {
             }
 
             // check partition name
-            if (olapTable.checkPartitionNameExist(partitionName)) {
+            if (olapTable.checkPartitionNameExist(partitionName, isTempPartition)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
                     LOG.info("add partition[{}] which already exists", partitionName);
                     return;
@@ -3323,7 +3323,7 @@ public class Catalog {
                 }
 
                 // check partition name
-                if (olapTable.checkPartitionNameExist(partitionName)) {
+                if (olapTable.checkPartitionNameExist(partitionName, isTempPartition)) {
                     if (singlePartitionDesc.isSetIfNotExists()) {
                         LOG.info("add partition[{}] which already exists", partitionName);
                         return;
