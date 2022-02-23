@@ -48,6 +48,7 @@ public:
 
         const Slice* ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        ASSERT_TRUE(ret.ok());
 
         OwnedSlice s = page_builder.finish();
         ASSERT_EQ(slices.size(), page_builder.count());
@@ -135,6 +136,7 @@ public:
             size_t add_num = 1;
             const Slice* ptr = &contents[i];
             Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            ASSERT_TRUE(ret.ok());
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 total_size += s.slice().size;

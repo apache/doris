@@ -152,7 +152,7 @@ public:
         for (size_t i = 0; i < contents.size(); i++) {
             const Slice* ptr = &contents[i];
             size_t add_num = 1;
-            Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 results.emplace_back(std::move(s));
@@ -164,8 +164,9 @@ public:
         results.emplace_back(std::move(s));
         page_start_ids.push_back(contents.size());
 
-        Status status = page_builder.get_dictionary_page(&dict_slice);
+        page_builder.get_dictionary_page(&dict_slice);
     }
+
     void decode_pages() {
         int slice_index = 0;
         for (auto& src : results) {
