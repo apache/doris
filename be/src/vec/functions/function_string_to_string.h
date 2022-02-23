@@ -18,6 +18,8 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionStringToString.h
 // and modified by Doris
 
+#pragma once
+
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_number.h"

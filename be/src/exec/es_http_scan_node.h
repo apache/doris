@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_EXEC_ES_HTTP_SCAN_NODE_H
-#define BE_EXEC_ES_HTTP_SCAN_NODE_H
+#pragma once
 
 #include <atomic>
 #include <condition_variable>
@@ -117,8 +116,9 @@ private:
     std::vector<EsPredicate*> _predicates;
 
     std::vector<int> _predicate_to_conjunct;
+    std::vector<int> _conjunct_to_predicate;
+
+    std::unique_ptr<RuntimeProfile> _scanner_profile;
 };
 
 } // namespace doris
-
-#endif

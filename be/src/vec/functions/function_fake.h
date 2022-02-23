@@ -17,41 +17,44 @@
 
 #pragma once
 
-#include "udf/udf.h"
-#include "vec/data_types/get_least_supertype.h"
-#include "vec/functions/function_helpers.h"
+#include "common/status.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
+struct FunctionEsqueryImpl {
+    static constexpr auto name = "esquery";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeUInt8>();
+    }
+};
+
 template <typename Impl>
-class FunctionMultiSameArgs : public IFunction {
+class FunctionFake : public IFunction {
 public:
     static constexpr auto name = Impl::name;
 
-    static FunctionPtr create() { return std::make_shared<FunctionMultiSameArgs>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionFake>(); }
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
 
     bool is_variadic() const override { return true; }
-
-    size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return Impl::get_return_type_impl(arguments);
     }
 
+    bool use_default_implementation_for_nulls() const override { return true; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        DCHECK_GE(arguments.size(), 1);
-        block.replace_by_position(result, Impl::execute(block, arguments, input_rows_count));
-        return Status::OK();
+        return Status::NotSupported(fmt::format("Fake function {} do not support execute", name));
     }
 };
-}; // namespace doris::vectorized
+
+} // namespace doris::vectorized
