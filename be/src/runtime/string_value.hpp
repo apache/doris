@@ -67,6 +67,32 @@ static inline int string_compare(const char* s1, int64_t n1, const char* s2, int
     return n1 - n2;
 }
 
+// This is a special compare algorithm for len(s1) == len(s2) scenarios
+// faster than generic string_compare algorithm.
+// This code assumes that the trivial cases are already handled (i.e. len(s1) != len(s2)).
+// Returns:
+//   true  if s1 == s2
+//   false if s1 != s2
+static inline bool eq_string_compare(const char* s1, const char* s2, int64_t len) {
+#ifdef __SSE4_2__
+    while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
+        __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s1));
+        __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s2));
+        int chars_match =
+                _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER, xmm1,
+                             sse_util::CHARS_PER_128_BIT_REGISTER, sse_util::STRCMP_MODE);
+        if (chars_match != sse_util::CHARS_PER_128_BIT_REGISTER) {
+            return false;
+        }
+        len -= sse_util::CHARS_PER_128_BIT_REGISTER;
+        s1 += sse_util::CHARS_PER_128_BIT_REGISTER;
+        s2 += sse_util::CHARS_PER_128_BIT_REGISTER;
+    }
+#endif
+    
+    return strncmp(s1, s2, len) == 0;
+}
+
 inline int StringValue::compare(const StringValue& other) const {
     int l = std::min(len, other.len);
 
@@ -89,7 +115,7 @@ inline bool StringValue::eq(const StringValue& other) const {
         return false;
     }
 
-    return string_compare(this->ptr, this->len, other.ptr, other.len, this->len) == 0;
+    return eq_string_compare(this->ptr, other.ptr, this->len);
 }
 
 inline StringValue StringValue::substring(int start_pos) const {
