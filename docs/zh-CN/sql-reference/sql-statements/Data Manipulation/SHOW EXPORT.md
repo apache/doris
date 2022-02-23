@@ -34,7 +34,7 @@ under the License.
             WHERE
             [ID = your_job_id]
             [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
-            [LABEL = your_label]
+            [LABEL [ = "your_label" | LIKE "label_matcher"]]
         ]
         [ORDER BY ...]
         [LIMIT limit];
@@ -60,6 +60,9 @@ under the License.
 
     5. 展示指定db，指定label的导出任务
         SHOW EXPORT FROM example_db WHERE LABEL = "mylabel";
+
+    6. 展示指定db，label中前缀是labelprefix的导出任务
+        SHOW EXPORT FROM example_db WHERE LABEL LIKE "labelprefix%";
 
 ## keyword
     SHOW,EXPORT

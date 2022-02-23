@@ -34,7 +34,7 @@ Grammar:
             WHERE
             [ID = your_job_id]
             [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
-			[LABEL = "your_label"]
+			[LABEL [ = "your_label" | LIKE "label_matcher"]]
         ]
         [ORDER BY ...]
         [LIMIT limit];
@@ -60,6 +60,9 @@ Explain:
 
 5. Show the export task of specifying dB and label
     SHOW EXPORT FROM example_db WHERE LABEL = "mylabel";
+
+6. Show the export task of specifying dB and label prefix is "labelprefix"
+    SHOW EXPORT FROM example_db WHERE LABEL LIKE "labelprefix%";
 
 ## keyword
 
