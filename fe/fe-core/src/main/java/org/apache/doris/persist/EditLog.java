@@ -1258,6 +1258,7 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ENCRYPTKEY, desc);
     }
 
+    @Deprecated
     public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
     }

@@ -34,7 +34,9 @@ import java.util.List;
 // such as bad replica or missing version replica information, etc.
 public class BackendReplicasInfo implements Writable {
 
+    @SerializedName(value = "backendId")
     private long backendId;
+    @SerializedName(value = "replicaReportInfos")
     private List<ReplicaReportInfo> replicaReportInfos = Lists.newArrayList();
 
     public BackendReplicasInfo(long backendId) {
@@ -55,6 +57,10 @@ public class BackendReplicasInfo implements Writable {
 
     public List<ReplicaReportInfo> getReplicaReportInfos() {
         return replicaReportInfos;
+    }
+
+    public boolean isEmpty() {
+        return replicaReportInfos.isEmpty();
     }
 
     public static BackendReplicasInfo read(DataInput in) throws IOException {

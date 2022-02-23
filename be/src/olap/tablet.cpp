@@ -1248,7 +1248,6 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->data_size = _tablet_meta->tablet_footprint();
 
     tablet_info->__set_version_miss(false);
-    // _max_continuous_version_from_beginning_unlocked(&version);
     auto max_rowset = rowset_with_max_version();
     if (max_rowset == nullptr) {
         // If the tablet is in running state, it must not be doing schema-change. so if we can not

@@ -168,9 +168,7 @@ public class LoadJob implements Writable {
         this.etlJobInfo = hadoopEtlJobInfo;
         this.etlJobInfo.setJobStatus(etlStatus);
         this.idToTableLoadInfo = Maps.newHashMap();
-        ;
         this.idToTabletLoadInfo = Maps.newHashMap();
-        ;
         this.quorumTablets = new HashSet<Long>();
         this.fullTablets = new HashSet<Long>();
         this.unfinishedTablets = new ArrayList<>();
