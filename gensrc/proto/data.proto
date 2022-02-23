@@ -52,10 +52,11 @@ message PColumnMeta {
         optional uint32 precision = 1;
         optional uint32 scale = 2;
     }
-    required string name = 1;
+    optional string name = 1 [default = ""];
     required PGenericType.TypeId type = 2;
     optional bool is_nullable = 3 [default = false];
     optional Decimal decimal_param = 4;
+    repeated PColumnMeta children = 5;
 }
 
 message PBlock {
