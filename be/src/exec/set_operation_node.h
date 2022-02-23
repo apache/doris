@@ -54,7 +54,7 @@ protected:
     // TODO: Check whether the hash table should be shrink to reduce necessary refresh
     // but may different child has different probe expr which may cause wrong result.
     // so we need keep probe expr same in FE to optimize this issue.
-    void refresh_hash_table(int child);
+    Status refresh_hash_table(int child);
 
     /// Tuple id resolved in Prepare() to set tuple_desc_;
     const int _tuple_id;
@@ -81,33 +81,28 @@ protected:
 };
 
 template <bool keep_matched>
-void SetOperationNode::refresh_hash_table(int child_id) {
+Status SetOperationNode::refresh_hash_table(int child_id) {
     SCOPED_TIMER(_build_timer);
-    std::unique_ptr<HashTable> temp_tbl(
-            new HashTable(_child_expr_lists[0], _child_expr_lists[child_id], _build_tuple_size,
-                          true, _find_nulls, id(), mem_tracker(),
-                          _valid_element_in_hash_tbl / HashTable::MAX_BUCKET_OCCUPANCY_FRACTION + 1));
+    std::unique_ptr<HashTable> temp_tbl(new HashTable(
+            _child_expr_lists[0], _child_expr_lists[child_id], _build_tuple_size, true, _find_nulls,
+            id(), mem_tracker(),
+            _valid_element_in_hash_tbl / HashTable::MAX_BUCKET_OCCUPANCY_FRACTION + 1));
     _hash_tbl_iterator = _hash_tbl->begin();
     while (_hash_tbl_iterator.has_next()) {
         if constexpr (keep_matched) {
             if (_hash_tbl_iterator.matched()) {
-                VLOG_ROW << "rebuild row: "
-                         << get_row_output_string(_hash_tbl_iterator.get_row(),
-                                                  child(0)->row_desc());
-                temp_tbl->insert(_hash_tbl_iterator.get_row());
+                RETURN_IF_ERROR(temp_tbl->insert(_hash_tbl_iterator.get_row()));
             }
         } else {
             if (!_hash_tbl_iterator.matched()) {
-                VLOG_ROW << "rebuild row: "
-                         << get_row_output_string(_hash_tbl_iterator.get_row(),
-                                                  child(0)->row_desc());
-                temp_tbl->insert(_hash_tbl_iterator.get_row());
+                RETURN_IF_ERROR(temp_tbl->insert(_hash_tbl_iterator.get_row()));
             }
         }
         _hash_tbl_iterator.next<false>();
     }
     _hash_tbl.swap(temp_tbl);
     temp_tbl->close();
+    return Status::OK();
 }
 
 }; // namespace doris
