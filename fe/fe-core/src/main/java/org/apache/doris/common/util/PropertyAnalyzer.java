@@ -256,27 +256,19 @@ public class PropertyAnalyzer {
         }
         return tTabletType;
     }
-
-    public static Long analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
-        Long versionInfo = Partition.PARTITION_INIT_VERSION;
+    
+    public static long analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
+        long version = Partition.PARTITION_INIT_VERSION;
         if (properties != null && properties.containsKey(PROPERTIES_VERSION_INFO)) {
             String versionInfoStr = properties.get(PROPERTIES_VERSION_INFO);
-            String[] versionInfoArr = versionInfoStr.split(COMMA_SEPARATOR);
-            // Still parse version and version hash, but version hash is useless, just keep compatible
-            if (versionInfoArr.length == 1) {
-                try {
-                    versionInfo = Long.parseLong(versionInfoArr[0]);
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("version info number format error");
-                }
-            } else {
-                throw new AnalysisException("version info format error. format: version");
+            try {
+                version = Long.parseLong(versionInfoStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("version info number format error: " + versionInfoStr);
             }
-
             properties.remove(PROPERTIES_VERSION_INFO);
         }
-
-        return versionInfo;
+        return version;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {
