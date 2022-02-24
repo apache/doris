@@ -433,6 +433,20 @@ public class QueryPlanTest {
                 "\"replication_num\" = \"1\"" +
                 ");");
 
+        createTable("CREATE TABLE test.result_exprs (\n" +
+                "  `aid` int(11) NULL,\n" +
+                "  `bid` int(11) NULL\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`aid`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`aid`) BUCKETS 7\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"business_key_column_name\" = \"\",\n" +
+                "\"storage_medium\" = \"HDD\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ");\n");
     }
 
     @AfterClass
@@ -2026,4 +2040,18 @@ public class QueryPlanTest {
         }
     }
 
+    @Test
+    public void testResultExprs() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String queryStr = "EXPLAIN INSERT INTO result_exprs\n" +
+                "SELECT a.aid,\n" +
+                "       b.bid\n" +
+                "FROM\n" +
+                "  (SELECT 3 AS aid)a\n" +
+                "RIGHT JOIN\n" +
+                "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+    }
 }
