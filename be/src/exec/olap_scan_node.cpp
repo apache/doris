@@ -538,7 +538,7 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
 
     // filter idle conjunct in vexpr_contexts
     auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
-    std::string vconjunct_information = _peel_pushed_conjuncts(checker);
+    std::string vconjunct_information = _peel_pushed_vconjunct(checker);
     _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
 }
 

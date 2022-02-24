@@ -90,8 +90,8 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
-    std::string _peel_pushed_conjuncts(
-            std::function<bool(int)> checker); // remove pushed expr from conjunct tree
+    std::string _peel_pushed_vconjunct(
+            const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
 
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
     // # rows/tuples read from the scanner (including those discarded by eval_conjuncts())

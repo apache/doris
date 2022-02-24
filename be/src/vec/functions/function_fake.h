@@ -32,6 +32,7 @@ struct FunctionEsqueryImpl {
     }
 };
 
+//FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:
