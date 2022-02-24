@@ -486,6 +486,8 @@ public class RoutineLoadManager implements Writable {
      */
     public List<RoutineLoadJob> getJob(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher)
             throws MetaNotFoundException {
+        Preconditions.checkArgument(jobName == null || matcher == null,
+                "jobName and matcher cannot be not null at the same time");
         // return all of routine load job
         List<RoutineLoadJob> result;
         RESULT:
