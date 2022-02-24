@@ -106,15 +106,15 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
 
     if (size <= 16) {
         if (size >= 8) {
-            /// Chunks of 8..16 bytes.
+            /// Chunks of [8,16] bytes.
             return unalignedLoad<uint64_t>(p1) == unalignedLoad<uint64_t>(p2) &&
                    unalignedLoad<uint64_t>(p1 + size - 8) == unalignedLoad<uint64_t>(p2 + size - 8);
         } else if (size >= 4) {
-            /// Chunks of 4..7 bytes.
+            /// Chunks of [4,7] bytes.
             return unalignedLoad<uint32_t>(p1) == unalignedLoad<uint32_t>(p2) &&
                    unalignedLoad<uint32_t>(p1 + size - 4) == unalignedLoad<uint32_t>(p2 + size - 4);
         } else if (size >= 2) {
-            /// Chunks of 2..3 bytes.
+            /// Chunks of [2,3] bytes.
             return unalignedLoad<uint16_t>(p1) == unalignedLoad<uint16_t>(p2) &&
                    unalignedLoad<uint16_t>(p1 + size - 2) == unalignedLoad<uint16_t>(p2 + size - 2);
         } else if (size >= 1) {
@@ -123,6 +123,7 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
         }
         return true;
     }
+    
     while (size >= 64) {
         if (compareSSE2x4(p1, p2)) {
             p1 += 64;
@@ -132,15 +133,11 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
             return false;
     }
 
-    switch (size / 16) {
-    case 3:
-        if (!compareSSE2(p1 + 32, p2 + 32)) return false;
-        [[fallthrough]];
-    case 2:
-        if (!compareSSE2(p1 + 16, p2 + 16)) return false;
-        [[fallthrough]];
-    case 1:
-        if (!compareSSE2(p1, p2)) return false;
+    switch (size / 16)
+    {
+        case 3: if (!compareSSE2(p1 + 32, p2 + 32)) return false; [[fallthrough]];
+        case 2: if (!compareSSE2(p1 + 16, p2 + 16)) return false; [[fallthrough]];
+        case 1: if (!compareSSE2(p1, p2)) return false;
     }
 
     return compareSSE2(p1 + size - 16, p2 + size - 16);
