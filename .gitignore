@@ -37,7 +37,6 @@ fe/fe-core/src/main/resources/static/
 nohup.out
 
 regression-test/framework/target
-regression-test/framework/.flattened-pom.xml
 regression-test/framework/dependency-reduced-pom.xml
 
 # ignore eclipse project file & idea project file
@@ -66,10 +65,6 @@ ui/package-lock.json
 ui/yarn.lock
 docs/package-lock.json
 fe/fe-common/.classpath
-fe/.flattened-pom.xml
-fe/fe-common/.flattened-pom.xml
-fe/fe-core/.flattened-pom.xml
-fe/spark-dpp/.flattened-pom.xml
 
 rpc_data/
 
@@ -81,3 +76,6 @@ samples/doris-demo/*/target
 be/.devcontainer/
 
 derby.log
+
+# Ignore all the .flattened-pom.xml files
+.flattened-pom.xml
