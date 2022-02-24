@@ -579,13 +579,13 @@ visible_functions = [
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
 
     [['ln', 'dlog1'], 'DOUBLE', ['DOUBLE'],
-            '_ZN5doris13MathFunctions2lnEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+            '_ZN5doris13MathFunctions2lnEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['log'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
-            '_ZN5doris13MathFunctions3logEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_', '', '', 'vec', ''],
+            '_ZN5doris13MathFunctions3logEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['log2'], 'DOUBLE', ['DOUBLE'],
-            '_ZN5doris13MathFunctions4log2EPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+            '_ZN5doris13MathFunctions4log2EPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['log10', 'dlog10'], 'DOUBLE', ['DOUBLE'],
-            '_ZN5doris13MathFunctions5log10EPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+            '_ZN5doris13MathFunctions5log10EPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['exp', 'dexp'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions3expEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
 

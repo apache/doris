@@ -38,7 +38,7 @@ struct ModuloImpl {
     template <typename Result = ResultType>
     static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
         if constexpr (std::is_floating_point_v<Result>) {
-            null_map[index] = 0;
+            null_map[index] = b == 0;
             return std::fmod((double)a, (double)b);
         } else {
             null_map[index] = b == 0;
