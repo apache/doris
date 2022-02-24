@@ -21,6 +21,7 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
@@ -285,50 +286,6 @@ struct BitmapHasAll {
     }
 };
 
-struct NameBitmapMin {
-    static constexpr auto name = "bitmap_min";
-};
-
-struct BitmapMin {
-    using ReturnType = DataTypeInt64;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
-    using Type = DataTypeBitMap::FieldType;
-    using ReturnColumnType = ColumnVector<Int64>;
-    using ReturnColumnContainer = ColumnVector<Int64>::Container;
-
-    static Status vector(const std::vector<BitmapValue>& data, ReturnColumnContainer& res) {
-        size_t size = data.size();
-        res.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
-            auto min = const_cast<std::vector<BitmapValue>&>(data)[i].minimum();
-            res.push_back(min.val);
-        }
-        return Status::OK();
-    }
-};
-
-struct NameBitmapMax {
-    static constexpr auto name = "bitmap_max";
-};
-
-struct BitmapMax {
-    using ReturnType = DataTypeInt64;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
-    using Type = DataTypeBitMap::FieldType;
-    using ReturnColumnType = ColumnVector<Int64>;
-    using ReturnColumnContainer = ColumnVector<Int64>::Container;
-
-    static Status vector(const std::vector<BitmapValue>& data, ReturnColumnContainer& res) {
-        size_t size = data.size();
-        res.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
-            auto max = const_cast<std::vector<BitmapValue>&>(data)[i].maximum();
-            res.push_back(max.val);
-        }
-        return Status::OK();
-    }
-};
-
 struct NameBitmapToString {
     static constexpr auto name = "bitmap_to_string";
 };
@@ -475,8 +432,10 @@ using FunctionToBitmap = FunctionUnaryToType<ToBitmapImpl, NameToBitmap>;
 using FunctionBitmapFromString = FunctionUnaryToType<BitmapFromString, NameBitmapFromString>;
 using FunctionBitmapHash = FunctionUnaryToType<BitmapHash, NameBitmapHash>;
 using FunctionBitmapCount = FunctionUnaryToType<BitmapCount, NameBitmapCount>;
-using FunctionBitmapMin = FunctionUnaryToType<BitmapMin, NameBitmapMin>;
-using FunctionBitmapMax = FunctionUnaryToType<BitmapMax, NameBitmapMax>;
+
+using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
+using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
+
 using FunctionBitmapToString = FunctionUnaryToType<BitmapToString, NameBitmapToString>;
 using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
