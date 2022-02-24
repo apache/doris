@@ -258,6 +258,7 @@ bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
     auto ans = dv.from_date_str(buf.position(), buf.count());
+    dv.to_datetime();
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
