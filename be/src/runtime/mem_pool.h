@@ -163,7 +163,7 @@ public:
 
     static constexpr int DEFAULT_ALIGNMENT = 8;
 
-#if defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)
+#if (defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)) && !defined(BE_TEST)
     static constexpr int DEFAULT_PADDING_SIZE = 0x10;
 #else
     static constexpr int DEFAULT_PADDING_SIZE = 0x0;
@@ -258,7 +258,7 @@ private:
         // guarantee alignment.
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
-        if (UNLIKELY(!find_chunk(size, CHECK_LIMIT_FIRST))) {
+        if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST))) {
             return nullptr;
         }
 
