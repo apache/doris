@@ -434,7 +434,7 @@ public class BrokerScanNode extends LoadScanNode {
         }
     }
 
-    public String getHdfsUri() throws UserException {
+    public String getHostUri() throws UserException {
         return "";
     }
 
@@ -448,7 +448,7 @@ public class BrokerScanNode extends LoadScanNode {
         }
         // set hdfs params, used to Hive and Iceberg scan
         THdfsParams tHdfsParams = new THdfsParams();
-        String fsName = getHdfsUri();
+        String fsName = getHostUri();
         tHdfsParams.setFsName(fsName);
 
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc);

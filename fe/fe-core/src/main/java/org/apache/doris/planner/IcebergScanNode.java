@@ -17,13 +17,9 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
@@ -37,6 +33,8 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ListIterator;
@@ -46,7 +44,6 @@ public class IcebergScanNode extends BrokerScanNode {
 
     private IcebergTable icebergTable;
     private final List<Expression> icebergPredicates = new ArrayList<>();
-    private String hdfsUri;
 
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
@@ -62,19 +59,14 @@ public class IcebergScanNode extends BrokerScanNode {
     @Override
     protected void initFileGroup() throws UserException {
         fileGroups = Lists.newArrayList(new BrokerFileGroup(icebergTable));
-        brokerDesc = new BrokerDesc("IcebergTableDesc", StorageBackend.StorageType.HDFS, icebergTable.getIcebergProperties());
+        brokerDesc = new BrokerDesc("IcebergTableDesc", icebergTable.getStorageType(),
+                icebergTable.getIcebergProperties());
         targetTable = icebergTable;
     }
 
     @Override
-    public String getHdfsUri() throws UserException {
-        if (Strings.isNullOrEmpty(hdfsUri)) {
-            String location = icebergTable.getLocation();
-            String[] strings = StringUtils.split(location, "/");
-            String[] strs = StringUtils.split(strings[1], ":");
-            this.hdfsUri = "hdfs://" + strs[0] + ":" + strs[1];
-        }
-        return hdfsUri;
+    public String getHostUri() throws UserException {
+        return icebergTable.getHostUri();
     }
 
     @Override
@@ -99,7 +91,7 @@ public class IcebergScanNode extends BrokerScanNode {
         fileStatusesList.add(fileStatuses);
         filesAdded += fileStatuses.size();
         for (TBrokerFileStatus fstatus : fileStatuses) {
-            LOG.info("Add file status is {}", fstatus);
+            LOG.debug("Add file status is {}", fstatus);
         }
     }
 

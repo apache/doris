@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.external.iceberg.IcebergCatalog;
@@ -27,11 +27,7 @@ import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
@@ -39,6 +35,11 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -63,6 +64,12 @@ public class IcebergTable extends Table {
     private String location;
     // Iceberg table file format
     private String fileFormat;
+    // Iceberg storage type
+    private StorageBackend.StorageType storageType;
+    // Iceberg remote host uri
+    private String hostUri;
+    // location analyze flag
+    private boolean isAnalyzed = false;
     private Map<String, String> icebergProperties = Maps.newHashMap();
 
     private org.apache.iceberg.Table icebergTable;
@@ -103,7 +110,7 @@ public class IcebergTable extends Table {
         return icebergProperties;
     }
 
-    public String getLocation() throws UserException {
+    private void getLocation() throws UserException {
         if (Strings.isNullOrEmpty(location)) {
             try {
                 getTable();
@@ -112,7 +119,45 @@ public class IcebergTable extends Table {
             }
             location = icebergTable.location();
         }
-        return location;
+        analyzeLocation();
+    }
+
+    private void analyzeLocation() throws UserException {
+        if (isAnalyzed) {
+            return;
+        }
+        String[] strings = StringUtils.split(location, "/");
+
+        // analyze storage type
+        String storagePrefix = strings[0].split(":")[0];
+        if (storagePrefix.equalsIgnoreCase("s3")) {
+            this.storageType = StorageBackend.StorageType.S3;
+        } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
+            this.storageType = StorageBackend.StorageType.HDFS;
+        } else {
+            throw new UserException("Not supported storage type: " + storagePrefix);
+        }
+
+        // analyze host uri
+        // eg: hdfs://host:port
+        //     s3://host:port
+        String host = strings[1];
+        this.hostUri = storagePrefix + "://" + host;
+        this.isAnalyzed = true;
+    }
+
+    public String getHostUri() throws UserException {
+        if (!isAnalyzed) {
+            getLocation();
+        }
+        return hostUri;
+    }
+
+    public StorageBackend.StorageType getStorageType() throws UserException {
+        if (!isAnalyzed) {
+            getLocation();
+        }
+        return storageType;
     }
 
     public String getFileFormat() throws UserException {
@@ -142,9 +187,9 @@ public class IcebergTable extends Table {
             IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
             try {
                 this.icebergTable = icebergCatalog.loadTable(TableIdentifier.of(icebergDb, icebergTbl));
-                LOG.info("finished to load table: {}", name);
+                LOG.info("finished to load iceberg table: {}", name);
             } catch (Exception e) {
-                LOG.warn("failed to load table {} from {}", name, icebergProperty.getHiveMetastoreUris(), e);
+                LOG.warn("failed to load iceberg table {} from {}", name, icebergProperty.getHiveMetastoreUris(), e);
                 throw e;
             }
 
