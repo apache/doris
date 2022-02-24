@@ -17,6 +17,7 @@
 
 package org.apache.doris.rewrite;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -28,6 +29,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -41,7 +44,22 @@ import java.util.Date;
  * this rewrite can improve the query performance, because from_unixtime is cpu-exhausted
  * */
 public class RewriteFromUnixTimeRule implements ExprRewriteRule {
+
+    private static final Logger logger = LoggerFactory.getLogger(RewriteFromUnixTimeRule.class);
     public static RewriteFromUnixTimeRule INSTANCE = new RewriteFromUnixTimeRule();
+    // In BE, will convert format in timestamp function.
+    // yyyyMMdd -> %Y%m%d
+    // yyyy-MM-dd -> %Y-%m-%d
+    // yyyy-MM-dd HH:mm:ss -> %Y-%m-%d %H:%i:%s
+    // TODO llj Here should support all mysql format
+    private final ImmutableMap<String, String> beSupportFormatMap;
+    private RewriteFromUnixTimeRule() {
+        beSupportFormatMap = ImmutableMap.<String, String>builder()
+                .put("%Y%m%d", "yyyyMMdd")
+                .put("%Y-%m-%d", "yyyy-MM-dd")
+                .put("%Y-%m-%d %H:%i:%s", "yyyy-MM-dd HH:mm:ss")
+                .build();
+    }
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
@@ -84,7 +102,14 @@ public class RewriteFromUnixTimeRule implements ExprRewriteRule {
             format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         } else {
             LiteralExpr fm = (LiteralExpr) params.exprs().get(1);
-            format = new SimpleDateFormat(fm.getStringValue());
+            String formatStr = fm.getStringValue();
+            if (beSupportFormatMap.containsValue(formatStr)) {
+                format = new SimpleDateFormat(formatStr);
+            } else if (beSupportFormatMap.containsKey(formatStr)) {
+                format = new SimpleDateFormat(beSupportFormatMap.get(formatStr));
+            } else {
+                return expr;
+            }
         }
         try {
             Date date = format.parse(le.getStringValue());
