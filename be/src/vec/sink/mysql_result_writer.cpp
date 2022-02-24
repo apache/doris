@@ -114,6 +114,15 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 return Status::InternalError("pack mysql buffer failed.");
             }
             _buffer.reset();
+
+            if constexpr (is_nullable) {
+                if (column_ptr->is_null_at(i)) {
+                    buf_ret = _buffer.push_null();
+                    result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
+                    continue;
+                }
+            }
+
             _buffer.open_dynamic_mode();
             buf_ret = _buffer.push_string("[", 1);
             bool begin = true;
