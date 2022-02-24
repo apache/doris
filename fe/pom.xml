@@ -111,7 +111,7 @@ under the License.
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-        <grpc.version>1.30.0</grpc.version>
+        <grpc.version>1.44.1</grpc.version>
         <protobuf.version>3.14.0</protobuf.version>
         <skip.plugin>false</skip.plugin>
         <hive.version>2.3.7</hive.version>
