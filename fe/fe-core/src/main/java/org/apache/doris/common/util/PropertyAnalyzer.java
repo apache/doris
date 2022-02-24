@@ -263,14 +263,14 @@ public class PropertyAnalyzer {
             String versionInfoStr = properties.get(PROPERTIES_VERSION_INFO);
             String[] versionInfoArr = versionInfoStr.split(COMMA_SEPARATOR);
             // Still parse version and version hash, but version hash is useless, just keep compatible
-            if (versionInfoArr.length == 2) {
+            if (versionInfoArr.length == 1) {
                 try {
                     versionInfo = Long.parseLong(versionInfoArr[0]);
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("version info number format error");
                 }
             } else {
-                throw new AnalysisException("version info format error. format: version,version_hash");
+                throw new AnalysisException("version info format error. format: version");
             }
 
             properties.remove(PROPERTIES_VERSION_INFO);
