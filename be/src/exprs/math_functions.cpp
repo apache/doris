@@ -161,6 +161,12 @@ SmallIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::TinyIntVal
     return SmallIntVal(std::abs(int16_t(val.val)));
 }
 
+#define LOG_MATH_FN(NAME, RET_TYPE, INPUT_TYPE, FN)                           \
+    RET_TYPE MathFunctions::NAME(FunctionContext* ctx, const INPUT_TYPE& v) { \
+        if (v.is_null || v.val <= 0) return RET_TYPE::null();                 \
+        return RET_TYPE(FN(v.val));                                           \
+    }
+
 // Generates a UDF that always calls FN() on the input val and returns it.
 #define ONE_ARG_MATH_FN(NAME, RET_TYPE, INPUT_TYPE, FN)                       \
     RET_TYPE MathFunctions::NAME(FunctionContext* ctx, const INPUT_TYPE& v) { \
@@ -179,9 +185,9 @@ ONE_ARG_MATH_FN(atan, DoubleVal, DoubleVal, std::atan);
 ONE_ARG_MATH_FN(sqrt, DoubleVal, DoubleVal, std::sqrt);
 ONE_ARG_MATH_FN(ceil, BigIntVal, DoubleVal, std::ceil);
 ONE_ARG_MATH_FN(floor, BigIntVal, DoubleVal, std::floor);
-ONE_ARG_MATH_FN(ln, DoubleVal, DoubleVal, std::log);
-ONE_ARG_MATH_FN(log10, DoubleVal, DoubleVal, std::log10);
 ONE_ARG_MATH_FN(exp, DoubleVal, DoubleVal, std::exp);
+LOG_MATH_FN(ln, DoubleVal, DoubleVal, std::log);
+LOG_MATH_FN(log10, DoubleVal, DoubleVal, std::log10);
 
 TinyIntVal MathFunctions::sign(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
@@ -227,7 +233,7 @@ DoubleVal MathFunctions::truncate(FunctionContext* ctx, const DoubleVal& v, cons
 }
 
 DoubleVal MathFunctions::log2(FunctionContext* ctx, const DoubleVal& v) {
-    if (v.is_null) {
+    if (v.is_null || v.val <= 0.0) {
         return DoubleVal::null();
     }
     return DoubleVal(std::log(v.val) / std::log(2.0));
