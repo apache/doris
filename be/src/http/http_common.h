@@ -49,7 +49,7 @@ static const std::string HTTP_FUNCTION_COLUMN = "function_column";
 static const std::string HTTP_SEQUENCE_COL = "sequence_col";
 static const std::string HTTP_COMPRESS_TYPE = "compress_type";
 static const std::string HTTP_SEND_BATCH_PARALLELISM = "send_batch_parallelism";
-static const std::string HTTP_SINGLE_TABLET_LOAD_PER_SINK = "single_tablet_load_per_sink";
+static const std::string HTTP_LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";

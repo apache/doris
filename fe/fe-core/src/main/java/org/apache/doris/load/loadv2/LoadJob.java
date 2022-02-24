@@ -409,7 +409,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
         jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
         jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, 1);
-        jobProperties.put(LoadStmt.SINGLE_TABLET_LOAD_PER_SINK, false);
+        jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, false);
     }
 
     public void isJobTypeRead(boolean jobTypeRead) {
@@ -1227,7 +1227,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public boolean isSingleTabletLoadPerSink() {
-        return (boolean) jobProperties.get(LoadStmt.SINGLE_TABLET_LOAD_PER_SINK);
+        return (boolean) jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET);
     }
 
     // Return true if this job is finished for a long time

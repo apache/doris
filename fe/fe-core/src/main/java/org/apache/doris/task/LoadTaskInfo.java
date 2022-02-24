@@ -60,7 +60,7 @@ public interface LoadTaskInfo {
     public Separator getColumnSeparator();
     public Separator getLineDelimiter();
     public int getSendBatchParallelism();
-    public boolean isSingleTabletLoadPerSink();
+    public boolean isLoadToSingleTablet();
 
     public static class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();

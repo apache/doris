@@ -686,10 +686,10 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
         _send_batch_parallelism = table_sink.send_batch_parallelism;
     }
     // if distributed column list is empty, we can ensure that tablet is with random distribution info
-    // and if single_tablet_load_per_sink is set and set to true, we should find only one tablet in one partition
+    // and if load_to_single_tablet is set and set to true, we should find only one tablet in one partition
     // for the whole olap table sink
     if (table_sink.partition.distributed_columns.empty()) {
-        if (table_sink.__isset.single_tablet_load_per_sink && table_sink.single_tablet_load_per_sink) {
+        if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
             findTabletMode = FindTabletMode::FIND_TABLET_EVERY_SINK;
         } else {
             findTabletMode = FindTabletMode::FIND_TABLET_EVERY_BATCH;

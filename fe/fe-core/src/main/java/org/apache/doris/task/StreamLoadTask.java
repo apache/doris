@@ -75,7 +75,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String sequenceCol;
     private int sendBatchParallelism = 1;
     private double maxFilterRatio = 0.0;
-    private boolean singleTabletLoadPerSink = false;
+    private boolean loadToSingleTablet = false;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -132,8 +132,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     }
 
     @Override
-    public boolean isSingleTabletLoadPerSink() {
-        return singleTabletLoadPerSink;
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
     }
 
     public PartitionNames getPartitions() {
@@ -307,8 +307,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetMaxFilterRatio()) {
             maxFilterRatio = request.getMaxFilterRatio();
         }
-        if (request.isSetSingleTabletLoadPerSink()) {
-            singleTabletLoadPerSink = request.isSingleTabletLoadPerSink();
+        if (request.isSetLoadToSingleTablet()) {
+            loadToSingleTablet = request.isLoadToSingleTablet();
         }
     }
 

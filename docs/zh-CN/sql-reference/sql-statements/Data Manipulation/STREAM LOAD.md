@@ -109,7 +109,7 @@ under the License.
         
         send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。 
          
-        single_tablet_load_per_sink: 布尔类型，为true表示支持一次Sink只导入数据到对应分区的一个tablet，默认值为false，该参数只允许在对带有random分区的olap表导数的时候设置。
+        load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，该参数只允许在对带有random分区的olap表导数的时候设置。
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段

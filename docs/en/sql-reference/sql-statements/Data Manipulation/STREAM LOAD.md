@@ -144,7 +144,7 @@ The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND
 
 `send_batch_parallelism`: Integer type, used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
 
-`single_tablet_load_per_sink`: Boolean type, True means that sink can only import data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
+`load_to_single_tablet`: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
 
 RETURN VALUES
 

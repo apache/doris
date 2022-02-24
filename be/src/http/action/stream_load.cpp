@@ -506,11 +506,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     }
 
-    if (!http_req->header(HTTP_SINGLE_TABLET_LOAD_PER_SINK).empty()) {
-        if (boost::iequals(http_req->header(HTTP_SINGLE_TABLET_LOAD_PER_SINK), "true")) {
-            request.__set_single_tablet_load_per_sink(true);
+    if (!http_req->header(HTTP_LOAD_TO_SINGLE_TABLET).empty()) {
+        if (boost::iequals(http_req->header(HTTP_LOAD_TO_SINGLE_TABLET), "true")) {
+            request.__set_load_to_single_tablet(true);
         } else {
-            request.__set_single_tablet_load_per_sink(false);
+            request.__set_load_to_single_tablet(false);
         }
     }
 

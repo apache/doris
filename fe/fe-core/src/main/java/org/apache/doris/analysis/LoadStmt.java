@@ -81,7 +81,7 @@ public class LoadStmt extends DdlStmt {
     public static final String TIMEZONE = "timezone";
     public static final String LOAD_PARALLELISM = "load_parallelism";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
-    public static final String SINGLE_TABLET_LOAD_PER_SINK = "single_tablet_load_per_sink";
+    public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -174,7 +174,7 @@ public class LoadStmt extends DdlStmt {
                     return s;
                 }
             })
-            .put(SINGLE_TABLET_LOAD_PER_SINK, new Function<String, Boolean>() {
+            .put(LOAD_TO_SINGLE_TABLET, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);

@@ -95,17 +95,17 @@ public class OlapTableSink extends DataSink {
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
-                     int sendBatchParallelism, boolean singleTabletLoadPerSink) throws AnalysisException {
+                     int sendBatchParallelism, boolean loadToSingleTablet) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
         tSink.setDbId(dbId);
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
-        if (singleTabletLoadPerSink && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
-            throw new AnalysisException("if single_tablet_load_per_sink set to true, the olap table must be with random distribution");
+        if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+            throw new AnalysisException("if load_to_single_tablet set to true, the olap table must be with random distribution");
         }
-        tSink.setSingleTabletLoadPerSink(singleTabletLoadPerSink);
+        tSink.setLoadToSingleTablet(loadToSingleTablet);
         tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlapTableSink(tSink);
 
