@@ -79,6 +79,7 @@ public class Tablet extends MetaObject implements Writable {
     private List<Replica> replicas;
     @SerializedName(value = "checkedVersion")
     private long checkedVersion;
+    @Deprecated
     @SerializedName(value = "checkedVersionHash")
     private long checkedVersionHash;
     @SerializedName(value = "isConsistent")

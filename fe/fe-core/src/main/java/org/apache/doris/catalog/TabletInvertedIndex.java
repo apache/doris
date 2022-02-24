@@ -170,11 +170,10 @@ public class TabletInvertedIndex {
 
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
-                                                    + "replica in FE: {}, report version {}-{}, report schema hash: {},"
+                                                    + "replica in FE: {}, report version {}, report schema hash: {},"
                                                     + " is bad: {}, is version missing: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
-                                            backendTabletInfo.getVersionHash(),
                                             backendTabletInfo.getSchemaHash(),
                                             backendTabletInfo.isSetUsed() ? backendTabletInfo.isUsed() : "unknown",
                                             backendTabletInfo.isSetVersionMiss() ? backendTabletInfo.isVersionMiss() : "unset");

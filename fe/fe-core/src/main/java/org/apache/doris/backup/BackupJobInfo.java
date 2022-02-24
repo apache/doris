@@ -359,8 +359,6 @@ public class BackupJobInfo implements Writable {
         public long id;
         @SerializedName("version")
         public long version;
-        @SerializedName("version_hash")
-        public long versionHash;
         @SerializedName("indexes")
         public Map<String, BackupIndexInfo> indexes = Maps.newHashMap();
 

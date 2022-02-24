@@ -67,7 +67,6 @@ public class CheckConsistencyJob {
 
     private int checkedSchemaHash;
     private long checkedVersion;
-    private long checkedVersionHash;
 
     private long createTime;
     private long timeoutMs;

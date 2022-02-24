@@ -86,16 +86,19 @@ public class Partition extends MetaObject implements Writable {
      */
 
     // not have committedVersion because committedVersion = nextVersion - 1
+    @Deprecated
     @SerializedName(value = "committedVersionHash")
     private long committedVersionHash;
     @SerializedName(value = "visibleVersion")
     private long visibleVersion;
     @SerializedName(value = "visibleVersionTime")
     private long visibleVersionTime;
+    @Deprecated
     @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
     @SerializedName(value = "nextVersion")
     private long nextVersion;
+    @Deprecated
     @SerializedName(value = "nextVersionHash")
     private long nextVersionHash;
     @SerializedName(value = "distributionInfo")

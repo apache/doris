@@ -34,6 +34,7 @@ public class ConsistencyCheckInfo implements Writable {
     private long lastCheckTime;
 
     private long checkedVersion;
+    @Deprecated
     private long checkedVersionHash;
 
     private boolean isConsistent;
