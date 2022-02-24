@@ -257,6 +257,7 @@ void ColumnArray::insert_default() {
 
 void ColumnArray::pop_back(size_t n) {
     auto & offsets_data = get_offsets();
+    DCHECK(n <= offsets_data.size());
     size_t nested_n = offsets_data.back() - offset_at(offsets_data.size() - n);
     if (nested_n)
         get_data().pop_back(nested_n);
