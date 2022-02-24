@@ -667,7 +667,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void prepareExpressions() throws UserException {
-        List<Expr> selectList = Expr.cloneList(queryStmt.getBaseTblResultExprs());
+        List<Expr> selectList = Expr.cloneList(queryStmt.getResultExprs());
         // check type compatibility
         int numCols = targetColumns.size();
         for (int i = 0; i < numCols; ++i) {
