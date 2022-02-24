@@ -100,7 +100,8 @@ inline bool compareSSE2x4(const char* p1, const char* p2) {
 inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
     /** The order of branches and the trick with overlapping comparisons
       * are the same as in memcpy implementation.
-      * See the comments in base/glibc-compatibility/memcpy/memcpy.h
+      * See the comments in
+      * https://github.com/ClickHouse/ClickHouse/blob/master/base/glibc-compatibility/memcpy/memcpy.h
       */
 
     if (size <= 16) {
