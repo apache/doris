@@ -258,7 +258,7 @@ private:
         // guarantee alignment.
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
-        if (UNLIKELY(!find_chunk(size, CHECK_LIMIT_FIRST))) {
+        if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST))) {
             return nullptr;
         }
 

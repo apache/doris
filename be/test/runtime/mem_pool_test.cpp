@@ -32,17 +32,17 @@ TEST(MemPoolTest, Basic) {
     MemPool p2(&tracker);
     MemPool p3(&tracker);
 
-    // allocate a total of 24K in 32-byte pieces (for which we only request 25 bytes)
+    // allocate a total of 36K in 48-byte pieces (for which we only request 25 bytes)
     for (int i = 0; i < 768; ++i) {
         // pads to 32 bytes
-        p.allocate(25);
+        p.allocate(9);
     }
-    // we handed back 24K, (4, 8 16) first allocate don't need padding
+    // we handed back 24K, (4, 8, 16) first allocate don't need padding
     EXPECT_EQ(24 * 1024 - 3 * 7, p.total_allocated_bytes()); // 32 * 768 == 24 * 1024
     // .. and allocated 28K of chunks (4, 8, 16)
     EXPECT_EQ(28 * 1024, p.total_reserved_bytes());
 
-    // we're passing on the first two chunks, containing 12K of data; we're left with one
+    // we're passing on the first three chunks, containing 12K of data; we're left with one
     // chunk of 16K containing 12K of data
     p2.acquire_data(&p, true);
     EXPECT_EQ(12 * 1024 - 7, p.total_allocated_bytes());
@@ -56,7 +56,7 @@ TEST(MemPoolTest, Basic) {
     // we allocate 65K, which doesn't fit into the current chunk or the default
     // size of the next allocated chunk (64K)
     p.allocate(65 * 1024);
-    EXPECT_EQ((12 + 8 + 65) * 1024 - 7, p.total_allocated_bytes());
+    EXPECT_EQ((12 + 8 + 65) * 1024 - 7 + 2 * 16, p.total_allocated_bytes());
     EXPECT_EQ((16 + 32 + 128) * 1024, p.total_reserved_bytes());
 
     // Clear() resets allocated data, but doesn't remove any chunks
@@ -66,17 +66,17 @@ TEST(MemPoolTest, Basic) {
 
     // next allocation reuses existing chunks
     p.allocate(1024);
-    EXPECT_EQ(1024, p.total_allocated_bytes());
+    EXPECT_EQ(1024 + 16, p.total_allocated_bytes());
     EXPECT_EQ((16 + 32 + 128) * 1024, p.total_reserved_bytes());
 
     // ... unless it doesn't fit into any available chunk
     p.allocate(120 * 1024);
-    EXPECT_EQ((1 + 120) * 1024, p.total_allocated_bytes());
+    EXPECT_EQ((1 + 120) * 1024 + 2 * 16, p.total_allocated_bytes());
     EXPECT_EQ((16 + 32 + 128) * 1024, p.total_reserved_bytes());
 
     // ... Try another chunk that fits into an existing chunk
     p.allocate(33 * 1024);
-    EXPECT_EQ((1 + 120 + 33) * 1024, p.total_allocated_bytes());
+    EXPECT_EQ((1 + 120 + 33) * 1024 + 3 * 16, p.total_allocated_bytes());
     EXPECT_EQ((16 + 32 + 128 + 256) * 1024, p.total_reserved_bytes());
 
     // we're releasing 3 chunks, which get added to p2
@@ -85,13 +85,13 @@ TEST(MemPoolTest, Basic) {
     EXPECT_EQ(0, p.total_reserved_bytes());
 
     p3.acquire_data(&p2, true); // we're keeping the 65k chunk
-    EXPECT_EQ(33 * 1024, p2.total_allocated_bytes());
+    EXPECT_EQ(33 * 1024 + 16, p2.total_allocated_bytes());
     EXPECT_EQ(256 * 1024, p2.total_reserved_bytes());
 
     {
         MemPool p4(&tracker);
         p4.exchange_data(&p2);
-        EXPECT_EQ(33 * 1024, p4.total_allocated_bytes());
+        EXPECT_EQ(33 * 1024 + 16, p4.total_allocated_bytes());
         EXPECT_EQ(256 * 1024, p4.total_reserved_bytes());
     }
 }
@@ -106,24 +106,26 @@ TEST(MemPoolTest, Keep) {
     p.allocate(4 * 1024);
     p.allocate(8 * 1024);
     p.allocate(16 * 1024);
-    EXPECT_EQ(p.total_allocated_bytes(), (4 + 8 + 16) * 1024);
-    EXPECT_EQ(p.total_reserved_bytes(), (4 + 8 + 16) * 1024);
+    EXPECT_EQ(p.total_allocated_bytes(), (4 + 8 + 16) * 1024 + 3 * 16);
+    EXPECT_EQ(p.total_reserved_bytes(), (8 + 16 + 32) * 1024);
     p.clear();
     EXPECT_EQ(p.total_allocated_bytes(), 0);
-    EXPECT_EQ(p.total_reserved_bytes(), (4 + 8 + 16) * 1024);
+    EXPECT_EQ(p.total_reserved_bytes(), (8 + 16 + 32) * 1024);
     p.allocate(1 * 1024);
     p.allocate(4 * 1024);
-    EXPECT_EQ(p.total_allocated_bytes(), (1 + 4) * 1024);
-    EXPECT_EQ(p.total_reserved_bytes(), (4 + 8 + 16) * 1024);
+    EXPECT_EQ(p.total_allocated_bytes(), (1 + 4) * 1024 + 2 * 16);
+    EXPECT_EQ(p.total_reserved_bytes(), (8 + 16 + 32) * 1024);
     MemPool p2(&tracker);
     p2.acquire_data(&p, true);
+    EXPECT_EQ(0, p2.total_allocated_bytes());
+    EXPECT_EQ(0, p2.total_reserved_bytes());
 
     {
         p2.exchange_data(&p);
-        EXPECT_EQ(4 * 1024, p2.total_allocated_bytes());
-        EXPECT_EQ((8 + 16) * 1024, p2.total_reserved_bytes());
-        EXPECT_EQ(1 * 1024, p.total_allocated_bytes());
-        EXPECT_EQ(4 * 1024, p.total_reserved_bytes());
+        EXPECT_EQ((1 + 4) * 1024 + 2 * 16, p2.total_allocated_bytes());
+        EXPECT_EQ((8 + 16 + 32) * 1024, p2.total_reserved_bytes());
+        EXPECT_EQ(0, p.total_allocated_bytes());
+        EXPECT_EQ(0, p.total_reserved_bytes());
     }
 }
 
@@ -138,19 +140,19 @@ TEST(MemPoolTest, MaxAllocation) {
     MemPool p1(&tracker);
     uint8_t* ptr = p1.allocate(LARGE_ALLOC_SIZE);
     EXPECT_TRUE(ptr != nullptr);
-    EXPECT_EQ(int_max_rounded, p1.total_reserved_bytes());
-    EXPECT_EQ(int_max_rounded, p1.total_allocated_bytes());
+    EXPECT_EQ(2 * int_max_rounded, p1.total_reserved_bytes());
+    EXPECT_EQ(int_max_rounded + 16, p1.total_allocated_bytes());
     p1.free_all();
 
     // Allocate a small chunk (DEFAULT_INITIAL_CHUNK_SIZE) followed by an LARGE_ALLOC_SIZE chunk
     MemPool p2(&tracker);
     p2.allocate(8);
     EXPECT_EQ(p2.total_reserved_bytes(), 4096);
-    EXPECT_EQ(p2.total_allocated_bytes(), 8);
+    EXPECT_EQ(p2.total_allocated_bytes(), 8 + 16);
     ptr = p2.allocate(LARGE_ALLOC_SIZE);
     EXPECT_TRUE(ptr != nullptr);
-    EXPECT_EQ(p2.total_reserved_bytes(), 4096LL + int_max_rounded);
-    EXPECT_EQ(p2.total_allocated_bytes(), 8LL + int_max_rounded);
+    EXPECT_EQ(p2.total_reserved_bytes(), 4096LL + int_max_rounded * 2);
+    EXPECT_EQ(p2.total_allocated_bytes(), 8LL + int_max_rounded + 2 * 16);
     p2.free_all();
 
     // Allocate three LARGE_ALLOC_SIZE chunks followed by a small chunk followed by another LARGE_ALLOC_SIZE
@@ -161,13 +163,13 @@ TEST(MemPoolTest, MaxAllocation) {
     // NOTE: exceed MAX_CHUNK_SIZE limit, will not *2
     ptr = p3.allocate(LARGE_ALLOC_SIZE);
     EXPECT_TRUE(ptr != nullptr);
-    EXPECT_EQ(int_max_rounded * 2, p3.total_reserved_bytes());
-    EXPECT_EQ(int_max_rounded * 2, p3.total_allocated_bytes());
+    EXPECT_EQ(int_max_rounded * 4, p3.total_reserved_bytes());
+    EXPECT_EQ(int_max_rounded * 2 + 2 * 16, p3.total_allocated_bytes());
     // Uses existing int_max_rounded * 2 chunk
     ptr = p3.allocate(LARGE_ALLOC_SIZE);
     EXPECT_TRUE(ptr != nullptr);
-    EXPECT_EQ(int_max_rounded * 3, p3.total_reserved_bytes());
-    EXPECT_EQ(int_max_rounded * 3, p3.total_allocated_bytes());
+    EXPECT_EQ(int_max_rounded * 6, p3.total_reserved_bytes());
+    EXPECT_EQ(int_max_rounded * 3 + 3 * 16, p3.total_allocated_bytes());
 
     // Allocates a new int_max_rounded * 4 chunk
     // NOTE: exceed MAX_CHUNK_SIZE limit, will not *2
