@@ -410,7 +410,27 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
         }
         break;
     }
-    case OLAP_FIELD_TYPE_HLL:
+    case OLAP_FIELD_TYPE_HLL: {
+        auto column_hll = assert_cast<vectorized::ColumnHLL*>(column);
+        for (uint16_t j = 0; j < selected_size; ++j) {
+            column_hll->insert_default();
+            if (!nullable_mark_array[j]) {
+                uint16_t row_idx = j + off;
+                auto slice = reinterpret_cast<const Slice*>(batch->cell_ptr(row_idx));
+
+                HyperLogLog* pvalue = &column_hll->get_element(column_hll->size() - 1);
+
+                if (slice->size != 0) {
+                    HyperLogLog value;
+                    value.deserialize(*slice);
+                    *pvalue = std::move(value);
+                } else {
+                    *pvalue = std::move(*reinterpret_cast<HyperLogLog*>(slice->data));
+                }
+            }
+        }
+        break;
+    }
     case OLAP_FIELD_TYPE_MAP:
     case OLAP_FIELD_TYPE_VARCHAR: {
         auto column_string = assert_cast<vectorized::ColumnString*>(column);
