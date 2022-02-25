@@ -1305,7 +1305,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 entity.setTxnStatus(Catalog.getCurrentCatalog().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId).getTransactionState(entity.getTxnId()).getTransactionStatus());
                 rows.add(entity.getTaskShowInfo());
             } catch (AnalysisException e) {
-                LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getErrorMsg());
+                LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getMessage());
             }
         });
         return rows;
