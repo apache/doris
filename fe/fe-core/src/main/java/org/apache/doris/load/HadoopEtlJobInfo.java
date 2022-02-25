@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 

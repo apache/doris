@@ -17,7 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.FrontendNodeType;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;

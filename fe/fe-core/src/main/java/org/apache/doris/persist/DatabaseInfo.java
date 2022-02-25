@@ -18,7 +18,6 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;

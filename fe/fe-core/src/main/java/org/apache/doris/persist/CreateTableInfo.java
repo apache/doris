@@ -17,11 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.common.io.Text;
 
 import org.slf4j.Logger;
