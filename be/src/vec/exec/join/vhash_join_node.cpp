@@ -158,8 +158,6 @@ template <class HashTableContext, class JoinOpType, bool ignore_null>
 struct ProcessHashTableProbe {
     ProcessHashTableProbe(HashJoinNode* join_node, int batch_size, int probe_rows)
             : _join_node(join_node),
-              _right_col_idx(join_node->_right_col_idx),
-              _right_col_len(join_node->_right_col_len),
               _batch_size(batch_size),
               _probe_rows(probe_rows),
               _build_blocks(join_node->_build_blocks),
@@ -180,6 +178,10 @@ struct ProcessHashTableProbe {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
 
+        int right_col_idx = _join_node->_is_right_semi_anti ? 0 :
+                _join_node->_left_table_data_types.size();
+        int right_col_len = _join_node->_right_table_data_types.size();
+
         KeyGetter key_getter(_probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
         auto& mcol = mutable_block.mutable_columns();
         int current_offset = 0;
@@ -193,6 +195,10 @@ struct ProcessHashTableProbe {
 
         constexpr auto is_right_semi_anti_join = JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
                                             JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN;
+
+        constexpr auto is_semi_anti_join = is_right_semi_anti_join ||
+                                    JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN ||
+                                    JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN;
 
         constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
                                      JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
@@ -269,34 +275,34 @@ struct ProcessHashTableProbe {
         }
 
         // insert all matched build rows
-        if constexpr (!is_right_semi_anti_join) {
+        if constexpr (!is_semi_anti_join) {
             if (_build_blocks.size() == 1) {
-                for (int i = 0; i < _right_col_len; i++) {
+                for (int i = 0; i < right_col_len; i++) {
                     auto& column = *_build_blocks[0].get_by_position(i).column;
-                    mcol[i + _right_col_idx]->insert_indices_from(column,
+                    mcol[i + right_col_idx]->insert_indices_from(column,
                             _build_block_rows.data(), _build_block_rows.data() + current_offset);
                 }
             } else {
-                for (int i = 0; i < _right_col_len; i++) {
+                for (int i = 0; i < right_col_len; i++) {
                     for (int j = 0; j < current_offset; j++) {
                         if constexpr (probe_all) {
                             if (_build_block_offsets[j] == -1) {
-                                DCHECK(mcol[i + _right_col_idx]->is_nullable());
-                                assert_cast<ColumnNullable *>(mcol[i + _right_col_idx].get())->insert_data(nullptr, 0);
+                                DCHECK(mcol[i + right_col_idx]->is_nullable());
+                                assert_cast<ColumnNullable *>(mcol[i + right_col_idx].get())->insert_data(nullptr, 0);
                             } else {
                                 auto& column = *_build_blocks[_build_block_offsets[j]].get_by_position(i).column;
-                                mcol[i + _right_col_idx]->insert_from(column, _build_block_rows[j]);
+                                mcol[i + right_col_idx]->insert_from(column, _build_block_rows[j]);
                             }
                         } else {
                             auto &column = *_build_blocks[_build_block_offsets[j]].get_by_position(i).column;
-                            mcol[i + _right_col_idx]->insert_from(column, _build_block_rows[j]);
+                            mcol[i + right_col_idx]->insert_from(column, _build_block_rows[j]);
                         }
                     }
                 }
             }
         }
 
-        for (int i = 0; i < _right_col_idx; ++i) {
+        for (int i = 0; i < right_col_idx; ++i) {
             auto& column = _probe_block.get_by_position(i).column;
             column->replicate(&_items_counts[0], current_offset, *mcol[i]);
         }
@@ -314,6 +320,9 @@ struct ProcessHashTableProbe {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
         KeyGetter key_getter(_probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
+
+        int right_col_idx = _join_node->_left_table_data_types.size();
+        int right_col_len = _join_node->_right_table_data_types.size();
 
         IColumn::Offsets offset_data;
         auto& mcol = mutable_block.mutable_columns();
@@ -350,9 +359,9 @@ struct ProcessHashTableProbe {
                 for (auto it = mapped.begin(); it.ok(); ++it) {
                     ++current_offset;
                     const Block& cur_blk = _build_blocks[it->block_offset];
-                    for (size_t j = 0; j < _right_col_len; ++j) {
+                    for (size_t j = 0; j < right_col_len; ++j) {
                         auto& column = *cur_blk.get_by_position(j).column;
-                        mcol[j + _right_col_idx]->insert_from(column, it->row_num);
+                        mcol[j + right_col_idx]->insert_from(column, it->row_num);
                     }
                     visited_map.emplace_back(&it->visited);
                 }
@@ -369,13 +378,13 @@ struct ProcessHashTableProbe {
                 // only full outer / left outer need insert the data of right table
                 if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN || 
                               JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
-                    for (size_t j = 0; j < _right_col_len; ++j) {
-                        DCHECK(mcol[j + _right_col_idx]->is_nullable());
-                        assert_cast<ColumnNullable *>(mcol[j + _right_col_idx].get())->insert_data(nullptr, 0);
+                    for (size_t j = 0; j < right_col_len; ++j) {
+                        DCHECK(mcol[j + right_col_idx]->is_nullable());
+                        assert_cast<ColumnNullable *>(mcol[j + right_col_idx].get())->insert_data(nullptr, 0);
                     }
                 } else {
-                    for (size_t j = 0; j < _right_col_len; ++j) {
-                        mcol[j + _right_col_idx]->insert_default();
+                    for (size_t j = 0; j < right_col_len; ++j) {
+                        mcol[j + right_col_idx]->insert_default();
                     }
                 }
             } else {
@@ -394,7 +403,7 @@ struct ProcessHashTableProbe {
         }
 
         output_block->swap(mutable_block.to_block());
-        for (int i = 0; i < _right_col_idx; ++i) {
+        for (int i = 0; i < right_col_idx; ++i) {
             auto& column = _probe_block.get_by_position(i).column;
             output_block->get_by_position(i).column = column->replicate(offset_data);
         }
@@ -415,9 +424,9 @@ struct ProcessHashTableProbe {
                     auto other_hit = column->get_bool(i);
 
                     if (!other_hit) {
-                        for (size_t j = 0; j < _right_col_len; ++j) {
+                        for (size_t j = 0; j < right_col_len; ++j) {
                             typeid_cast<ColumnNullable*>(
-                                    std::move(*output_block->get_by_position(j + _right_col_idx)
+                                    std::move(*output_block->get_by_position(j + right_col_idx)
                                                        .column)
                                             .mutate()
                                             .get())
@@ -511,14 +520,17 @@ struct ProcessHashTableProbe {
         hash_table_ctx.init_once();
         auto& mcol = mutable_block.mutable_columns();
 
+        int right_col_idx = _join_node->_is_right_semi_anti ? 0 :
+                _join_node->_left_table_data_types.size();
+        int right_col_len = _join_node->_right_table_data_types.size();
+
         auto& iter = hash_table_ctx.iter;
         auto block_size = 0;
-
         auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
             block_size++;
-            for (size_t j = 0; j < _right_col_len; ++j) {
+            for (size_t j = 0; j < right_col_len; ++j) {
                 auto& column = *_build_blocks[offset].get_by_position(j).column;
-                mcol[j + _right_col_idx]->insert_from(column, row_num);
+                mcol[j + right_col_idx]->insert_from(column, row_num);
             }
         };
 
@@ -540,7 +552,7 @@ struct ProcessHashTableProbe {
                       JoinOpType::value == TJoinOp::FULL_OUTER_JOIN || 
                       JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN || 
                       JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
-            for (int i = 0; i < _right_col_idx; ++i) {
+            for (int i = 0; i < right_col_idx; ++i) {
                 for (int j = 0; j < block_size; ++j) {
                     assert_cast<ColumnNullable *>(mcol[i].get())->insert_data(nullptr, 0);
                 }
@@ -554,8 +566,6 @@ struct ProcessHashTableProbe {
 
 private:
     HashJoinNode* _join_node;
-    const int _right_col_idx;
-    const int _right_col_len;
     const int _batch_size;
     const size_t _probe_rows;
     const std::vector<Block>& _build_blocks;
@@ -702,9 +712,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // Hash Table Init
     _hash_table_init();
-
-    _right_col_idx = _is_right_semi_anti ? 0 : _left_table_data_types.size();
-    _right_col_len = _right_table_data_types.size();
 
     _build_block_offsets.resize(state->batch_size());
     _build_block_rows.resize(state->batch_size());
