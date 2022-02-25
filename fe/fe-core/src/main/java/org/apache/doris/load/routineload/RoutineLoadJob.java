@@ -1574,7 +1574,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(key, value);
         }
 
-        int size = in.readInt();
+        size = in.readInt();
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);
             String value = Text.readString(in);

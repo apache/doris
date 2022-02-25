@@ -652,9 +652,7 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
-        String ip = Text.readString(in);
-        txnCoordinator = new TxnCoordinator(sourceType, ip);
+        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
