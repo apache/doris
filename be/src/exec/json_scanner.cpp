@@ -668,7 +668,7 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
                 for (auto v : slot_descs) {
                     for (int i = 0; i < objectValue->MemberCount(); ++i) {
                         auto it = objectValue->MemberBegin() + i;
-                        if (v->col_name() == it->name.GetString()) {
+                        if (strcasecmp(v->col_name().c_str(), it->name.GetString()) == 0) {
                             _name_map[v->col_name()] = i;
                             break;
                         }
