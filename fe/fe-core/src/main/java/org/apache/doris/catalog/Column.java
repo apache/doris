@@ -373,6 +373,9 @@ public class Column implements Writable {
             childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
             childrenTColumn.setColumnType(childrenTColumnType);
             childrenTColumn.setIsAllowNull(children.isAllowNull());
+            if (tColumn.getAggregationType() != null) {
+                childrenTColumn.setAggregationType(tColumn.getAggregationType());
+            }
 
             tColumn.setChildrenColumn(new ArrayList<>());
             tColumn.children_column.add(childrenTColumn);

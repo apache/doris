@@ -453,9 +453,7 @@ public:
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto array_v = (CollectionValue*)cell_ptr;
-        array_v->set_null_signs(reinterpret_cast<bool*>(variable_ptr + sizeof(CollectionValue)));
-        array_v->set_data(variable_ptr + sizeof(CollectionValue) +
-                          OLAP_ARRAY_MAX_BYTES / sizeof(char*));
+        array_v->set_null_signs(reinterpret_cast<bool*>(variable_ptr));
         return variable_ptr + _length;
     }
 

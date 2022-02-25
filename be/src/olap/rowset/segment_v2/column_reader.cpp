@@ -57,22 +57,21 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
                                                  meta.children_columns(0).num_rows(), path_desc,
                                                  &item_reader));
-            RETURN_IF_ERROR(item_reader->init());
 
             std::unique_ptr<ColumnReader> offset_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1),
                                                  meta.children_columns(1).num_rows(), path_desc,
                                                  &offset_reader));
-            RETURN_IF_ERROR(offset_reader->init());
 
             std::unique_ptr<ColumnReader> null_reader;
             if (meta.is_nullable()) {
                 RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(2),
                                                      meta.children_columns(2).num_rows(), path_desc,
                                                      &null_reader));
-                RETURN_IF_ERROR(null_reader->init());
             }
 
+            // The num rows of the array reader equals to the num rows of the length reader.
+            num_rows = meta.children_columns(1).num_rows();
             std::unique_ptr<ColumnReader> array_reader(
                     new ColumnReader(opts, meta, num_rows, path_desc));
             //  array reader do not need to init
@@ -127,7 +126,9 @@ Status ColumnReader::init() {
                     "Bad file $0: invalid column index type $1", _path_desc.filepath, index_meta.type()));
         }
     }
-    if (!is_empty() && _ordinal_index_meta == nullptr) {
+    // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
+    // the item writer doesn't write any data and the corresponding ordinal index is empty.
+    if (_ordinal_index_meta == nullptr && !is_empty()) {
         return Status::Corruption(strings::Substitute(
                 "Bad file $0: missing ordinal index for column $1", _path_desc.filepath, _meta.column_id()));
     }
