@@ -21,25 +21,40 @@
 #include <iostream>
 #include <sstream>
 
+#include "exec/text_converter.h"
 #include "exec/exec_node.h"
 #include "exprs/expr_context.h"
 #include "exec/plain_text_line_reader.h"
+#include "util/utf8_check.h"
 
 namespace doris::vectorized {
+
+bool is_null(const Slice& slice) {
+    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
+}
+
 VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
                                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : BrokerScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
-                        counter) {}
+                        counter) {
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+}
 
-Status VBrokerScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eof) {
+Status VBrokerScanner::get_next(Block* output_block, bool* eof) {
     SCOPED_TIMER(_read_timer);
 
     const int batch_size = _state->batch_size();
+    std::shared_ptr<vectorized::Block> tmp_block(std::make_shared<Block>());
+    // Get batch lines
+    int slot_num = _src_slot_descs.size();
+    std::vector<vectorized::MutableColumnPtr> columns(slot_num);
+    for (int i = 0; i < slot_num; i++) {
+        columns[i] = _src_slot_descs[i]->get_empty_mutable_column();
+    }
 
-    // Get one line
     while (columns[0]->size() < batch_size && !_scanner_eof) {
         if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
@@ -62,7 +77,7 @@ Status VBrokerScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eo
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            RETURN_IF_ERROR(_convert_one_row(Slice(ptr, size), columns));
+            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), columns));
             if (_success) {
                 free_expr_local_allocations();
             }
@@ -73,53 +88,65 @@ Status VBrokerScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eo
     } else {
         *eof = false;
     }
-    return Status::OK();
+    return _fill_dest_block(output_block, tmp_block, columns);
 }
 
-Status VBrokerScanner::_convert_one_row(const Slice& line, std::vector<MutableColumnPtr>& columns) {
-    RETURN_IF_ERROR(_line_to_src_tuple(line));
+Status VBrokerScanner::_fill_dest_block(Block* dest_block, std::shared_ptr<vectorized::Block> tmp_block, std::vector<MutableColumnPtr>& columns) {
+    if (columns.empty() || columns[0]->size() == 0) {
+        return Status::OK();
+    }
+
+    auto n_columns = 0;
+    for (const auto slot_desc : _src_slot_descs) {
+        tmp_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                            slot_desc->get_data_type_ptr(),
+                                            slot_desc->col_name()));
+    }
+    auto old_rows = tmp_block->rows();
+    // filter
+    if (!_vpre_filter_ctxs.empty()) {
+        for (auto vexpr_ctx : _vpre_filter_ctxs) {
+            RETURN_IF_ERROR(VExprContext::filter_block(vexpr_ctx, tmp_block.get(),
+                                                       _dest_tuple_desc->slots().size()));
+            _counter->num_rows_unselected += old_rows - tmp_block->rows();
+            old_rows = tmp_block->rows();
+        }
+    }
+
+    Status status;
+    // expr
+    if (!_dest_vexpr_ctx.empty()) {
+        *dest_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
+                _dest_vexpr_ctx, *tmp_block, status);
+        if (UNLIKELY(dest_block->rows() == 0)) {
+            _success = false;
+            return status;
+        }
+    } else {
+        *dest_block = *tmp_block;
+    }
+
+    return status;
+}
+
+Status VBrokerScanner::_fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns) {
+    RETURN_IF_ERROR(_line_split_to_values(line));
     if (!_success) {
         // If not success, which means we met an invalid row, return.
         return Status::OK();
     }
 
-    return _fill_dest_columns(columns);
-}
+    int idx = 0;
+    for (int i = 0; i < _split_values.size(); ++i) {
+        int dest_index = idx++;
 
-Status VBrokerScanner::_fill_dest_columns(std::vector<MutableColumnPtr>& columns) {
-    // filter src tuple by preceding filter first
-    if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
-        _counter->num_rows_unselected++;
-        _success = false;
-        return Status::OK();
-    }
-    // convert and fill dest tuple
-    int ctx_idx = 0;
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
+        auto src_slot_desc = _src_slot_descs[i];
+        if (!src_slot_desc->is_materialized()) {
             continue;
         }
 
-        int dest_index = ctx_idx++;
-        auto* column_ptr = columns[dest_index].get();
-
-        ExprContext* ctx = _dest_expr_ctx[dest_index];
-        void* value = ctx->get_value(_src_tuple_row);
-        if (value == nullptr) {
-            // Only when the expr return value is null, we will check the error message.
-            std::string expr_error = ctx->get_error_msg();
-            if (!expr_error.empty()) {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                        [&]() -> std::string {
-                            return _src_tuple_row->to_string(*(_row_desc.get()));
-                        },
-                        [&]() -> std::string { return expr_error; }, &_scanner_eof));
-                _counter->num_rows_filtered++;
-                // The ctx is reused, so must clear the error state and message.
-                ctx->clear_error_msg();
-                _success = false;
-                return Status::OK();
-            }
+        const Slice& value = _split_values[i];
+        if (is_null(value)) {
             // If _strict_mode is false, _src_slot_descs_order_by_dest size could be zero
             if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) &&
                 !_src_tuple->is_null(
@@ -140,7 +167,7 @@ Status VBrokerScanner::_fill_dest_columns(std::vector<MutableColumnPtr>& columns
                             fmt::format_to(error_msg,
                                            "column({}) value is incorrect while strict mode is {}, "
                                            "src value is {}",
-                                           slot_desc->col_name(), _strict_mode, raw_string);
+                                           src_slot_desc->col_name(), _strict_mode, raw_string);
                             return error_msg.data();
                         },
                         &_scanner_eof));
@@ -148,7 +175,8 @@ Status VBrokerScanner::_fill_dest_columns(std::vector<MutableColumnPtr>& columns
                 _success = false;
                 return Status::OK();
             }
-            if (!slot_desc->is_nullable()) {
+
+            if (!src_slot_desc->is_nullable()) {
                 RETURN_IF_ERROR(_state->append_error_msg_to_file(
                         [&]() -> std::string {
                             return _src_tuple_row->to_string(*(_row_desc.get()));
@@ -158,7 +186,7 @@ Status VBrokerScanner::_fill_dest_columns(std::vector<MutableColumnPtr>& columns
                             fmt::format_to(
                                     error_msg,
                                     "column({}) values is null while columns is not nullable",
-                                    slot_desc->col_name());
+                                    src_slot_desc->col_name());
                             return error_msg.data();
                         },
                         &_scanner_eof));
@@ -166,124 +194,27 @@ Status VBrokerScanner::_fill_dest_columns(std::vector<MutableColumnPtr>& columns
                 _success = false;
                 return Status::OK();
             }
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+            // nullable
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(columns[dest_index].get());
             nullable_column->insert_data(nullptr, 0);
             continue;
         }
-        if (slot_desc->is_nullable()) {
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-            nullable_column->get_null_map_data().push_back(0);
-            column_ptr = &nullable_column->get_nested_column();
-        }
-        char* value_ptr = (char*)value;
-        switch (slot_desc->type().type) {
-        case TYPE_BOOLEAN: {
-            assert_cast<ColumnVector<UInt8>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_TINYINT: {
-            assert_cast<ColumnVector<Int8>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_SMALLINT: {
-            assert_cast<ColumnVector<Int16>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_INT: {
-            assert_cast<ColumnVector<Int32>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_BIGINT: {
-            assert_cast<ColumnVector<Int64>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_LARGEINT: {
-            assert_cast<ColumnVector<Int128>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_FLOAT: {
-            assert_cast<ColumnVector<Float32>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_DOUBLE: {
-            assert_cast<ColumnVector<Float64>*>(column_ptr)->insert_data(value_ptr, 0);
-            break;
-        }
-        case TYPE_CHAR: {
-            Slice* slice = reinterpret_cast<Slice*>(value_ptr);
-            assert_cast<ColumnString*>(column_ptr)
-                    ->insert_data(slice->data, strnlen(slice->data, slice->size));
-            break;
-        }
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            Slice* slice = reinterpret_cast<Slice*>(value_ptr);
-            assert_cast<ColumnString*>(column_ptr)->insert_data(slice->data, slice->size);
-            break;
-        }
-        case TYPE_OBJECT: {
-            Slice* slice = reinterpret_cast<Slice*>(value_ptr);
-            // insert_default()
-            auto* target_column = assert_cast<ColumnBitmap*>(column_ptr);
-
-            target_column->insert_default();
-            BitmapValue* pvalue = nullptr;
-            int pos = target_column->size() - 1;
-            pvalue = &target_column->get_element(pos);
-
-            if (slice->size != 0) {
-                BitmapValue value;
-                value.deserialize(slice->data);
-                *pvalue = std::move(value);
-            } else {
-                *pvalue = std::move(*reinterpret_cast<BitmapValue*>(slice->data));
-            }
-            break;
-        }
-        case TYPE_HLL: {
-            Slice* slice = reinterpret_cast<Slice*>(value_ptr);
-            auto* target_column = assert_cast<ColumnHLL*>(column_ptr);
-
-            target_column->insert_default();
-            HyperLogLog* pvalue = nullptr;
-            int pos = target_column->size() - 1;
-            pvalue = &target_column->get_element(pos);
-            if (slice->size != 0) {
-                HyperLogLog value;
-                value.deserialize(*slice);
-                *pvalue = std::move(value);
-            } else {
-                *pvalue = std::move(*reinterpret_cast<HyperLogLog*>(slice->data));
-            }
-            break;
-        }
-        case TYPE_DECIMALV2: {
-            assert_cast<ColumnDecimal<Decimal128>*>(column_ptr)
-                    ->insert_data(reinterpret_cast<char*>(value_ptr), 0);
-            break;
-        }
-        case TYPE_DATETIME: {
-            DateTimeValue value = *reinterpret_cast<DateTimeValue*>(value_ptr);
-            VecDateTimeValue date;
-            date.convert_dt_to_vec_dt(&value);
-            assert_cast<ColumnVector<Int64>*>(column_ptr)
-                    ->insert_data(reinterpret_cast<char*>(&date), 0);
-            break;
-        }
-        case TYPE_DATE: {
-            DateTimeValue value = *reinterpret_cast<DateTimeValue*>(value_ptr);
-            VecDateTimeValue date;
-            date.convert_dt_to_vec_dt(&value);
-            assert_cast<ColumnVector<Int64>*>(column_ptr)
-                    ->insert_data(reinterpret_cast<char*>(&date), 0);
-            break;
-        }
-        default: {
-            break;
-        }
-        }
+        RETURN_IF_ERROR(_write_text_column(value.data, value.size, src_slot_desc, &columns[dest_index], _state));
     }
+
     _success = true;
+    return Status::OK();
+}
+
+Status VBrokerScanner::_write_text_column(char* value, int value_length, SlotDescriptor* slot,
+                                         vectorized::MutableColumnPtr* column_ptr,
+                                         RuntimeState* state) {
+    if (!_text_converter->write_column(slot, column_ptr, value, value_length, true, false)) {
+        std::stringstream ss;
+        ss << "Fail to convert text value:'" << value << "' to " << slot->type() << " on column:`"
+           << slot->col_name() + "`";
+        return Status::InternalError(ss.str());
+    }
     return Status::OK();
 }
 } // namespace doris::vectorized

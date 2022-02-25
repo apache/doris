@@ -78,6 +78,7 @@ protected:
 
     Status _line_to_src_tuple(const Slice& line);
 
+    Status _line_split_to_values(const Slice& line);
 private:
     Status open_file_reader();
     Status create_decompressor(TFileFormatType::type type);

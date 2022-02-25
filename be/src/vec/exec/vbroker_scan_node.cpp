@@ -122,73 +122,94 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
     bool scanner_eof = false;
 
     const int batch_size = _runtime_state->batch_size();
-    size_t slot_num = _tuple_desc->slots().size();
 
     while (!scanner_eof) {
+        RETURN_IF_CANCELLED(_runtime_state);
+        // If we have finished all works
+        if (_scan_finished.load() || !_process_status.ok()) {
+            return Status::OK();
+        }
+
         std::shared_ptr<vectorized::Block> block(new vectorized::Block());
-        std::vector<vectorized::MutableColumnPtr> columns(slot_num);
-        for (int i = 0; i < slot_num; i++) {
-            columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
+        RETURN_IF_ERROR(scanner->get_next(block.get(), &scanner_eof));
+        if (block->rows() == 0) {
+            continue;
+        }
+        auto old_rows = block->rows();
+        RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block.get(),
+                                                    _tuple_desc->slots().size()));
+        counter->num_rows_unselected += old_rows - block->rows();
+        if (block->rows() == 0) {
+            continue;
         }
 
-        while (columns[0]->size() < batch_size && !scanner_eof) {
-            RETURN_IF_CANCELLED(_runtime_state);
-            // If we have finished all works
-            if (_scan_finished.load()) {
-                return Status::OK();
-            }
-
-            RETURN_IF_ERROR(scanner->get_next(columns, &scanner_eof));
-            if (scanner_eof) {
-                break;
-            }
+        // merge block
+        if (_mutable_block.get() == nullptr) {
+            _mutable_block.reset(new MutableBlock(block->clone_empty()));
         }
 
-        if (!columns[0]->empty()) {
-            auto n_columns = 0;
-            for (const auto slot_desc : _tuple_desc->slots()) {
-                block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
+        int row_wait_add = block->rows();
+        int begin = 0;
+        while (row_wait_add > 0) {
+            int row_add = 0;
+            int max_add = batch_size - _mutable_block->rows();
+            if (row_wait_add >= max_add) {
+                row_add = max_add;
+            } else {
+                row_add = row_wait_add;
             }
 
-            auto old_rows = block->rows();
-
-            RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block.get(),
-                                                       _tuple_desc->slots().size()));
-
-            counter->num_rows_unselected += old_rows - block->rows();
-
-            std::unique_lock<std::mutex> l(_batch_queue_lock);
-            while (_process_status.ok() && !_scan_finished.load() &&
-                   !_runtime_state->is_cancelled() &&
-                   // stop pushing more batch if
-                   // 1. too many batches in queue, or
-                   // 2. at least one batch in queue and memory exceed limit.
-                   (_block_queue.size() >= _max_buffered_batches ||
-                    (mem_tracker()->any_limit_exceeded() && !_block_queue.empty()))) {
-                _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
+            _mutable_block->add_rows(block.get(), begin, row_add);
+            row_wait_add -= row_add;
+            begin += row_add;
+            if (_mutable_block->rows() >= batch_size) {
+                RETURN_IF_ERROR(push_block_queue());
             }
-            // Process already set failed, so we just return OK
-            if (!_process_status.ok()) {
-                return Status::OK();
-            }
-            // Scan already finished, just return
-            if (_scan_finished.load()) {
-                return Status::OK();
-            }
-            // Runtime state is canceled, just return cancel
-            if (_runtime_state->is_cancelled()) {
-                return Status::Cancelled("Cancelled");
-            }
-            // Queue size Must be smaller than _max_buffered_batches
-            _block_queue.push_back(block);
-
-            // Notify reader to
-            _queue_reader_cond.notify_one();
         }
     }
 
+    RETURN_IF_ERROR(push_block_queue());
+    return Status::OK();
+}
+
+Status VBrokerScanNode::push_block_queue() {
+    if (_mutable_block.get() == nullptr || _mutable_block->rows() == 0) {
+        return Status::OK();
+    }
+
+    auto output_block = _mutable_block->to_block();
+    std::shared_ptr<vectorized::Block> block_ptr(new vectorized::Block());
+    block_ptr->swap(std::move(output_block));
+    // reuse for next
+    _mutable_block->set_muatable_columns(block_ptr->clone_empty_columns());
+
+    std::unique_lock<std::mutex> l(_batch_queue_lock);
+    while (_process_status.ok() && !_scan_finished.load() &&
+        !_runtime_state->is_cancelled() &&
+        // stop pushing more batch if
+        // 1. too many batches in queue, or
+        // 2. at least one batch in queue and memory exceed limit.
+        (_block_queue.size() >= _max_buffered_batches ||
+            (mem_tracker()->any_limit_exceeded() && !_block_queue.empty()))) {
+        _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
+    }
+    // Process already set failed, so we just return OK
+    if (!_process_status.ok()) {
+        return Status::OK();
+    }
+    // Scan already finished, just return
+    if (_scan_finished.load()) {
+        return Status::OK();
+    }
+    // Runtime state is canceled, just return cancel
+    if (_runtime_state->is_cancelled()) {
+        return Status::Cancelled("Cancelled");
+    }
+    // Queue size Must be smaller than _max_buffered_batches
+    _block_queue.push_back(block_ptr);
+
+    // Notify reader to
+    _queue_reader_cond.notify_one();
     return Status::OK();
 }
 
