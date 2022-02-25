@@ -223,8 +223,6 @@ private:
     bool _have_other_join_conjunct = false;
 
     RowDescriptor _row_desc_for_other_join_conjunt;
-    int _right_col_idx = 0;
-    int _right_col_len = 0;
 
     std::vector<uint32_t> _items_counts;
     std::vector<int8_t> _build_block_offsets;
