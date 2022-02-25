@@ -140,7 +140,7 @@ private:
     // current in-use index iterator, could be `&_ordinal_iter` or `&_value_iter` or null
     IndexPageIterator* _current_iter = nullptr;
     // seeked data page, containing value at `_current_ordinal`
-    std::unique_ptr<ParsedPage> _data_page;
+    ParsedPage _data_page;
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
     // open file handle
