@@ -31,7 +31,7 @@ Status ColumnVectorBatch::resize(size_t new_cap) {
     return Status::OK();
 }
 
-Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const TypeInfo* type_info,
+Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, std::shared_ptr<const TypeInfo> type_info,
                                  Field* field,
                                  std::unique_ptr<ColumnVectorBatch>* column_vector_batch) {
     if (is_scalar_type(type_info->type())) {
@@ -133,13 +133,13 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
             }
 
             std::unique_ptr<ColumnVectorBatch> elements;
-            auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
+            auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info.get());
             RETURN_IF_ERROR(ColumnVectorBatch::create(
                     init_capacity * 2, field->get_sub_field(0)->is_nullable(),
                     array_type_info->item_type_info(), field->get_sub_field(0), &elements));
 
             std::unique_ptr<ColumnVectorBatch> offsets;
-            TypeInfo* offsets_type_info =
+            auto offsets_type_info =
                     get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
             RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false, offsets_type_info,
                                                       nullptr, &offsets));
@@ -160,7 +160,7 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
 }
 
 template <class ScalarType>
-ScalarColumnVectorBatch<ScalarType>::ScalarColumnVectorBatch(const TypeInfo* type_info,
+ScalarColumnVectorBatch<ScalarType>::ScalarColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info,
                                                              bool is_nullable)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {}
 
@@ -176,7 +176,7 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
     return Status::OK();
 }
 
-ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
+ArrayColumnVectorBatch::ArrayColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable,
                                                ScalarColumnVectorBatch<uint32_t>* offsets,
                                                ColumnVectorBatch* elements)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {

@@ -123,7 +123,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         // close the file
         ASSERT_TRUE(wblock->close().ok());
     }
-    const TypeInfo* type_info = get_scalar_type_info(type);
+    auto type_info = get_scalar_type_info(type);
     // read and check
     {
         // sequence read
@@ -312,7 +312,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         // close the file
         ASSERT_TRUE(wblock->close().ok());
     }
-    TypeInfo* type_info = get_type_info(&meta);
+    auto type_info = get_type_info(&meta);
 
     // read and check
     {
@@ -462,7 +462,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
 template <FieldType type>
 void test_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    TypeInfo* type_info = get_type_info(type);
+    auto type_info = get_type_info(type);
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
@@ -574,7 +574,7 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
 template <FieldType type>
 void test_v_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    TypeInfo* type_info = get_type_info(type);
+    auto type_info = get_type_info(type);
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);

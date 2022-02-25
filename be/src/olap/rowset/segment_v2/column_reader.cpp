@@ -104,7 +104,7 @@ Status ColumnReader::init() {
         return Status::NotSupported(
                 strings::Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
 
     for (int i = 0; i < _meta.indexes_size(); i++) {
@@ -392,7 +392,7 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
-    TypeInfo* offset_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+    auto offset_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
     RETURN_IF_ERROR(
             ColumnVectorBatch::create(1024, false, offset_type_info, nullptr, &_length_batch));
     return Status::OK();
