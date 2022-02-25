@@ -58,6 +58,13 @@ mysql> select GROUP_CONCAT(value, " ") from test;
 +----------------------------+
 | a b c                      |
 +----------------------------+
+
+mysql> select GROUP_CONCAT(value, NULL) from test;
++----------------------------+
+| GROUP_CONCAT(`value`, NULL)|
++----------------------------+
+| NULL                       |
++----------------------------+
 ```
 ## keyword
 GROUP_CONCAT,GROUP,CONCAT
