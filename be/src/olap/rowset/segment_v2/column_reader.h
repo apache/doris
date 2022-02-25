@@ -273,7 +273,7 @@ public:
 
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
 
-    ParsedPage* get_current_page() { return _page.get(); }
+    ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
 
@@ -288,8 +288,7 @@ private:
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
     //    If new seek is issued, the _page will be reset.
-    // 3. When _page is null, it means that this reader can not be read.
-    std::unique_ptr<ParsedPage> _page;
+    ParsedPage _page;
 
     // keep dict page decoder
     std::unique_ptr<PageDecoder> _dict_decoder;
