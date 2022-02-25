@@ -173,14 +173,8 @@ public class DiskInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         this.rootPath = Text.readString(in);
         this.totalCapacityB = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_36) {
-            this.dataUsedCapacityB = in.readLong();
-            this.diskAvailableCapacityB = in.readLong();
-        } else {
-            long availableCapacityB = in.readLong();
-            this.dataUsedCapacityB = this.totalCapacityB - availableCapacityB;
-            this.diskAvailableCapacityB = availableCapacityB;
-        }
+        this.dataUsedCapacityB = in.readLong();
+        this.diskAvailableCapacityB = in.readLong();
         this.state = DiskState.valueOf(Text.readString(in));
     }
 

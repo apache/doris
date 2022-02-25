@@ -20,7 +20,6 @@ package org.apache.doris.persist;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database.DbState;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -86,17 +85,11 @@ public class DatabaseInfo implements Writable {
 
     public void readFields(DataInput in) throws IOException {
         this.dbName = Text.readString(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
-            newDbName = Text.readString(in);
-        }
+        newDbName = Text.readString(in);
         this.quota = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            this.clusterName = Text.readString(in);
-            this.dbState = DbState.valueOf(Text.readString(in));
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
-            this.quotaType = QuotaType.valueOf(Text.readString(in));
-        }
+        this.clusterName = Text.readString(in);
+        this.dbState = DbState.valueOf(Text.readString(in));
+        this.quotaType = QuotaType.valueOf(Text.readString(in));
     }
 
     public String getClusterName() {

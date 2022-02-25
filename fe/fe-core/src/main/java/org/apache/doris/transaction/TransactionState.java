@@ -652,28 +652,9 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
-            TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
-            String ip = Text.readString(in);
-            txnCoordinator = new TxnCoordinator(sourceType, ip);
-        } else {
-            // to compatible old version, the old txn coordinator looks like: "BE: 192.186.1.1"
-            String coordStr = Text.readString(in);
-            String[] parts = coordStr.split(":");
-            if (parts.length != 2) {
-                // should not happen, just create a mocked TxnCoordinator
-                txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-            } else {
-                if (parts[0].trim().equalsIgnoreCase("FE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, parts[1].trim());
-                } else if (parts[0].trim().equalsIgnoreCase("BE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.BE, parts[1].trim());
-                } else {
-                    // unknown format, should not happen, just create a mocked TxnCoordinator
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-                }
-            }
-        }
+        TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
+        String ip = Text.readString(in);
+        txnCoordinator = new TxnCoordinator(sourceType, ip);
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
@@ -688,20 +669,15 @@ public class TransactionState implements Writable {
             errorReplicas.add(in.readLong());
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
-            if (in.readBoolean()) {
-                txnCommitAttachment = TxnCommitAttachment.read(in);
-            }
-            callbackId = in.readLong();
-            timeoutMs = in.readLong();
+        if (in.readBoolean()) {
+            txnCommitAttachment = TxnCommitAttachment.read(in);
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
-            tableIdList = Lists.newArrayList();
-            int tableListSize = in.readInt();
-            for (int i = 0; i < tableListSize; i++) {
-                tableIdList.add(in.readLong());
-            }
+        callbackId = in.readLong();
+        timeoutMs = in.readLong();
+        tableIdList = Lists.newArrayList();
+        int tableListSize = in.readInt();
+        for (int i = 0; i < tableListSize; i++) {
+            tableIdList.add(in.readLong());
         }
     }
 

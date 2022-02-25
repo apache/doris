@@ -28,7 +28,6 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -1030,10 +1029,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_94) {
-            readFieldOld(in);
-            return;
-        }
 
         if (!isJobTypeRead) {
             jobType = EtlJobType.valueOf(Text.readString(in));
@@ -1090,11 +1085,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         label = Text.readString(in);
         state = JobState.valueOf(Text.readString(in));
         long timeoutSecond;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
-            timeoutSecond = in.readLong();
-        } else {
-            timeoutSecond = in.readInt();
-        }
+        timeoutSecond = in.readLong();
         long execMemLimit = in.readLong();
         double maxFilterRatio = in.readDouble();
         // delete flag is never used
@@ -1112,21 +1103,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         progress = in.readInt();
         loadingStatus.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
-            boolean strictMode = in.readBoolean();
-            jobProperties.put(LoadStmt.STRICT_MODE, strictMode);
-            transactionId = in.readLong();
+        boolean strictMode = in.readBoolean();
+        jobProperties.put(LoadStmt.STRICT_MODE, strictMode);
+        transactionId = in.readLong();
+        if (in.readBoolean()) {
+            authorizationInfo = new AuthorizationInfo();
+            authorizationInfo.readFields(in);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_56) {
-            if (in.readBoolean()) {
-                authorizationInfo = new AuthorizationInfo();
-                authorizationInfo.readFields(in);
-            }
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
-            String timezone = Text.readString(in);
-            jobProperties.put(LoadStmt.TIMEZONE, timezone);
-        }
+        String timezone = Text.readString(in);
+        jobProperties.put(LoadStmt.TIMEZONE, timezone);
     }
 
     public void replayUpdateStateInfo(LoadJobStateUpdateInfo info) {

@@ -146,24 +146,19 @@ public class DeleteInfo implements Writable, GsonPostProcessable {
             replicaInfos.add(info);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_11) {
-            tableName = Text.readString(in);
-            String partitionName = Text.readString(in);
+        tableName = Text.readString(in);
+        String partitionName = Text.readString(in);
 
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String deleteCond = Text.readString(in);
-                deleteConditions.add(deleteCond);
-            }
-
-            createTimeMs = in.readLong();
-            this.partitionNames = Lists.newArrayList(partitionName);
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String deleteCond = Text.readString(in);
+            deleteConditions.add(deleteCond);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_19) {
-            boolean hasAsyncDeleteJob = in.readBoolean();
-            Preconditions.checkState(!hasAsyncDeleteJob, "async delete job is deprecated");
-        }
+        createTimeMs = in.readLong();
+        this.partitionNames = Lists.newArrayList(partitionName);
+        boolean hasAsyncDeleteJob = in.readBoolean();
+        Preconditions.checkState(!hasAsyncDeleteJob, "async delete job is deprecated");
     }
 
     @Override

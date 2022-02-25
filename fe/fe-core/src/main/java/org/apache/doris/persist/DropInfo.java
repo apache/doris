@@ -18,7 +18,6 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;
@@ -74,9 +73,7 @@ public class DropInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_89) {
-            forceDrop = in.readBoolean();
-        }
+        forceDrop = in.readBoolean();
         boolean hasIndexId = in.readBoolean();
         if (hasIndexId) {
             indexId = in.readLong();

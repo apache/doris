@@ -19,7 +19,6 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -79,17 +78,9 @@ public class TablePropertyInfo implements Writable {
 
     public void readFields(DataInput in) throws IOException {
         long dbId = -1;
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
-            dbId = in.readLong();
-        }
         tableId = in.readLong();
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_55) {
-            if (in.readBoolean()) {
-                groupId = GroupId.read(in);
-            }
-        } else {
-            groupId = new GroupId(dbId, tableId);
+        if (in.readBoolean()) {
+            groupId = GroupId.read(in);
         }
 
         int size = in.readInt();

@@ -828,9 +828,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             } else {
                 replicaAlloc = ReplicaAllocation.read(in);
             }
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-                isInMemory = in.readBoolean();
-            }
+            isInMemory = in.readBoolean();
         }
     }
     

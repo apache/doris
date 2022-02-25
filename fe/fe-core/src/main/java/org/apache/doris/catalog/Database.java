@@ -641,11 +641,7 @@ public class Database extends MetaObject implements Writable {
         super.readFields(in);
 
         id = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            fullQualifiedName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
-        } else {
-            fullQualifiedName = Text.readString(in);
-        }
+        fullQualifiedName = Text.readString(in);
         // read groups
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
@@ -658,26 +654,20 @@ public class Database extends MetaObject implements Writable {
 
         // read quota
         dataQuotaBytes = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        } else {
-            clusterName = Text.readString(in);
-            dbState = DbState.valueOf(Text.readString(in));
-            attachDbName = Text.readString(in);
-        }
+        clusterName = Text.readString(in);
+        dbState = DbState.valueOf(Text.readString(in));
+        attachDbName = Text.readString(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_47) {
-            int numEntries = in.readInt();
-            for (int i = 0; i < numEntries; ++i) {
-                String name = Text.readString(in);
-                ImmutableList.Builder<Function> builder = ImmutableList.builder();
-                int numFunctions = in.readInt();
-                for (int j = 0; j < numFunctions; ++j) {
-                    builder.add(Function.read(in));
-                }
-
-                name2Function.put(name, builder.build());
+        int numEntries = in.readInt();
+        for (int i = 0; i < numEntries; ++i) {
+            String name = Text.readString(in);
+            ImmutableList.Builder<Function> builder = ImmutableList.builder();
+            int numFunctions = in.readInt();
+            for (int j = 0; j < numFunctions; ++j) {
+                builder.add(Function.read(in));
             }
+
+            name2Function.put(name, builder.build());
         }
 
         // read encryptKeys
@@ -685,11 +675,7 @@ public class Database extends MetaObject implements Writable {
             dbEncryptKey = DatabaseEncryptKey.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
-            replicaQuotaSize = in.readLong();
-        } else {
-            replicaQuotaSize = Config.default_db_replica_quota_size;
-        }
+        replicaQuotaSize = in.readLong();
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);

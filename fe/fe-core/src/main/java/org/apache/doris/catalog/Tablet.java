@@ -336,11 +336,9 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_6) {
-            checkedVersion = in.readLong();
-            checkedVersionHash = in.readLong();
-            isConsistent = in.readBoolean();
-        }
+        checkedVersion = in.readLong();
+        checkedVersionHash = in.readLong();
+        isConsistent = in.readBoolean();
     }
 
     public static Tablet read(DataInput in) throws IOException {

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -240,13 +239,9 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
             throw new IOException(e);
         }
         isAnyUser = origUser.equals(ANY_USER);
-
         privSet = PrivBitSet.read(in);
-
         isSetByDomainResolver = in.readBoolean();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_69) {
-            isDomain = in.readBoolean();
-        }
+        isDomain = in.readBoolean();
 
         if (isDomain) {
             userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);

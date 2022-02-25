@@ -19,7 +19,6 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -71,14 +70,8 @@ public class TruncateTableInfo implements Writable {
     }
 
     public static TruncateTableInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_74) {
-            TruncateTableInfo info = new TruncateTableInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, TruncateTableInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TruncateTableInfo.class);
     }
 
     @Override

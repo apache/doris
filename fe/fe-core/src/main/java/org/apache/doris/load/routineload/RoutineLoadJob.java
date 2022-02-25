@@ -1565,35 +1565,20 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } else {
             this.jobStatistic = RoutineLoadStatistic.read(in);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
-            String stmt = Text.readString(in);
-            origStmt = new OriginStatement(stmt, 0);
-        } else {
-            origStmt = OriginStatement.read(in);
+        origStmt = OriginStatement.read(in);
+        
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            jobProperties.put(key, value);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                jobProperties.put(key, value);
-            }
-        } else {
-            // The behaviors of old broker load could not be changed
-            jobProperties.put(LoadStmt.STRICT_MODE, Boolean.toString(false));
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                sessionVariables.put(key, value);
-            }
-        } else {
-            // old version of load does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            sessionVariables.put(key, value);
         }
 
         // parse the origin stmt to get routine load desc

@@ -229,21 +229,9 @@ public abstract class AlterJobV2 implements Writable {
     public abstract void replay(AlterJobV2 replayedJob);
 
     public static AlterJobV2 read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
-            JobType type = JobType.valueOf(Text.readString(in));
-            switch (type) {
-                case ROLLUP:
-                    return RollupJobV2.read(in);
-                case SCHEMA_CHANGE:
-                    return SchemaChangeJobV2.read(in);
-                default:
-                    Preconditions.checkState(false);
-                    return null;
-            }
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
-        }
+        
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
     }
 
     @Override

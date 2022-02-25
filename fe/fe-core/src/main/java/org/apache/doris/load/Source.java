@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -200,11 +199,7 @@ public class Source implements Writable {
                 int argsNum = in.readInt();
                 List<String> args = Lists.newArrayList();
                 for (int j = 0; j < argsNum; j++) {
-                    if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-                        if (in.readBoolean()) {
-                            args.add(Text.readString(in));
-                        }
-                    } else {
+                    if (in.readBoolean()) {
                         args.add(Text.readString(in));
                     }
                 }

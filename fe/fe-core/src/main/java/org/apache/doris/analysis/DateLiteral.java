@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TDateLiteral;
@@ -470,24 +469,14 @@ public class DateLiteral extends LiteralExpr {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {
-            short date_literal_type = in.readShort();
-            fromPackedDatetime(in.readLong());
-            if (date_literal_type == DateLiteralType.DATETIME.value()) {
-                this.type = Type.DATETIME;
-            } else if (date_literal_type == DateLiteralType.DATE.value()) {
-                this.type = Type.DATE;
-            } else {
-                throw new IOException("Error date literal type : " + type);
-            }
+        short date_literal_type = in.readShort();
+        fromPackedDatetime(in.readLong());
+        if (date_literal_type == DateLiteralType.DATETIME.value()) {
+            this.type = Type.DATETIME;
+        } else if (date_literal_type == DateLiteralType.DATE.value()) {
+            this.type = Type.DATE;
         } else {
-            Date date = new Date(in.readLong());
-            String date_str = TimeUtils.format(date, Type.DATETIME);
-            try {
-                init(date_str, Type.DATETIME);
-            } catch (AnalysisException ex) {
-                throw new IOException(ex.getMessage());
-            }
+            throw new IOException("Error date literal type : " + type);
         }
     }
 

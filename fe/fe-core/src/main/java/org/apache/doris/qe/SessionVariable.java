@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -975,35 +974,19 @@ public class SessionVariable implements Serializable, Writable {
         txIsolation = Text.readString(in);
         autoCommit = in.readBoolean();
         resourceGroup = Text.readString(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
-            sqlMode = in.readLong();
-        } else {
-            // read old version SQL mode
-            Text.readString(in);
-            sqlMode = 0L;
-        }
+        sqlMode = in.readLong();
         enableProfile = in.readBoolean();
         queryTimeoutS = in.readInt();
         maxExecMemByte = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
-            collationServer = Text.readString(in);
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
-            batchSize = in.readInt();
-            disableStreamPreaggregations = in.readBoolean();
-            parallelExecInstanceNum = in.readInt();
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
-            exchangeInstanceParallel = in.readInt();
-        }
+        collationServer = Text.readString(in);
+        batchSize = in.readInt();
+        disableStreamPreaggregations = in.readBoolean();
+        parallelExecInstanceNum = in.readInt();
+        exchangeInstanceParallel = in.readInt();
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67) {
-            readFromStream(in);
-        } else {
-            readFromJson(in);
-        }
+        readFromJson(in);
     }
 
     private void readFromJson(DataInput in) throws IOException {

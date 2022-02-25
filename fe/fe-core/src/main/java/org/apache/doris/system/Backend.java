@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -535,14 +534,8 @@ public class Backend implements Writable {
     }
 
     public static Backend read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
-            Backend backend = new Backend();
-            backend.readFields(in);
-            return backend;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, Backend.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Backend.class);
     }
 
     @Override
@@ -558,43 +551,23 @@ public class Backend implements Writable {
         heartbeatPort = in.readInt();
         bePort = in.readInt();
         httpPort = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_31) {
-            beRpcPort = in.readInt();
-        }
+        beRpcPort = in.readInt();
         isAlive.set(in.readBoolean());
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_5) {
-            isDecommissioned.set(in.readBoolean());
-        }
-
+        isDecommissioned.set(in.readBoolean());
         lastUpdateMs = in.readLong();
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_2) {
-            lastStartTime = in.readLong();
-
-            Map<String, DiskInfo> disks = Maps.newHashMap();
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String rootPath = Text.readString(in);
-                DiskInfo diskInfo = DiskInfo.read(in);
-                disks.put(rootPath, diskInfo);
-            }
-
-            disksRef = ImmutableMap.copyOf(disks);
+        lastStartTime = in.readLong();
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String rootPath = Text.readString(in);
+            DiskInfo diskInfo = DiskInfo.read(in);
+            disks.put(rootPath, diskInfo);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            ownerClusterName = Text.readString(in);
-            backendState = in.readInt();
-            decommissionType = in.readInt();
-        } else {
-            ownerClusterName = SystemInfoService.DEFAULT_CLUSTER;
-            backendState = BackendState.using.ordinal();
-            decommissionType = DecommissionType.SystemDecommission.ordinal();
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_40) {
-            brpcPort = in.readInt();
-        }
+        disksRef = ImmutableMap.copyOf(disks);
+        ownerClusterName = Text.readString(in);
+        backendState = in.readInt();
+        decommissionType = in.readInt();
+        brpcPort = in.readInt();
     }
 
     @Override

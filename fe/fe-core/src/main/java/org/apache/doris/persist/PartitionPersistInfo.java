@@ -133,13 +133,8 @@ public class PartitionPersistInfo implements Writable {
             this.replicaAlloc = ReplicaAllocation.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-            isInMemory = in.readBoolean();
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
-            isTempPartition = in.readBoolean();
-        }
+        isInMemory = in.readBoolean();
+        isTempPartition = in.readBoolean();
     }
     
     public boolean equals(Object obj) {

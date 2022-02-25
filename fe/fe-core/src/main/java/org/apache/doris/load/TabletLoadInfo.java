@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -73,9 +72,7 @@ public class TabletLoadInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             filePath = Text.readString(in).intern();
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_8) {
-                fileSize = in.readLong();
-            }
+            fileSize = in.readLong();
         } else {
             filePath = null;
             fileSize = -1;

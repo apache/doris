@@ -766,19 +766,17 @@ public class ExportJob implements Writable {
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String propertyKey = Text.readString(in);
-                String propertyValue = Text.readString(in);
-                this.properties.put(propertyKey, propertyValue);
-            }
-            // Because before 0.15, export does not contain label information.
-            // So for compatibility, a label will be added for historical jobs.
-            // This label must be guaranteed to be a certain value to prevent
-            // the label from being different each time.
-            properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            String propertyKey = Text.readString(in);
+            String propertyValue = Text.readString(in);
+            this.properties.put(propertyKey, propertyValue);
         }
+        // Because before 0.15, export does not contain label information.
+        // So for compatibility, a label will be added for historical jobs.
+        // This label must be guaranteed to be a certain value to prevent
+        // the label from being different each time.
+        properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
         this.label = properties.get(ExportStmt.LABEL);
         this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         if (!Strings.isNullOrEmpty(this.columns)) {
@@ -806,12 +804,8 @@ public class ExportJob implements Writable {
             brokerDesc = BrokerDesc.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
-            tableName = new TableName();
-            tableName.readFields(in);
-        } else {
-            tableName = new TableName("DUMMY", "DUMMY");
-        }
+        tableName = new TableName();
+        tableName.readFields(in);
 
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_97) {
             origStmt = new OriginStatement("", 0);
