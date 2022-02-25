@@ -77,13 +77,12 @@ public class RowCountAction extends RestBaseController {
         try {
             for (Partition partition : olapTable.getAllPartitions()) {
                 long version = partition.getVisibleVersion();
-                long versionHash = partition.getVisibleVersionHash();
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     long indexRowCount = 0L;
                     for (Tablet tablet : index.getTablets()) {
                         long tabletRowCount = 0L;
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.checkVersionCatchUp(version, versionHash, false)
+                            if (replica.checkVersionCatchUp(version, false)
                                     && replica.getRowCount() > tabletRowCount) {
                                 tabletRowCount = replica.getRowCount();
                             }
