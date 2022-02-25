@@ -119,7 +119,7 @@ Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
         return Status::OK();
     }
 
-    if (_data_page == nullptr || !_data_page->contains(idx)) {
+    if (!_data_page || !_data_page.contains(idx)) {
         // need to read the data page containing row at idx
         if (_reader->_has_index_page) {
             std::string key;
@@ -132,10 +132,10 @@ Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
         }
     }
 
-    ordinal_t offset_in_page = idx - _data_page->first_ordinal;
-    RETURN_IF_ERROR(_data_page->data_decoder->seek_to_position_in_page(offset_in_page));
-    DCHECK(offset_in_page == _data_page->data_decoder->current_index());
-    _data_page->offset_in_page = offset_in_page;
+    ordinal_t offset_in_page = idx - _data_page.first_ordinal;
+    RETURN_IF_ERROR(_data_page.data_decoder->seek_to_position_in_page(offset_in_page));
+    DCHECK(offset_in_page == _data_page.data_decoder->current_index());
+    _data_page.offset_in_page = offset_in_page;
     _current_ordinal = idx;
     _seeked = true;
     return Status::OK();
@@ -169,7 +169,7 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
         }
         data_page_pp = _value_iter.current_page_pointer();
         _current_iter = &_value_iter;
-        if (_data_page == nullptr || _data_page->page_pointer != data_page_pp) {
+        if (!_data_page || _data_page.page_pointer != data_page_pp) {
             // load when it's not the same with the current
             load_data_page = true;
         }
@@ -184,10 +184,10 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     }
 
     // seek inside data page
-    RETURN_IF_ERROR(_data_page->data_decoder->seek_at_or_after_value(key, exact_match));
-    _data_page->offset_in_page = _data_page->data_decoder->current_index();
-    _current_ordinal = _data_page->first_ordinal + _data_page->offset_in_page;
-    DCHECK(_data_page->contains(_current_ordinal));
+    RETURN_IF_ERROR(_data_page.data_decoder->seek_at_or_after_value(key, exact_match));
+    _data_page.offset_in_page = _data_page.data_decoder->current_index();
+    _current_ordinal = _data_page.first_ordinal + _data_page.offset_in_page;
+    DCHECK(_data_page.contains(_current_ordinal));
     _seeked = true;
     return Status::OK();
 }
@@ -201,7 +201,7 @@ Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view
 
     size_t remaining = *n;
     while (remaining > 0) {
-        if (!_data_page->has_remaining()) {
+        if (!_data_page.has_remaining()) {
             // trying to read next data page
             if (!_reader->_has_index_page) {
                 break; // no more data page
@@ -213,12 +213,12 @@ Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view
             RETURN_IF_ERROR(_read_data_page(_current_iter->current_page_pointer()));
         }
 
-        size_t rows_to_read = std::min(_data_page->remaining(), remaining);
+        size_t rows_to_read = std::min(_data_page.remaining(), remaining);
         size_t rows_read = rows_to_read;
-        RETURN_IF_ERROR(_data_page->data_decoder->next_batch(&rows_read, column_view));
+        RETURN_IF_ERROR(_data_page.data_decoder->next_batch(&rows_read, column_view));
         DCHECK(rows_to_read == rows_read);
 
-        _data_page->offset_in_page += rows_read;
+        _data_page.offset_in_page += rows_read;
         _current_ordinal += rows_read;
         column_view->advance(rows_read);
         remaining -= rows_read;
