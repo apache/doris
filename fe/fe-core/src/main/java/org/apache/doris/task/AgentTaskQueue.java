@@ -70,8 +70,7 @@ public class AgentTaskQueue {
         LOG.debug("add task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
         if (type == TTaskType.PUSH) {
             PushTask pushTask = (PushTask) task;
-            LOG.debug("push task info: version[{}], version hash[{}]", 
-                      pushTask.getVersion(), pushTask.getVersionHash());
+            LOG.debug("push task info: version[{}]", pushTask.getVersion());
         }
         return true;
     }
@@ -100,9 +99,9 @@ public class AgentTaskQueue {
     
     /*
      * we cannot define a push task with only 'backendId', 'signature' and 'TTaskType'
-     * add version, versionHash and TPushType to help
+     * add version and TPushType to help
      */
-    public static synchronized void removePushTask(long backendId, long signature, long version, long versionHash,
+    public static synchronized void removePushTask(long backendId, long signature, long version,
                                                    TPushType pushType, TTaskType taskType) {
         if (!tasks.contains(backendId, taskType)) {
             return;

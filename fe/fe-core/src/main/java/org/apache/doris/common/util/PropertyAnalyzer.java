@@ -29,7 +29,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -257,28 +256,19 @@ public class PropertyAnalyzer {
         }
         return tTabletType;
     }
-
-    public static Pair<Long, Long> analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
-        Pair<Long, Long> versionInfo = new Pair<>(Partition.PARTITION_INIT_VERSION,
-                Partition.PARTITION_INIT_VERSION_HASH);
+    
+    public static long analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
+        long version = Partition.PARTITION_INIT_VERSION;
         if (properties != null && properties.containsKey(PROPERTIES_VERSION_INFO)) {
             String versionInfoStr = properties.get(PROPERTIES_VERSION_INFO);
-            String[] versionInfoArr = versionInfoStr.split(COMMA_SEPARATOR);
-            if (versionInfoArr.length == 2) {
-                try {
-                    versionInfo.first = Long.parseLong(versionInfoArr[0]);
-                    versionInfo.second = Long.parseLong(versionInfoArr[1]);
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("version info number format error");
-                }
-            } else {
-                throw new AnalysisException("version info format error. format: version,version_hash");
+            try {
+                version = Long.parseLong(versionInfoStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("version info number format error: " + versionInfoStr);
             }
-
             properties.remove(PROPERTIES_VERSION_INFO);
         }
-
-        return versionInfo;
+        return version;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {

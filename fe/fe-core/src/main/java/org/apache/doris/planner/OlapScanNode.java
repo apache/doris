@@ -482,9 +482,7 @@ public class OlapScanNode extends ScanNode {
         int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
         String schemaHashStr = String.valueOf(schemaHash);
         long visibleVersion = partition.getVisibleVersion();
-        long visibleVersionHash = partition.getVisibleVersionHash();
         String visibleVersionStr = String.valueOf(visibleVersion);
-        String visibleVersionHashStr = String.valueOf(partition.getVisibleVersionHash());
 
         Set<Tag> allowedTags = Sets.newHashSet();
         boolean needCheckTags = false;
@@ -501,15 +499,15 @@ public class OlapScanNode extends ScanNode {
             paloRange.setDbName("");
             paloRange.setSchemaHash(schemaHashStr);
             paloRange.setVersion(visibleVersionStr);
-            paloRange.setVersionHash(visibleVersionHashStr);
+            paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
             List<Replica> replicas = Lists.newArrayList();
-            tablet.getQueryableReplicas(replicas, visibleVersion, visibleVersionHash, schemaHash);
+            tablet.getQueryableReplicas(replicas, visibleVersion, schemaHash);
             if (replicas.isEmpty()) {
-                LOG.error("no queryable replica found in tablet {}. visible version {}-{}",
-                        tabletId, visibleVersion, visibleVersionHash);
+                LOG.error("no queryable replica found in tablet {}. visible version {}",
+                        tabletId, visibleVersion);
                 if (LOG.isDebugEnabled()) {
                     for (Replica replica : tablet.getReplicas()) {
                         LOG.debug("tablet {}, replica: {}", tabletId, replica.toString());

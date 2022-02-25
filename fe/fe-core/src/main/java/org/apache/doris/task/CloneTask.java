@@ -34,7 +34,6 @@ public class CloneTask extends AgentTask {
     private TStorageMedium storageMedium;
 
     private long visibleVersion;
-    private long visibleVersionHash;
 
     private long srcPathHash = -1;
     private long destPathHash = -1;
@@ -45,13 +44,12 @@ public class CloneTask extends AgentTask {
 
     public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
                      long tabletId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
-                     long visibleVersion, long visibleVersionHash, int timeoutS) {
+                     long visibleVersion, int timeoutS) {
         super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.schemaHash = schemaHash;
         this.srcBackends = srcBackends;
         this.storageMedium = storageMedium;
         this.visibleVersion = visibleVersion;
-        this.visibleVersionHash = visibleVersionHash;
         this.timeoutS = timeoutS;
     }
 
@@ -65,10 +63,6 @@ public class CloneTask extends AgentTask {
 
     public long getVisibleVersion() {
         return visibleVersion;
-    }
-
-    public long getVisibleVersionHash() {
-        return visibleVersionHash;
     }
 
     public void setPathHash(long srcPathHash, long destPathHash) {
@@ -85,7 +79,6 @@ public class CloneTask extends AgentTask {
         TCloneReq request = new TCloneReq(tabletId, schemaHash, srcBackends);
         request.setStorageMedium(storageMedium);
         request.setCommittedVersion(visibleVersion);
-        request.setCommittedVersionHash(visibleVersionHash);
         request.setTaskVersion(taskVersion);
         if (taskVersion == VERSION_2) {
             request.setSrcPathHash(srcPathHash);
@@ -101,7 +94,7 @@ public class CloneTask extends AgentTask {
         StringBuilder sb = new StringBuilder();
         sb.append("tablet id: ").append(tabletId).append(", schema hash: ").append(schemaHash);
         sb.append(", storageMedium: ").append(storageMedium.name());
-        sb.append(", visible version(hash): ").append(visibleVersion).append("-").append(visibleVersionHash);
+        sb.append(", visible version(hash): ").append(visibleVersion);
         sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path hash: ").append(srcPathHash);
         sb.append(", dest backend: ").append(backendId).append(", dest path hash: ").append(destPathHash);
         return sb.toString();

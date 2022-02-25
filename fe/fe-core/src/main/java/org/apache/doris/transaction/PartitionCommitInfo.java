@@ -17,8 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -37,19 +35,16 @@ public class PartitionCommitInfo implements Writable {
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTime;
-    @SerializedName(value = "versionHash")
-    private long versionHash;
 
     public PartitionCommitInfo() {
         
     }
 
-    public PartitionCommitInfo(long partitionId, long version, long versionHash, long visibleTime) {
+    public PartitionCommitInfo(long partitionId, long version, long visibleTime) {
         super();
         this.partitionId = partitionId;
         this.version = version;
         this.versionTime = visibleTime;
-        this.versionHash = versionHash;
     }
 
     @Override
@@ -59,15 +54,8 @@ public class PartitionCommitInfo implements Writable {
     }
 
     public static PartitionCommitInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_88) {
-            long partitionId = in.readLong();
-            long version = in.readLong();
-            long versionHash = in.readLong();
-            return new PartitionCommitInfo(partitionId, version, versionHash, System.currentTimeMillis());
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, PartitionCommitInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, PartitionCommitInfo.class);
     }
 
     public long getPartitionId() {
@@ -82,10 +70,6 @@ public class PartitionCommitInfo implements Writable {
         return versionTime;
     }
 
-    public long getVersionHash() {
-        return versionHash;
-    }
-
     public void setVersion(long version) {
         this.version = version;
     }
@@ -93,17 +77,12 @@ public class PartitionCommitInfo implements Writable {
     public void setVersionTime(long versionTime) {
         this.versionTime = versionTime;
     }
-
-    public void setVersionHash(long versionHash) {
-        this.versionHash = versionHash;
-    }
     
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("partitionid=");
         sb.append(partitionId);
         sb.append(", version=").append(version);
-        sb.append(", versionHash=").append(versionHash);
         sb.append(", versionTime=").append(versionTime);
         return sb.toString();
     }
