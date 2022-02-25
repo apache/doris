@@ -170,11 +170,10 @@ public class TabletInvertedIndex {
 
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
-                                                    + "replica in FE: {}, report version {}-{}, report schema hash: {},"
+                                                    + "replica in FE: {}, report version {}, report schema hash: {},"
                                                     + " is bad: {}, is version missing: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
-                                            backendTabletInfo.getVersionHash(),
                                             backendTabletInfo.getSchemaHash(),
                                             backendTabletInfo.isSetUsed() ? !backendTabletInfo.isUsed() : "false",
                                             backendTabletInfo.isSetVersionMiss() ? backendTabletInfo.isVersionMiss() : "unset");
@@ -228,8 +227,7 @@ public class TabletInvertedIndex {
                                                         tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
                                             } else {
                                                 TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
-                                                        partitionCommitInfo.getVersion(),
-                                                        partitionCommitInfo.getVersionHash());
+                                                        partitionCommitInfo.getVersion(), 0);
                                                 synchronized (transactionsToPublish) {
                                                     ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
                                                     if (map == null) {
@@ -320,13 +318,11 @@ public class TabletInvertedIndex {
         }
 
         long versionInFe = replicaInFe.getVersion();
-        long versionHashInFe = replicaInFe.getVersionHash();
 
         if (backendTabletInfo.getVersion() > versionInFe) {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
-        } else if (versionInFe == backendTabletInfo.getVersion() && versionHashInFe == backendTabletInfo.getVersionHash()
-                && replicaInFe.isBad()) {
+        } else if (versionInFe == backendTabletInfo.getVersion() && replicaInFe.isBad()) {
             // backend replica's version is equal to replica in FE, but replica in FE is bad, while backend replica is good, sync it
             return true;
         }
@@ -355,23 +351,8 @@ public class TabletInvertedIndex {
             return true;
         }
 
-        if (schemaHashInFe != backendTabletInfo.getSchemaHash()
-                || backendTabletInfo.getVersion() == -1 && backendTabletInfo.getVersionHash() == 0) {
+        if (schemaHashInFe != backendTabletInfo.getSchemaHash() || backendTabletInfo.getVersion() == -1) {
             // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery
-            return false;
-        }
-
-        if (replicaInFe.getVersionHash() == 0 && backendTabletInfo.getVersion() == replicaInFe.getVersion() - 1) {
-            /*
-             * This is very tricky:
-             * 1. Assume that we want to create a replica with version (X, Y), the init version of replica in FE
-             *      is (X, Y), and BE will create a replica with version (X+1, 0).
-             * 2. BE will report version (X+1, 0), and FE will sync with this version, change to (X+1, 0), too.
-             * 3. When restore, BE will restore the replica with version (X, Y) (which is the visible version of partition)
-             * 4. BE report the version (X-Y), and than we fall into here
-             *
-             * Actually, the version (X+1, 0) is a 'virtual' version, so here we ignore this kind of report
-             */
             return false;
         }
 

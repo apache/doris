@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.thrift.TTabletType;
@@ -46,7 +45,7 @@ public class SinglePartitionDesc {
     private ReplicaAllocation replicaAlloc;
     private boolean isInMemory = false;
     private TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
-    private Pair<Long, Long> versionInfo;
+    private Long versionInfo;
 
     public SinglePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
                                Map<String, String> properties) {
@@ -90,7 +89,7 @@ public class SinglePartitionDesc {
         return tabletType;
     }
 
-    public Pair<Long, Long> getVersionInfo() {
+    public Long getVersionInfo() {
         return versionInfo;
     }
 

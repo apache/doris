@@ -104,14 +104,12 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
             for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
                 TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(), 
-                        commitInfo.getVersion(), 
-                        commitInfo.getVersionHash());
+                        commitInfo.getVersion(), 0);
                 partitionVersionInfos.add(versionInfo);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}], version hash [{}]", 
+                    LOG.debug("try to publish version info partitionid [{}], version [{}]", 
                             commitInfo.getPartitionId(), 
-                            commitInfo.getVersion(), 
-                            commitInfo.getVersionHash());
+                            commitInfo.getVersion());
                 }
             }
             Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();

@@ -355,7 +355,6 @@ public class TabletChecker extends MasterDaemon {
                         infoService,
                         db.getClusterName(),
                         partition.getVisibleVersion(),
-                        partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         aliveBeIdsInCluster);
 

@@ -84,7 +84,7 @@ public class LoadPendingTaskTest {
     @Test
     public void testRunPendingTask() throws Exception {
         // mock catalog
-        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
+        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
 
         GlobalTransactionMgr globalTransactionMgr = new GlobalTransactionMgr(catalog);
         globalTransactionMgr.setEditLog(editLog);

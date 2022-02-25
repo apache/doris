@@ -249,7 +249,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, node.versionHash, node.schemaHash));
+            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0l /*versionHash*/, node.schemaHash));
         });
         tQueryPlanInfo.tablet_info = tablet_info;
 
@@ -278,8 +278,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         for (TScanRangeLocations scanRangeLocations : scanRangeLocationsList) {
             // only process palo(doris) scan range
             TPaloScanRange scanRange = scanRangeLocations.scan_range.palo_scan_range;
-            Node tabletRouting = new Node(Long.parseLong(scanRange.version),
-                    Long.parseLong(scanRange.version_hash), Integer.parseInt(scanRange.schema_hash));
+            Node tabletRouting = new Node(Long.parseLong(scanRange.version), Integer.parseInt(scanRange.schema_hash));
             for (TNetworkAddress address : scanRange.hosts) {
                 tabletRouting.addRouting(address.hostname + ":" + address.port);
             }
@@ -293,12 +292,10 @@ public class TableQueryPlanAction extends RestBaseAction {
         // ["host1:port1", "host2:port2", "host3:port3"]
         public List<String> routings = new ArrayList<>();
         public long version;
-        public long versionHash;
         public int schemaHash;
 
-        public Node(long version, long versionHash, int schemaHash) {
+        public Node(long version, int schemaHash) {
             this.version = version;
-            this.versionHash = versionHash;
             this.schemaHash = schemaHash;
         }
 

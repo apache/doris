@@ -125,9 +125,9 @@ public class LoadJobTest {
         loadJob3.addFullTablet(2);
         loadJob3.addFullTablet(3);
         
-        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(1, 1, 1, 1, 1, 1, 1, 0, 1, 1));
-        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(2, 2, 2, 2, 2, 2, 2, 0, 2, 2));
-        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(3, 3, 3, 3, 3, 3, 3, 0, 3, 3));
+        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(1, 1, 1, 1, 1, 1, 0, 1, 1));
+        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(2, 2, 2, 2, 2, 2, 0, 2, 2));
+        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(3, 3, 3, 3, 3, 3, 0, 3, 3));
 
         return loadJob3;
     }

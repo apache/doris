@@ -79,7 +79,6 @@ public class BackupJobTest {
     private long tabletId = 5;
     private long backendId = 10000;
     private long version = 6;
-    private long versionHash = 7;
 
     private long repoId = 20000;
     private AtomicLong id = new AtomicLong(50000);
@@ -145,7 +144,7 @@ public class BackupJobTest {
         // Thread is unmockable after Jmockit version 1.48, so use reflection to set field instead.
         Deencapsulation.setField(catalog, "backupHandler", backupHandler);
 
-        db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
+        db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
 
         new Expectations(catalog) {
             {
