@@ -1792,7 +1792,9 @@ public class Catalog {
     }
 
     public long loadSyncJobs(DataInputStream dis, long checksum) throws IOException, DdlException {
-        syncJobManager.readField(dis);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_103) {
+            syncJobManager.readField(dis);
+        }
         LOG.info("finished replay syncJobMgr from image");
         return checksum;
     }
