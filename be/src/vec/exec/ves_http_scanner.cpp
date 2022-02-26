@@ -17,7 +17,7 @@
 
 #include "vec/exec/ves_http_scanner.h"
 
-namespace doris {
+namespace doris::vectorized {
 
 VEsHttpScanner::~VEsHttpScanner() {
     close();
@@ -43,8 +43,8 @@ Status VEsHttpScanner::get_next(std::vector<vectorized::MutableColumnPtr>& colum
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, tuple_pool, &_line_eof,
-                                                      docvalue_context));
+        RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, tuple_pool,
+                                                        &_line_eof, docvalue_context));
         if (!_line_eof) {
             break;
         }
@@ -53,4 +53,4 @@ Status VEsHttpScanner::get_next(std::vector<vectorized::MutableColumnPtr>& colum
     return Status::OK();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

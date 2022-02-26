@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,24 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <exec/es_http_scanner.h>
+#include "vec/functions/function_fake.h"
 
 namespace doris::vectorized {
 
-class VEsHttpScanner : public EsHttpScanner {
-public:
-    VEsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
-                   const std::map<std::string, std::string>& properties,
-                   const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
-                   bool doc_value_mode)
-            : EsHttpScanner(state, profile, tuple_id, properties, conjunct_ctxs, counter,
-                            doc_value_mode) {};
-    ~VEsHttpScanner();
-
-    Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, MemPool* tuple_pool,
-                    bool* eof, const std::map<std::string, std::string>& docvalue_context);
-};
+void register_function_fake(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
+}
 
 } // namespace doris::vectorized

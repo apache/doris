@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+
 #include <mutex>
 #include <string>
 
@@ -71,6 +72,7 @@ void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
 void register_function_convert_tz(SimpleFunctionFactory& factory);
 void register_function_least_greast(SimpleFunctionFactory& factory);
+void register_function_fake(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -191,6 +193,7 @@ public:
             register_function_datetime_floor_ceil(instance);
             register_function_convert_tz(instance);
             register_function_least_greast(instance);
+            register_function_fake(instance);
         });
         return instance;
     }
