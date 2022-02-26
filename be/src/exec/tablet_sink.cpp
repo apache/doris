@@ -685,7 +685,16 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     if (table_sink.__isset.send_batch_parallelism && table_sink.send_batch_parallelism > 1) {
         _send_batch_parallelism = table_sink.send_batch_parallelism;
     }
-
+    // if distributed column list is empty, we can ensure that tablet is with random distribution info
+    // and if load_to_single_tablet is set and set to true, we should find only one tablet in one partition
+    // for the whole olap table sink
+    if (table_sink.partition.distributed_columns.empty()) {
+        if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
+            findTabletMode = FindTabletMode::FIND_TABLET_EVERY_SINK;
+        } else {
+            findTabletMode = FindTabletMode::FIND_TABLET_EVERY_BATCH;
+        }
+    }
     return Status::OK();
 }
 
@@ -877,14 +886,16 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     bool stop_processing = false;
+    if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
+        _partition_to_tablet_map.clear();
+    }
     for (int i = 0; i < batch->num_rows(); ++i) {
         Tuple* tuple = batch->get_row(i)->get_tuple(0);
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
         }
         const OlapTablePartition* partition = nullptr;
-        uint32_t dist_hash = 0;
-        if (!_partition->find_tablet(tuple, &partition, &dist_hash)) {
+        if (!_partition->find_partition(tuple, &partition)) {
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
@@ -900,8 +911,18 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             }
             continue;
         }
+        uint32_t tablet_index = 0;
+        if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
+            if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
+                tablet_index = _partition->find_tablet(tuple,*partition);
+                _partition_to_tablet_map.emplace(partition->id, tablet_index);
+            } else {
+                tablet_index = _partition_to_tablet_map[partition->id];
+            }
+        } else {
+            tablet_index = _partition->find_tablet(tuple,*partition);
+        }
         _partition_ids.emplace(partition->id);
-        uint32_t tablet_index = dist_hash % partition->num_buckets;
         for (int j = 0; j < partition->indexes.size(); ++j) {
             int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
             _channels[j]->add_row(tuple, tablet_id);

@@ -117,6 +117,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+    public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
@@ -134,6 +135,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(LoadStmt.TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
             .add(SEND_BATCH_PARALLELISM)
+            .add(LOAD_TO_SINGLE_TABLET)
             .build();
 
     private final LabelName labelName;
@@ -157,6 +159,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int sendBatchParallelism = 1;
+    private boolean loadToSingleTablet = false;
     /**
      * RoutineLoad support json data.
      * Require Params:
@@ -238,6 +241,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
+    }
+
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
     }
 
     public boolean isStrictMode() {
@@ -440,6 +447,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
                 ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
                 SEND_BATCH_PARALLELISM + " should > 0")).intValue();
+        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
+                RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
+                LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();

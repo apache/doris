@@ -506,6 +506,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     }
 
+    if (!http_req->header(HTTP_LOAD_TO_SINGLE_TABLET).empty()) {
+        if (boost::iequals(http_req->header(HTTP_LOAD_TO_SINGLE_TABLET), "true")) {
+            request.__set_load_to_single_tablet(true);
+        } else {
+            request.__set_load_to_single_tablet(false);
+        }
+    }
+
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     }
