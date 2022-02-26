@@ -32,6 +32,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
@@ -468,7 +469,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public RoutineLoadJob getJob(String dbFullName, String jobName) throws MetaNotFoundException {
-        List<RoutineLoadJob> routineLoadJobList = getJob(dbFullName, jobName, false);
+        List<RoutineLoadJob> routineLoadJobList = getJob(dbFullName, jobName, false, null);
         if (routineLoadJobList == null || routineLoadJobList.size() == 0) {
             return null;
         } else {
@@ -483,8 +484,10 @@ public class RoutineLoadManager implements Writable {
       if includeHistory is false, filter not running job in result
       else return all of result
      */
-    public List<RoutineLoadJob> getJob(String dbFullName, String jobName, boolean includeHistory)
+    public List<RoutineLoadJob> getJob(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher)
             throws MetaNotFoundException {
+        Preconditions.checkArgument(jobName == null || matcher == null,
+                "jobName and matcher cannot be not null at the same time");
         // return all of routine load job
         List<RoutineLoadJob> result;
         RESULT:
@@ -520,6 +523,9 @@ public class RoutineLoadManager implements Writable {
 
         if (!includeHistory) {
             result = result.stream().filter(entity -> !entity.getState().isFinalState()).collect(Collectors.toList());
+        }
+        if (matcher != null) {
+            result = result.stream().filter(entity -> matcher.match(entity.getName())).collect(Collectors.toList());
         }
         return result;
     }
