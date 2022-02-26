@@ -270,7 +270,12 @@ Syntax:
        Syntax:
         `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
        Explain:
-        The default buckets is 10.
+         Hash bucketing using the specified key column.
+    2) Random
+       Syntax:
+        `DISTRIBUTED BY RANDOM [BUCKETS num]`
+       Explain:
+         Use random numbers for bucketing.
 7. PROPERTIES
     1) If ENGINE type is olap. User can specify storage medium, cooldown time and replication   number:
 

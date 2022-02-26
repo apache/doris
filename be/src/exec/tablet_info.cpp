@@ -21,7 +21,10 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "util/random.h"
 #include "util/string_parser.hpp"
+#include "util/time.h"
+
 
 namespace doris {
 
@@ -204,6 +207,31 @@ Status OlapTablePartitionParam::init() {
             _distributed_slot_descs.emplace_back(it->second);
         }
     }
+    if (_distributed_slot_descs.empty()) {
+        Random random(UnixMillis());
+        _compute_tablet_index = [&random](Tuple* key, int64_t num_buckets) -> uint32_t {
+            return random.Uniform(num_buckets);
+        };
+    } else {
+        _compute_tablet_index = [this](Tuple* key, int64_t num_buckets) -> uint32_t {
+            uint32_t hash_val = 0;
+            for (auto slot_desc : _distributed_slot_descs) {
+                void* slot = nullptr;
+                if (!key->is_null(slot_desc->null_indicator_offset())) {
+                    slot = key->get_slot(slot_desc->tuple_offset());
+                }
+                if (slot != nullptr) {
+                    hash_val = RawValue::zlib_crc32(slot, slot_desc->type(), hash_val);
+                } else {
+                    //nullptr is treat as 0 when hash
+                    static const int INT_VALUE = 0;
+                    static const TypeDescriptor INT_TYPE(TYPE_INT);
+                    hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);
+                }
+            }
+            return hash_val % num_buckets;
+        };
+    }
     // initial partitions
     for (int i = 0; i < _t_param.partitions.size(); ++i) {
         const TOlapTablePartition& t_part = _t_param.partitions[i];
@@ -267,24 +295,21 @@ Status OlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition** partition,
-                                          uint32_t* dist_hashes) const {
+bool OlapTablePartitionParam::find_partition(Tuple* tuple, const OlapTablePartition** partition) const {
     const TOlapTablePartition& t_part = _t_param.partitions[0];
-    std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>::iterator it;
-    if (t_part.__isset.in_keys) {
-        it = _partitions_map->find(tuple);
-    } else {
-        it = _partitions_map->upper_bound(tuple);
-    }
+    auto it = t_part.__isset.in_keys ? _partitions_map->find(tuple) : _partitions_map->upper_bound(tuple);
     if (it == _partitions_map->end()) {
         return false;
     }
     if (_part_contains(it->second, tuple)) {
         *partition = it->second;
-        *dist_hashes = _compute_dist_hash(tuple);
         return true;
     }
     return false;
+}
+
+uint32_t OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition& partition) const {
+    return _compute_tablet_index(tuple, partition.num_buckets);
 }
 
 Status OlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,
@@ -388,25 +413,6 @@ std::string OlapTablePartitionParam::debug_string() const {
     return ss.str();
 }
 
-uint32_t OlapTablePartitionParam::_compute_dist_hash(Tuple* key) const {
-    uint32_t hash_val = 0;
-    for (auto slot_desc : _distributed_slot_descs) {
-        void* slot = nullptr;
-        if (!key->is_null(slot_desc->null_indicator_offset())) {
-            slot = key->get_slot(slot_desc->tuple_offset());
-        }
-        if (slot != nullptr) {
-            hash_val = RawValue::zlib_crc32(slot, slot_desc->type(), hash_val);
-        } else {
-            //nullptr is treat as 0 when hash
-            static const int INT_VALUE = 0;
-            static const TypeDescriptor INT_TYPE(TYPE_INT);
-            hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);
-        }
-    }
-    return hash_val;
-}
-
 VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam>& schema,
                                                  const TOlapTablePartitionParam& t_param)
         : _schema(schema),
@@ -449,6 +455,30 @@ Status VOlapTablePartitionParam::init() {
         for (auto& col : _t_param.distributed_columns) {
             RETURN_IF_ERROR(find_slot_locs(col, _distributed_slot_locs, "distributed"));
         }
+    }
+    if (_distributed_slot_locs.empty()) {
+        Random random(UnixMillis());
+        _compute_tablet_index = [&random](BlockRow* key, int64_t num_buckets) -> uint32_t {
+            return random.Uniform(num_buckets);
+        };
+    } else {
+        _compute_tablet_index = [this](BlockRow* key, int64_t num_buckets) -> uint32_t {
+            uint32_t hash_val = 0;
+            for (int i = 0; i < _distributed_slot_locs.size(); ++i) {
+                auto slot_desc = _slots[_distributed_slot_locs[i]];
+                auto column = key->first->get_by_position(_distributed_slot_locs[i]).column;
+                auto val = column->get_data_at(key->second);
+                if (val.data != nullptr) {
+                    hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type, hash_val);
+                } else {
+                    // NULL is treat as 0 when hash
+                    static const int INT_VALUE = 0;
+                    static const TypeDescriptor INT_TYPE(TYPE_INT);
+                    hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);
+                }
+            }
+            return hash_val % num_buckets;
+        };
     }
 
     DCHECK(!_t_param.partitions.empty()) << "must have at least 1 partition";
@@ -513,18 +543,20 @@ Status VOlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool VOlapTablePartitionParam::find_tablet(BlockRow* block_row, const VOlapTablePartition** partition,
-                                           uint32_t* dist_hashes) const {
+bool VOlapTablePartitionParam::find_partition(BlockRow* block_row, const VOlapTablePartition** partition) const {
     auto it = _is_in_partition ? _partitions_map->find(block_row) : _partitions_map->upper_bound(block_row);
     if (it == _partitions_map->end()) {
         return false;
     }
     if (_is_in_partition || _part_contains(it->second, block_row)) {
         *partition = it->second;
-        *dist_hashes = _compute_dist_hash(block_row);
         return true;
     }
     return false;
+}
+
+uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row, const VOlapTablePartition& partition) const {
+    return _compute_tablet_index(block_row, partition.num_buckets);
 }
 
 Status VOlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,
@@ -599,25 +631,6 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     }
     part_key->second = column->size() - 1;
     return Status::OK();
-}
-
-uint32_t VOlapTablePartitionParam::_compute_dist_hash(BlockRow* key) const {
-    uint32_t hash_val = 0;
-    for (int i = 0; i < _distributed_slot_locs.size(); ++i) {
-        auto slot_desc = _slots[_distributed_slot_locs[i]];
-        auto column = key->first->get_by_position(_distributed_slot_locs[i]).column;
-
-        auto val = column->get_data_at(key->second);
-        if (val.data != nullptr) {
-            hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type, hash_val);
-        } else {
-            // NULL is treat as 0 when hash
-            static const int INT_VALUE = 0;
-            static const TypeDescriptor INT_TYPE(TYPE_INT);
-            hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);
-        }
-    }
-    return hash_val;
 }
 
 } // namespace doris

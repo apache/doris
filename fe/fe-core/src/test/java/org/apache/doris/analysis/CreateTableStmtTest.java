@@ -106,6 +106,18 @@ public class CreateTableStmtTest {
     }
 
     @Test
+    public void testCreateTableWithRandomDistribution() throws UserException {
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+                new RandomDistributionDesc(6), null, null, "");
+        stmt.analyze(analyzer);
+        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("table1", stmt.getTableName());
+        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.toSql().contains("DISTRIBUTED BY RANDOM\nBUCKETS 6"));
+    }
+
+    @Test
     public void testCreateTableWithRollup() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "table1", null));
@@ -121,7 +133,7 @@ public class CreateTableStmtTest {
     }
     
     @Test
-    public void testDefaultDbNormal() throws UserException, AnalysisException {
+    public void testDefaultDbNormal() throws UserException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
@@ -174,7 +186,6 @@ public class CreateTableStmtTest {
 
     @Test
     public void testBmpHllKey() throws Exception {
-
         ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
         cols.add(bitmap);
         colsName.add("col3");
