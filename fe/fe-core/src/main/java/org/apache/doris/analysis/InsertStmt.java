@@ -301,7 +301,6 @@ public class InsertStmt extends DdlStmt {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
         }
         if (!isExplain() && !isTransactionBegin) {
-
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 MetricRepo.COUNTER_LOAD_ADD.increase(1L);
@@ -318,7 +317,7 @@ public class InsertStmt extends DdlStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism);
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
         }
     }
 

@@ -43,16 +43,13 @@ static const std::string HTTP_STRIP_OUTER_ARRAY = "strip_outer_array";
 static const std::string HTTP_NUM_AS_STRING = "num_as_string";
 static const std::string HTTP_FUZZY_PARSE = "fuzzy_parse";
 static const std::string HTTP_READ_JSON_BY_LINE = "read_json_by_line";
-
 static const std::string HTTP_MERGE_TYPE = "merge_type";
 static const std::string HTTP_DELETE_CONDITION = "delete";
 static const std::string HTTP_FUNCTION_COLUMN = "function_column";
 static const std::string HTTP_SEQUENCE_COL = "sequence_col";
 static const std::string HTTP_COMPRESS_TYPE = "compress_type";
-
 static const std::string HTTP_SEND_BATCH_PARALLELISM = "send_batch_parallelism";
-
-static const std::string HTTP_100_CONTINUE = "100-continue";
+static const std::string HTTP_LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";
