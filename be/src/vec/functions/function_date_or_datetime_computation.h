@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "common/logging.h"
 #include "fmt/format.h"
 #include "runtime/datetime_value.h"

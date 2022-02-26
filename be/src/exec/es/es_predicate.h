@@ -141,10 +141,10 @@ class EsPredicate {
 public:
     EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc, ObjectPool* pool);
     ~EsPredicate();
-    const std::vector<ExtPredicate*>& get_predicate_list();
+    const std::vector<ExtPredicate*>& get_predicate_list() const;
     Status build_disjuncts_list();
     // public for tests
-    EsPredicate(const std::vector<ExtPredicate*>& all_predicates) { _disjuncts = all_predicates; };
+    EsPredicate(const std::vector<ExtPredicate*>& all_predicates) { _disjuncts = all_predicates; }
 
     Status get_es_query_status() { return _es_query_status; }
 

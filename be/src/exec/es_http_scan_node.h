@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_EXEC_ES_HTTP_SCAN_NODE_H
-#define BE_EXEC_ES_HTTP_SCAN_NODE_H
+#pragma once
 
 #include <atomic>
 #include <condition_variable>
@@ -99,7 +98,7 @@ private:
     Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
                         const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
 
-    virtual Status scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
+    virtual Status scanner_scan(std::unique_ptr<vectorized::VEsHttpScanner> scanner) {
         return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
     };
 
@@ -117,8 +116,9 @@ private:
     std::vector<EsPredicate*> _predicates;
 
     std::vector<int> _predicate_to_conjunct;
+    std::vector<int> _conjunct_to_predicate;
+
+    std::unique_ptr<RuntimeProfile> _scanner_profile;
 };
 
 } // namespace doris
-
-#endif
