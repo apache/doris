@@ -17,7 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -29,8 +28,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.ImmutableMap;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -45,7 +44,6 @@ import java.util.Date;
  * */
 public class RewriteFromUnixTimeRule implements ExprRewriteRule {
 
-    private static final Logger logger = LoggerFactory.getLogger(RewriteFromUnixTimeRule.class);
     public static RewriteFromUnixTimeRule INSTANCE = new RewriteFromUnixTimeRule();
     // In BE, will convert format in timestamp function.
     // yyyyMMdd -> %Y%m%d
@@ -96,8 +94,8 @@ public class RewriteFromUnixTimeRule implements ExprRewriteRule {
             return expr;
         }
         LiteralExpr le = (LiteralExpr) right;
-        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
-        // default format is "yyyy-MM-dd HH:mm:ss"
+        final SimpleDateFormat format;
+        // default format is "yyyy-MM-dd HH:mm:ss" (%Y-%m-%d %H:%i:%s)
         if (params.exprs().size() == 1) {
             format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         } else {
