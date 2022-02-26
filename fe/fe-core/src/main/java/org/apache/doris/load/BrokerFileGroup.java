@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -37,6 +38,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -135,6 +137,15 @@ public class BrokerFileGroup implements Writable {
         this.fileFormat = fileFormat;
         this.columnsFromPath = columnsFromPath;
         this.columnExprList = columnExprList;
+    }
+
+    // Used for iceberg table, no need to parse
+    public BrokerFileGroup(IcebergTable table) throws UserException {
+        this.tableId = table.getId();
+        this.isNegative = false;
+        this.valueSeparator = "|";
+        this.lineDelimiter = "\n";
+        this.fileFormat = table.getFileFormat();
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {

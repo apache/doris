@@ -70,7 +70,7 @@ public class HiveScanNode extends BrokerScanNode {
     private List<String> partitionKeys = new ArrayList<>();
     /* hive table properties */
 
-    public String getHdfsUri() {
+    public String getHostUri() {
         return hdfsUri;
     }
 
