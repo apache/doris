@@ -115,10 +115,10 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | BE | be_port | 9060 | FE --> BE | BE 上 thrift server 的端口，用于接收来自 FE 的请求 |
 | BE | webserver_port | 8040 | BE <--> BE | BE 上的 http server 的端口 |
 | BE | heartbeat\_service_port | 9050 | FE --> BE | BE 上心跳服务端口（thrift），用于接收来自 FE 的心跳 |
-| BE | brpc\_port* | 8060 | FE<-->BE, BE <--> BE | BE 上的 brpc 端口，用于 BE 之间通讯 |
-| FE | http_port * | 8030 | FE <--> FE，用户 |FE 上的 http server 端口 |
+| BE | brpc\_port | 8060 | FE <--> BE, BE <--> BE | BE 上的 brpc 端口，用于 BE 之间通讯 |
+| FE | http_port  | 8030 | FE <--> FE，用户 <--> FE |FE 上的 http server 端口 |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口，每个fe的配置需要保持一致|
-| FE | query_port | 9030 | 用户 | FE 上的 mysql server 端口 |
+| FE | query_port | 9030 | 用户 <--> FE | FE 上的 mysql server 端口 |
 | FE | edit\_log_port | 9010 | FE <--> FE | FE 上的 bdbje 之间通信用的端口 |
 | Broker | broker\_ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker 上的 thrift server，用于接收请求 |
 
