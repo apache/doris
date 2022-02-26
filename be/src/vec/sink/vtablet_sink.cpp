@@ -102,14 +102,17 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     bool stop_processing = false;
+    if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
+        _partition_to_tablet_map.clear();
+    }
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
         }
         const VOlapTablePartition* partition = nullptr;
-        uint32_t dist_hash = 0;
+        uint32_t tablet_index = 0;
         block_row = {&block, i};
-        if (!_vpartition->find_tablet(&block_row, &partition, &dist_hash)) {
+        if (!_vpartition->find_partition(&block_row, &partition)) {
             RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
                     [&]() -> std::string {
                     fmt::memory_buffer buf;
@@ -123,7 +126,16 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
             continue;
         }
         _partition_ids.emplace(partition->id);
-        uint32_t tablet_index = dist_hash % partition->num_buckets;
+        if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
+            if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
+                tablet_index = _vpartition->find_tablet(&block_row, *partition);
+                _partition_to_tablet_map.emplace(partition->id, tablet_index);
+            } else {
+                tablet_index = _partition_to_tablet_map[partition->id];
+            }
+        } else {
+            tablet_index = _vpartition->find_tablet(&block_row, *partition);
+        }
         for (int j = 0; j < partition->indexes.size(); ++j) {
             int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
             _channels[j]->add_row(block_row, tablet_id);

@@ -905,9 +905,9 @@ public class OlapScanNode extends ScanNode {
 
     /*
     Although sometimes the scan range only involves one instance,
-        the data distribution cannot be set to UNPARTITION here.
-    The reason is that @coordicator will not set the scan range for the fragment,
-        when data partition of fragment is UNPARTITION.
+        the data distribution cannot be set to UNPARTITIONED here.
+    The reason is that @coordinator will not set the scan range for the fragment,
+        when data partition of fragment is UNPARTITIONED.
      */
     public DataPartition constructInputPartitionByDistributionInfo() throws UserException {
         ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
@@ -917,9 +917,7 @@ public class OlapScanNode extends ScanNode {
                 || olapTable.getPartitions().size() == 1) {
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             if (!(distributionInfo instanceof HashDistributionInfo)) {
-                // There may be some random distribution table left, throw exception here.
-                // And these table should be modified to hash distribution by ALTER TABLE operation.
-                throw new UserException("Table with non hash distribution is not supported: " + olapTable.getName());
+                return DataPartition.RANDOM;
             }
             List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
             List<Expr> dataDistributeExprs = Lists.newArrayList();
