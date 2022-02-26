@@ -1211,10 +1211,15 @@ public class ShowExecutor {
         // if job exists
         List<RoutineLoadJob> routineLoadJobList;
         try {
+            PatternMatcher matcher = null;
+            if (showRoutineLoadStmt.getPattern() != null) {
+                matcher = PatternMatcher.createMysqlPattern(showRoutineLoadStmt.getPattern(),
+                        CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
+            }
             routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager()
                     .getJob(showRoutineLoadStmt.getDbFullName(),
                             showRoutineLoadStmt.getName(),
-                            showRoutineLoadStmt.isIncludeHistory());
+                            showRoutineLoadStmt.isIncludeHistory(), matcher);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
             throw new AnalysisException(e.getMessage());
@@ -1986,7 +1991,7 @@ public class ShowExecutor {
         if (showCreateRoutineLoadStmt.isIncludeHistory()) {
             List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
             try {
-                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true);
+                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true, null);
             } catch (MetaNotFoundException e) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
                         .add("error_msg", "Routine load cannot be found by this name")

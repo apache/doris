@@ -28,7 +28,7 @@ under the License.
 ## description
     该语句用于展示 Routine Load 作业运行状态
     语法：
-        SHOW [ALL] ROUTINE LOAD [FOR jobName];
+        SHOW [ALL] ROUTINE LOAD [FOR jobName] [LIKE pattern];
 
     结果说明：
 
@@ -97,6 +97,11 @@ ReasonOfStateChanged: 作业状态变更的原因
 6. 显示 example_db 下，名称为 test1 的所有例行导入作业（包括已停止或取消的作业）。结果为一行或多行。
 
     SHOW ALL ROUTINE LOAD FOR example_db.test1;
+
+7. 显示 example_db 下，名称匹配 test1 的当前正在运行的例行导入作业
+
+   use example_db;
+   SHOW ROUTINE LOAD LIKE "%test1%";
 
 ## keyword
     SHOW,ROUTINE,LOAD
