@@ -181,7 +181,7 @@ Status EsPredicate::build_disjuncts_list() {
 }
 
 // make sure to build by build_disjuncts_list
-const std::vector<ExtPredicate*>& EsPredicate::get_predicate_list() {
+const std::vector<ExtPredicate*>& EsPredicate::get_predicate_list() const {
     return _disjuncts;
 }
 
