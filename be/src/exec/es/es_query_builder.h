@@ -119,6 +119,7 @@ public:
     static Status check_es_query(const ExtFunction& extFunction);
     // decide which predicate can process
     static void validate(const std::vector<EsPredicate*>& espredicates, std::vector<bool>* result);
+    static bool validate(const EsPredicate* espredicate);
 
 private:
     // add child query
