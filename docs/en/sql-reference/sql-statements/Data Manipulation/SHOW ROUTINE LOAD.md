@@ -28,7 +28,7 @@ under the License.
 ## description
     This statement is used to show the running status of the Routine Load job
     grammar:
-        SHOW [ALL] ROUTINE LOAD [FOR jobName];
+        SHOW [ALL] ROUTINE LOAD [FOR jobName] [LIKE pattern];
 
     Result description:
 
@@ -76,7 +76,7 @@ ReasonOfStateChanged: Reason of job status change
 
 SHOW ALL ROUTINE LOAD FOR test1;
 
-2. Show the current running routine import job named test1
+2. Show the current running routine load job named test1
 
 SHOW ROUTINE LOAD FOR test1;
 
@@ -97,6 +97,11 @@ SHOW ROUTINE LOAD FOR example_db.test1;
 6. Display all routine import jobs named test1 (including stopped or cancelled jobs) under example_db. The result is one or more lines.
 
 SHOW ALL ROUTINE LOAD FOR example_db.test1;
+
+7. Show the current running routine load jobs under example_db with name match test1
+
+use example_db;
+SHOW ROUTINE LOAD LIKE "%test1%";
 
 ## keyword
 SHOW,ROUTINE,LOAD
