@@ -1697,6 +1697,10 @@ public class SingleNodePlanner {
                 scanNode = new HiveScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
                         null, -1);
                 break;
+            case ICEBERG:
+                scanNode = new IcebergScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
+                        null, -1);
+                break;
             default:
                 break;
         }

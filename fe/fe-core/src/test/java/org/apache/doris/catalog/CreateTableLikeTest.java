@@ -17,14 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import avro.shaded.com.google.common.collect.Lists;
-import org.apache.commons.collections.ListUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -33,11 +30,11 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import com.google.common.collect.Lists;
+
 import java.io.File;
 import java.util.List;
 import java.util.UUID;
-
-import avro.shaded.com.google.common.collect.Lists;
 
 /**
  * @author wangcong

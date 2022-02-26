@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import avro.shaded.com.google.common.collect.Maps;
-import avro.shaded.com.google.common.collect.Sets;
 import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DigitalVersion;
@@ -33,6 +31,9 @@ import org.apache.doris.plugin.PluginMgr;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.lang.reflect.Field;
 import java.util.Map;
