@@ -120,12 +120,7 @@ public class PartitionPersistInfo implements Writable {
         partition = Partition.read(in);
 
         range = RangeUtils.readRange(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
-            listPartitionItem = ListPartitionItem.read(in);
-        } else {
-            listPartitionItem = ListPartitionItem.DUMMY_ITEM;
-        }
-
+        listPartitionItem = ListPartitionItem.read(in);
         dataProperty = DataProperty.read(in);
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             this.replicaAlloc = new ReplicaAllocation(in.readShort());

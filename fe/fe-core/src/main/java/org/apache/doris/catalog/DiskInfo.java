@@ -170,22 +170,8 @@ public class DiskInfo implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        this.rootPath = Text.readString(in);
-        this.totalCapacityB = in.readLong();
-        this.dataUsedCapacityB = in.readLong();
-        this.diskAvailableCapacityB = in.readLong();
-        this.state = DiskState.valueOf(Text.readString(in));
-    }
-
     public static DiskInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
-            DiskInfo diskInfo = new DiskInfo();
-            diskInfo.readFields(in);
-            return diskInfo;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, DiskInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DiskInfo.class);
     }
 }

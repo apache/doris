@@ -806,13 +806,6 @@ public class ExportJob implements Writable {
 
         tableName = new TableName();
         tableName.readFields(in);
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_97) {
-            origStmt = new OriginStatement("", 0);
-            // old version of export does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
-            return;
-        }
         origStmt = OriginStatement.read(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

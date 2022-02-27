@@ -115,50 +115,14 @@ public class DeleteInfo implements Writable, GsonPostProcessable {
     }
 
     public static DeleteInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_96) {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, DeleteInfo.class);
-        } else {
-            DeleteInfo deleteInfo = new DeleteInfo();
-            deleteInfo.readFields(in);
-            return deleteInfo;
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DeleteInfo.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        long partitionId = in.readLong();
-        long partitionVersion = in.readLong();
-        long partitionVersionHash = in.readLong();
-        this.partitionIds = Lists.newArrayList(partitionId);
-
-        List<ReplicaPersistInfo> replicaInfos = Lists.newArrayList();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            ReplicaPersistInfo info = ReplicaPersistInfo.read(in);
-            replicaInfos.add(info);
-        }
-
-        tableName = Text.readString(in);
-        String partitionName = Text.readString(in);
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String deleteCond = Text.readString(in);
-            deleteConditions.add(deleteCond);
-        }
-
-        createTimeMs = in.readLong();
-        this.partitionNames = Lists.newArrayList(partitionName);
-        boolean hasAsyncDeleteJob = in.readBoolean();
-        Preconditions.checkState(!hasAsyncDeleteJob, "async delete job is deprecated");
     }
 
     @Override
