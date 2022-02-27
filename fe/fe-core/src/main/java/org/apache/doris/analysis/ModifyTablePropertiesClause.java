@@ -55,7 +55,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 throw new AnalysisException("Can only change storage type to COLUMN");
             }
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
-            throw new AnalysisException("Cannot change distribution type for olap table now");
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE).equalsIgnoreCase("random")) {
+                throw new AnalysisException("Can only change distribution type from RANDOM to HASH");
+            }
+            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK).equalsIgnoreCase("true")) {
                 throw new AnalysisException(
