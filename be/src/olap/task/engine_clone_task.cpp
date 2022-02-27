@@ -49,7 +49,7 @@ const uint32_t GET_LENGTH_TIMEOUT = 10;
 
 EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& master_info,
                                  int64_t signature, std::vector<string>* error_msgs,
-                                 std::vector<TTabletInfo>* tablet_infos, AgentStatus* res_status)
+                                 std::vector<TTabletInfo>* tablet_infos, Status* res_status)
         : _clone_req(clone_req),
           _error_msgs(error_msgs),
           _tablet_infos(tablet_infos),
@@ -66,7 +66,7 @@ OLAPStatus EngineCloneTask::execute() {
 }
 
 OLAPStatus EngineCloneTask::_do_clone() {
-    AgentStatus status = DORIS_SUCCESS;
+    Status status = Status::OK();
     string src_file_path;
     TBackend src_host;
     // Check local tablet exist or not
@@ -93,7 +93,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         if (missed_versions.size() == 0) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet id="
                       << _clone_req.tablet_id;
-            _set_tablet_info(DORIS_SUCCESS, is_new_tablet);
+            _set_tablet_info(Status::OK(), is_new_tablet);
             return OLAP_SUCCESS;
         }
 
@@ -111,7 +111,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
                   << ", clone version: " << _clone_req.committed_version
                   << ", download snapshot: " << status;
 
-        if (status == DORIS_SUCCESS) {
+        if (status == Status::OK()) {
             OLAPStatus olap_status =
                     _finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
                                   allow_incremental_clone);
@@ -119,7 +119,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
                 LOG(WARNING) << "failed to finish clone. [table=" << tablet->full_name()
                              << " res=" << olap_status << "]";
                 _error_msgs->push_back("clone error.");
-                status = DORIS_ERROR;
+                status = Status::InternalError("Failed to finish clone");
             }
         }
 
@@ -137,20 +137,20 @@ OLAPStatus EngineCloneTask::_do_clone() {
         if (olap_status != OLAP_SUCCESS) {
             LOG(WARNING) << "clone get local root path failed. signature: " << _signature;
             _error_msgs->push_back("clone get local root path failed.");
-            status = DORIS_ERROR;
+            status = Status::InternalError("Clone to get local root path failed");
         }
         std::stringstream tablet_dir_stream;
         tablet_dir_stream << local_shard_root_path << "/" << _clone_req.tablet_id << "/"
                           << _clone_req.schema_hash;
 
-        if (status == DORIS_SUCCESS) {
+        if (status == Status::OK()) {
             bool allow_incremental_clone = false;
             status = _make_and_download_snapshots(*store, tablet_dir_stream.str(), &src_host,
                                                   &src_file_path, _error_msgs, nullptr,
                                                   &allow_incremental_clone);
         }
 
-        if (status == DORIS_SUCCESS) {
+        if (status == Status::OK()) {
             LOG(INFO) << "clone copy done. src_host: " << src_host.host
                       << " src_file_path: " << src_file_path;
             std::stringstream schema_hash_path_stream;
@@ -162,7 +162,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
             if (reset_id_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "errors while set tablet uid: '" << header_path;
                 _error_msgs->push_back("errors while set tablet uid.");
-                status = DORIS_ERROR;
+                status = Status::InternalError("Errors while set tablet uid");
             } else {
                 OLAPStatus load_header_status =
                         StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
@@ -175,7 +175,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
                                  << ". status: " << load_header_status
                                  << ". signature: " << _signature;
                     _error_msgs->push_back("load header failed.");
-                    status = DORIS_ERROR;
+                    status = Status::InternalError("Load tablet header failed");
                 }
             }
             // clone success, delete .hdr file because tablet meta is stored in rocksdb
@@ -184,7 +184,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
             FileUtils::remove(cloned_meta_file);
         }
         // Clean useless dir, if failed, ignore it.
-        if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
+        if (status != Status::OK()) {
             std::stringstream local_data_path_stream;
             local_data_path_stream << local_shard_root_path << "/" << _clone_req.tablet_id;
             string local_data_path = local_data_path_stream.str();
@@ -207,9 +207,9 @@ OLAPStatus EngineCloneTask::_do_clone() {
     return OLAP_SUCCESS;
 }
 
-void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
+void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
     // Get clone tablet info
-    if (status == DORIS_SUCCESS || status == DORIS_CREATE_TABLE_EXIST) {
+    if (status == Status::OK()) {
         TTabletInfo tablet_info;
         tablet_info.__set_tablet_id(_clone_req.tablet_id);
         tablet_info.__set_schema_hash(_clone_req.schema_hash);
@@ -221,7 +221,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
                          << " schema hash: " << _clone_req.schema_hash
                          << " signature: " << _signature;
             _error_msgs->push_back("clone success, but get tablet info failed.");
-            status = DORIS_ERROR;
+            status = Status::InternalError("Clone success but get tablet info failed");
         } else if (_clone_req.__isset.committed_version &&
                    tablet_info.version < _clone_req.committed_version) {
             LOG(WARNING) << "failed to clone tablet. tablet_id:" << _clone_req.tablet_id
@@ -246,7 +246,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
                                  << _clone_req.tablet_id;
                 }
             }
-            status = DORIS_ERROR;
+            status = Status::InternalError("Failed to clone tablet");
         } else {
             LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
                       << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
@@ -262,11 +262,11 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
 /// 2. Download all snapshots to CLONE dir.
 /// 3. Convert rowset ids of downloaded snapshots.
 /// 4. Release the snapshots on source BE.
-AgentStatus EngineCloneTask::_make_and_download_snapshots(
+Status EngineCloneTask::_make_and_download_snapshots(
         DataDir& data_dir, const string& local_data_path, TBackend* src_host, string* snapshot_path,
         std::vector<string>* error_msgs, const std::vector<Version>* missed_versions,
         bool* allow_incremental_clone) {
-    AgentStatus status = DORIS_SUCCESS;
+    Status status = Status::OK();
 
     std::string local_path = local_data_path + "/";
     const auto& token = _master_info.token;
@@ -289,7 +289,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(
                       << ", tablet=" << _clone_req.tablet_id
                       << ", schema_hash=" << _clone_req.schema_hash
                       << ", snapshot_path=" << *snapshot_path << ", signature=" << _signature;
-            status = DORIS_SUCCESS;
+            status = Status::OK();
         } else {
             LOG(WARNING) << "fail to make snapshot, ip=" << src.host << ", port=" << src.be_port
                          << ", tablet=" << _clone_req.tablet_id
@@ -297,7 +297,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(
                          << ", signature=" << _signature << ", error=" << st.to_string();
             error_msgs->push_back("make snapshot failed. backend_ip: " + src_host->host);
 
-            status = DORIS_ERROR;
+            status = Status::InternalError("Failed to make snapshot");
             continue;
         }
 
@@ -317,11 +317,11 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(
         if (!st.ok()) {
             LOG(WARNING) << "fail to download and convert tablet, remote=" << remote_url_prefix
                          << ", error=" << st.to_string();
-            status = DORIS_ERROR;
+            status = Status::InternalError("Fail to download and convert tablet");
             // when there is an error, keep this program executing to release snapshot
         }
 
-        if (status == DORIS_SUCCESS) {
+        if (status == Status::OK()) {
             // change all rowset ids because they maybe its id same with local rowset
             auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
                     local_path, _clone_req.tablet_id, _clone_req.schema_hash);
@@ -329,7 +329,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(
                 LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
                              << ", tablet_id=" << _clone_req.tablet_id
                              << ", schema_hash=" << _clone_req.schema_hash << ", error=" << olap_st;
-                status = DORIS_ERROR;
+                status = Status::InternalError("Failed to convert rowset ids");
             }
         }
 
@@ -343,7 +343,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(
                          << ", snapshot_path=" << *snapshot_path << ", error=" << st.to_string();
             // DON'T change the status
         }
-        if (status == DORIS_SUCCESS) {
+        if (status == Status::OK()) {
             break;
         }
     } // clone copy from one backend

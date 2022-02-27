@@ -906,7 +906,7 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         finish_task_request.__set_signature(agent_task_req.signature);
 
         TStatusCode::type status_code = TStatusCode::OK;
-        if (status != Status::OK() && status != DORIS_CREATE_TABLE_EXIST) {
+        if (status != Status::OK()) {
             DorisMetrics::instance()->clone_requests_failed->increment(1);
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "clone failed. signature: " << agent_task_req.signature;
@@ -1498,7 +1498,7 @@ Status TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
     if (olap_status != OLAP_SUCCESS) {
         LOG(WARNING) << "get tablet info failed. status: " << olap_status
                      << ", signature: " << signature;
-        status = DORIS_ERROR;
+        status = Status::InternalError("Get tablet info failed");
     }
     return status;
 }

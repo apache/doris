@@ -175,7 +175,7 @@ Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
                                     TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
     if (heartbeat_server == nullptr) {
-        return DORIS_ERROR;
+        return Status::InternalError("Get heartbeat server failed");
     }
 
     heartbeat_server->init_cluster_id();
