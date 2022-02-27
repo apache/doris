@@ -595,7 +595,6 @@ if(ARCH_AARCH64)
         ${DORIS_DEPENDENCIES}
         ${WL_START_GROUP}
         ${COMMON_THIRDPARTY}
-        ${WL_END_GROUP}
     )
 else()
     set(DORIS_DEPENDENCIES
