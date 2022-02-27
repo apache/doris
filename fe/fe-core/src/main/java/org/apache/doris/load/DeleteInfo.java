@@ -17,11 +17,8 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
