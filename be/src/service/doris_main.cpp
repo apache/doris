@@ -37,7 +37,6 @@
 #include <thrift/TOutput.h>
 
 #include "agent/heartbeat_server.h"
-#include "agent/status.h"
 #include "agent/topic_subscriber.h"
 #include "common/config.h"
 #include "common/daemon.h"
