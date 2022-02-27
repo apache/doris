@@ -159,9 +159,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abc", str_val->len);
 
         // 9:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }
@@ -178,9 +177,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abcd", str_val->len);
 
         // 25:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(11, partition->id);
     }
@@ -197,9 +195,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abcde", str_val->len);
 
         // 50:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_FALSE(found);
     }
 
@@ -216,9 +213,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abcdef", str_val->len);
 
         // 60:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(12, partition->id);
     }
@@ -356,9 +352,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abc", str_val->len);
 
         // 1:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }
@@ -375,9 +370,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abcd", str_val->len);
 
         // 3:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(11, partition->id);
     }
@@ -394,9 +388,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abcde", str_val->len);
 
         // 50:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_FALSE(found);
     }
 
@@ -413,9 +406,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abcdef", str_val->len);
 
         // 6:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(12, partition->id);
     }
@@ -572,9 +564,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "beijing", str_val->len);
 
         // 1, beijing
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }
@@ -591,9 +582,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "shanghai", str_val->len);
 
         // 2, shanghai
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(12, partition->id);
     }
@@ -610,9 +600,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "beijing", str_val->len);
 
         // 50, beijing
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_FALSE(found);
     }
 
@@ -629,9 +618,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "tianjin", str_val->len);
 
         // 1, tianjin
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(11, partition->id);
     }
@@ -709,9 +697,8 @@ TEST_F(OlapTablePartitionParamTest, unpartitioned) {
         memcpy(str_val->ptr, "abc", str_val->len);
 
         // 9:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }
