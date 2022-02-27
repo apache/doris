@@ -54,9 +54,9 @@ Note that this document is only a guide document. Other errors may occur when co
 
 ## Compile using ldb-toolchain
 
-This method works with Doris versions after [commit xxx]().
+This method works with Doris versions after [commit 7f3564](https://github.com/apache/incubator-doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1)
 
-Download [ldb_toolchain_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
+Download [ldbi\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
 
 For subsequent compilation, see [Compiling with LDB toolchain](./compilation-with-ldb-toolchain.md)
 

@@ -53,9 +53,9 @@ under the License.
 
 ## 使用 ldb-toolchain 编译
 
-该方法适用于 [commit xxx]() 之后的 Doris 版本。
+该方法适用于 [commit 7f3564](https://github.com/apache/incubator-doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1) 之后的 Doris 版本。
 
-下载 [ldb_toolchain_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
+下载 [ldb\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
 
 之后的编译方式参阅 [使用 LDB toolchain 编译](./compilation-with-ldb-toolchain.md)
 
