@@ -1071,49 +1071,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    // This method is to read the old meta, which the job properties are persist one by one.
-    // The new meta will save the job properties into jobProperties map
-    @Deprecated
-    private void readFieldOld(DataInput in) throws IOException {
-        if (!isJobTypeRead) {
-            jobType = EtlJobType.valueOf(Text.readString(in));
-            isJobTypeRead = true;
-        }
-
-        id = in.readLong();
-        dbId = in.readLong();
-        label = Text.readString(in);
-        state = JobState.valueOf(Text.readString(in));
-        long timeoutSecond;
-        timeoutSecond = in.readLong();
-        long execMemLimit = in.readLong();
-        double maxFilterRatio = in.readDouble();
-        // delete flag is never used
-        boolean deleteFlag = in.readBoolean();
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeoutSecond);
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, execMemLimit);
-        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
-
-        createTimestamp = in.readLong();
-        loadStartTimestamp = in.readLong();
-        finishTimestamp = in.readLong();
-        if (in.readBoolean()) {
-            failMsg = new FailMsg();
-            failMsg.readFields(in);
-        }
-        progress = in.readInt();
-        loadingStatus.readFields(in);
-        boolean strictMode = in.readBoolean();
-        jobProperties.put(LoadStmt.STRICT_MODE, strictMode);
-        transactionId = in.readLong();
-        if (in.readBoolean()) {
-            authorizationInfo = new AuthorizationInfo();
-            authorizationInfo.readFields(in);
-        }
-        String timezone = Text.readString(in);
-        jobProperties.put(LoadStmt.TIMEZONE, timezone);
-    }
-
     public void replayUpdateStateInfo(LoadJobStateUpdateInfo info) {
         state = info.getState();
         transactionId = info.getTransactionId();

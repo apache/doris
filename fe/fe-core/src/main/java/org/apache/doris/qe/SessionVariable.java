@@ -949,41 +949,6 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, root.toString());
     }
 
-    @Deprecated
-    private void readFromStream(DataInput in) throws IOException {
-        codegenLevel = in.readInt();
-        netBufferLength = in.readInt();
-        sqlSafeUpdates = in.readInt();
-        timeZone = Text.readString(in);
-        netReadTimeout = in.readInt();
-        netWriteTimeout = in.readInt();
-        waitTimeout = in.readInt();
-        interactiveTimeout = in.readInt();
-        queryCacheType = in.readInt();
-        autoIncrementIncrement = in.readInt();
-        maxAllowedPacket = in.readInt();
-        sqlSelectLimit = in.readLong();
-        sqlAutoIsNull = in.readBoolean();
-        collationDatabase = Text.readString(in);
-        collationConnection = Text.readString(in);
-        charsetServer = Text.readString(in);
-        charsetResults = Text.readString(in);
-        charsetConnection = Text.readString(in);
-        charsetClient = Text.readString(in);
-        txIsolation = Text.readString(in);
-        autoCommit = in.readBoolean();
-        resourceGroup = Text.readString(in);
-        sqlMode = in.readLong();
-        enableProfile = in.readBoolean();
-        queryTimeoutS = in.readInt();
-        maxExecMemByte = in.readLong();
-        collationServer = Text.readString(in);
-        batchSize = in.readInt();
-        disableStreamPreaggregations = in.readBoolean();
-        parallelExecInstanceNum = in.readInt();
-        exchangeInstanceParallel = in.readInt();
-    }
-
     public void readFields(DataInput in) throws IOException {
         readFromJson(in);
     }
