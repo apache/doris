@@ -170,7 +170,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     return Status::OK();
 }
 
-AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
+Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
                                     ThriftServer** thrift_server, uint32_t worker_thread_num,
                                     TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
@@ -185,6 +185,6 @@ AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
     string server_name("heartbeat");
     *thrift_server =
             new ThriftServer(server_name, server_processor, server_port, worker_thread_num);
-    return DORIS_SUCCESS;
+    return Status::OK();
 }
 } // namespace doris

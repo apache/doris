@@ -41,7 +41,7 @@ MasterServerClient::MasterServerClient(const TMasterInfo& master_info,
                                        FrontendServiceClientCache* client_cache)
         : _master_info(master_info), _client_cache(client_cache) {}
 
-AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
+Status MasterServerClient::finish_task(const TFinishTaskRequest& request,
                                             TMasterResult* result) {
     Status client_status;
     FrontendServiceConnection client(_client_cache, _master_info.network_address,
@@ -81,7 +81,7 @@ AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
     return DORIS_SUCCESS;
 }
 
-AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
+Status MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
     FrontendServiceConnection client(_client_cache, _master_info.network_address,
                                      config::thrift_rpc_timeout_ms, &client_status);
@@ -132,7 +132,7 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
     return DORIS_SUCCESS;
 }
 
-AgentStatus AgentUtils::rsync_from_remote(const string& remote_host, const string& remote_file_path,
+Status AgentUtils::rsync_from_remote(const string& remote_host, const string& remote_file_path,
                                           const string& local_file_path,
                                           const std::vector<string>& exclude_file_patterns,
                                           uint32_t transport_speed_limit_kbps,
@@ -165,53 +165,6 @@ AgentStatus AgentUtils::rsync_from_remote(const string& remote_host, const strin
     }
 
     return DORIS_SUCCESS;
-}
-
-std::string AgentUtils::print_agent_status(AgentStatus status) {
-    switch (status) {
-    case DORIS_SUCCESS:
-        return "DORIS_SUCCESS";
-    case DORIS_ERROR:
-        return "DORIS_ERROR";
-    case DORIS_TASK_REQUEST_ERROR:
-        return "DORIS_TASK_REQUEST_ERROR";
-    case DORIS_FILE_DOWNLOAD_INVALID_PARAM:
-        return "DORIS_FILE_DOWNLOAD_INVALID_PARAM";
-    case DORIS_FILE_DOWNLOAD_INSTALL_OPT_FAILED:
-        return "DORIS_FILE_DOWNLOAD_INSTALL_OPT_FAILED";
-    case DORIS_FILE_DOWNLOAD_CURL_INIT_FAILED:
-        return "DORIS_FILE_DOWNLOAD_CURL_INIT_FAILED";
-    case DORIS_FILE_DOWNLOAD_FAILED:
-        return "DORIS_FILE_DOWNLOAD_FAILED";
-    case DORIS_FILE_DOWNLOAD_GET_LENGTH_FAILED:
-        return "DORIS_FILE_DOWNLOAD_GET_LENGTH_FAILED";
-    case DORIS_FILE_DOWNLOAD_NOT_EXIST:
-        return "DORIS_FILE_DOWNLOAD_NOT_EXIST";
-    case DORIS_FILE_DOWNLOAD_LIST_DIR_FAIL:
-        return "DORIS_FILE_DOWNLOAD_LIST_DIR_FAIL";
-    case DORIS_CREATE_TABLE_EXIST:
-        return "DORIS_CREATE_TABLE_EXIST";
-    case DORIS_CREATE_TABLE_DIFF_SCHEMA_EXIST:
-        return "DORIS_CREATE_TABLE_DIFF_SCHEMA_EXIST";
-    case DORIS_CREATE_TABLE_NOT_EXIST:
-        return "DORIS_CREATE_TABLE_NOT_EXIST";
-    case DORIS_DROP_TABLE_NOT_EXIST:
-        return "DORIS_DROP_TABLE_NOT_EXIST";
-    case DORIS_PUSH_INVALID_TABLE:
-        return "DORIS_PUSH_INVALID_TABLE";
-    case DORIS_PUSH_INVALID_VERSION:
-        return "DORIS_PUSH_INVALID_VERSION";
-    case DORIS_PUSH_TIME_OUT:
-        return "DORIS_PUSH_TIME_OUT";
-    case DORIS_PUSH_HAD_LOADED:
-        return "DORIS_PUSH_HAD_LOADED";
-    case DORIS_TIMEOUT:
-        return "DORIS_TIMEOUT";
-    case DORIS_INTERNAL_ERROR:
-        return "DORIS_INTERNAL_ERROR";
-    default:
-        return "UNKNOWM";
-    }
 }
 
 bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_stderr) {

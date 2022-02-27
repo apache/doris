@@ -123,7 +123,7 @@ TEST_F(CgroupsMgrTest, TestInitCgroups) {
 
     op_status = _s_cgroups_mgr.init_cgroups();
     // init should be successful
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
     // all tasks should be migrated to root cgroup path
     ASSERT_TRUE(does_contain_number(task_file_path, 1111111));
     ASSERT_TRUE(does_contain_number(task_file_path, 123));
@@ -142,7 +142,7 @@ TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
     user_out_file.close();
 
     op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "yiguolei2", "aaaa");
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/tasks", 111));
 
     // user,level cgroup exist
@@ -153,7 +153,7 @@ TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
     group_out_file.close();
 
     op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "yiguolei2", "low");
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/low/tasks", 111));
 }
 
@@ -165,7 +165,7 @@ TEST_F(CgroupsMgrTest, TestModifyUserCgroups) {
     std::string user_name = "user_modify";
     AgentStatus op_status = _s_cgroups_mgr.modify_user_cgroups(user_name, user_share, level_share);
 
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
 
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/cpu.shares", 100));
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/low/cpu.shares", 100));
@@ -186,7 +186,7 @@ TEST_F(CgroupsMgrTest, TestUpdateLocalCgroups) {
     user_resource_result.resourceByUser["yiguolei3"] = user_resource;
 
     AgentStatus op_status = _s_cgroups_mgr.update_local_cgroups(user_resource_result);
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
     ASSERT_EQ(2, _s_cgroups_mgr._cur_version);
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/cpu.shares", 100));
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/low/cpu.shares", 123));

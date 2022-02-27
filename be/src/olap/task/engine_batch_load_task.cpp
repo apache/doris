@@ -46,35 +46,27 @@ using std::vector;
 namespace doris {
 
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos,
-                                         int64_t signature, AgentStatus* res_status)
+                                         int64_t signature, Status* res_status)
         : _push_req(push_req),
           _tablet_infos(tablet_infos),
           _signature(signature),
           _res_status(res_status) {
-    _download_status = DORIS_SUCCESS;
+    _download_status = Status::OK();
 }
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
 OLAPStatus EngineBatchLoadTask::execute() {
-    AgentStatus status = DORIS_SUCCESS;
+    Status status = Status::OK();
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
         _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();
-        if (status == DORIS_SUCCESS) {
+        if (status == Status::OK()) {
             uint32_t retry_time = 0;
             while (retry_time < PUSH_MAX_RETRY) {
                 status = _process();
-
-                if (status == DORIS_PUSH_HAD_LOADED) {
-                    OLAP_LOG_WARNING(
-                            "transaction exists when realtime push, "
-                            "but unfinished, do not report to fe, signature: %ld",
-                            _signature);
-                    break; // not retry any more
-                }
                 // Internal error, need retry
-                if (status == DORIS_ERROR) {
+                if (status != Status::OK()) {
                     OLAP_LOG_WARNING("push internal error, need retry.signature: %ld", _signature);
                     retry_time += 1;
                 } else {
@@ -87,17 +79,17 @@ OLAPStatus EngineBatchLoadTask::execute() {
         if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
             OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld", delete_data_status,
                              _signature);
-            status = DORIS_ERROR;
+            status = Status::InternalError("Delete data failed");
         }
     } else {
-        status = DORIS_TASK_REQUEST_ERROR;
+        status = Status::InvalidArgument("Not support task type");
     }
     *_res_status = status;
     return OLAP_SUCCESS;
 }
 
-AgentStatus EngineBatchLoadTask::_init() {
-    AgentStatus status = DORIS_SUCCESS;
+Status EngineBatchLoadTask::_init() {
+    Status status = Status::OK();
 
     if (_is_init) {
         VLOG_NOTICE << "has been inited";
@@ -112,13 +104,13 @@ AgentStatus EngineBatchLoadTask::_init() {
         LOG(WARNING) << "get tables failed. "
                      << "tablet_id: " << _push_req.tablet_id
                      << ", schema_hash: " << _push_req.schema_hash;
-        return DORIS_PUSH_INVALID_TABLE;
+        return Status::InvalidArgument("Could not find tablet " + _push_req.tablet_id);
     }
 
     // check disk capacity
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
         if (tablet->data_dir()->reach_capacity_limit(_push_req.__isset.http_file_size)) {
-            return DORIS_DISK_REACH_CAPACITY_LIMIT;
+            return Status::IOError("Disk does not have enough capacity");
         }
     }
 
@@ -136,7 +128,7 @@ AgentStatus EngineBatchLoadTask::_init() {
     string root_path = tablet->data_dir()->path();
     status = _get_tmp_file_dir(root_path, &tmp_file_dir);
 
-    if (status != DORIS_SUCCESS) {
+    if (status != Status::OK()) {
         LOG(WARNING) << "get local path failed. tmp file dir: " << tmp_file_dir;
         return status;
     }
@@ -148,8 +140,8 @@ AgentStatus EngineBatchLoadTask::_init() {
 }
 
 // Get replica root path
-AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* download_path) {
-    AgentStatus status = DORIS_SUCCESS;
+Status EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* download_path) {
+    Status status = Status::OK();
     *download_path = root_path + DPP_PREFIX;
 
     // Check path exist
@@ -161,7 +153,7 @@ AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, stri
         std::filesystem::create_directories(*download_path, ec);
 
         if (ec) {
-            status = DORIS_ERROR;
+            status = Status::IOError("Create download dir failed " + *download_path);
             LOG(WARNING) << "create download dir failed.path: " << *download_path
                          << ", error code: " << ec;
         }
@@ -176,11 +168,11 @@ void EngineBatchLoadTask::_get_file_name_from_path(const string& file_path, stri
     *file_name = file_path.substr(found + 1) + "_" + boost::lexical_cast<string>(tid);
 }
 
-AgentStatus EngineBatchLoadTask::_process() {
-    AgentStatus status = DORIS_SUCCESS;
+Status EngineBatchLoadTask::_process() {
+    Status status = Status::OK();
     if (!_is_init) {
         LOG(WARNING) << "has not init yet. tablet_id: " << _push_req.tablet_id;
-        return DORIS_ERROR;
+        return Status::InternalError("Tablet has not init yet");
     }
     // Remote file not empty, need to download
     if (_push_req.__isset.http_file_path) {
@@ -252,20 +244,20 @@ AgentStatus EngineBatchLoadTask::_process() {
             LOG(WARNING) << "down load file failed. remote_file=" << _remote_file_path
                          << ", tablet=" << _push_req.tablet_id << ", cost=" << cost / 1000
                          << "us, errmsg=" << st.get_error_msg() << ", is_timeout=" << is_timeout;
-            status = DORIS_ERROR;
+            status = Status::InternalError("Download file failed");
         }
     }
 
-    if (status == DORIS_SUCCESS) {
+    if (status == Status::OK()) {
         // Load delta file
         time_t push_begin = time(nullptr);
         OLAPStatus push_status = _push(_push_req, _tablet_infos);
         time_t push_finish = time(nullptr);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-            status = DORIS_PUSH_HAD_LOADED;
+            status = Status::OK();
         } else if (push_status != OLAPStatus::OLAP_SUCCESS) {
-            status = DORIS_ERROR;
+            status = Status::InternalError("Unknown");
         }
     }
 
