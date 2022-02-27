@@ -594,7 +594,7 @@ public class Analyzer {
             if(!isNotRestoring){
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
                 // support query that partitions is not restoring.
-            }else {
+            } else {
                 // if doing restore with table, throw exception here
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
             }

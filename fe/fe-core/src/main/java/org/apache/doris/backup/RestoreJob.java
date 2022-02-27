@@ -1091,6 +1091,16 @@ public class RestoreJob extends AbstractJob {
             tbl.writeLock();
             try {
                 olapTbl.setState(OlapTableState.RESTORE);
+                // set restore status for partitions
+                BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                for (Map.Entry<String, BackupPartitionInfo> partitionEntry : tblInfo.partitions.entrySet()) {
+                    String partitionName = partitionEntry.getKey();
+                    Partition partition = olapTbl.getPartition(partitionName);
+                    if (partition == null) {
+                        continue;
+                    }
+                    partition.setState(PartitionState.RESTORE);
+                }
             } finally {
                 tbl.writeUnlock();
             }
