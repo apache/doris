@@ -31,7 +31,7 @@ TEST(function_bitmap_test, function_bitmap_min_test) {
     auto empty_bitmap = new BitmapValue();
     DataSet data_set = {{{bitmap1}, (int64_t)1},
                         {{bitmap2}, (int64_t)1},
-                        {{empty_bitmap}, (int64_t)0},
+                        {{empty_bitmap}, Null()},
                         {{Null()}, Null()}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
@@ -48,7 +48,7 @@ TEST(function_bitmap_test, function_bitmap_max_test) {
     auto empty_bitmap = new BitmapValue();
     DataSet data_set = {{{bitmap1}, (int64_t)1},
                         {{bitmap2}, (int64_t)9999999},
-                        {{empty_bitmap}, (int64_t)0},
+                        {{empty_bitmap}, Null()},
                         {{Null()}, Null()}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
@@ -97,10 +97,10 @@ TEST(function_bitmap_test, function_bitmap_and_count) {
         BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
         auto empty_bitmap = new BitmapValue(); //test empty
 
-        DataSet data_set = {{{&bitmap1, &bitmap2, empty_bitmap}, (int64_t)0},   
-                            {{&bitmap1, &bitmap2, &bitmap3}, (int64_t)1},       //33
-                            {{&bitmap1, &bitmap2, Null()}, Null()},             
-                            {{&bitmap1, &bitmap3, &bitmap3}, (int64_t)1}};      //33
+        DataSet data_set = {{{&bitmap1, &bitmap2, empty_bitmap}, (int64_t)0},
+                            {{&bitmap1, &bitmap2, &bitmap3}, (int64_t)1}, //33
+                            {{&bitmap1, &bitmap2, Null()}, Null()},
+                            {{&bitmap1, &bitmap3, &bitmap3}, (int64_t)1}}; //33
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
         delete empty_bitmap;
@@ -128,13 +128,15 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
         InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap, TypeIndex::BitMap};
         BitmapValue bitmap1({1024, 1, 2019});
         BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
-        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});    //18446744073709551615
-        auto empty_bitmap = new BitmapValue(); //test empty
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()}); //18446744073709551615
+        auto empty_bitmap = new BitmapValue();                              //test empty
 
-        DataSet data_set = {{{&bitmap1, &bitmap2, empty_bitmap}, (int64_t)5},  //0,1,33,1024,2019 
-                            {{&bitmap1, &bitmap2, &bitmap3}, (int64_t)7},      //0,1,5,33,1024,2019,18446744073709551615
+        DataSet data_set = {{{&bitmap1, &bitmap2, empty_bitmap}, (int64_t)5}, //0,1,33,1024,2019
+                            {{&bitmap1, &bitmap2, &bitmap3},
+                             (int64_t)7}, //0,1,5,33,1024,2019,18446744073709551615
                             {{&bitmap1, empty_bitmap, Null()}, Null()},
-                            {{&bitmap1, &bitmap3, &bitmap3}, (int64_t)6}};     //1,5,33,1024,2019,18446744073709551615
+                            {{&bitmap1, &bitmap3, &bitmap3},
+                             (int64_t)6}}; //1,5,33,1024,2019,18446744073709551615
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
         delete empty_bitmap;
@@ -167,10 +169,11 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
         BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
         auto empty_bitmap = new BitmapValue(); //test empty
 
-        DataSet data_set = {{{&bitmap1, &bitmap2, empty_bitmap}, (int64_t)5},  //0,1,33,1024,2019
-                            {{&bitmap1, &bitmap2, &bitmap3}, (int64_t)6},      //0,1,5,1024,2019,18446744073709551615
-                            {{&bitmap1, empty_bitmap, Null()}, Null()},
-                            {{&bitmap1, &bitmap3, &bitmap3}, (int64_t)3}};     //1,1024,2019
+        DataSet data_set = {
+                {{&bitmap1, &bitmap2, empty_bitmap}, (int64_t)5}, //0,1,33,1024,2019
+                {{&bitmap1, &bitmap2, &bitmap3}, (int64_t)6}, //0,1,5,1024,2019,18446744073709551615
+                {{&bitmap1, empty_bitmap, Null()}, Null()},
+                {{&bitmap1, &bitmap3, &bitmap3}, (int64_t)3}}; //1,1024,2019
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
         delete empty_bitmap;
@@ -185,10 +188,10 @@ TEST(function_bitmap_test, function_bitmap_and_not_count) {
     BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
     auto empty_bitmap = new BitmapValue();
 
-    DataSet data_set = {{{&bitmap1, empty_bitmap}, (int64_t)3},  //1,2,3
+    DataSet data_set = {{{&bitmap1, empty_bitmap}, (int64_t)3}, //1,2,3
                         {{&bitmap2, Null()}, Null()},
-                        {{&bitmap2, &bitmap3}, (int64_t)3},      //0,3,4
-                        {{&bitmap1, &bitmap2}, (int64_t)2}};     //1,2
+                        {{&bitmap2, &bitmap3}, (int64_t)3},  //0,3,4
+                        {{&bitmap1, &bitmap2}, (int64_t)2}}; //1,2
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     delete empty_bitmap;
