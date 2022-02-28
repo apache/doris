@@ -57,7 +57,7 @@ struct ExprValue {
               float_val(0.0),
               double_val(0.0),
               string_data(),
-              string_val(nullptr, 0),
+              string_val(),
               datetime_val(),
               decimalv2_val(0),
               array_val() {}

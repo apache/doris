@@ -20,6 +20,7 @@
 #include "olap/row_block2.h"
 #include "olap/uint24.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/types.h"
@@ -203,6 +204,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING:
+        if (config::enable_low_cardinality_optimize) {
+            return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create();
+        }
         return doris::vectorized::PredicateColumnType<StringValue>::create();
 
     case OLAP_FIELD_TYPE_DECIMAL:
