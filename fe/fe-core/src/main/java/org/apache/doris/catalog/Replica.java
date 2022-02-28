@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -469,12 +468,10 @@ public class Replica implements Writable {
         dataSize = in.readLong();
         rowCount = in.readLong();
         state = ReplicaState.valueOf(Text.readString(in));
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
-            lastFailedVersion = in.readLong();
-            lastFailedVersionHash = in.readLong();
-            lastSuccessVersion = in.readLong();
-            lastSuccessVersionHash = in.readLong();
-        }
+        lastFailedVersion = in.readLong();
+        lastFailedVersionHash = in.readLong();
+        lastSuccessVersion = in.readLong();
+        lastSuccessVersionHash = in.readLong();
     }
 
     public static Replica read(DataInput in) throws IOException {

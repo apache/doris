@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -394,18 +393,10 @@ public class Table extends MetaObject implements Writable {
             this.nameToColumn.put(column.getName(), column);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_63) {
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
+        comment = Text.readString(in);
 
         // read create time
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_64) {
-            this.createTime = in.readLong();
-        } else {
-            this.createTime = -1L;
-        }
+        this.createTime = in.readLong();
     }
 
     public boolean equals(Table table) {

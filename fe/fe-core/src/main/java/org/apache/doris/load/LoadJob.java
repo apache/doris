@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -856,19 +855,13 @@ public class LoadJob implements Writable {
         id = in.readLong();
         dbId = in.readLong();
         label = Text.readString(in);
-        if (version >= FeMetaVersion.VERSION_23) {
-            timestamp = in.readLong();
-        } else {
-            timestamp = -1;
-        }
+        timestamp = in.readLong();
         timeoutSecond = in.readInt();
         maxFilterRatio = in.readDouble();
 
         boolean deleteFlag = false;
-        if (version >= FeMetaVersion.VERSION_30) {
-            deleteFlag = in.readBoolean();
-        }
-
+        deleteFlag = in.readBoolean();
+        
         state = JobState.valueOf(Text.readString(in));
         progress = in.readInt();
         createTimeMs = in.readLong();
@@ -940,63 +933,50 @@ public class LoadJob implements Writable {
             String bosSecretAccessKey = Text.readString(in);
         }
 
-        if (version >= FeMetaVersion.VERSION_15) {
-            this.priority = TPriority.valueOf(Text.readString(in));
-        } else {
-            this.priority = TPriority.NORMAL;
+        this.priority = TPriority.valueOf(Text.readString(in));
+
+        // Broker description
+        if (in.readBoolean()) {
+            this.brokerDesc = BrokerDesc.read(in);
+        }
+        // Pull load
+        if (in.readBoolean()) {
+            this.pullLoadSourceInfo = BrokerFileGroupAggInfo.read(in);
         }
 
-        if (version >= FeMetaVersion.VERSION_31) {
-            // Broker description
-            if (in.readBoolean()) {
-                this.brokerDesc = BrokerDesc.read(in);
-            }
-            // Pull load
-            if (in.readBoolean()) {
-                this.pullLoadSourceInfo = BrokerFileGroupAggInfo.read(in);
-            }
-        }
-
-        if (version >= FeMetaVersion.VERSION_34) {
-            this.execMemLimit = in.readLong();
-        }
-        
-        if (version >= FeMetaVersion.VERSION_45) {
-            this.transactionId = in.readLong();
-            if (in.readBoolean()) {
-                count = in.readInt();
-                conditions = Lists.newArrayList();
-                for (int i = 0; i < count; i++) {
-                    String key = Text.readString(in);
-                    String opStr = Text.readString(in);
-                    if (opStr.equalsIgnoreCase("IS")) {
-                        String value = Text.readString(in);
-                        IsNullPredicate predicate;
-                        if (value.equalsIgnoreCase("NOT NULL")) {
-                            predicate = new IsNullPredicate(new SlotRef(null, key), true);
-                        } else {
-                            predicate = new IsNullPredicate(new SlotRef(null, key), true);
-                        }
-                        conditions.add(predicate);
+        this.execMemLimit = in.readLong();
+        this.transactionId = in.readLong();
+        if (in.readBoolean()) {
+            count = in.readInt();
+            conditions = Lists.newArrayList();
+            for (int i = 0; i < count; i++) {
+                String key = Text.readString(in);
+                String opStr = Text.readString(in);
+                if (opStr.equalsIgnoreCase("IS")) {
+                    String value = Text.readString(in);
+                    IsNullPredicate predicate;
+                    if (value.equalsIgnoreCase("NOT NULL")) {
+                        predicate = new IsNullPredicate(new SlotRef(null, key), true);
                     } else {
-                        Operator op = Operator.valueOf(opStr);
-                        String value = Text.readString(in);
-                        BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key), 
-                                new StringLiteral(value));
-                        conditions.add(predicate);
+                        predicate = new IsNullPredicate(new SlotRef(null, key), true);
                     }
+                    conditions.add(predicate);
+                } else {
+                    Operator op = Operator.valueOf(opStr);
+                    String value = Text.readString(in);
+                    BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key), 
+                            new StringLiteral(value));
+                    conditions.add(predicate);
                 }
             }
-            if (in.readBoolean()) {
-                this.deleteInfo = DeleteInfo.read(in);
-            }
+        }
+        if (in.readBoolean()) {
+            this.deleteInfo = DeleteInfo.read(in);
         }
 
-        if (version >= FeMetaVersion.VERSION_43) {
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                tableNames.add(Text.readString(in));
-            }
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            tableNames.add(Text.readString(in));
         }
     }
 

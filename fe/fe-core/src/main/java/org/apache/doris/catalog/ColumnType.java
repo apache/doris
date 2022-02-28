@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
@@ -146,10 +145,8 @@ public abstract class ColumnType {
             int scale = in.readInt();
             int precision = in.readInt();
             int len = in.readInt();
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-                // Useless, just for back compatible
-                in.readBoolean();
-            }
+            // Useless, just for back compatible
+            in.readBoolean();
             return ScalarType.createType(primitiveType, len, precision, scale);
         }
     }

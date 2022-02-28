@@ -136,8 +136,6 @@ public class ModifyPartitionInfo implements Writable {
         } else {
             replicaAlloc = ReplicaAllocation.NOT_SET;
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-            isInMemory = in.readBoolean();
-        }
+        isInMemory = in.readBoolean();
     }
 }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;
@@ -320,20 +318,15 @@ public class ReplicaPersistInfo implements Writable {
         dataSize = in.readLong();
         rowCount = in.readLong();
         opType = ReplicaOperationType.DEFAULT_OP;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
-            opType = ReplicaOperationType.findByValue(in.readInt());
-            if (opType == null) {
-                throw new IOException("could not parse operation type from replica info");
-            }
-            lastFailedVersion = in.readLong();
-            lastFailedVersionHash = in.readLong();
-            lastSuccessVersion = in.readLong();
-            lastSuccessVersionHash = in.readLong();
+        opType = ReplicaOperationType.findByValue(in.readInt());
+        if (opType == null) {
+            throw new IOException("could not parse operation type from replica info");
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_48) {
-            schemaHash = in.readInt();
-        }
+        lastFailedVersion = in.readLong();
+        lastFailedVersionHash = in.readLong();
+        lastSuccessVersion = in.readLong();
+        lastSuccessVersionHash = in.readLong();
+        schemaHash = in.readInt();
     }
 
     @Override

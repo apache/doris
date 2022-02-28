@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.external.elasticsearch.EsMajorVersion;
 import org.apache.doris.external.elasticsearch.EsMetaStateTracker;
@@ -308,87 +307,59 @@ public class EsTable extends Table {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_68) {
-            int size = in.readInt();
-            for (int i = 0; i < size; ++i) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                tableContext.put(key, value);
-            }
-            hosts = tableContext.get("hosts");
-            seeds = hosts.split(",");
-            userName = tableContext.get("userName");
-            passwd = tableContext.get("passwd");
-            indexName = tableContext.get("indexName");
-            mappingType = tableContext.get("mappingType");
-            transport = tableContext.get("transport");
-            if (tableContext.containsKey("majorVersion")) {
-                try {
-                    majorVersion = EsMajorVersion.parse(tableContext.get("majorVersion"));
-                } catch (Exception e) {
-                    majorVersion = EsMajorVersion.V_5_X;
-                }
-            }
-
-            enableDocValueScan = Boolean.parseBoolean(tableContext.get("enableDocValueScan"));
-            if (tableContext.containsKey("enableKeywordSniff")) {
-                enableKeywordSniff = Boolean.parseBoolean(tableContext.get("enableKeywordSniff"));
-            } else {
-                enableKeywordSniff = true;
-            }
-            if (tableContext.containsKey("maxDocValueFields")) {
-                try {
-                    maxDocValueFields = Integer.parseInt(tableContext.get("maxDocValueFields"));
-                } catch (Exception e) {
-                    maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
-                }
-            }
-            if (tableContext.containsKey(NODES_DISCOVERY)) {
-                nodesDiscovery = Boolean.parseBoolean(tableContext.get(NODES_DISCOVERY));
-            } else {
-                nodesDiscovery = true;
-            }
-            if (tableContext.containsKey(HTTP_SSL_ENABLED)) {
-                httpSslEnabled = Boolean.parseBoolean(tableContext.get(HTTP_SSL_ENABLED));
-            } else {
-                httpSslEnabled = false;
-            }
-            PartitionType partType = PartitionType.valueOf(Text.readString(in));
-            if (partType == PartitionType.UNPARTITIONED) {
-                partitionInfo = SinglePartitionInfo.read(in);
-            } else if (partType == PartitionType.RANGE) {
-                partitionInfo = RangePartitionInfo.read(in);
-            } else {
-                throw new IOException("invalid partition type: " + partType);
-            }
-        } else {
-            hosts = Text.readString(in);
-            seeds = hosts.split(",");
-            userName = Text.readString(in);
-            passwd = Text.readString(in);
-            indexName = Text.readString(in);
-            mappingType = Text.readString(in);
-            PartitionType partType = PartitionType.valueOf(Text.readString(in));
-            if (partType == PartitionType.UNPARTITIONED) {
-                partitionInfo = SinglePartitionInfo.read(in);
-            } else if (partType == PartitionType.RANGE) {
-                partitionInfo = RangePartitionInfo.read(in);
-            } else {
-                throw new IOException("invalid partition type: " + partType);
-            }
-            transport = Text.readString(in);
-            // for upgrading write
-            tableContext.put("hosts", hosts);
-            tableContext.put("userName", userName);
-            tableContext.put("passwd", passwd);
-            tableContext.put("indexName", indexName);
-            tableContext.put("mappingType", mappingType);
-            tableContext.put("transport", transport);
-            tableContext.put("enableDocValueScan", "false");
-            tableContext.put(KEYWORD_SNIFF, "true");
-            tableContext.put(NODES_DISCOVERY, "true");
-            tableContext.put(HTTP_SSL_ENABLED, "false");
+        int size = in.readInt();
+        for (int i = 0; i < size; ++i) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            tableContext.put(key, value);
         }
+        hosts = tableContext.get("hosts");
+        seeds = hosts.split(",");
+        userName = tableContext.get("userName");
+        passwd = tableContext.get("passwd");
+        indexName = tableContext.get("indexName");
+        mappingType = tableContext.get("mappingType");
+        transport = tableContext.get("transport");
+        if (tableContext.containsKey("majorVersion")) {
+            try {
+                majorVersion = EsMajorVersion.parse(tableContext.get("majorVersion"));
+            } catch (Exception e) {
+                majorVersion = EsMajorVersion.V_5_X;
+            }
+        }
+
+        enableDocValueScan = Boolean.parseBoolean(tableContext.get("enableDocValueScan"));
+        if (tableContext.containsKey("enableKeywordSniff")) {
+            enableKeywordSniff = Boolean.parseBoolean(tableContext.get("enableKeywordSniff"));
+        } else {
+            enableKeywordSniff = true;
+        }
+        if (tableContext.containsKey("maxDocValueFields")) {
+            try {
+                maxDocValueFields = Integer.parseInt(tableContext.get("maxDocValueFields"));
+            } catch (Exception e) {
+                maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
+            }
+        }
+        if (tableContext.containsKey(NODES_DISCOVERY)) {
+            nodesDiscovery = Boolean.parseBoolean(tableContext.get(NODES_DISCOVERY));
+        } else {
+            nodesDiscovery = true;
+        }
+        if (tableContext.containsKey(HTTP_SSL_ENABLED)) {
+            httpSslEnabled = Boolean.parseBoolean(tableContext.get(HTTP_SSL_ENABLED));
+        } else {
+            httpSslEnabled = false;
+        }
+        PartitionType partType = PartitionType.valueOf(Text.readString(in));
+        if (partType == PartitionType.UNPARTITIONED) {
+            partitionInfo = SinglePartitionInfo.read(in);
+        } else if (partType == PartitionType.RANGE) {
+            partitionInfo = RangePartitionInfo.read(in);
+        } else {
+            throw new IOException("invalid partition type: " + partType);
+        }
+    
     }
 
     public String getHosts() {

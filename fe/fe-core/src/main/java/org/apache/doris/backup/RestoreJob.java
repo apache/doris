@@ -1797,10 +1797,6 @@ public class RestoreJob extends AbstractJob {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
-            return;
-        }
-
         // restored resource
         size = in.readInt();
         for (int i = 0; i < size; i++) {
