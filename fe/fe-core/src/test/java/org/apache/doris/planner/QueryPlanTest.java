@@ -432,21 +432,6 @@ public class QueryPlanTest {
                 "PROPERTIES (\n" +
                 "\"replication_num\" = \"1\"" +
                 ");");
-
-        createTable("CREATE TABLE test.result_exprs (\n" +
-                "  `aid` int(11) NULL,\n" +
-                "  `bid` int(11) NULL\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`aid`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`aid`) BUCKETS 7\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"business_key_column_name\" = \"\",\n" +
-                "\"storage_medium\" = \"HDD\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");\n");
     }
 
     @AfterClass
@@ -2043,6 +2028,20 @@ public class QueryPlanTest {
     @Test
     public void testResultExprs() throws Exception {
         connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE test.result_exprs (\n" +
+                "  `aid` int(11) NULL,\n" +
+                "  `bid` int(11) NULL\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`aid`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`aid`) BUCKETS 7\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"business_key_column_name\" = \"\",\n" +
+                "\"storage_medium\" = \"HDD\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ");\n");
         String queryStr = "EXPLAIN INSERT INTO result_exprs\n" +
                 "SELECT a.aid,\n" +
                 "       b.bid\n" +
@@ -2053,5 +2052,25 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+    }
+
+    @Test
+    public void testInsertIntoSelect() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE test.`decimal_tb` (\n" +
+                "  `k1` decimal(1, 0) NULL COMMENT \"\",\n" +
+                "  `v1` decimal(1, 0) SUM NULL COMMENT \"\",\n" +
+                "  `v2` decimal(1, 0) MAX NULL COMMENT \"\",\n" +
+                "  `v3` decimal(1, 0) MIN NULL COMMENT \"\",\n" +
+                "  `v4` decimal(1, 0) REPLACE NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`k1`)\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
+                ")");
+        String sql = "insert into test.decimal_tb select 1, 10, 1, 1, 1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        System.out.println(explainString);
     }
 }
