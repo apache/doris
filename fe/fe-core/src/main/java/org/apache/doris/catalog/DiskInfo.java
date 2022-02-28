@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -170,28 +169,8 @@ public class DiskInfo implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        this.rootPath = Text.readString(in);
-        this.totalCapacityB = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_36) {
-            this.dataUsedCapacityB = in.readLong();
-            this.diskAvailableCapacityB = in.readLong();
-        } else {
-            long availableCapacityB = in.readLong();
-            this.dataUsedCapacityB = this.totalCapacityB - availableCapacityB;
-            this.diskAvailableCapacityB = availableCapacityB;
-        }
-        this.state = DiskState.valueOf(Text.readString(in));
-    }
-
     public static DiskInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
-            DiskInfo diskInfo = new DiskInfo();
-            diskInfo.readFields(in);
-            return diskInfo;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, DiskInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DiskInfo.class);
     }
 }

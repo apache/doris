@@ -47,7 +47,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -756,9 +755,7 @@ public class SparkLoadJob extends BulkLoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         sparkResource = (SparkResource) Resource.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_91) {
-            sparkLoadAppHandle = SparkLoadAppHandle.read(in);
-        }
+        sparkLoadAppHandle = SparkLoadAppHandle.read(in);
         etlStartTimestamp = in.readLong();
         appId = Text.readString(in);
         etlOutputPath = Text.readString(in);

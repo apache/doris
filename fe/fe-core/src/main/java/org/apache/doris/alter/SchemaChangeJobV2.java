@@ -875,24 +875,19 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         watershedTxnId = in.readLong();
 
         // index
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
-            indexChange = in.readBoolean();
-            if (indexChange) {
-                if (in.readBoolean()) {
-                    int indexCount = in.readInt();
-                    this.indexes = new ArrayList<>();
-                    for (int i = 0; i < indexCount; ++i) {
-                        this.indexes.add(Index.read(in));
-                    }
-                } else {
-                    this.indexes = null;
+        indexChange = in.readBoolean();
+        if (indexChange) {
+            if (in.readBoolean()) {
+                int indexCount = in.readInt();
+                this.indexes = new ArrayList<>();
+                for (int i = 0; i < indexCount; ++i) {
+                    this.indexes.add(Index.read(in));
                 }
+            } else {
+                this.indexes = null;
             }
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
-            storageFormat = TStorageFormat.valueOf(Text.readString(in));
-        }
+        storageFormat = TStorageFormat.valueOf(Text.readString(in));
     }
 
     /**
@@ -941,9 +936,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
-            storageFormat = TStorageFormat.valueOf(Text.readString(in));
-        }
+        storageFormat = TStorageFormat.valueOf(Text.readString(in));
     }
 
     @Override
@@ -967,13 +960,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
-            boolean isMetaPruned = in.readBoolean();
-            if (isMetaPruned) {
-                readJobFinishedData(in);
-            } else {
-                readJobNotFinishData(in);
-            }
+        boolean isMetaPruned = in.readBoolean();
+        if (isMetaPruned) {
+            readJobFinishedData(in);
         } else {
             readJobNotFinishData(in);
         }

@@ -18,8 +18,6 @@
 package org.apache.doris.persist;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -57,14 +55,8 @@ public class DropDbInfo implements Writable {
     }
 
     public static DropDbInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_89) {
-            DropDbInfo info = new DropDbInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, DropDbInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DropDbInfo.class);
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -132,14 +131,8 @@ public class TempPartitions implements Writable, GsonPostProcessable {
     }
 
     public static TempPartitions read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_77) {
-            TempPartitions tempPartitions = new TempPartitions();
-            tempPartitions.readFields(in);
-            return tempPartitions;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, TempPartitions.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TempPartitions.class);
     }
 
     @Deprecated

@@ -28,7 +28,6 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -1031,10 +1030,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_94) {
-            readFieldOld(in);
-            return;
-        }
 
         if (!isJobTypeRead) {
             jobType = EtlJobType.valueOf(Text.readString(in));
@@ -1074,59 +1069,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         } catch (Exception e) {
             // should not happen
             throw new IOException("failed to replay job property", e);
-        }
-    }
-
-    // This method is to read the old meta, which the job properties are persist one by one.
-    // The new meta will save the job properties into jobProperties map
-    @Deprecated
-    private void readFieldOld(DataInput in) throws IOException {
-        if (!isJobTypeRead) {
-            jobType = EtlJobType.valueOf(Text.readString(in));
-            isJobTypeRead = true;
-        }
-
-        id = in.readLong();
-        dbId = in.readLong();
-        label = Text.readString(in);
-        state = JobState.valueOf(Text.readString(in));
-        long timeoutSecond;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
-            timeoutSecond = in.readLong();
-        } else {
-            timeoutSecond = in.readInt();
-        }
-        long execMemLimit = in.readLong();
-        double maxFilterRatio = in.readDouble();
-        // delete flag is never used
-        boolean deleteFlag = in.readBoolean();
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeoutSecond);
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, execMemLimit);
-        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
-
-        createTimestamp = in.readLong();
-        loadStartTimestamp = in.readLong();
-        finishTimestamp = in.readLong();
-        if (in.readBoolean()) {
-            failMsg = new FailMsg();
-            failMsg.readFields(in);
-        }
-        progress = in.readInt();
-        loadingStatus.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
-            boolean strictMode = in.readBoolean();
-            jobProperties.put(LoadStmt.STRICT_MODE, strictMode);
-            transactionId = in.readLong();
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_56) {
-            if (in.readBoolean()) {
-                authorizationInfo = new AuthorizationInfo();
-                authorizationInfo.readFields(in);
-            }
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
-            String timezone = Text.readString(in);
-            jobProperties.put(LoadStmt.TIMEZONE, timezone);
         }
     }
 

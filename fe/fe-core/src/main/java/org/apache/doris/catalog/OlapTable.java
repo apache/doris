@@ -38,7 +38,6 @@ import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -74,7 +73,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1146,44 +1144,12 @@ public class OlapTable extends Table {
             String indexName = Text.readString(in);
             long indexId = in.readLong();
             this.indexNameToId.put(indexName, indexId);
-
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_75) {
-                // schema
-                int colCount = in.readInt();
-                List<Column> schema = new LinkedList<>();
-                for (int j = 0; j < colCount; j++) {
-                    Column column = Column.read(in);
-                    schema.add(column);
-                }
-
-                // storage type
-                TStorageType storageType = TStorageType.valueOf(Text.readString(in));
-
-                // indices's schema version
-                int schemaVersion = in.readInt();
-
-                // indices's schema hash
-                int schemaHash = in.readInt();
-
-                // indices's short key column count
-                short shortKeyColumnCount = in.readShort();
-
-                // The keys type in here is incorrect
-                MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema,
-                        schemaVersion, schemaHash, shortKeyColumnCount, storageType, KeysType.AGG_KEYS, null);
-                tmpIndexMetaList.add(indexMeta);
-            } else {
-                MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
-                indexIdToMeta.put(indexId, indexMeta);
-            }
+            MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
+            indexIdToMeta.put(indexId, indexMeta);
         }
 
         // partition and distribution info
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            keysType = KeysType.valueOf(Text.readString(in));
-        } else {
-            keysType = KeysType.AGG_KEYS;
-        }
+        keysType = KeysType.valueOf(Text.readString(in));
 
         // add the correct keys type in tmp index meta
         for (MaterializedIndexMeta indexMeta : tmpIndexMetaList) {
@@ -1218,59 +1184,41 @@ public class OlapTable extends Table {
             nameToPartition.put(partition.getName(), partition);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_9) {
-            if (in.readBoolean()) {
-                int bfColumnCount = in.readInt();
-                bfColumns = Sets.newHashSet();
-                for (int i = 0; i < bfColumnCount; i++) {
-                    bfColumns.add(Text.readString(in));
-                }
-
-                bfFpp = in.readDouble();
+        if (in.readBoolean()) {
+            int bfColumnCount = in.readInt();
+            bfColumns = Sets.newHashSet();
+            for (int i = 0; i < bfColumnCount; i++) {
+                bfColumns.add(Text.readString(in));
             }
+
+            bfFpp = in.readDouble();
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
-            if (in.readBoolean()) {
-                colocateGroup = Text.readString(in);
-            }
+        if (in.readBoolean()) {
+            colocateGroup = Text.readString(in);
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_57) {
-            baseIndexId = in.readLong();
-        } else {
-            // the old table use table id as base index id
-            baseIndexId = id;
-        }
+        baseIndexId = in.readLong();
 
         // read indexes
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
-            if (in.readBoolean()) {
-                this.indexes = TableIndexes.read(in);
-            }
+        if (in.readBoolean()) {
+            this.indexes = TableIndexes.read(in);
         }
         // tableProperty
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_71) {
-            if (in.readBoolean()) {
-                tableProperty = TableProperty.read(in);
-            }
+        if (in.readBoolean()) {
+            tableProperty = TableProperty.read(in);
         }
-
+        
         // temp partitions
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
-            tempPartitions = TempPartitions.read(in);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_77) {
-                RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
-                if (tempRangeInfo != null) {
-                    for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
-                        this.partitionInfo.addPartition(partitionId, true,
-                                tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
-                                tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId));
-                    }
-                }
-                tempPartitions.unsetPartitionInfo();
+        tempPartitions = TempPartitions.read(in);
+        RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
+        if (tempRangeInfo != null) {
+            for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
+                this.partitionInfo.addPartition(partitionId, true,
+                        tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
+                        tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId));
             }
         }
+        tempPartitions.unsetPartitionInfo();
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.

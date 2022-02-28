@@ -22,7 +22,6 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
@@ -222,13 +221,11 @@ public class RangePartitionInfo extends PartitionInfo {
             idToItem.put(partitionId, new RangePartitionItem(range));
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_77) {
-            counter = in.readInt();
-            for (int i = 0; i < counter; i++) {
-                long partitionId = in.readLong();
-                Range<PartitionKey> range = RangeUtils.readRange(in);
-                idToTempItem.put(partitionId, new RangePartitionItem(range));
-            }
+        counter = in.readInt();
+        for (int i = 0; i < counter; i++) {
+            long partitionId = in.readLong();
+            Range<PartitionKey> range = RangeUtils.readRange(in);
+            idToTempItem.put(partitionId, new RangePartitionItem(range));
         }
     }
 
