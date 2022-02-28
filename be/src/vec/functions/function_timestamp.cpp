@@ -62,53 +62,6 @@ struct StrToDate {
     }
 };
 
-template <typename Impl>
-class FunctionStrToDateOrDateTime : public IFunction {
-public:
-    static constexpr auto name = Impl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionStrToDateOrDateTime>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<typename Impl::ReturnType>());
-    }
-    bool use_default_implementation_for_constants() const override { return true; }
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        ColumnPtr argument_columns[2];
-
-        for (int i = 0; i < 2; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
-        }
-
-        auto res = Impl::ColumnType::create();
-
-        auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto specific_char_column = assert_cast<const ColumnString*>(argument_columns[1].get());
-
-        auto& ldata = specific_str_column->get_chars();
-        auto& loffsets = specific_str_column->get_offsets();
-
-        auto& rdata = specific_char_column->get_chars();
-        auto& roffsets = specific_char_column->get_offsets();
-
-        // execute Impl
-        Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
-                            null_map->get_data());
-
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res), std::move(null_map));
-        return Status::OK();
-    }
-};
-
 struct NameMakeDate {
     static constexpr auto name = "makedate";
 };
@@ -200,7 +153,7 @@ public:
     }
 };
 
-using FunctionStrToDate = FunctionStrToDateOrDateTime<StrToDate>;
+using FunctionStrToDate = FunctionBinaryStringOperateToNullType<StrToDate>;
 using FunctionMakeDate =
         FunctionBinaryToNullType<DataTypeInt32, DataTypeInt32, MakeDateImpl, NameMakeDate>;
 

@@ -485,9 +485,9 @@ struct AesEncryptImpl {
     using Offsets = ColumnString::Offsets;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-    static void vector_vector(const Chars& ldata, const Offsets& loffsets, const Chars& rdata,
-                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
-                              NullMap& null_map_data) {
+    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const Chars& rdata, const Offsets& roffsets, Chars& res_data,
+                              Offsets& res_offsets, NullMap& null_map_data) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
@@ -525,9 +525,9 @@ struct AesDecryptImpl {
     using Offsets = ColumnString::Offsets;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-    static void vector_vector(const Chars& ldata, const Offsets& loffsets, const Chars& rdata,
-                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
-                              NullMap& null_map_data) {
+    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const Chars& rdata, const Offsets& roffsets, Chars& res_data,
+                              Offsets& res_offsets, NullMap& null_map_data) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
@@ -646,9 +646,9 @@ struct StringAppendTrailingCharIfAbsent {
     using Offsets = ColumnString::Offsets;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-    static void vector_vector(const Chars& ldata, const Offsets& loffsets, const Chars& rdata,
-                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
-                              NullMap& null_map_data) {
+    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const Chars& rdata, const Offsets& roffsets, Chars& res_data,
+                              Offsets& res_offsets, NullMap& null_map_data) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
