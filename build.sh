@@ -96,7 +96,6 @@ clean_fe() {
 OPTS=$(getopt \
   -n $0 \
   -o '' \
-  -o 'h' \
   -l 'be' \
   -l 'fe' \
   -l 'broker' \
@@ -104,7 +103,7 @@ OPTS=$(getopt \
   -l 'spark-dpp' \
   -l 'clean' \
   -l 'help' \
-  -o 'j:' \
+  -o 'hj:' \
   -- "$@")
 
 if [ $? != 0 ] ; then
