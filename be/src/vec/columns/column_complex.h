@@ -67,6 +67,7 @@ public:
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
                 uint32_t start_offset = start_offset_array[i];
+                insert_default();
                 BitmapValue* pvalue = &get_element(size() - 1);
                 if (len != 0) {
                     BitmapValue value;
@@ -76,6 +77,22 @@ public:
                     *pvalue = std::move(*reinterpret_cast<BitmapValue*>(data_array + start_offset));   
                 }
             }
+        } else if constexpr (std::is_same_v<T, HyperLogLog>) {
+            for (size_t i = 0; i < num; i++) {
+                uint32_t len = len_array[i];
+                uint32_t start_offset = start_offset_array[i];
+                insert_default();
+                HyperLogLog* pvalue = &get_element(size() - 1);
+                if (len != 0) {
+                    HyperLogLog value;
+                    value.deserialize(Slice(data_array + start_offset, len));
+                    *pvalue = std::move(value);
+                } else {
+                    *pvalue = std::move(*reinterpret_cast<HyperLogLog*>(data_array + start_offset));
+                }
+            }
+        } else {
+            LOG(FATAL) << "Unexpected type in column complex";
         }
     }
 
