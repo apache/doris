@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -134,70 +133,13 @@ public class WhiteList implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_69) {
-                // db priv map
-                int size = in.readInt();
-                for (int i = 0; i < size; i++) {
-                    String domain = Text.readString(in);
-                    Map<TablePattern, PrivBitSet> privsMap = Maps.newConcurrentMap();
-                    oldDomainPrivsMap.put(domain, privsMap);
-
-                    int count = in.readInt();
-                    for (int j = 0; j < count; j++) {
-                        TablePattern tablePattern = TablePattern.read(in);
-                        PrivBitSet privs = PrivBitSet.read(in);
-                        privsMap.put(tablePattern, privs);
-                    }
-                }
-
-                // password
-                if (in.readBoolean()) {
-                    int passwordLen = in.readInt();
-                    oldPassword = new byte[passwordLen];
-                    in.readFully(oldPassword);
-                } else {
-                    oldPassword = new byte[0];
-                }
-
-                // convert to password map
-                for (String domain : oldDomainPrivsMap.keySet()) {
-                    passwordMap.put(domain, oldPassword);
-                }
-            } else {
-                // meta version >= FeMetaVersion.VERSION_66
-                int size = in.readInt();
-                for (int i = 0; i < size; i++) {
-                    String domain = Text.readString(in);
-                    int passLen = in.readInt();
-                    byte[] password = new byte[passLen];
-                    in.readFully(password);
-                    passwordMap.put(domain, password);
-                }
-            }
-        }
-    }
-
-    // in previous implementation(before meta version 67), we save privs in the domainPrivsMap.
-    // and now, these privs which corresponding to the domains should be saved directly in priv tables.
-    // so we need to convert them.
-    public void convertOldDomainPrivMap(String user) {
-        Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_69);
-        for (Map.Entry<String, Map<TablePattern, PrivBitSet>> domainEntry : oldDomainPrivsMap.entrySet()) {
-            String domain = domainEntry.getKey();
-            for (Map.Entry<TablePattern, PrivBitSet> privEntry : domainEntry.getValue().entrySet()) {
-                TablePattern tablePattern = privEntry.getKey();
-                PrivBitSet privBitSet = privEntry.getValue();
-                UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithDomain(user, domain);
-                try {
-                    Catalog.getCurrentCatalog().getAuth().grantPrivs(userIdent, tablePattern, privBitSet,
-                            false /* err on non exist */);
-                } catch (DdlException e) {
-                    // this may happen if priv entry is already set by user. just print a log here.
-                    LOG.warn("failed to grant privs {} on {} to user {} when convert old domain priv map.",
-                            privBitSet, tablePattern, userIdent, e);
-                }
-            }
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String domain = Text.readString(in);
+            int passLen = in.readInt();
+            byte[] password = new byte[passLen];
+            in.readFully(password);
+            passwordMap.put(domain, password);
         }
     }
 }

@@ -23,13 +23,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
@@ -229,21 +227,9 @@ public abstract class AlterJobV2 implements Writable {
     public abstract void replay(AlterJobV2 replayedJob);
 
     public static AlterJobV2 read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
-            JobType type = JobType.valueOf(Text.readString(in));
-            switch (type) {
-                case ROLLUP:
-                    return RollupJobV2.read(in);
-                case SCHEMA_CHANGE:
-                    return SchemaChangeJobV2.read(in);
-                default:
-                    Preconditions.checkState(false);
-                    return null;
-            }
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
-        }
+        
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
     }
 
     @Override

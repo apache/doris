@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -247,30 +246,21 @@ public class MysqlTable extends Table {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_92) {
-            // Read MySQL meta
-            int size = in.readInt();
-            Map<String, String> serializeMap = Maps.newHashMap();
-            for (int i = 0; i < size; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                serializeMap.put(key, value);
-            }
-
-            odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
-            host = serializeMap.get(MYSQL_HOST);
-            port = serializeMap.get(MYSQL_PORT);
-            userName = serializeMap.get(MYSQL_USER);
-            passwd = serializeMap.get(MYSQL_PASSWORD);
-            mysqlDatabaseName = serializeMap.get(MYSQL_DATABASE);
-            mysqlTableName = serializeMap.get(MYSQL_TABLE);
-        } else {
-            host = Text.readString(in);
-            port = Text.readString(in);
-            userName = Text.readString(in);
-            passwd = Text.readString(in);
-            mysqlDatabaseName = Text.readString(in);
-            mysqlTableName = Text.readString(in);
+        // Read MySQL meta
+        int size = in.readInt();
+        Map<String, String> serializeMap = Maps.newHashMap();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            serializeMap.put(key, value);
         }
+
+        odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
+        host = serializeMap.get(MYSQL_HOST);
+        port = serializeMap.get(MYSQL_PORT);
+        userName = serializeMap.get(MYSQL_USER);
+        passwd = serializeMap.get(MYSQL_PASSWORD);
+        mysqlDatabaseName = serializeMap.get(MYSQL_DATABASE);
+        mysqlTableName = serializeMap.get(MYSQL_TABLE);
     }
 }
