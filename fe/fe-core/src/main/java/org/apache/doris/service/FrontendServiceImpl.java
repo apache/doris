@@ -38,6 +38,7 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
@@ -48,6 +49,7 @@ import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
+import org.apache.doris.plugin.StreamLoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -128,6 +130,7 @@ import org.apache.thrift.TException;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -926,13 +929,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         String txnOperation = request.getOperation().trim();
+        String msg = "";
         if (txnOperation.equalsIgnoreCase("commit")) {
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
+            msg = "transaction commit successfully";
         } else if (txnOperation.equalsIgnoreCase("abort")) {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId());
+            msg = "transaction abort successfully";
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
         }
+
+        long currentTimeMs = System.currentTimeMillis();
+        String finishTime = TimeUtils.longToTimeString(currentTimeMs, new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+        AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
+                .setTxnId(request.getTxnId()).setTwoPhaseCommit("true").setUser(request.getUser()).setStatus("Success")
+                .setMessage(msg).setSecondPhaseOperation(txnOperation).setFinishTime(finishTime).build();
+        Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
     }
 
     @Override

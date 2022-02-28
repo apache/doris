@@ -47,6 +47,8 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.StreamLoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -66,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -1128,6 +1131,11 @@ public class DatabaseTransactionMgr {
             throw new TransactionNotFoundException("transaction not found", transactionId);
         }
 
+        Boolean needUpdateAudit = false;
+        if (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED && reason.contains("timeout")) {
+            needUpdateAudit = true;
+        }
+
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
             transactionState.setTxnCommitAttachment(txnCommitAttachment);
@@ -1153,6 +1161,15 @@ public class DatabaseTransactionMgr {
             clearBackendTransactions(transactionState);
         }
 
+        if (needUpdateAudit) {
+            long currentTimeMs = System.currentTimeMillis();
+            String finishTime = TimeUtils.longToTimeString(currentTimeMs, new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+            AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(AuditEvent.EventType.STREAM_LOAD_FINISH)
+                    .setTxnId(transactionState.getTransactionId()).setTwoPhaseCommit("true").setStatus("Success")
+                    .setMessage("abort by txn manager for timeout").setSecondPhaseOperation("abort").setFinishTime(finishTime)
+                    .build();
+            Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
+        }
         LOG.info("abort transaction: {} successfully", transactionState);
     }
 

@@ -21,6 +21,10 @@ public class StreamLoadAuditEvent extends AuditEvent {
 
     @AuditField(value = "Label")
     public String label = "";
+    @AuditField(value = "TxnId")
+    public long txnId = -1;
+    @AuditField(value = "TwoPhaseCommit")
+    public String twoPhaseCommit = "false";
     @AuditField(value = "Table")
     public String table = "";
     @AuditField(value = "ClientIp")
@@ -43,6 +47,10 @@ public class StreamLoadAuditEvent extends AuditEvent {
     public long loadBytes = -1;
     @AuditField(value = "StartTime")
     public String startTime = "";
+    @AuditField(value = "PreCommitTime")
+    public String preCommitTime = "";
+    @AuditField(value = "SecondPhaseOperation")
+    public String secondPhaseOperation = "";
     @AuditField(value = "FinishTime")
     public String finishTime = "";
 
@@ -64,6 +72,16 @@ public class StreamLoadAuditEvent extends AuditEvent {
 
         public AuditEventBuilder setLabel(String label) {
             auditEvent.label = label;
+            return this;
+        }
+
+        public AuditEventBuilder setTxnId(long txnId) {
+            auditEvent.txnId = txnId;
+            return this;
+        }
+
+        public AuditEventBuilder setTwoPhaseCommit(String twoPhaseCommit) {
+            auditEvent.twoPhaseCommit = twoPhaseCommit;
             return this;
         }
 
@@ -129,6 +147,16 @@ public class StreamLoadAuditEvent extends AuditEvent {
 
         public AuditEventBuilder setStartTime(String startTime) {
             auditEvent.startTime = startTime;
+            return this;
+        }
+
+        public AuditEventBuilder setPreCommitTime(String preCommitTime) {
+            auditEvent.preCommitTime = preCommitTime;
+            return this;
+        }
+
+        public AuditEventBuilder setSecondPhaseOperation(String secondPhaseOperation) {
+            auditEvent.secondPhaseOperation = secondPhaseOperation;
             return this;
         }
 

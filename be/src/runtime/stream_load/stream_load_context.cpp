@@ -158,6 +158,18 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         ss << "Label: " << label.GetString();
     }
 
+    if (document.HasMember("TxnId")) {
+        const rapidjson::Value& txn_id = document["TxnId"];
+        stream_load_item.__set_txn_id(txn_id.GetInt64());
+        ss << "TxnId: " << txn_id.GetInt64();
+    }
+
+    if (document.HasMember("TwoPhaseCommit")) {
+        const rapidjson::Value& two_phase_commit = document["TwoPhaseCommit"];
+        stream_load_item.__set_two_phase_commit(two_phase_commit.GetString());
+        ss << "TwoPhaseCommit: " << two_phase_commit.GetString();
+    }
+
     if (document.HasMember("Db")) {
         const rapidjson::Value& db = document["Db"];
         stream_load_item.__set_db(db.GetString());

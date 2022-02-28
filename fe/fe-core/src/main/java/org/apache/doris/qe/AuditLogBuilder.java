@@ -52,9 +52,9 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
 
     private Set<String> loadAnnotationSet;
 
-    private final String[] STREAM_LOAD_ANNONATION_NAMES = {"Label", "Db", "Table", "User", "ClientIp",
+    private final String[] STREAM_LOAD_ANNONATION_NAMES = {"Label", "TxnId", "TwoPhaseCommit", "Db", "Table", "User", "ClientIp",
             "Status", "Message", "Url", "TotalRows", "LoadedRows", "FilteredRows", "UnselectedRows",
-            "LoadBytes", "StartTime", "FinishTime"};
+            "LoadBytes", "StartTime", "PreCommitTime", "SecondPhaseOperation", "FinishTime"};
 
     private Set<String> streamLoadAnnotationSet;
 

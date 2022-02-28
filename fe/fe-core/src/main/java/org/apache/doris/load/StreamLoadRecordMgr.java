@@ -250,27 +250,32 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(), new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(), new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("receive stream load record info from backend: {}. label: {}, db: {}, tbl: {}, user: {}, user_ip: {}," +
+                        LOG.debug("receive stream load record info from backend: {}. label: {}, txn_id: {}, 2PC: {}, db: {}, tbl: {}, user: {}, user_ip: {}," +
                                         " status: {}, message: {}, error_url: {}, total_rows: {}, loaded_rows: {}, filtered_rows: {}," +
                                         " unselected_rows: {}, load_bytes: {}, start_time: {}, finish_time: {}.",
-                                backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(), streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
+                                backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getTxnId(), streamLoadItem.getTwoPhaseCommit(), streamLoadItem.getDb(), streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
                                 streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(), streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
                                 streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(), streamLoadItem.getLoadBytes(), startTime, finishTime);
                     }
 
-                    AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
-                            .setLabel(streamLoadItem.getLabel()).setDb(streamLoadItem.getDb()).setTable(streamLoadItem.getTbl())
-                            .setUser(streamLoadItem.getUser()).setClientIp(streamLoadItem.getUserIp()).setStatus(streamLoadItem.getStatus())
-                            .setMessage(streamLoadItem.getMessage()).setUrl(streamLoadItem.getUrl()).setTotalRows(streamLoadItem.getTotalRows())
-                            .setLoadedRows(streamLoadItem.getLoadedRows()).setFilteredRows(streamLoadItem.getFilteredRows())
-                            .setUnselectedRows(streamLoadItem.getUnselectedRows()).setLoadBytes(streamLoadItem.getLoadBytes())
-                            .setStartTime(startTime).setFinishTime(finishTime).build();
+                    StreamLoadAuditEvent.AuditEventBuilder streamLoadBuilder= new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
+                            .setLabel(streamLoadItem.getLabel()).setTxnId(streamLoadItem.getTxnId()).setTwoPhaseCommit(streamLoadItem.getTwoPhaseCommit())
+                            .setDb(streamLoadItem.getDb()).setTable(streamLoadItem.getTbl()).setUser(streamLoadItem.getUser()).setClientIp(streamLoadItem.getUserIp())
+                            .setStatus(streamLoadItem.getStatus()).setMessage(streamLoadItem.getMessage()).setUrl(streamLoadItem.getUrl())
+                            .setTotalRows(streamLoadItem.getTotalRows()).setLoadedRows(streamLoadItem.getLoadedRows()).setFilteredRows(streamLoadItem.getFilteredRows())
+                            .setUnselectedRows(streamLoadItem.getUnselectedRows()).setLoadBytes(streamLoadItem.getLoadBytes()).setStartTime(startTime);
+                    AuditEvent auditEvent;
+                    if (streamLoadItem.getTwoPhaseCommit().equalsIgnoreCase("false") || streamLoadItem.getStatus().equalsIgnoreCase("Fail")) {
+                        auditEvent = streamLoadBuilder.setFinishTime(finishTime).build();
+                    } else {
+                        auditEvent = streamLoadBuilder.setMessage("transaction precommit successfully").setPreCommitTime(finishTime).build();
+                    }
                     Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
                     if (entry.getValue().getFinishTime() > lastStreamLoadTime) {
                         lastStreamLoadTime = entry.getValue().getFinishTime();
                     }
 
-                    if (Config.disable_show_stream_load) {
+                    if (Config.disable_show_stream_load || streamLoadItem.getTwoPhaseCommit().equalsIgnoreCase("true")) {
                         continue;
                     }
                     StreamLoadRecord streamLoadRecord = new StreamLoadRecord(streamLoadItem.getLabel(), streamLoadItem.getDb(), streamLoadItem.getTbl(),

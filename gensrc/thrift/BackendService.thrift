@@ -99,6 +99,8 @@ struct TStreamLoadRecord {
     16: required i64 load_bytes
     17: required i64 start_time
     18: required i64 finish_time
+    19: optional i64 txn_id
+    20: optional string two_phase_commit
 }
 
 struct TStreamLoadRecordResult {
