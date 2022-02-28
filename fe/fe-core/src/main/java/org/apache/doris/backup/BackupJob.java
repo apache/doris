@@ -35,7 +35,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -949,10 +948,6 @@ public class BackupJob extends AbstractJob {
 
         if (in.readBoolean()) {
             localJobInfoFilePath = Text.readString(in);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
-            return;
         }
         // read properties
         size = in.readInt();

@@ -17,9 +17,7 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -91,14 +89,8 @@ public class ColocatePersistInfo implements Writable {
     }
 
     public static ColocatePersistInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
-            ColocatePersistInfo info = new ColocatePersistInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, ColocatePersistInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ColocatePersistInfo.class);
     }
 
     @Override
@@ -109,13 +101,7 @@ public class ColocatePersistInfo implements Writable {
     @Deprecated
     private void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
-            long grpId = in.readLong();
-            long dbId = in.readLong();
-            groupId = new GroupId(dbId, grpId);
-        } else {
-            groupId = GroupId.read(in);
-        }
+        groupId = GroupId.read(in);
 
         int size = in.readInt();
         backendsPerBucketSeq = Maps.newHashMap();

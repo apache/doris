@@ -56,7 +56,6 @@ public class EsTestCase {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         FakeCatalog.setCatalog(masterCatalog);
     }
 

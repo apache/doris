@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
@@ -536,14 +535,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             customKafkaPartitions.add(in.readInt());
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_51) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String propertyKey = Text.readString(in);
-                String propertyValue = Text.readString(in);
-                if (propertyKey.startsWith("property.")) {
-                    this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
-                }
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            String propertyKey = Text.readString(in);
+            String propertyValue = Text.readString(in);
+            if (propertyKey.startsWith("property.")) {
+                this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
             }
         }
     }
