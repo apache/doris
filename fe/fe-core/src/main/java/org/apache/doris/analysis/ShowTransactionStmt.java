@@ -116,19 +116,7 @@ public class ShowTransactionStmt extends ShowStmt {
                 label = ((StringLiteral) whereClause.getChild(1)).getStringValue();
             } else if (leftKey.equalsIgnoreCase("status") && (whereClause.getChild(1) instanceof StringLiteral)) {
                 String txnStatus = ((StringLiteral) whereClause.getChild(1)).getStringValue();
-                if (txnStatus.equalsIgnoreCase("prepare")) {
-                    status = TransactionStatus.PREPARE;
-                } else if (txnStatus.equalsIgnoreCase("precommitted")) {
-                    status = TransactionStatus.PRECOMMITTED;
-                } else if (txnStatus.equalsIgnoreCase("committed")) {
-                    status = TransactionStatus.COMMITTED;
-                } else if (txnStatus.equalsIgnoreCase("visible")) {
-                    status = TransactionStatus.VISIBLE;
-                } else if (txnStatus.equalsIgnoreCase("aborted")) {
-                    status = TransactionStatus.ABORTED;
-                } else {
-                    throw new AnalysisException("status should be prepare/precommitted/committed/visible/aborted");
-                }
+                status = TransactionStatus.valueOf(txnStatus.toUpperCase());
             } else {
                 valid = false;
             }
