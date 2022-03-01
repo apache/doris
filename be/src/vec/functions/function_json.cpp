@@ -224,7 +224,7 @@ struct GetJsonNumberType {
     using ReturnType = typename NumberType::ReturnType;
     using ColumnType = typename NumberType::ColumnType;
     using Container = typename ColumnType::Container;
-    static void vector_vector(const ColumnString::Chars& ldata,
+    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, Container& res,
@@ -314,9 +314,9 @@ struct GetJsonString {
     using ColumnType = ColumnString;
     using Chars = ColumnString::Chars;
     using Offsets = ColumnString::Offsets;
-    static void vector_vector(const Chars& ldata, const Offsets& loffsets, const Chars& rdata,
-                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
-                              NullMap& null_map) {
+    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const Chars& rdata, const Offsets& roffsets, Chars& res_data,
+                              Offsets& res_offsets, NullMap& null_map) {
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
 
