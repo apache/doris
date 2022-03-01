@@ -22,6 +22,7 @@
 
 #include "runtime/string_value.h"
 #include "util/cpu_info.h"
+#include "vec/common/string_ref.h"
 #ifdef __SSE4_2__
 #include "util/sse_util.hpp"
 #endif
@@ -88,6 +89,9 @@ inline bool StringValue::eq(const StringValue& other) const {
     if (this->len != other.len) {
         return false;
     }
+#if defined(__SSE2__)
+    return memequalSSE2Wide(this->ptr, other.ptr, this->len);
+#endif
 
     return string_compare(this->ptr, this->len, other.ptr, other.len, this->len) == 0;
 }
