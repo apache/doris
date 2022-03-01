@@ -129,7 +129,7 @@ public:
         if (is_scalar_type((FieldType)child_type.type())) {
             return get_type_info((FieldType)child_type.type());
         } else {
-            return std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(get_type_info(child_type)));
+            return std::make_shared<const ArrayTypeInfo>(get_type_info(child_type));
         }
     }
 
