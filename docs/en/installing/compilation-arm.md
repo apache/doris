@@ -52,17 +52,30 @@ Note that this document is only a guide document. Other errors may occur when co
     model name: Phytium,FT-2000+/64
     ```
 
-3. Doris version
+## Compile using ldb-toolchain
 
-    commit 68bab73
+This method works with Doris versions after [commit 7f3564](https://github.com/apache/incubator-doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1)
 
-## Compilation tool installation (no network)
+Download [ldbi\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
+
+For subsequent compilation, see [Compiling with LDB toolchain](./compilation-with-ldb-toolchain.md)
+
+Note that both jdk and nodejs need to be downloaded with the corresponding aarch64 versions:
+
+1. [Java8-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz)
+2. [Node v12.13.0-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz)
+
+## ~~ Compile with GCC 10 (deprecated) ~~
+
+This method only works with Doris source code before [commit 68bab73](https://github.com/apache/incubator-doris/commit/68bab73c359e40bf485a663e9a6e6ee76d81d382).
+
+### Compilation tool installation (no network)
 
 In the example, all tools are installed in the `/home/doris/tools/installed/` directory.
 
 Please obtain the required installation package first under network conditions.
 
-### 1. Install gcc10
+#### 1. Install gcc10
 
 Download gcc-10.1.0
 
@@ -101,7 +114,7 @@ make -j && make install
 
 Compile time is longer.
 
-### 2. Install other compilation components
+#### 2. Install other compilation components
 
 1. jdk-8u291-linux-aarch64.tar.gz
 
@@ -157,7 +170,7 @@ Compile time is longer.
 
     After compilation, libiberty.a will be generated, which can be moved to the lib64 directory of Doris' thirdparty.
 
-### 3. Compile third-party libraries
+#### 3. Compile third-party libraries
 
 Suppose Doris source code is under `/home/doris/doris-src/`.
 
@@ -218,11 +231,11 @@ Suppose Doris source code is under `/home/doris/doris-src/`.
 
          Not sure why. Solution: Rerun `build-thirdparty.sh`. `build-thirdparty.sh` can be executed repeatedly.
 
-### 4. Compile Doris source code
+#### 4. Compile Doris source code
 
 Execute `sh build.sh`.
 
-### 5. FAQ
+#### 5. FAQ
 
 1. `undefined reference to psl_free` appears when compiling Doris
 
