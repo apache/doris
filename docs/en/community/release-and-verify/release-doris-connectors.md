@@ -38,7 +38,9 @@ The code base is separate from the main Doris code base and is located at:
 
 ## Preparing for release
 
-First, see the [release preparation](./release-prepare.md) documentation to prepare for the release. ## Releasing to Maven
+First, see the [release preparation](./release-prepare.md) documentation to prepare for the release.
+
+## Releasing to Maven
 
 Let's take the example of releasing Flink Connector v1.0.0.
 
@@ -56,8 +58,13 @@ First, replace flink.version and scala.version in pom.xml with
 
 ```
 cd flink-doris-connector/
-sed -i 's/\${flink.version}/1.13.5/g' pom.xml
-sed -i 's/\${scala.version}/2.12/g' pom.xml
+sed -i 's/\${env.flink.version}/1.13.5/g' pom.xml
+sed -i 's/\${env.scala.version}/2.12/g' pom.xml
+
+Mac:
+
+sed -i '' 's/\${env.flink.version}/1.13.5/g' pom.xml
+sed -i '' 's/\${env.scala.version}/2.12/g' pom.xml
 ```
 
 After replacing, commit the local changes to.
@@ -71,17 +78,17 @@ Execute the following command to start generating the release tag.
 
 ```bash
 cd flink-doris-connector/
-mvn release:clean -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -Dflink.version=1.13.5 -Dscala.version=2.12
-mvn release:prepare -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -Dflink.version=1.13.5 -Dscala.version=2.12 -DpushChanges=false
+mvn release:clean
+mvn release:prepare -DpushChanges=false
 ```
 
 where `-DpushChanges=false` means that the newly generated branches and tags are not pushed to the codebase during execution.
 
 After executing the `release:prepare` command, the following three pieces of information will be requested.
 
-1. the version of the Doris Flink Connector, which we can do by default, either by entering a carriage return or by typing in the version you want. The version format is `{flink.version}-{scala.version}-{connector.version}`, e.g. `1.13.5-2.12-1.0.0`. 2.
-2. The release tag of Doris Flink Connector, the release process will generate a tag locally, we can use the default tag name, such as `1.13.5-2.12-1.0.0`.
-3. The version number of the next version of Doris Flink Connector. This version number is only used for generating local branches and has no real meaning. For example, if the current release is `1.13.5-2.12-1.0.0`, then the next version number should be `1.13.5-2.12-1.0.1`.
+1. the version of the Doris Flink Connector: which we can do by default, either by entering a carriage return or by typing in the version you want. The version format is `{flink.version}-{scala.version}-{connector.version}`, e.g. `1.13.5-2.12-1.0.0`. 2.
+2. The release tag of Doris Flink Connector: the release process will generate a tag locally, we can use the default tag name, such as `1.13.5-2.12-1.0.0`.
+3. The version number of the next version of Doris Flink Connector: This version number is only used for generating local branches and has no real meaning. For example, if the current release is `1.13.5-2.12-1.0.0`, then the next version number should be `1.13.5-2.12-1.0.1`.
 
 `mvn release:prepare` may ask for GPG passphrase, if you get `gpg: no valid OpenPGP data found` error, you can try after executing `export GPG_TTY=$(tty)`.
 
@@ -96,7 +103,7 @@ where upstream points to the `apache/incubator-doris-flink-connector` repository
 Finally, execute perform:
 
 ```
-mvn release:perform -DreleaseArgs="-Dflink.version=1.13.5 -Dscala.version=2.12" -Dflink.version=1.13.5 -Dscala.version=2.12
+mvn release:perform
 ```
 
 After successful execution, the version just released can be found in [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories)
@@ -123,6 +130,9 @@ Package the tag source code and generate the signature file and sha256 checksum 
 git archive --format=tar 1.13.5-2.12-1.0.0 --prefix=apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src/ | gzip > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
 gpg -u xxx@apache.org --armor --output apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.asc  --detach-sign apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
 sha512sum apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
+
+Mac:
+shasum -a 512 apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
 ```
 
 The end result is three files:
