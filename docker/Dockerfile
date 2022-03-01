@@ -36,7 +36,7 @@ RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-li
     && rm /tmp/node-v12.13.0-linux-x64.tar.gz && rm -rf node-v12.13.0-linux-x64
 
 # install ldb-toolchain
-RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/ldb_toolchain_gen-v0.4.sh \
+RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/ldb_toolchain_gen-v0.9.1.sh \
     -q -O /tmp/ldb_toolchain_gen.sh \
     && sh /tmp/ldb_toolchain_gen.sh /var/local/ldb-toolchain/ \
     && rm /tmp/ldb_toolchain_gen.sh
