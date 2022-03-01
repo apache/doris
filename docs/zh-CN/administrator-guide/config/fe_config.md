@@ -2166,3 +2166,53 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否为 Master FE 节点独有的配置项：true
 
 数据大小阈值，用来判断副本的数据量是否太大
+
+### enable_create_sync_job
+
+开启Mysql数据同步作业功能。默认是false，关闭此功能
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### sync_commit_interval_second
+
+提交事务的最大时间间隔。若超过了这个时间channel中还有数据没有提交，consumer会通知channel提交事务。
+
+默认值：10（秒）
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### min_sync_commit_size
+
+提交事务需满足的最小event数量。若Fe接收到的event数量小于它，会继续等待下一批数据直到时间超过了`sync_commit_interval_second `为止。默认值是10000个events，如果你想修改此配置，请确保此值小于canal端的`canal.instance.memory.buffer.size`配置（默认16384），否则在ack前Fe会尝试获取比store队列长度更多的event，导致store队列阻塞至超时为止。
+
+默认值：10000
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### min_bytes_sync_commit
+
+提交事务需满足的最小数据大小。若Fe接收到的数据大小小于它，会继续等待下一批数据直到时间超过了`sync_commit_interval_second`为止。默认值是15MB，如果你想修改此配置，请确保此值小于canal端的`canal.instance.memory.buffer.size`和`canal.instance.memory.buffer.memunit`的乘积（默认16MB），否则在ack前Fe会尝试获取比store空间更大的数据，导致store队列阻塞至超时为止。
+
+默认值：15 * 1024 * 1024（15M）
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### max_bytes_sync_commit
+
+ 数据同步作业线程池中的最大线程数量。此线程池整个FE中只有一个，用于处理FE中所有数据同步作业向BE发送数据的任务task，线程池的实现在`SyncTaskPool`类。
+
+默认值：10
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false

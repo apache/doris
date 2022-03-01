@@ -2144,3 +2144,53 @@ Dynamically configured: true
 Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
+
+### enable_create_sync_job
+
+Enable Mysql data synchronization job function. The default is false, this function is turned off
+
+Default: false
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### sync_commit_interval_second
+
+The maximum time interval for committing transactions. If there is still data in the channel that has not been submitted after this time, the consumer will notify the channel to submit the transaction.
+
+Default: 10 (seconds)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### min_sync_commit_size
+
+The minimum number of events that must be satisfied to commit a transaction. If the number of events received by Fe is less than it, it will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 10000 events. If you want to modify this configuration, please make sure that this value is smaller than the `canal.instance.memory.buffer.size` configuration on the canal side (default 16384), otherwise Fe will try to get the queue length longer than the store before ack More events cause the store queue to block until it times out.
+
+Default: 10000
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### min_bytes_sync_commit
+
+The minimum data size required to commit a transaction. If the data size received by Fe is smaller than it, it will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 15MB, if you want to modify this configuration, please make sure this value is less than the product of `canal.instance.memory.buffer.size` and `canal.instance.memory.buffer.memunit` on the canal side (default 16MB), otherwise Before the ack, Fe will try to obtain data that is larger than the store space, causing the store queue to block until it times out.
+
+Default: 15*1024*1024 (15M)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### max_bytes_sync_commit
+
+ The maximum number of threads in the data synchronization job thread pool. There is only one thread pool in the entire FE, which is used to process all data synchronization tasks in the FE that send data to the BE. The implementation of the thread pool is in the `SyncTaskPool` class.
+
+Default: 10
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
