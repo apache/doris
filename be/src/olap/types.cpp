@@ -118,7 +118,7 @@ public:
         if (is_scalar_type(sub_column.type())) {
             return get_type_info(sub_column.type());
         } else {
-            return std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(get_type_info(sub_column)));
+            return std::make_shared<const ArrayTypeInfo>(get_type_info(sub_column));
         }
     }
 
