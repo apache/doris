@@ -29,7 +29,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import io.grpc.ManagedChannel;
-import io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 
 public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);

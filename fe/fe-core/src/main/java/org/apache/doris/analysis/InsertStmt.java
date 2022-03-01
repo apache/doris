@@ -510,7 +510,9 @@ public class InsertStmt extends DdlStmt {
             } else {
                 // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
-                rows.add(selectStmt.getResultExprs());
+                // ATTN: must copy the `selectStmt.getResultExprs()`, otherwise the following
+                // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing error.
+                rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
                 analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
