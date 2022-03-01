@@ -884,7 +884,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
     SCOPED_TIMER(_build_timer);
-    MutableBlock mutable_block;
+    MutableBlock mutable_block(child(1)->row_desc().tuple_descriptors());
 
     uint8_t index = 0;
     int64_t last_mem_used = 0;

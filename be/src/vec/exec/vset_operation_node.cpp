@@ -228,13 +228,13 @@ void VSetOperationNode::hash_table_init() {
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
-    MutableBlock mutable_block;
+    MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
 
     uint8_t index = 0;
     int64_t last_mem_used = 0;
     bool eos = false;
     while (!eos) {
-        block.clear();
+        block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));

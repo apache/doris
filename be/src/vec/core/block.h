@@ -306,11 +306,7 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(DataTypes data_types) :  _columns(data_types.size()), _data_types(std::move(data_types)) {
-        for (int i = 0; i < _data_types.size(); ++i) {
-            _columns[i] = _data_types[i]->create_column();
-        }
-    }
+    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs);
 
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
