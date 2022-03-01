@@ -81,7 +81,9 @@ Status TableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
 
 Status TableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    
+
+    _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
+ 
     RETURN_IF_ERROR(Expr::prepare(_fn_ctxs, state, _row_descriptor, expr_mem_tracker()));
     for (auto fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
@@ -303,6 +305,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                 ++_num_rows_returned;
             } else {
                 tuple_ptr = pre_tuple_ptr;
+                ++_num_rows_filtered;
             }
 
             // Forward after write success.
@@ -340,6 +343,9 @@ Status TableFunctionNode::close(RuntimeState* state) {
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     Expr::close(_fn_ctxs, state);
+
+    COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
+
     return ExecNode::close(state);
 }
 

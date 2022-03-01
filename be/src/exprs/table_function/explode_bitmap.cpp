@@ -22,7 +22,9 @@
 
 namespace doris {
 
-ExplodeBitmapTableFunction::ExplodeBitmapTableFunction() {}
+ExplodeBitmapTableFunction::ExplodeBitmapTableFunction() {
+    _fn_name = "explode_bitmap";
+}
 
 ExplodeBitmapTableFunction::~ExplodeBitmapTableFunction() {
     if (_cur_iter != nullptr) {
