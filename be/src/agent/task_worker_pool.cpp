@@ -662,11 +662,6 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
             task_status.__set_status_code(TStatusCode::OK);
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
-        } else if (status == DORIS_TASK_REQUEST_ERROR) {
-            LOG(WARNING) << "push request push_type invalid. type: " << push_req.push_type
-                         << ", signature: " << agent_task_req.signature;
-            error_msgs.push_back("push request push_type invalid.");
-            task_status.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         } else {
             LOG(WARNING) << "push failed, error_code: " << status
                          << ", signature: " << agent_task_req.signature;
@@ -1568,7 +1563,7 @@ Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash sc
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id
                   << ", schema hash:" << schema_hash;
         error_msgs->push_back("failed to get tablet");
-        return DORIS_TASK_REQUEST_ERROR;
+        return Status::InvalidArgument("Could not find tablet");
     }
 
     std::string dest_tablet_dir = tablet->tablet_path_desc().filepath;
@@ -1578,7 +1573,7 @@ Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash sc
     if (!status.ok()) {
         LOG(WARNING) << "move failed. job id: " << job_id << ", msg: " << status.get_error_msg();
         error_msgs->push_back(status.get_error_msg());
-        return DORIS_INTERNAL_ERROR;
+        return Status::InternalError("Move job failed");
     }
 
     return Status::OK();
