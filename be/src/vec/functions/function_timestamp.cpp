@@ -34,7 +34,7 @@ struct StrToDate {
     using ReturnType = DataTypeDateTime;
     using ColumnType = ColumnVector<Int64>;
 
-    static void vector_vector(const ColumnString::Chars& ldata,
+    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, ColumnType::Container& res,
@@ -52,7 +52,12 @@ struct StrToDate {
             if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
                 null_map[i] = 1;
             }
-            ts_val.to_datetime();
+            if (context->impl()->get_return_type().type ==
+                doris_udf::FunctionContext::Type::TYPE_DATETIME) {
+                ts_val.to_datetime();
+            } else {
+                ts_val.cast_to_date();
+            }
         }
     }
 };

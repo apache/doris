@@ -383,10 +383,10 @@ public:
         if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString>) {
             auto& res_data = res->get_chars();
             auto& res_offsets = res->get_offsets();
-            Impl::vector_vector(ldata, loffsets, rdata, roffsets, res_data, res_offsets,
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data, res_offsets,
                                 null_map->get_data());
         } else {
-            Impl::vector_vector(ldata, loffsets, rdata, roffsets, res->get_data(),
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
                                 null_map->get_data());
         }
 
