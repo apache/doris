@@ -36,7 +36,7 @@ BlockManager* block_manager(TStorageMedium::type storage_medium) {
         case TStorageMedium::S3:
             bm_opts.read_only = true;
             static RemoteBlockManager remote_block_mgr(
-                    Env::Default(), dynamic_cast<RemoteEnv*>(Env::get_env(storage_medium)), bm_opts);
+                    Env::Default(), dynamic_cast<RemoteEnv*>(Env::get_env(storage_medium).get()), bm_opts);
             return &remote_block_mgr;
         case TStorageMedium::SSD:
         case TStorageMedium::HDD:

@@ -17,11 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.tuple.ImmutableTriple;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Replica.ReplicaState;
-import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -35,18 +31,20 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Ordering;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
 
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -114,12 +112,10 @@ public class TabletInvertedIndex {
     }
 
     public void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
-                             final HashMap<Long, TStorageMedium> storageMediumMap,
                              ListMultimap<Long, Long> tabletSyncMap,
                              ListMultimap<Long, Long> tabletDeleteFromMeta,
                              Set<Long> foundTabletsWithValidSchema,
                              Map<Long, TTabletInfo> foundTabletsWithInvalidSchema,
-                             ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
@@ -184,20 +180,6 @@ public class TabletInvertedIndex {
                                 }
 
                                 long partitionId = tabletMeta.getPartitionId();
-                                if (!Config.disable_storage_medium_check) {
-                                    // check if need migration
-                                    TStorageMedium storageMedium = storageMediumMap.get(partitionId);
-                                    if (storageMedium != null && backendTabletInfo.isSetStorageMedium()) {
-                                        if (storageMedium != backendTabletInfo.getStorageMedium()) {
-                                            synchronized (tabletMigrationMap) {
-                                                tabletMigrationMap.put(storageMedium, tabletId);
-                                            }
-                                        }
-                                        if (storageMedium != tabletMeta.getStorageMedium()) {
-                                            tabletMeta.setStorageMedium(storageMedium);
-                                        }
-                                    }
-                                }
 
                                 // check if should clear transactions
                                 if (backendTabletInfo.isSetTransactionIds()) {
@@ -269,10 +251,10 @@ public class TabletInvertedIndex {
 
         long end = System.currentTimeMillis();
         LOG.info("finished to do tablet diff with backend[{}]. sync: {}. metaDel: {}. foundValid: {}. foundInvalid: {}."
-                        + " migration: {}. found invalid transactions {}. found republish transactions {}. tabletInMemorySync: {}."
+                        + " found invalid transactions {}. found republish transactions {}. tabletInMemorySync: {}."
                         + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), foundTabletsWithValidSchema.size(), foundTabletsWithInvalidSchema.size(),
-                tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(),
+                transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(),
                 tabletRecoveryMap.size(), (end - start));
     }
 

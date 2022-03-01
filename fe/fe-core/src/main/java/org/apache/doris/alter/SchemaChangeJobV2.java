@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -126,6 +127,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected long watershedTxnId = -1;
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
+    @SerializedName(value = "jobType")
+    private JobType jobType = JobType.SCHEMA_CHANGE;
 
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
@@ -174,6 +177,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setJobType(JobType jobType) {
+        this.jobType = jobType;
     }
 
     /**
@@ -231,8 +238,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 if (partition == null) {
                     continue;
                 }
-                TStorageMedium storageMedium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                
+                DataProperty dataProperty = tbl.getPartitionInfo().getDataProperty(partitionId);
+                TStorageMedium shadowStorageMedium = dataProperty.getStorageMedium();
+                if (jobType == JobType.MIGRATION) {
+                    shadowStorageMedium = dataProperty.getStorageColdMedium();
+                }
+
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                     long shadowIdxId = entry.getKey();
@@ -255,7 +266,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
-                                    originKeysType, TStorageType.COLUMN, storageMedium,
+                                    originKeysType, TStorageType.COLUMN, shadowStorageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
                                     tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId));
@@ -402,13 +413,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
-                            AlterReplicaTask rollupTask = new AlterReplicaTask(
+                            AlterReplicaTask alterReplicaTask = new AlterReplicaTask(
                                     shadowReplica.getBackendId(), dbId, tableId, partitionId,
                                     shadowIdxId, originIdxId,
                                     shadowTabletId, originTabletId, shadowReplica.getId(),
                                     shadowSchemaHash, originSchemaHash,
-                                    visibleVersion, visibleVersionHash, jobId, JobType.SCHEMA_CHANGE);
-                            schemaChangeBatchTask.addTask(rollupTask);
+                                    visibleVersion, visibleVersionHash, jobId, jobType);
+                            schemaChangeBatchTask.addTask(alterReplicaTask);
                         }
                     }
                 }
@@ -550,6 +561,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     Catalog.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
                 }
             }
+            TStorageMedium storageColdMedium = tbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageColdMedium();
+            tbl.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(storageColdMedium, storageColdMedium));
         }
 
         // update index schema info of each index
@@ -632,6 +645,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             }
                             partition.deleteRollupIndex(shadowIdx.getId());
                         }
+                        tbl.getPartitionInfo().getDataProperty(partitionId).setMigrationState(DataProperty.MigrationState.NONE);
                     }
                     for (String shadowIndexName : indexIdToName.values()) {
                         tbl.deleteIndexInfo(shadowIndexName);
@@ -667,7 +681,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 long shadowIndexId = cell.getColumnKey();
                 MaterializedIndex shadowIndex = cell.getValue();
 
-                TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+                DataProperty dataProperty = olapTable.getPartitionInfo().getDataProperty(partitionId);
+                TStorageMedium medium = dataProperty.getStorageMedium();
+                if (jobType == JobType.MIGRATION) {
+                    medium = dataProperty.getStorageColdMedium();
+                    dataProperty.setMigrationState(DataProperty.MigrationState.RUNNING);
+                }
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
                         indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium);
 

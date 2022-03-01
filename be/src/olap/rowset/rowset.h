@@ -204,7 +204,7 @@ public:
     // copy all files to `dir`
     virtual OLAPStatus copy_files_to(const std::string& dir) = 0;
 
-    virtual OLAPStatus upload_files_to(const FilePathDesc& dir_desc) { return OLAP_SUCCESS; }
+    virtual OLAPStatus upload_files_to(const FilePathDesc& dir_desc, bool delete_src = false) { return OLAP_SUCCESS; }
 
     virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 

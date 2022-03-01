@@ -15,36 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/config.h"
 #include "env/env.h"
 #include "env/env_posix.h"
 #include "env/env_remote.h"
+#include "env/env_remote_mgr.h"
 
 namespace doris {
 
 std::shared_ptr<PosixEnv> Env::_posix_env(new PosixEnv());
-std::shared_ptr<RemoteEnv> Env::_remote_env(new RemoteEnv());
+std::shared_ptr<RemoteEnvMgr> Env::_remote_env_mgr(new RemoteEnvMgr());
 
 // Default Posix Env
 Env *Env::Default() {
     return _posix_env.get();
 }
 
-Env* Env::get_env(TStorageMedium::type storage_medium) {
+std::shared_ptr<Env> Env::get_env(TStorageMedium::type storage_medium) {
     switch (storage_medium) {
         case TStorageMedium::S3:
-            return _remote_env.get();
+        {
+            if (doris::config::default_remote_storage_s3_ak.empty() || doris::config::default_remote_storage_s3_sk.empty()
+                || doris::config::default_remote_storage_s3_endpoint.empty() || doris::config::default_remote_storage_s3_region.empty()) {
+                return nullptr;
+            }
+            TStorageParam storage_param;
+            storage_param.storage_medium = TStorageMedium::S3;
+            storage_param.s3_storage_param.s3_endpoint = doris::config::default_remote_storage_s3_endpoint;
+            storage_param.s3_storage_param.s3_region = doris::config::default_remote_storage_s3_region;
+            storage_param.s3_storage_param.s3_ak = doris::config::default_remote_storage_s3_ak;
+            storage_param.s3_storage_param.s3_sk = doris::config::default_remote_storage_s3_sk;
+            storage_param.s3_storage_param.s3_max_conn = doris::config::default_remote_storage_s3_max_conn;
+            storage_param.s3_storage_param.s3_request_timeout_ms = doris::config::default_remote_storage_s3_request_timeout_ms;
+            storage_param.s3_storage_param.s3_conn_timeout_ms = doris::config::default_remote_storage_s3_conn_timeout_ms;
+            return _remote_env_mgr->get_remote_env(storage_param);
+        }
         case TStorageMedium::SSD:
         case TStorageMedium::HDD:
         default:
-            return Default();
+            return _posix_env;
     }
 }
 
-Status Env::init() {
-    RETURN_IF_ERROR(_posix_env->init_conf());
-    RETURN_IF_ERROR(_remote_env->init_conf());
-    LOG(INFO) << "Env init successfully.";
-    return Status::OK();
-}
 
 } // end namespace doris

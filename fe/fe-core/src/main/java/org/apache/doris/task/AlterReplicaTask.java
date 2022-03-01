@@ -23,6 +23,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
+import org.apache.doris.thrift.TAlterTabletType;
 import org.apache.doris.thrift.TTaskType;
 
 import java.util.List;
@@ -113,6 +114,17 @@ public class AlterReplicaTask extends AgentTask {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlterVersion(version);
         req.setAlterVersionHash(versionHash);
+        switch (jobType) {
+            case ROLLUP:
+                req.setAlterTabletType(TAlterTabletType.ROLLUP);
+                break;
+            case MIGRATION:
+                req.setAlterTabletType(TAlterTabletType.MIGRATION);
+                break;
+            case SCHEMA_CHANGE:
+            default:
+                req.setAlterTabletType(TAlterTabletType.SCHEMA_CHANGE);
+        }
         if (defineExprs != null) {
             for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
                 List<SlotRef> slots = Lists.newArrayList();

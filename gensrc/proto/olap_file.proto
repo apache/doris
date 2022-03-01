@@ -232,6 +232,7 @@ enum AlterTabletState {
 enum AlterTabletType {
     SCHEMA_CHANGE = 1;
     ROLLUP = 2;
+    MIGRATION = 3;
 }
 
 message AlterTabletPB {

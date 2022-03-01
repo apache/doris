@@ -23,6 +23,7 @@ import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.alter.MigrationHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
@@ -247,10 +248,8 @@ import org.apache.doris.transaction.PublishVersionDaemon;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
@@ -263,6 +262,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
+import javax.annotation.Nullable;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -288,8 +288,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-
-import javax.annotation.Nullable;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -4896,119 +4894,6 @@ public class Catalog {
         return Lists.newArrayList(idToDb.keySet());
     }
 
-    public HashMap<Long, TStorageMedium> getPartitionIdToStorageMediumMap() {
-        HashMap<Long, TStorageMedium> storageMediumMap = new HashMap<Long, TStorageMedium>();
-
-        // record partition which need to change storage medium
-        // dbId -> (tableId -> partitionId)
-        HashMap<Long, Multimap<Long, Long>> changedPartitionsMap = new HashMap<Long, Multimap<Long, Long>>();
-        long currentTimeMs = System.currentTimeMillis();
-        List<Long> dbIds = getDbIds();
-
-        for (long dbId : dbIds) {
-            Database db = this.getDbNullable(dbId);
-            if (db == null) {
-                LOG.warn("db {} does not exist while doing backend report", dbId);
-                continue;
-            }
-            List<Table> tableList = db.getTables();
-            for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
-
-                long tableId = table.getId();
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                    for (Partition partition : olapTable.getAllPartitions()) {
-                        long partitionId = partition.getId();
-                        DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:"
-                                + partitionId + ", db: " + dbId + ", tbl: " + tableId);
-                        if (dataProperty.getStorageMedium() != dataProperty.getStorageColdMedium()
-                                && dataProperty.getCooldownTimeMs() < currentTimeMs) {
-                            // expire. change to HDD.
-                            // record and change when holding write lock
-                            Multimap<Long, Long> multimap = changedPartitionsMap.get(dbId);
-                            if (multimap == null) {
-                                multimap = HashMultimap.create();
-                                changedPartitionsMap.put(dbId, multimap);
-                            }
-                            multimap.put(tableId, partitionId);
-                        } else {
-                            storageMediumMap.put(partitionId, dataProperty.getStorageMedium());
-                        }
-                    } // end for partitions
-                } finally {
-                    olapTable.readUnlock();
-                }
-            } // end for tables
-        } // end for dbs
-
-        // handle data property changed
-        for (Long dbId : changedPartitionsMap.keySet()) {
-            Database db = getDbNullable(dbId);
-            if (db == null) {
-                LOG.warn("db {} does not exist while checking backend storage medium", dbId);
-                continue;
-            }
-            Multimap<Long, Long> tableIdToPartitionIds = changedPartitionsMap.get(dbId);
-
-            for (Long tableId : tableIdToPartitionIds.keySet()) {
-                Table table = db.getTableNullable(tableId);
-                if (table == null) {
-                    continue;
-                }
-                OlapTable olapTable = (OlapTable) table;
-                // use try lock to avoid blocking a long time.
-                // if block too long, backend report rpc will timeout.
-                if (!olapTable.tryWriteLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                    LOG.warn("try get table {} writelock but failed when checking backend storage medium", table.getName());
-                    continue;
-                }
-                Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
-                try {
-                    PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-
-                    Collection<Long> partitionIds = tableIdToPartitionIds.get(tableId);
-                    for (Long partitionId : partitionIds) {
-                        Partition partition = olapTable.getPartition(partitionId);
-                        if (partition == null) {
-                            continue;
-                        }
-                        DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        if (dataProperty.getStorageMedium() != dataProperty.getStorageColdMedium()
-                                && dataProperty.getCooldownTimeMs() < currentTimeMs) {
-                            // expire. change to HDD.
-                            partitionInfo.setDataProperty(partition.getId(),
-                                    new DataProperty(dataProperty.getStorageColdMedium(),
-                                            dataProperty.getStorageColdMedium()));
-                            storageMediumMap.put(partitionId, dataProperty.getStorageColdMedium());
-                            LOG.debug("partition[{}-{}-{}] storage medium changed from {} to {}",
-                                    dbId, tableId, partitionId, dataProperty.getStorageMedium(),
-                                    dataProperty.getStorageColdMedium());
-
-                            // log
-                            ModifyPartitionInfo info =
-                                    new ModifyPartitionInfo(db.getId(), olapTable.getId(),
-                                            partition.getId(),
-                                            new DataProperty(dataProperty.getStorageColdMedium(),
-                                                    dataProperty.getStorageColdMedium()),
-                                            ReplicaAllocation.NOT_SET,
-                                            partitionInfo.getIsInMemory(partition.getId()));
-                            editLog.logModifyPartition(info);
-                        }
-                    } // end for partitions
-                } finally {
-                    olapTable.writeUnlock();
-                }
-            } // end for tables
-        } // end for dbs
-        return storageMediumMap;
-    }
-
     public ConsistencyChecker getConsistencyChecker() {
         return this.consistencyChecker;
     }
@@ -5023,6 +4908,10 @@ public class Catalog {
 
     public MaterializedViewHandler getRollupHandler() {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
+    }
+
+    public MigrationHandler getMigrationHandler() {
+        return (MigrationHandler) this.alter.getMigrationHandler();
     }
 
     public SystemHandler getClusterHandler() {

@@ -41,6 +41,20 @@ public class DataProperty implements Writable {
     @SerializedName(value =  "storageColdMedium")
     private TStorageMedium storageColdMedium;
 
+    public enum MigrationState {
+        NONE, RUNNING
+    }
+
+    MigrationState migrationState = MigrationState.NONE;
+
+    public MigrationState getMigrationState() {
+        return migrationState;
+    }
+
+    public void setMigrationState(MigrationState migrationState) {
+        this.migrationState = migrationState;
+    }
+
     private DataProperty() {
         // for persist
     }

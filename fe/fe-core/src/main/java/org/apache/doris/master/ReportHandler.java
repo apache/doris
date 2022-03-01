@@ -86,7 +86,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -248,10 +247,6 @@ public class ReportHandler extends Daemon {
         LOG.info("backend[{}] reports {} tablet(s). report version: {}",
                 backendId, backendTablets.size(), backendReportVersion);
 
-        // storage medium map
-        HashMap<Long, TStorageMedium> storageMediumMap = Config.disable_storage_medium_check ?
-                Maps.newHashMap() : Catalog.getCurrentCatalog().getPartitionIdToStorageMediumMap();
-
         // db id -> tablet id
         ListMultimap<Long, Long> tabletSyncMap = LinkedListMultimap.create();
         // db id -> tablet id
@@ -273,12 +268,11 @@ public class ReportHandler extends Daemon {
         List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
 
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
-        Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
+        Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets,
                 tabletSyncMap,
                 tabletDeleteFromMeta,
                 foundTabletsWithValidSchema,
                 foundTabletsWithInvalidSchema,
-                tabletMigrationMap,
                 transactionsToPublish,
                 transactionsToClear,
                 tabletRecoveryMap,

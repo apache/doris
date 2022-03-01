@@ -22,6 +22,7 @@ class WritableFile;
 class SequentialFile;
 class PosixEnv;
 class RemoteEnv;
+class RemoteEnvMgr;
 struct FilePathDesc;
 struct WritableFileOptions;
 struct RandomAccessFileOptions;
@@ -46,7 +47,7 @@ public:
     // system.  Sophisticated users may wish to provide their own Env
     // implementation instead of relying on this default environment.
     static Env* Default();
-    static Env* get_env(TStorageMedium::type storage_medium);
+    static std::shared_ptr<Env> get_env(TStorageMedium::type storage_medium);
 
     // Create a brand new sequentially-readable file with the specified name.
     // On success, stores a pointer to the new file in *result and returns OK.
@@ -188,13 +189,9 @@ public:
     //  Status::OK()      if create directory success or directory already exists
     virtual Status create_dirs(const std::string& dirname) = 0;
 
-    static Status init();
-
-    virtual Status init_conf() = 0;
-
 private:
     static std::shared_ptr<PosixEnv> _posix_env;
-    static std::shared_ptr<RemoteEnv> _remote_env;
+    static std::shared_ptr<RemoteEnvMgr> _remote_env_mgr;
 };
 
 struct FilePathDesc {
@@ -207,11 +204,14 @@ struct FilePathDesc {
     std::string remote_path;
     std::string debug_string() const {
         std::stringstream ss;
-        ss << "local_path: " << filepath;
+        ss << "storage_medium: " << to_string(storage_medium) << ", local_path: " << filepath;
         if (!remote_path.empty()) {
             ss << ", remote_path: " << remote_path;
         }
         return ss.str();
+    }
+    bool is_remote() {
+        return storage_medium == TStorageMedium::S3;
     }
 };
 

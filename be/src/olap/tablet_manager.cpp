@@ -271,8 +271,10 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         // If we are doing schema-change, we should use the same data dir
         // TODO(lingbin): A litter trick here, the directory should be determined before
         // entering this method
-        stores.clear();
-        stores.push_back(base_tablet->data_dir());
+        if (request.storage_medium == base_tablet->data_dir()->storage_medium()) {
+            stores.clear();
+            stores.push_back(base_tablet->data_dir());
+        }
     }
     TRACE("got base tablet");
 

@@ -25,6 +25,7 @@
 
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
+#include "env/env_util.h"
 #include "olap/merger.h"
 #include "olap/row.h"
 #include "olap/row_block.h"
@@ -1622,7 +1623,11 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = &delete_handler;
-        if (request.__isset.materialized_view_params) {
+        if (request.__isset.alter_tablet_type && request.alter_tablet_type == TAlterTabletType::MIGRATION) {
+            sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
+            sc_params.migration_param = request.migration_param;
+        } else if (request.__isset.materialized_view_params) {
+            sc_params.alter_tablet_type = AlterTabletType::SCHEMA_CHANGE;
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
                 mv_param.column_name = item.column_name;
@@ -1908,6 +1913,9 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
             writer_context.rowset_type = BETA_ROWSET;
         }
         writer_context.path_desc = new_tablet->tablet_path_desc();
+        if (sc_params.alter_tablet_type == TAlterTabletType::MIGRATION && new_tablet->tablet_path_desc().is_remote()) {
+            writer_context.is_cache_path = true;
+        }
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
@@ -1964,6 +1972,11 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
         sc_params.new_tablet->release_push_lock();
 
+        if (new_tablet->tablet_path_desc().is_remote()
+            && (res = _migration_to_remote(sc_params, new_rowset)) != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to migration file to remote: " << new_tablet->tablet_path_desc().debug_string();
+            goto PROCESS_ALTER_EXIT;
+        }
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"
                    << rs_reader->version().second;
@@ -1984,6 +1997,25 @@ PROCESS_ALTER_EXIT : {
               << "base_tablet=" << sc_params.base_tablet->full_name()
               << ", new_tablet=" << sc_params.new_tablet->full_name();
     return res;
+}
+
+OLAPStatus SchemaChangeHandler::_migration_to_remote(
+        const SchemaChangeParams& sc_params, const RowsetSharedPtr rowset) {
+    FilePathDesc path_desc = sc_params.new_tablet->tablet_path_desc();
+    if (!path_desc.is_remote()) {
+        LOG(WARNING) << "PathDesc is not remote: " << path_desc.debug_string();
+        return OLAP_ERR_COPY_FILE_ERROR;
+    }
+    string tablet_uid_path = path_desc.filepath + "/" + TABLET_UID;
+    Status st = env_util::write_string_to_file(
+            Env::Default(), Slice(TabletUid(sc_params.new_tablet->tablet_uid()).to_string()), tablet_uid_path);
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to write tablet_uid. path=" << tablet_uid_path
+                     << ", error:" << st.to_string();
+        return OLAP_ERR_COPY_FILE_ERROR;
+    }
+
+    return rowset->upload_files_to(path_desc, true);
 }
 
 // @static

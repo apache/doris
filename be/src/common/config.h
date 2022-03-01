@@ -643,6 +643,7 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 CONF_mInt32(segment_cache_capacity, "1000000");
 
 // s3 config
+CONF_mInt32(max_remote_storage_count, "10");
 CONF_String(default_remote_storage_s3_ak, "");
 CONF_String(default_remote_storage_s3_sk, "");
 CONF_String(default_remote_storage_s3_endpoint, "");

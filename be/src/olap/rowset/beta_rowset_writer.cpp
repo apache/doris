@@ -53,7 +53,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
         Status st;
-        Env* env = Env::get_env(_context.path_desc.storage_medium);
+        std::shared_ptr<Env> env = Env::get_env(_context.path_desc.storage_medium);
         for (int i = 0; i < _num_segment; ++i) {
             auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
                                                       _context.rowset_id, i);
@@ -92,7 +92,7 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
 template <typename RowType>
 OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
     if (PREDICT_FALSE(_segment_writer == nullptr)) {
-        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
+        RETURN_NOT_OK(_create_segment_writer(&_segment_writer, _context.is_cache_path));
     }
     // TODO update rowset zonemap
     auto s = _segment_writer->append_row(row);
@@ -147,7 +147,7 @@ OLAPStatus BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* 
     MemTable::Iterator it(memtable);
     for (it.seek_to_first(); it.valid(); it.next()) {
         if (PREDICT_FALSE(writer == nullptr)) {
-            RETURN_NOT_OK(_create_segment_writer(&writer));
+            RETURN_NOT_OK(_create_segment_writer(&writer, _context.is_cache_path));
         }
         ContiguousRow dst_row = it.get_current_row();
         auto s = writer->append_row(dst_row);
@@ -207,18 +207,23 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
-OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_cache_path) {
     auto path_desc = BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id,
                                               _num_segment++);
     // TODO(lingbin): should use a more general way to get BlockManager object
     // and tablets with the same type should share one BlockManager object;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_context.path_desc.storage_medium);
+    fs::BlockManager* block_mgr = nullptr;
+    if (is_cache_path) {
+        block_mgr = fs::fs_util::block_manager(TStorageMedium::HDD);
+    } else {
+        block_mgr = fs::fs_util::block_manager(_context.path_desc.storage_medium);
+    }
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions opts(path_desc);
     DCHECK(block_mgr != nullptr);
     Status st = block_mgr->create_block(opts, &wblock);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath;
+        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath << ". " << st.get_error_msg();
         return OLAP_ERR_INIT_FAILED;
     }
 

@@ -140,7 +140,7 @@ OLAPStatus BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_
 }
 
 OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
-    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
+    std::shared_ptr<Env> env = Env::get_env(_rowset_path_desc.storage_medium);
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc dst_path_desc = segment_file_path(dir, rowset_id(), i);
         Status status = env->path_exists(dst_path_desc.filepath);
@@ -163,8 +163,8 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
-    RemoteEnv* dest_env = dynamic_cast<RemoteEnv*>(Env::get_env(dir_desc.storage_medium));
+OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc, bool delete_src) {
+    RemoteEnv* dest_env = dynamic_cast<RemoteEnv*>(Env::get_env(dir_desc.storage_medium).get());
     std::shared_ptr<StorageBackend> storage_backend = dest_env->get_storage_backend();
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc dst_path_desc = segment_file_path(dir_desc, rowset_id(), i);
@@ -184,6 +184,10 @@ OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
                          << dst_path_desc.remote_path << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
+        if (delete_src && !Env::Default()->delete_file(src_path_desc.filepath).ok()) {
+            LOG(WARNING) << "fail to delete local file: " << src_path_desc.filepath << ", errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
+        }
         LOG(INFO) << "succeed to upload file. from " << src_path_desc.filepath << " to "
                   << dst_path_desc.remote_path;
     }
@@ -200,11 +204,15 @@ bool BetaRowset::check_path(const std::string& path) {
 }
 
 bool BetaRowset::check_file_exist() {
-    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
+    std::shared_ptr<Env> env = Env::get_env(_rowset_path_desc.storage_medium);
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        if (!env->path_exists(path_desc.filepath).ok()) {
-            LOG(WARNING) << "data file not existed: " << path_desc.filepath
+        std::string checked_path = path_desc.filepath;
+        if (env->is_remote_env()) {
+            checked_path = path_desc.remote_path;
+        }
+        if (!env->path_exists(checked_path).ok()) {
+            LOG(WARNING) << "data file not existed: " << checked_path
                     << " for rowset_id: " << rowset_id();
             return false;
         }

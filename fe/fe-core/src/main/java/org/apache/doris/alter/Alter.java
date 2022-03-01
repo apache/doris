@@ -86,17 +86,20 @@ public class Alter {
     private AlterHandler schemaChangeHandler;
     private AlterHandler materializedViewHandler;
     private SystemHandler clusterHandler;
+    private MigrationHandler migrationHandler;
 
     public Alter() {
         schemaChangeHandler = new SchemaChangeHandler();
         materializedViewHandler = new MaterializedViewHandler();
         clusterHandler = new SystemHandler();
+        migrationHandler = new MigrationHandler();
     }
 
     public void start() {
         schemaChangeHandler.start();
         materializedViewHandler.start();
         clusterHandler.start();
+        migrationHandler.start();
     }
 
     public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
@@ -696,5 +699,9 @@ public class Alter {
 
     public AlterHandler getClusterHandler() {
         return this.clusterHandler;
+    }
+
+    public MigrationHandler getMigrationHandler() {
+        return migrationHandler;
     }
 }

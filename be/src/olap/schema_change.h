@@ -219,6 +219,7 @@ private:
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
+        TMigrationParam migration_param;
     };
 
     OLAPStatus _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);
@@ -226,6 +227,8 @@ private:
     OLAPStatus _validate_alter_result(TabletSharedPtr new_tablet, const TAlterTabletReqV2& request);
 
     OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
+
+    OLAPStatus _migration_to_remote(const SchemaChangeParams& sc_params, const RowsetSharedPtr rowset);
 
     static OLAPStatus _parse_request(
             TabletSharedPtr base_tablet, TabletSharedPtr new_tablet, RowBlockChanger* rb_changer,

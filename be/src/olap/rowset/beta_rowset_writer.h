@@ -66,7 +66,7 @@ private:
     template <typename RowType>
     OLAPStatus _add_row(const RowType& row);
 
-    OLAPStatus _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+    OLAPStatus _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_cache_path = false);
 
     OLAPStatus _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 

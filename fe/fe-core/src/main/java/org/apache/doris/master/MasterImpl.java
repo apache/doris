@@ -833,6 +833,8 @@ public class MasterImpl {
                 Catalog.getCurrentCatalog().getRollupHandler().handleFinishAlterTask(alterTask);
             } else if (alterTask.getJobType() == JobType.SCHEMA_CHANGE) {
                 Catalog.getCurrentCatalog().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
+            } else if (alterTask.getJobType() == JobType.MIGRATION) {
+                Catalog.getCurrentCatalog().getMigrationHandler().handleFinishAlterTask(alterTask);
             }
             alterTask.setFinished(true);
         } catch (MetaNotFoundException e) {

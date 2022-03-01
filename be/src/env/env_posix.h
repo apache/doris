@@ -33,8 +33,6 @@ class PosixEnv : public Env {
 public:
     ~PosixEnv() override {}
 
-    Status init_conf();
-
     Status new_sequential_file(const std::string& fname,
                                std::unique_ptr<SequentialFile>* result) override;
 

@@ -763,6 +763,8 @@ public class EditLog {
                         case SCHEMA_CHANGE:
                             catalog.getSchemaChangeHandler().replayAlterJobV2(alterJob);
                             break;
+                        case MIGRATION:
+                            catalog.getMigrationHandler().replayAlterJobV2(alterJob);
                         default:
                             break;
                     }
@@ -821,6 +823,8 @@ public class EditLog {
                         case SCHEMA_CHANGE:
                             catalog.getSchemaChangeHandler().replayRemoveAlterJobV2(log);
                             break;
+                        case MIGRATION:
+                            catalog.getMigrationHandler().replayRemoveAlterJobV2(log);
                         default:
                             break;
                     }

@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <memory>
 #include <numeric>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -274,7 +275,11 @@ Status RemoteBlockManager::open() {
 
 Status RemoteBlockManager::create_block(const CreateBlockOptions& opts,
                                         std::unique_ptr<WritableBlock>* block) {
-    CHECK(!_opts.read_only);
+    if (_opts.read_only) {
+        std::stringstream ss;
+        ss << "create_block failed. remote block is readonly: " << opts.path_desc.debug_string();
+        return Status::NotSupported(ss.str());
+    }
 
     shared_ptr<WritableFile> local_writer;
     WritableFileOptions wr_opts;

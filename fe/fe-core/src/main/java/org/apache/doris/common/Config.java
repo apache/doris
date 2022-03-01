@@ -772,6 +772,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int alter_table_timeout_second = 86400; // 1day
     /**
+     * Maximal timeout of migration request. Set long enough to fit your table data size.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int migration_timeout_second = 86400; // 1day
+    /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
      */

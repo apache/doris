@@ -44,6 +44,7 @@ public class Replica implements Writable {
         ROLLUP,
         @Deprecated
         SCHEMA_CHANGE,
+        MIGRATION,
         CLONE,
         ALTER, // replica is under rollup or schema change
         DECOMMISSION; // replica is ready to be deleted

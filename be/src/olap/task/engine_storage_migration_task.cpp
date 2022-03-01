@@ -172,7 +172,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             break;
         }
         if (Env::get_env(new_meta_path_desc.storage_medium)->is_remote_env()) {
-            RemoteEnv *remote_env = dynamic_cast<RemoteEnv *>(Env::get_env(new_meta_path_desc.storage_medium));
+            RemoteEnv *remote_env = dynamic_cast<RemoteEnv *>(Env::get_env(new_meta_path_desc.storage_medium).get());
             std::shared_ptr<StorageBackend> storage_backend = remote_env->get_storage_backend();
             if (!storage_backend->upload(new_meta_path_desc.filepath, new_meta_path_desc.remote_path).ok()) {
                 res = OLAP_ERR_COPY_FILE_ERROR;
