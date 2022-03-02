@@ -116,14 +116,15 @@ public class QueryStmtTest {
                 "           ELSE 999\n" +
                 "       END AS ccc\n" +
                 "FROM\n" +
-                "  (SELECT curdate()) a;";
+                "  (SELECT curdate()) a " +
+                "ORDER BY curdate();";
         stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
-        Assert.assertEquals(7, exprsMap.size());
+        Assert.assertEquals(8, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
-        Assert.assertEquals(3, constMap.size());
+        Assert.assertEquals(4, constMap.size());
 
         sql = "select\n" +
                 "   avg(t1.k4)\n" +
@@ -244,7 +245,7 @@ public class QueryStmtTest {
         stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
-        Assert.assertEquals(17, exprsMap.size());
+        Assert.assertEquals(18, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
         Assert.assertEquals(4, constMap.size());
