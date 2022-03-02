@@ -150,6 +150,7 @@ public class PaloFe {
                 httpServer2.setAcceptors(Config.jetty_server_acceptors);
                 httpServer2.setSelectors(Config.jetty_server_selectors);
                 httpServer2.setWorkers(Config.jetty_server_workers);
+                httpServer2.setSessionTimeout(Config.jetty_session_timeout_minute);
                 httpServer2.start(dorisHomeDir);
             }
 

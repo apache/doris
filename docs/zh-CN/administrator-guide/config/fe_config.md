@@ -206,6 +206,12 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 这个是put或post方法上传文件的最大字节数，默认值：100MB
 
+### jetty_session_timeout_minute
+
+默认值：120 (分钟)
+
+用户认证的 Session 超时时间
+
 ### default_max_filter_ratio
 
 默认值：0

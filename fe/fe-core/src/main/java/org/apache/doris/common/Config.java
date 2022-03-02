@@ -360,6 +360,12 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_acceptors = 2;
     @ConfField public static int jetty_server_selectors = 4;
     @ConfField public static int jetty_server_workers = 0;
+
+    /**
+     * session timeout，Unit: minutes
+     */
+    @ConfField public static int jetty_session_timeout_minute = 120;
+
     /**
      * jetty Maximum number of bytes in put or post method,default:100MB
      */

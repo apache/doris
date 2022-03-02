@@ -23,6 +23,7 @@ import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 
+import org.apache.doris.common.Config;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 public final class HttpAuthManager {
     private static final Logger LOG = LogManager.getLogger(HttpAuthManager.class);
 
-    private static long SESSION_EXPIRE_TIME = 2; // hour
+    private static long SESSION_EXPIRE_TIME = Config.jetty_session_timeout_minute; // minute
     private static long SESSION_MAX_SIZE = 100; // avoid to store too many
 
     private static HttpAuthManager instance = new HttpAuthManager();
@@ -47,7 +48,7 @@ public final class HttpAuthManager {
     // session_id => session value
     private Cache<String, SessionValue> authSessions = CacheBuilder.newBuilder()
             .maximumSize(SESSION_MAX_SIZE)
-            .expireAfterAccess(SESSION_EXPIRE_TIME, TimeUnit.HOURS)
+            .expireAfterAccess(SESSION_EXPIRE_TIME, TimeUnit.MINUTES)
             .build();
 
     private HttpAuthManager() {
