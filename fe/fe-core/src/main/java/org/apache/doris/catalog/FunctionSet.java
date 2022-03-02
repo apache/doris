@@ -1242,6 +1242,35 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "17count_star_removeEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 null, false, true, true, true));
 
+        // windowFunnel
+        addBuiltin(AggregateFunction.createBuiltin("window_funnel",
+                Lists.newArrayList(Type.BIGINT, Type.DATETIME, Type.BOOLEAN),
+                Type.INT,
+                Type.VARCHAR,
+                true,
+                prefix + "18window_funnel_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPNS1_9StringValE",
+                prefix + "19window_funnel_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "23window_funnel_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "",
+                "",
+                prefix + "22window_funnel_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, false, true));
+
+        addBuiltin(AggregateFunction.createBuiltin("window_funnel",
+                Lists.newArrayList(Type.BIGINT, Type.DATETIME, Type.BOOLEAN),
+                Type.INT,
+                Type.VARCHAR,
+                true,
+                prefix + "18window_funnel_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPNS1_9StringValE",
+                prefix + "19window_funnel_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "23window_funnel_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "",
+                "",
+                prefix + "22window_funnel_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, false, true, true));
+
         for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {
                 continue; // NULL is handled through type promotion.
