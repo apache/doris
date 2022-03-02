@@ -166,6 +166,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1864,16 +1865,21 @@ public class ShowExecutor {
         ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
         Database db = ctx.getCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
-        Long txnId = showStmt.getTxnId();
-        String label = showStmt.getLabel();
+        TransactionStatus status = showStmt.getStatus();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        if (!label.isEmpty()) {
-            txnId = transactionMgr.getTransactionId(db.getId(), label);
-            if (txnId == null) {
-                throw new AnalysisException("transaction with label " + label + " does not exist");
+        if (status != TransactionStatus.UNKNOWN) {
+            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+        } else {
+            Long txnId = showStmt.getTxnId();
+            String label = showStmt.getLabel();
+            if (!label.isEmpty()) {
+                txnId = transactionMgr.getTransactionId(db.getId(), label);
+                if (txnId == null) {
+                    throw new AnalysisException("transaction with label " + label + " does not exist");
+                }
             }
+            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
         }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
     }
 
     private void handleShowPlugins() throws AnalysisException {

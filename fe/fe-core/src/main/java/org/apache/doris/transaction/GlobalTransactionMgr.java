@@ -465,6 +465,11 @@ public class GlobalTransactionMgr implements Writable {
         return dbTransactionMgr.getTxnStateInfoList(running, limit);
     }
 
+    public List<List<String>> getDbTransInfoByStatus(long dbId, TransactionStatus status) throws AnalysisException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        return dbTransactionMgr.getTxnStateInfoList(status);
+    }
+
     // get show info of a specified txnId
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
