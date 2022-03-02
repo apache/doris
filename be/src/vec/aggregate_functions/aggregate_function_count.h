@@ -66,7 +66,7 @@ public:
         read_var_uint(data(place).count, buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
     }
 };
@@ -104,7 +104,7 @@ public:
         read_var_uint(data(place).count, buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         if (to.is_nullable()) {
             auto& null_column = assert_cast<ColumnNullable&>(to);
             null_column.get_null_map_data().push_back(0);
