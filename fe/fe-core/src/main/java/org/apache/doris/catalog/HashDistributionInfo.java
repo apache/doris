@@ -148,7 +148,6 @@ public class HashDistributionInfo extends DistributionInfo {
     }
 
     public RandomDistributionInfo toRandomDistributionInfo() {
-        RandomDistributionInfo randomDistributionInfo = new RandomDistributionInfo(bucketNum);
-        return randomDistributionInfo;
+        return new RandomDistributionInfo(bucketNum);
     }
 }
