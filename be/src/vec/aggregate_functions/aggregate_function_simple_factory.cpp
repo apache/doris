@@ -43,6 +43,7 @@ void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -62,6 +63,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_approx_count_distinct(instance);
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_percentile(instance);
+        register_aggregate_function_percentile_approx(instance);
+        register_aggregate_function_window_funnel(instance);
 
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);
