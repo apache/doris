@@ -96,7 +96,7 @@ public:
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
  
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) override {
+    void insert_many_dict_data(const int32_t* __restrict data_array, size_t start_index, const StringRef* __restrict dict, size_t num) override {
         get_null_map_column().fill(0, num);
         get_nested_column().insert_many_dict_data(data_array, start_index, dict, num);
     }

@@ -32,6 +32,8 @@
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 
+#include "../../util/mem_util.hpp"
+
 class Collator;
 
 namespace doris::vectorized {
@@ -165,10 +167,33 @@ public:
         }
     };
  
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) override {
-        for (size_t end_index = start_index+num; start_index < end_index; ++start_index) {
-            int32_t codeword = data_array[start_index];
-            insert_data(dict[codeword].data, dict[codeword].size);
+    void insert_many_dict_data(const int32_t* __restrict data_array, size_t start_index, const StringRef* __restrict dict, size_t num) override {
+        size_t index = start_index;
+        const size_t end = start_index + num;
+
+        // handle offsets
+        size_t old_size = offsets.size();
+        offsets.resize(old_size + num);
+
+        size_t chars_old_size = chars.size();
+        size_t chars_new_size = chars_old_size;
+        for (; index < end; ++index) {
+            int32_t codeword = data_array[index];
+            chars_new_size += (dict[codeword].size + 1); // extra 1 for zero ending
+            offsets[old_size++] = chars_new_size;
+        }
+
+        // handle chars
+        chars.resize(chars_new_size);
+        unsigned char* c_data = chars.data();
+
+        index = start_index;
+        for (; index < end; ++index) {
+            int32_t codeword = data_array[index];
+            const StringRef& word = dict[codeword]; 
+            memory_copy(c_data + chars_old_size, word.data, word.size);
+            chars_old_size += word.size;
+            c_data[chars_old_size++] = 0; // zero ending
         }
     }
 

@@ -217,11 +217,16 @@ public:
         }
     }
 
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) override {
+    void insert_many_dict_data(const int32_t* __restrict data_array, size_t start_index, const StringRef* __restrict dict, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
+            size_t old_size = data.size();
+            data.resize(old_size + num);
+            StringValue* sv = &data[old_size];
             for (size_t end_index = start_index+num; start_index < end_index; ++start_index) {
                 int32_t codeword = data_array[start_index];
-                insert_string_value(dict[codeword].data, dict[codeword].size);
+                sv->ptr = (char*)dict[codeword].data;
+                sv->len = dict[codeword].size;
+                ++sv;
             }
         }
     }
