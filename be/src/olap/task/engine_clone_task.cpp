@@ -184,7 +184,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
             FileUtils::remove(cloned_meta_file);
         }
         // Clean useless dir, if failed, ignore it.
-        if (status != Status::OK()) {
+        if (!status.ok()) {
             std::stringstream local_data_path_stream;
             local_data_path_stream << local_shard_root_path << "/" << _clone_req.tablet_id;
             string local_data_path = local_data_path_stream.str();

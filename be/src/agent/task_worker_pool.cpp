@@ -564,7 +564,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         TTabletInfo tablet_info;
         status = _get_tablet_info(new_tablet_id, new_schema_hash, signature, &tablet_info);
 
-        if (status != Status::OK()) {
+        if (!status.ok()) {
             LOG(WARNING) << process_name << " success, but get new tablet info failed."
                          << "tablet_id: " << new_tablet_id << ", schema_hash: " << new_schema_hash
                          << ", signature: " << signature;
@@ -901,7 +901,7 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         finish_task_request.__set_signature(agent_task_req.signature);
 
         TStatusCode::type status_code = TStatusCode::OK;
-        if (status != Status::OK()) {
+        if (!status.ok()) {
             DorisMetrics::instance()->clone_requests_failed->increment(1);
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "clone failed. signature: " << agent_task_req.signature;
@@ -1518,17 +1518,12 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         LOG(INFO) << "get move dir task, signature:" << agent_task_req.signature
                   << ", job id:" << move_dir_req.job_id;
 
-        TStatusCode::type status_code = TStatusCode::OK;
-        std::vector<string> error_msgs;
         TStatus task_status;
-
-        // TODO: move dir
         Status status =
                 _move_dir(move_dir_req.tablet_id, move_dir_req.schema_hash, move_dir_req.src,
-                          move_dir_req.job_id, true /* TODO */, &error_msgs);
+                          move_dir_req.job_id, true /* TODO */);
 
-        if (status != Status::OK()) {
-            status_code = TStatusCode::RUNTIME_ERROR;
+        if (!status.ok()) {
             LOG(WARNING) << "failed to move dir: " << move_dir_req.src
                          << ", tablet id: " << move_dir_req.tablet_id
                          << ", signature: " << agent_task_req.signature
@@ -1540,8 +1535,8 @@ void TaskWorkerPool::_move_dir_thread_callback() {
                       << ", job id:" << move_dir_req.job_id;
         }
 
-        task_status.__set_status_code(status_code);
-        task_status.__set_error_msgs(error_msgs);
+        task_status.__set_status_code(status.code());
+        task_status.__set_error_msgs(status.get_error_msg());
 
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_backend(_backend);
@@ -1555,14 +1550,12 @@ void TaskWorkerPool::_move_dir_thread_callback() {
 }
 
 Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                                      const std::string& src, int64_t job_id, bool overwrite,
-                                      std::vector<std::string>* error_msgs) {
+                                      const std::string& src, int64_t job_id, bool overwrite) {
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id
                   << ", schema hash:" << schema_hash;
-        error_msgs->push_back("failed to get tablet");
         return Status::InvalidArgument("Could not find tablet");
     }
 
@@ -1572,8 +1565,7 @@ Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash sc
 
     if (!status.ok()) {
         LOG(WARNING) << "move failed. job id: " << job_id << ", msg: " << status.get_error_msg();
-        error_msgs->push_back(status.get_error_msg());
-        return Status::InternalError("Move job failed");
+        return status;
     }
 
     return Status::OK();
@@ -1583,7 +1575,7 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     TMasterResult result;
     Status status = _master_client->report(request, &result);
     bool is_report_success = false;
-    if (status != Status::OK()) {
+    if (!status.ok()) {
         LOG(WARNING) << "report " << TYPE_STRING(type) << " failed. status: " << status
                      << ", master host: " << _master_info.network_address.hostname
                      << ", port:" << _master_info.network_address.port;

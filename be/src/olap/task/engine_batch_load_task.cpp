@@ -66,7 +66,7 @@ OLAPStatus EngineBatchLoadTask::execute() {
             while (retry_time < PUSH_MAX_RETRY) {
                 status = _process();
                 // Internal error, need retry
-                if (status != Status::OK()) {
+                if (!status.ok()) {
                     OLAP_LOG_WARNING("push internal error, need retry.signature: %ld", _signature);
                     retry_time += 1;
                 } else {
@@ -128,7 +128,7 @@ Status EngineBatchLoadTask::_init() {
     string root_path = tablet->data_dir()->path();
     status = _get_tmp_file_dir(root_path, &tmp_file_dir);
 
-    if (status != Status::OK()) {
+    if (!status.ok()) {
         LOG(WARNING) << "get local path failed. tmp file dir: " << tmp_file_dir;
         return status;
     }
