@@ -310,8 +310,7 @@ Status CgroupsMgr::init_cgroups() {
         for (; item_begin != item_end; item_begin++) {
             if (is_directory(item_begin->path().string().c_str())) {
                 // Delete the sub folder
-                if (delete_user_cgroups(item_begin->path().filename().string()) !=
-                    Status::OK()) {
+                if (!delete_user_cgroups(item_begin->path().filename().string()).ok()) {
                     LOG(ERROR) << "Could not clean subfolder " << item_begin->path().string();
                     _is_cgroups_init_success = false;
                     return Status::InternalError("Could not clean subfolder " + item_begin->path().string());

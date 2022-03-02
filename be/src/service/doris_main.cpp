@@ -453,7 +453,7 @@ int main(int argc, char** argv) {
             exec_env, doris::config::heartbeat_service_port, &heartbeat_thrift_server,
             doris::config::heartbeat_service_thread_count, master_info);
 
-    if (doris::Status::OK() != heartbeat_status) {
+    if (!heartbeat_status.ok()) {
         LOG(ERROR) << "Heartbeat services did not start correctly, exiting";
         doris::shutdown_logging();
         exit(1);
