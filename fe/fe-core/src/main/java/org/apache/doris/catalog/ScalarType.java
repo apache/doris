@@ -69,7 +69,6 @@ public class ScalarType extends Type {
     // Max length of String types, in be storage layer store string length
     // using int32, the max length is 2GB, the first 4 bytes store the length
     // so the max available length is 2GB - 4
-
     public static final int MAX_STRING_LENGTH = 0x7fffffff - 4;
 
     // Hive, mysql, sql server standard.
