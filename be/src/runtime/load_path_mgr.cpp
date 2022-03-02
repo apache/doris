@@ -53,7 +53,7 @@ LoadPathMgr::~LoadPathMgr() {
 Status LoadPathMgr::init() {
     _path_vec.clear();
     for (auto& path : _exec_env->store_paths()) {
-        if (Env::get_env(path.storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(path.storage_medium)) {
             continue;
         }
         _path_vec.push_back(path.path + MINI_PREFIX);

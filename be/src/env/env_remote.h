@@ -95,10 +95,6 @@ public:
 
     Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) override;
 
-    bool is_remote_env() override {
-        return true;
-    }
-
     std::shared_ptr<StorageBackend> get_storage_backend();
 
 private:

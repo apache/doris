@@ -70,7 +70,7 @@ void BaseTablet::_gen_tablet_path() {
                 desc_s.path_desc(), std::to_string(_tablet_meta->shard_id()));
         path_desc = path_util::join_path_desc_segments(path_desc, std::to_string(_tablet_meta->tablet_id()));
         _tablet_path_desc = path_util::join_path_desc_segments(path_desc, std::to_string(_tablet_meta->schema_hash()));
-        if (Env::get_env(_tablet_path_desc.storage_medium)->is_remote_env()) {
+        if (_tablet_path_desc.is_remote()) {
             _tablet_path_desc.remote_path += "/" + _tablet_meta->tablet_uid().to_string();
         }
     }

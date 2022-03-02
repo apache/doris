@@ -116,7 +116,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             break;
         }
 
-        if (Env::get_env(full_path_desc.storage_medium)->is_remote_env()) {
+        if (full_path_desc.is_remote()) {
             string new_tablet_uid_str = TabletUid(new_tablet_uid).to_string();
             full_path_desc.remote_path += "/" + new_tablet_uid_str;
             string tablet_uid_path = full_path_desc.filepath + TABLET_UID;
@@ -147,7 +147,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         new_meta_path_desc.storage_medium = full_path_desc.storage_medium;
         new_meta_path_desc.filepath = TabletMeta::construct_header_file_path(
                 full_path_desc.filepath, tablet_id);
-        if (Env::get_env(new_meta_path_desc.storage_medium)->is_remote_env()) {
+        if (new_meta_path_desc.is_remote()) {
             new_meta_path_desc.remote_path = TabletMeta::construct_header_file_path(
                     full_path_desc.remote_path, tablet_id);
         }
@@ -171,7 +171,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
                          << " path = " << full_path_desc.filepath;
             break;
         }
-        if (Env::get_env(new_meta_path_desc.storage_medium)->is_remote_env()) {
+        if (new_meta_path_desc.is_remote()) {
             RemoteEnv *remote_env = dynamic_cast<RemoteEnv *>(Env::get_env(new_meta_path_desc.storage_medium).get());
             std::shared_ptr<StorageBackend> storage_backend = remote_env->get_storage_backend();
             if (!storage_backend->upload(new_meta_path_desc.filepath, new_meta_path_desc.remote_path).ok()) {
@@ -227,7 +227,7 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
     OLAPStatus status = OLAP_SUCCESS;
     for (const auto& rs : consistent_rowsets) {
         std::string data_path = full_path_desc.filepath;
-        if (!_dest_store->env()->is_remote_env()) {
+        if (!_dest_store->is_remote()) {
             status = rs->copy_files_to(full_path_desc.filepath);
         } else {
             data_path = full_path_desc.remote_path;

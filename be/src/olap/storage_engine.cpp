@@ -814,7 +814,7 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                if (Env::get_env(scan_root_desc.storage_medium)->is_remote_env()) {
+                if (scan_root_desc.is_remote()) {
                     std::filesystem::path local_path(path_name);
                     std::stringstream remote_file_stream;
                     remote_file_stream << scan_root_desc.remote_path << "/" << local_path.filename().string();

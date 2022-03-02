@@ -1913,7 +1913,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
             writer_context.rowset_type = BETA_ROWSET;
         }
         writer_context.path_desc = new_tablet->tablet_path_desc();
-        if (sc_params.alter_tablet_type == TAlterTabletType::MIGRATION && new_tablet->tablet_path_desc().is_remote()) {
+        if (sc_params.alter_tablet_type == AlterTabletType::MIGRATION && new_tablet->tablet_path_desc().is_remote()) {
             writer_context.is_cache_path = true;
         }
         writer_context.tablet_schema = &(new_tablet->tablet_schema());

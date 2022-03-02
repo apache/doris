@@ -244,7 +244,7 @@ Status DataDir::_write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t
         RETURN_IF_ERROR(env_util::write_string_to_file_sync(
                 Env::Default(), Slice(cluster_id_ss.str()), path_desc.filepath));
     }
-    if (_env->is_remote_env()) {
+    if (is_remote()) {
         Status exist_status = _env->path_exists(path_desc.remote_path);
         if (exist_status.is_not_found()) {
             RETURN_IF_ERROR(env_util::write_string_to_file_sync(_env, Slice(cluster_id_ss.str()),
@@ -327,7 +327,7 @@ std::string DataDir::get_absolute_tablet_path(int64_t shard_id, int64_t tablet_i
 void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     std::string trash_path = _path_desc.filepath + TRASH_PREFIX;
-    if (_env->is_remote_env()) {
+    if (is_remote()) {
         trash_path = _path_desc.remote_path + TRASH_PREFIX;
     }
     std::vector<std::string> sub_dirs;

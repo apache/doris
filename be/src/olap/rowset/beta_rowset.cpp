@@ -208,7 +208,7 @@ bool BetaRowset::check_file_exist() {
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
         std::string checked_path = path_desc.filepath;
-        if (env->is_remote_env()) {
+        if (_rowset_path_desc.is_remote()) {
             checked_path = path_desc.remote_path;
         }
         if (!env->path_exists(checked_path).ok()) {

@@ -83,7 +83,7 @@ public:
 
     bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
 
-    bool is_remote() const { return _env->is_remote_env(); }
+    bool is_remote() const { return FilePathDesc::is_remote(_storage_medium); }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 

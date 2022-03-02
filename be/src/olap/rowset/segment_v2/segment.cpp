@@ -40,7 +40,7 @@ using strings::Substitute;
 Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema,
                      std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(path_desc, segment_id, tablet_schema));
-    if (!Env::get_env(path_desc.storage_medium)->is_remote_env()) {
+    if (!path_desc.is_remote()) {
         RETURN_IF_ERROR(segment->_open());
     }
     output->swap(segment);

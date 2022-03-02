@@ -179,8 +179,6 @@ public:
     // get space info for local and remote system
     virtual Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) = 0;
 
-    virtual bool is_remote_env() = 0;
-
     // Create directory of dir_path,
     // This function will create directory recursively,
     // if dir's parent directory doesn't exist
@@ -210,8 +208,11 @@ struct FilePathDesc {
         }
         return ss.str();
     }
-    bool is_remote() {
-        return storage_medium == TStorageMedium::S3;
+    static bool is_remote(TStorageMedium::type checked_storage_medium) {
+        return checked_storage_medium == TStorageMedium::S3;
+    }
+    bool is_remote() const {
+        return is_remote(storage_medium);
     }
 };
 
@@ -220,42 +221,42 @@ public:
     FilePathDescStream& operator<<(const FilePathDesc& val) {
         _filepath_stream << val.filepath;
         _storage_medium = val.storage_medium;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val.remote_path;
         }
         return *this;
     }
     FilePathDescStream& operator<<(const std::string& val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(uint64_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(int64_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(uint32_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(int32_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
@@ -263,7 +264,7 @@ public:
     FilePathDesc path_desc() {
         FilePathDesc path_desc(_filepath_stream.str());
         path_desc.storage_medium = _storage_medium;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (path_desc.is_remote()) {
             path_desc.remote_path = _remote_path_stream.str();
         }
         return path_desc;
