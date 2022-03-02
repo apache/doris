@@ -282,8 +282,10 @@ module.exports = [
             title: "Date Time Functions",
             directoryPath: "date-time-functions/",
             children: [
+              "convert_tz",
               "curdate",
               "current_timestamp",
+              "curtime",
               "date_add",
               "date_format",
               "date_sub",
@@ -392,10 +394,10 @@ module.exports = [
             directoryPath: "aggregate-functions/",
             children: [
               "approx_count_distinct",
-              "group_concat",
               "avg",
               "bitmap_union",
               "count",
+              "group_concat",
               "hll_union_agg",
               "max",
               "min",
