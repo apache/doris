@@ -185,6 +185,7 @@ public:
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
+    TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
 
     std::string get_error_msg() const {

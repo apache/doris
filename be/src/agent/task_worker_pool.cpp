@@ -1517,8 +1517,6 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         }
         LOG(INFO) << "get move dir task, signature:" << agent_task_req.signature
                   << ", job id:" << move_dir_req.job_id;
-
-        TStatus task_status;
         Status status =
                 _move_dir(move_dir_req.tablet_id, move_dir_req.schema_hash, move_dir_req.src,
                           move_dir_req.job_id, true /* TODO */);
@@ -1535,14 +1533,11 @@ void TaskWorkerPool::_move_dir_thread_callback() {
                       << ", job id:" << move_dir_req.job_id;
         }
 
-        task_status.__set_status_code(status.code());
-        task_status.__set_error_msgs(status.get_error_msg());
-
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_backend(_backend);
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(task_status);
+        finish_task_request.__set_task_status(status.to_thrift());
 
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);

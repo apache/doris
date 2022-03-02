@@ -45,6 +45,12 @@ void Status::to_thrift(TStatus* s) const {
     }
 }
 
+TStatus Status::to_thrift() const {
+    TStatus s;
+    to_thrift(&s);
+    return s;
+}
+
 void Status::to_protobuf(PStatus* s) const {
     s->clear_error_msgs();
     if (ok()) {
