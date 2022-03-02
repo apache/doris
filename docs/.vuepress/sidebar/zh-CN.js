@@ -397,10 +397,10 @@ module.exports = [
             directoryPath: "aggregate-functions/",
             children: [
               "approx_count_distinct",
-              "group_concat",
               "avg",
               "bitmap_union",
               "count",
+              "group_concat",
               "hll_union_agg",
               "max",
               "min",

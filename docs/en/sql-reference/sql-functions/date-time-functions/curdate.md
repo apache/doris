@@ -1,6 +1,6 @@
 ---
 {
-    "title": "curdate",
+    "title": "curdate,current_date",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# curdate
+# curdate,current_date
 ## Description
 ### Syntax
 
@@ -50,4 +50,5 @@ mysql> SELECT CURDATE() + 0;
 +---------------+
 ```
 ## keyword
-CURDATE
+
+    CURDATE,CURRENT_DATE
