@@ -183,7 +183,7 @@ public class HiveScanNode extends BrokerScanNode {
         fileStatusesList.add(fileStatuses);
         filesAdded += fileStatuses.size();
         for (TBrokerFileStatus fstatus : fileStatuses) {
-            LOG.info("Add file status is {}", fstatus);
+            LOG.debug("Add file status is {}", fstatus);
         }
     }
 
