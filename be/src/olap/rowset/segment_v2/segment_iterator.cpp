@@ -613,7 +613,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
-            if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR || predicate->is_in_predicate()) {
+            if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_STRING || predicate->is_in_predicate()) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
                 _is_all_column_basic_type = false;
