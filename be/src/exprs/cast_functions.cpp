@@ -26,6 +26,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
 #include "string_functions.h"
+#include "util/array_parser.hpp"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
 
@@ -355,6 +356,12 @@ DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const StringVa
     DateTimeVal result;
     date_value.to_datetime_val(&result);
     return result;
+}
+
+CollectionVal CastFunctions::cast_to_array_val(FunctionContext* context, const StringVal& val) {
+    CollectionVal array_val;
+    Status status = ArrayParser::parse(array_val, context, val);
+    return status.ok() ? array_val : CollectionVal::null();
 }
 
 } // namespace doris

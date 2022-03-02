@@ -81,6 +81,7 @@ public abstract class Type {
     // Only used for alias function, to represent any type in function args
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType Map = new MapType();
+    public static final ArrayType ARRAY = ArrayType.create();
 
     private static ArrayList<ScalarType> integerTypes;
     private static ArrayList<ScalarType> numericTypes;
@@ -123,7 +124,6 @@ public abstract class Type {
         supportedTypes.add(DECIMALV2);
         supportedTypes.add(TIME);
         supportedTypes.add(STRING);
-
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -387,7 +387,7 @@ public abstract class Type {
         } else if (t1.isArrayType() && t2.isArrayType()) {
             return ArrayType.canCastTo((ArrayType)t1, (ArrayType)t2);
         }
-        return t1.isNull();
+        return t1.isNull() || t1.getPrimitiveType() == PrimitiveType.VARCHAR;
     }
 
     /**
