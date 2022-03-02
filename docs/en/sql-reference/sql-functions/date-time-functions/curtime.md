@@ -1,7 +1,7 @@
 ---
 {
-    "title": "curdate,current_date",
-    "language": "zh-CN"
+    "title": "curtime,current_time",
+    "language": "en"
 }
 ---
 
@@ -24,32 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# curdate,current_date
-## description
+# curtime,current_time
+## Description
 ### Syntax
 
-`DATE CURDATE()`
+`TIME CURTIME()`
 
-获取当前的日期，以DATE类型返回
+Get the current date and return it in Time type
 
 ## Examples
 
 ```
-mysql> SELECT CURDATE();
-+------------+
-| CURDATE()  |
-+------------+
-| 2019-12-20 |
-+------------+
-
-mysql> SELECT CURDATE() + 0;
-+---------------+
-| CURDATE() + 0 |
-+---------------+
-|      20191220 |
-+---------------+
+mysql> select current_time();
++----------------+
+| current_time() |
++----------------+
+| 15:25:47       |
++----------------+
 ```
 
 ## keyword
 
-    CURDATE,CURRENT_DATE
+    CURTIME,CURRENT_TIME

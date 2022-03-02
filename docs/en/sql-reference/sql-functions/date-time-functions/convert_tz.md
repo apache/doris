@@ -1,7 +1,7 @@
 ---
 {
     "title": "convert_tz",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -25,12 +25,12 @@ under the License.
 -->
 
 # convert_tz
-## description
+## Description
 ### Syntax
 
 `DATETIME CONVERT_TZ(DATETIME dt, VARCHAR from_tz, VARCHAR to_tz)`
 
-转换datetime值，从 from_tz 给定时区转到 to_tz 给定时区，并返回结果值。 如果参数无效该函数返回NULL。
+Convert datetime value. Go from the given input time zone to the specified time zone and return the result value. If the argument is invalid, the function returns null.
 
 ## Example
 
