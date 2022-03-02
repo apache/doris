@@ -29,7 +29,6 @@ BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
 BaseCompaction::~BaseCompaction() {}
 
 OLAPStatus BaseCompaction::prepare_compact() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     if (!_tablet->init_succeeded()) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -51,7 +50,6 @@ OLAPStatus BaseCompaction::prepare_compact() {
 }
 
 OLAPStatus BaseCompaction::execute_compact_impl() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
     if (!lock.own_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
@@ -83,7 +81,6 @@ OLAPStatus BaseCompaction::execute_compact_impl() {
 }
 
 OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     _input_rowsets.clear();
     _tablet->pick_candidate_rowsets_to_base_compaction(&_input_rowsets);
     if (_input_rowsets.size() <= 1) {

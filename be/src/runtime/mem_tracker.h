@@ -89,10 +89,11 @@ public:
     ~MemTracker();
 
     // Returns a list of all the valid trackers.
-    static void list_root_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers);
+    static void list_process_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers);
 
-    // Gets a shared_ptr to the "root" tracker, creating it if necessary.
-    static std::shared_ptr<MemTracker> get_root_tracker();
+    // Gets a shared_ptr to the "process" tracker, creating it if necessary.
+    static std::shared_ptr<MemTracker> get_process_tracker();
+    static MemTracker* get_raw_process_tracker();
 
     inline Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
@@ -158,6 +159,61 @@ public:
         return Status::OK();
     }
 
+    int64_t add_untracked_mem(int64_t bytes) {
+        _untracked_mem += bytes;
+        if (std::abs(_untracked_mem) >= config::mem_tracker_consume_min_size_bytes) { // ||
+            // _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) {
+            // std::lock_guard<SpinLock> l(_untracked_mem_lock);
+            // int64_t consume_bytes = _untracked_mem;
+            // _untracked_mem -= consume_bytes;
+            // return consume_bytes;
+
+            return _untracked_mem.exchange(0);
+
+            // do {
+            //     consume_bytes = _untracked_mem;
+            // } while (!_untracked_mem.compare_exchange_weak(consume_bytes, 0));
+            // return consume_bytes;
+        }
+        return 0;
+    }
+
+    void release_cache(int64_t bytes) {
+        int64_t consume_bytes = add_untracked_mem(bytes);
+        if (consume_bytes != 0) {
+            release(consume_bytes);
+        }
+    }
+
+    void consume_cache(int64_t bytes) {
+        int64_t consume_bytes = add_untracked_mem(bytes);
+        if (consume_bytes != 0) {
+            consume(consume_bytes);
+        }
+        // _untracked_mem += bytes;
+        // if (std::abs(_untracked_mem) >= config::mem_tracker_consume_min_size_bytes) {
+        //     consume(_untracked_mem.exchange(0));
+        // }
+        // consume(_untracked_mem.exchange(0));
+    }
+
+    WARN_UNUSED_RESULT
+    Status try_consume_cache(int64_t bytes) {
+        if (bytes <= 0) {
+            release_cache(-bytes);
+            return Status::OK();
+        }
+        int64_t consume_bytes = add_untracked_mem(bytes);
+        if (consume_bytes != 0) {
+            Status st = try_consume(consume_bytes);
+            if (!st) {
+                _untracked_mem += consume_bytes;
+                return st;
+            }
+        }
+        return Status::OK();
+    }
+
     // Decreases consumption of this tracker and its ancestors by 'bytes'.
     // up to (but not including) end_tracker.
     void release(int64_t bytes, MemTracker* end_tracker = nullptr) {
@@ -190,11 +246,25 @@ public:
     // updating all ancestors up to the first shared ancestor. Must not be used if
     // 'dst' has a limit, or an ancestor with a limit, that is not a common
     // ancestor with the tracker, because this does not check memory limits.
-    void transfer_to_relative(std::shared_ptr<MemTracker> dst, int64_t bytes);
+    void transfer_to_relative(const std::shared_ptr<MemTracker>& dst, int64_t bytes);
+
     WARN_UNUSED_RESULT
-    Status transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes);
+    Status try_transfer_to(const std::shared_ptr<MemTracker>& dst, int64_t bytes) {
+        // Must release first, then consume
+        consume_cache(-bytes);
+        Status st = dst->try_consume_cache(bytes);
+        if (!st) {
+            consume_cache(bytes);
+            return st;
+        }
+        return Status::OK();
+    }
+
     // Forced transfer, 'dst' may limit exceed, and more ancestor trackers will be updated.
-    void transfer_to_force(std::shared_ptr<MemTracker> dst, int64_t bytes);
+    void transfer_to(const std::shared_ptr<MemTracker>& dst, int64_t bytes) {
+        consume_cache(-bytes);
+        dst->consume_cache(bytes);
+    }
 
     // Returns true if a valid limit of this tracker or one of its ancestors is exceeded.
     MemTracker* limit_exceeded_tracker() const {
@@ -233,6 +303,7 @@ public:
 
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
     int64_t limit() const { return _limit; }
+    void set_limit(int64_t limit) { _limit = limit; }
     bool has_limit() const { return _limit >= 0; }
 
     Status check_limit(int64_t bytes) {
@@ -302,6 +373,10 @@ public:
         return tracker == nullptr ? false : true;
     }
 
+    std::string id() {
+        return _id;
+    }
+
     std::string debug_string() {
         std::stringstream msg;
         msg << "limit: " << _limit << "; "
@@ -329,8 +404,8 @@ private:
     inline Status try_gc_memory(int64_t bytes) {
         if (UNLIKELY(gc_memory(_limit - bytes))) {
             return Status::MemoryLimitExceeded(
-                    fmt::format("label={} TryConsume failed size={}, used={}, limit={}",
-                                label(), bytes, _consumption->current_value(), _limit));
+                    fmt::format("label={} TryConsume failed size={}, used={}, limit={}", label(),
+                                bytes, _consumption->current_value(), _limit));
         }
         VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
                     << " consumption=" << _consumption->current_value() << " limit=" << _limit;
@@ -377,13 +452,15 @@ private:
         }
     }
 
-    // Creates the root tracker.
-    static void create_root_tracker();
+    // Creates the process tracker.
+    static void create_process_tracker();
 
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit.
-    const int64_t _limit;
+    int64_t _limit;
 
     std::string _label;
+
+    std::string _id;
 
     std::shared_ptr<MemTracker> _parent; // The parent of this tracker.
 
@@ -392,6 +469,11 @@ private:
     bool _virtual = false;
 
     std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _consumption; // in bytes
+
+    // Consume size smaller than mem_tracker_consume_min_size_bytes will continue to accumulate
+    // to avoid frequent calls to consume/release of MemTracker.
+    std::atomic<int64_t> _untracked_mem = 0;
+    SpinLock _untracked_mem_lock;
 
     std::vector<MemTracker*> _all_trackers;   // this tracker plus all of its ancestors
     std::vector<MemTracker*> _limit_trackers; // _all_trackers with valid limits

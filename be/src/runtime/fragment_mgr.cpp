@@ -251,6 +251,11 @@ Status FragmentExecState::execute() {
 
 Status FragmentExecState::cancel_before_execute() {
     // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
+    // TODO(zxy) 2ARG
+    SCOPED_ATTACH_TASK_THREAD_4ARG(executor()->runtime_state()->query_type(),
+                                   print_id(query_id()),
+                                   fragment_instance_id(),
+                                   executor()->runtime_state()->instance_mem_tracker());
     _executor.set_abort();
     _executor.cancel();
     if (_pipe != nullptr) {

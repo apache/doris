@@ -60,6 +60,9 @@ class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
+class ThreadContext;
+
+static std::vector<ThreadContext*> free_thread_ctx;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -118,12 +121,16 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<MemTracker> process_mem_tracker() { return _process_mem_tracker; }
+    // std::shared_ptr<MemTracker> process_mem_tracker() { return _process_mem_tracker; }
+    // MemTracker* process_mem_tracker_raw() { return _process_mem_tracker.get(); }
+    std::shared_ptr<MemTracker> new_process_mem_tracker() { return _new_process_mem_tracker; }
     std::shared_ptr<MemTracker> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
     std::shared_ptr<MemTracker> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
     MemTrackerTaskPool* task_pool_mem_tracker_registry() {
         return _task_pool_mem_tracker_registry.get();
     }
+    std::vector<ThreadContext*> free_thread_ctx() { return _free_thread_ctx; }
+    // ThreadContext* get_thread_local_ctx() { return thread_local_ctx(); }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
@@ -188,12 +195,15 @@ private:
 
     // The ancestor of all trackers in the process. It is the only child of the root tracker.
     // All manually created trackers should specify the process tracker as the parent.
-    std::shared_ptr<MemTracker> _process_mem_tracker = nullptr;
+    // std::shared_ptr<MemTracker> _process_mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _new_process_mem_tracker = nullptr;
     // The ancestor for all querys tracker.
     std::shared_ptr<MemTracker> _query_pool_mem_tracker = nullptr;
     // The ancestor for all load tracker.
     std::shared_ptr<MemTracker> _load_pool_mem_tracker = nullptr;
     std::unique_ptr<MemTrackerTaskPool> _task_pool_mem_tracker_registry;
+
+    std::vector<ThreadContext*> _free_thread_ctx;
 
     // The following two thread pools are used in different scenarios.
     // _scan_thread_pool is a priority thread pool.

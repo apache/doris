@@ -68,7 +68,7 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status EsHttpScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "EsHttpScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -115,7 +115,7 @@ Status EsHttpScanNode::build_conjuncts_list() {
 }
 
 Status EsHttpScanNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
@@ -184,7 +184,7 @@ Status EsHttpScanNode::collect_scanners_status() {
 }
 
 Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
@@ -272,7 +272,7 @@ Status EsHttpScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _scan_finished.store(true);

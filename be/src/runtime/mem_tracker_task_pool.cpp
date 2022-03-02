@@ -68,6 +68,8 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
         // No RuntimeState uses this task MemTracker, it is only referenced by this map, delete it
         if (it->second.use_count() == 1) {
             if (!config::memory_leak_detection || it->second->consumption() == 0) {
+                // 
+                it->second->parent()->consume(-it->second->consumption(), MemTracker::get_process_tracker().get());
                 expired_tasks.emplace_back(it->first);
             } else {
                 LOG(WARNING) << "Memory tracker " << it->second->debug_string() << " Memory leak "

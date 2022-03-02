@@ -492,7 +492,6 @@ void DataStreamRecvr::add_batch(RowBatch* batch, int sender_id, bool use_move) {
 }
 
 void DataStreamRecvr::remove_sender(int sender_id, int be_number) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->decrement_senders(be_number);
 }

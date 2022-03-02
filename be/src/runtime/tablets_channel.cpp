@@ -35,7 +35,7 @@ std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
                                bool is_high_priority)
         : _key(key), _state(kInitialized), _closed_senders(64), _is_high_priority(is_high_priority) {
-    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + key.index_id);
+    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id));
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });

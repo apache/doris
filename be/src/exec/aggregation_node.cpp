@@ -78,7 +78,7 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status AggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
     _hash_table_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
@@ -143,7 +143,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
 }
 
 Status AggregationNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -230,7 +230,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
     // 3. `child(0)->rows_returned() == 0` mean not data from child
     // in level two aggregation node should return nullptr result
     //    level one aggregation node set `eos = true` return directly
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     if (UNLIKELY(!_needs_finalize && _singleton_output_tuple != nullptr &&
                  child(0)->rows_returned() == 0)) {
         *eos = true;
@@ -292,7 +292,7 @@ Status AggregationNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     // Iterate through the remaining rows in the hash table and call Serialize/Finalize on
     // them in order to free any memory allocated by UDAs. Finalize() requires a dst tuple

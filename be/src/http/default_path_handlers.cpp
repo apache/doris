@@ -144,7 +144,7 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     (*output) << "<tbody>\n";
 
     std::vector<shared_ptr<MemTracker>> trackers;
-    MemTracker::list_root_trackers(&trackers);
+    MemTracker::list_process_trackers(&trackers);
     for (const shared_ptr<MemTracker>& tracker : trackers) {
         string parent = tracker->parent() == nullptr ? "none" : tracker->parent()->label();
         string limit_str;

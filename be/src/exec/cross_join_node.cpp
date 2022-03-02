@@ -84,7 +84,7 @@ void CrossJoinNode::init_get_next(TupleRow* first_left_row) {
 Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_CANCELLED(state);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     *eos = false;
     // TOOD(zhaochun)
     // RETURN_IF_ERROR(state->check_query_state());

@@ -92,7 +92,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     SCOPED_ATTACH_TASK_THREAD_4ARG(_runtime_state->query_type(), print_id(_runtime_state->query_id()),
-                                   _runtime_state->fragment_instance_id(), _runtime_state->instance_mem_tracker());
+                                _runtime_state->fragment_instance_id(), _runtime_state->instance_mem_tracker());
+    // SCOPED_ATTACH_TASK_THREAD_4ARGP(_runtime_state->query_type(), print_id(_runtime_state->query_id()),
+    //                             _runtime_state->fragment_instance_id(), _runtime_state->instance_mem_tracker());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -121,13 +123,13 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         bytes_limit = 2 * 1024 * 1024 * 1024L;
     }
 
-    if (bytes_limit > _exec_env->process_mem_tracker()->limit()) {
+    if (bytes_limit > MemTracker::get_process_tracker()->limit()) {
         LOG(WARNING) << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                      << " exceeds process memory limit of "
-                     << PrettyPrinter::print(_exec_env->process_mem_tracker()->limit(),
+                     << PrettyPrinter::print(MemTracker::get_process_tracker()->limit(),
                                              TUnit::BYTES)
                      << ". Using process memory limit instead";
-        bytes_limit = _exec_env->process_mem_tracker()->limit();
+        bytes_limit = MemTracker::get_process_tracker()->limit();
     }
 
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());

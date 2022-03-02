@@ -133,14 +133,13 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_cost_ns);
 }
 
-Status ChunkAllocator::allocate(size_t size, Chunk* chunk, bool check_limits) {
+Status ChunkAllocator::allocate(size_t size, Chunk* chunk, const std::shared_ptr<MemTracker>& tracker, bool check_limits) {
     // fast path: allocate from current core arena
-    chunk->mem_tracker = thread_local_ctx.thread_mem_tracker();
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
+    std::shared_ptr<MemTracker> reset_tracker = tracker ? tracker : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
     if (check_limits) {
-        RETURN_IF_ERROR(thread_local_ctx.thread_mem_tracker()->transfer_to(chunk->mem_tracker, size));
+        RETURN_IF_ERROR(_mem_tracker->try_transfer_to(reset_tracker, size));
     } else {
-        thread_local_ctx.thread_mem_tracker()->transfer_to_force(chunk->mem_tracker, size);
+        _mem_tracker->transfer_to(reset_tracker, size);
     }
 
     int core_id = CpuInfo::get_current_core();
@@ -170,27 +169,31 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, bool check_limits) {
 
     int64_t cost_ns = 0;
     {
+        // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
         SCOPED_RAW_TIMER(&cost_ns);
         // allocate from system allocator
+        // _mem_tracker->consume_cache(size);
         chunk->data = SystemAllocator::allocate(size);
     }
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);
     if (chunk->data == nullptr) {
-        Status st = chunk->mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), size);
+        reset_tracker->transfer_to(_mem_tracker, size);
         return Status::MemoryAllocFailed(
                 fmt::format("ChunkAllocator failed to allocate chunk {} bytes", size));
     }
     return Status::OK();
 }
 
-void ChunkAllocator::free(Chunk& chunk) {
+void ChunkAllocator::free(Chunk& chunk, const std::shared_ptr<MemTracker>& tracker) {
     if (chunk.core_id == -1) {
         return;
     }
-    DCHECK(chunk.mem_tracker != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
-    Status st = chunk.mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), chunk.size);
+    if (tracker) {
+        tracker->transfer_to(_mem_tracker, chunk.size);
+    } else {
+        thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker, chunk.size);
+    }
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -198,7 +201,9 @@ void ChunkAllocator::free(Chunk& chunk) {
         if (new_reserved_bytes > _reserve_bytes_limit) {
             int64_t cost_ns = 0;
             {
+                // SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
                 SCOPED_RAW_TIMER(&cost_ns);
+                // _mem_tracker->release_cache(chunk.size);
                 SystemAllocator::free(chunk.data, chunk.size);
             }
             chunk_pool_system_free_count->increment(1);
@@ -209,11 +214,10 @@ void ChunkAllocator::free(Chunk& chunk) {
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
 
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
-    chunk.mem_tracker = nullptr;
 }
 
-Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk, bool check_limits) {
-    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk, check_limits);
+Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk, const std::shared_ptr<MemTracker>& tracker, bool check_limits) {
+    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk, tracker, check_limits);
 }
 
 } // namespace doris

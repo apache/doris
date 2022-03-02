@@ -65,12 +65,14 @@ public:
     // Allocate a Chunk with a power-of-two length "size".
     // Return true if success and allocated chunk is saved in "chunk".
     // Otherwise return false.
-    Status allocate(size_t size, Chunk* chunk, bool check_limits = false);
+    Status allocate(size_t size, Chunk* chunk,
+                    const std::shared_ptr<MemTracker>& tracker = std::shared_ptr<MemTracker>(), bool check_limits = false);
 
-    Status allocate_align(size_t size, Chunk* chunk, bool check_limits = false);
+    Status allocate_align(size_t size, Chunk* chunk,
+                          const std::shared_ptr<MemTracker>& tracker = std::shared_ptr<MemTracker>(), bool check_limits = false);
 
     // Free chunk allocated from this allocator
-    void free(Chunk& chunk);
+    void free(Chunk& chunk, const std::shared_ptr<MemTracker>& tracker = std::shared_ptr<MemTracker>());
 
 private:
     static ChunkAllocator* _s_instance;

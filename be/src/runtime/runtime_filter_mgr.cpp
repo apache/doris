@@ -160,7 +160,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options,
                                    _fragment_instance_id);
     cntVal->_tracker = MemTracker::create_tracker(
-            -1, thread_local_ctx.thread_mem_tracker()->label() + ":FilterID:" + filter_id);
+            -1, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->label() + ":FilterID:" + filter_id);
     _filter_map.emplace(filter_id, cntVal);
     return Status::OK();
 }

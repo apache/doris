@@ -320,8 +320,8 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
         // note that the cache might get larger than its capacity if not enough
         // space was freed
         auto old = _table.insert(e);
-        DCHECK(thread_local_ctx.thread_mem_tracker()->parent_task_mem_tracker() == nullptr);
-        Status st = source_mem_tracker->transfer_to(thread_local_ctx.thread_mem_tracker(), charge);
+        DCHECK(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->parent_task_mem_tracker() != nullptr);
+        source_mem_tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker(), charge);
         _usage += e->total_size;
         if (old != nullptr) {
             old->in_cache = false;
@@ -476,7 +476,7 @@ ShardedLRUCache::~ShardedLRUCache() {
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
-    std::shared_ptr<MemTracker> source_mem_tracker = thread_local_ctx.thread_mem_tracker();
+    std::shared_ptr<MemTracker> source_mem_tracker = thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority,

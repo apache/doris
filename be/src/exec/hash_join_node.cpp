@@ -96,7 +96,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     _build_pool.reset(new MemPool());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
@@ -157,7 +157,7 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     // Must reset _probe_batch in close() to release resources
@@ -219,7 +219,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -777,11 +777,9 @@ Status HashJoinNode::process_build_batch(RuntimeState* state, RowBatch* build_ba
                                                    _build_pool.get(), false);
             }
         }
-        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
     } else {
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch->tuple_data_pool(), false);
-        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
         for (int i = 0; i < build_batch->num_rows(); ++i) {
             _hash_tbl->insert(build_batch->get_row(i));

@@ -61,7 +61,7 @@ Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status BrokerScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "BrokerScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     // get tuple desc
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -88,7 +88,7 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
 }
 
 Status BrokerScanNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
@@ -109,7 +109,7 @@ Status BrokerScanNode::start_scanners() {
 }
 
 Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // check if CANCELLED.
     if (state->is_cancelled()) {
@@ -194,7 +194,7 @@ Status BrokerScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _scan_finished.store(true);

@@ -47,6 +47,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/minidump.h"
 #include "runtime/tcmalloc_hook.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -290,6 +291,71 @@ int main(int argc, char** argv) {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_current_mem();
 #endif
+        // LOG(WARNING) << "free_thread_ctx 1111 " << doris::free_thread_ctx.size();
+        // {
+        //     // std::lock_guard<doris::SpinLock> l(doris::free_thread_ctx_lock);
+        //     for (auto it = doris::free_thread_ctx.begin(); it != doris::free_thread_ctx.end();) {
+        //         // if (pthread_kill((*it)->pthread_id(), 0) == ESRCH) {
+        //         // if (!(*it)->pthread_id() || pthread_tryjoin_np((*it)->pthread_id(), NULL) != EBUSY) {
+        //         //     delete *it;
+        //         //     it = doris::free_thread_ctx.erase(it);
+        //         // } else {
+        //         //     it++;
+        //         // }
+        //         delete *it;
+        //         it = doris::free_thread_ctx.erase(it);
+        //     }
+        // }
+        // LOG(WARNING) << "free_thread_ctx 2222 " << doris::free_thread_ctx.size();
+
+        // LOG(WARNING) << "free_thread_ctx 1111 " << doris::ExecEnv::GetInstance()->free_thread_ctx().size();
+        // {
+        //     // std::lock_guard<doris::SpinLock> l(doris::free_thread_ctx_lock);
+        //     for (auto it = doris::ExecEnv::GetInstance()->free_thread_ctx().begin(); it != doris::ExecEnv::GetInstance()->free_thread_ctx().end();) {
+        //         // if (pthread_kill((*it)->pthread_id(), 0) == ESRCH) {
+        //         // if (!(*it)->pthread_id() || pthread_tryjoin_np((*it)->pthread_id(), NULL) != EBUSY) {
+        //         //     delete *it;
+        //         //     it = doris::free_thread_ctx.erase(it);
+        //         // } else {
+        //         //     it++;
+        //         // }
+        //         delete *it;
+        //         it = doris::ExecEnv::GetInstance()->free_thread_ctx().erase(it);
+        //     }
+        // }
+        // LOG(WARNING) << "free_thread_ctx 2222 " << doris::ExecEnv::GetInstance()->free_thread_ctx().size();
+
+        // LOG(WARNING) << "free2_thread_ctx 1111 " << doris::free2_thread_ctx.size();
+        // {
+        //     // std::lock_guard<doris::SpinLock> l(doris::free_thread_ctx_lock);
+        //     for (auto it = doris::free2_thread_ctx.begin(); it != doris::free2_thread_ctx.end();) {
+        //         LOG(WARNING) << "free2_thread_ctx 33333 " << *it;
+        //         LOG(WARNING) << "free2_thread_ctx 44444 " << (**it == nullptr);
+        //         if (*it == nullptr) {
+        //             // delete *it;
+        //             it = doris::free2_thread_ctx.erase(it);
+        //         } else {
+        //             it++;
+        //         }
+        //     }
+        // }
+        // LOG(WARNING) << "free2_thread_ctx 2222 " << doris::free2_thread_ctx.size();
+
+        // LOG(WARNING) << "free3_thread_ctx 1111 " << doris::free3_thread_ctx.size();
+        // {
+        //     // std::lock_guard<doris::SpinLock> l(doris::free_thread_ctx_lock);
+        //     for (auto it = doris::free3_thread_ctx.begin(); it != doris::free3_thread_ctx.end();) {
+        //         LOG(WARNING) << "free3_thread_ctx 33333 " << (*it).first << " : " << (*it).second;
+        //         if ((*it).first != 0) {
+        //             // delete *it;
+        //             it = doris::free3_thread_ctx.erase(it);
+        //         } else {
+        //             it++;
+        //         }
+        //     }
+        // }
+        // LOG(WARNING) << "free3_thread_ctx 2222 " << doris::free3_thread_ctx.size();
+
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(10);
     }

@@ -217,7 +217,7 @@ fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 # DO NOT using parallel make(-j) for gensrc
-python --version
+/home/disk3/zxy/tools/Python-2.7.10/python --version
 make
 
 # Clean and build Backend

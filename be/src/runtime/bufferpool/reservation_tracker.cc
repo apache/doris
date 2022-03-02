@@ -60,7 +60,7 @@ void ReservationTracker::InitChildTracker(RuntimeProfile* profile, ReservationTr
     std::lock_guard<SpinLock> l(lock_);
     DCHECK(!initialized_);
     parent_ = parent;
-    mem_tracker_ = mem_tracker;
+    mem_tracker_ = nullptr; // TODO(zxy) remove ReservationTracker later
 
     reservation_limit_ = reservation_limit;
     reservation_ = 0;

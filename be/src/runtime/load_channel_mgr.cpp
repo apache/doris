@@ -86,7 +86,7 @@ LoadChannelMgr::~LoadChannelMgr() {
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _mem_tracker = MemTracker::create_tracker(load_mem_limit, "LoadChannelMgr",
-                                              ExecEnv::GetInstance()->process_mem_tracker(),
+                                              MemTracker::get_process_tracker(),
                                               MemTrackerLevel::OVERVIEW);
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     REGISTER_HOOK_METRIC(load_channel_mem_consumption, [this]() { return _mem_tracker->consumption(); });

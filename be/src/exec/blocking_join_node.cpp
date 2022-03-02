@@ -46,7 +46,7 @@ BlockingJoinNode::~BlockingJoinNode() {
 Status BlockingJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     _build_pool.reset(new MemPool());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
@@ -90,7 +90,7 @@ void BlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Statu
 }
 
 Status BlockingJoinNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // RETURN_IF_ERROR(Expr::open(_conjuncts, state));

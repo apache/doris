@@ -259,7 +259,7 @@ Status OlapScanner::_init_return_columns() {
 }
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(_mem_tracker);
     // 2. Allocate Row's Tuple buf
     uint8_t* tuple_buf =
             batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());

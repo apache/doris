@@ -29,7 +29,7 @@ namespace doris {
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
         : _mem_tracker(
-                  MemTracker::create_tracker(-1, label, nullptr, MemTrackerLevel::TASK)),
+                  MemTracker::create_tracker(-1, label, nullptr, MemTrackerLevel::INSTANCE)),
           _readers_tracker(MemTracker::create_tracker(
                   -1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()),
                   _mem_tracker)),
@@ -44,6 +44,7 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
 Compaction::~Compaction() {}
 
 OLAPStatus Compaction::compact() {
+    SCOPED_ATTACH_TASK_THREAD_2ARG(ThreadContext::TaskType::COMPACTION, _mem_tracker);
     RETURN_NOT_OK(prepare_compact());
     RETURN_NOT_OK(execute_compact());
     return OLAP_SUCCESS;

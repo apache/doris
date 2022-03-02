@@ -611,7 +611,7 @@ CONF_mInt16(mem_tracker_level, "0");
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
-CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "2097152");
 
 // When MemTracker is a negative value, it is considered that a memory leak has occurred,
 // but the actual MemTracker records inaccurately will also cause a negative value,

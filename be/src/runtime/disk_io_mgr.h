@@ -808,7 +808,7 @@ private:
     // Disk worker thread loop. This function retrieves the next range to process on
     // the disk queue and invokes read_range() or Write() depending on the type of Range().
     // There can be multiple threads per disk running this loop.
-    void work_loop(DiskQueue* queue);
+    void work_loop(DiskQueue* queue, std::shared_ptr<MemTracker> mem_tracker);
 
     // This is called from the disk thread to get the next range to process. It will
     // wait until a scan range and buffer are available, or a write range is available.

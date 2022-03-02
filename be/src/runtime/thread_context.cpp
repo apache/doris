@@ -15,23 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <cstddef>
-#include <cstdint>
+#include "runtime/thread_context.h"
 
 namespace doris {
 
-class MemTracker;
+DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, thread_local_ctx);
 
-// A chunk of continuous memory.
-// Almost all files depend on this struct, and each modification
-// will result in recompilation of all files. So, we put it in a
-// file to keep this file simple and infrequently changed.
-struct Chunk {
-    uint8_t* data = nullptr;
-    size_t size = 0;
-    int core_id = -1;
-};
+ThreadContextPtr::ThreadContextPtr() {
+    INIT_STATIC_THREAD_LOCAL(ThreadContext, thread_local_ctx);
+}
 
-} // namespace doris
+ThreadContext* ThreadContextPtr::get() {
+    return thread_local_ctx;
+}
+
+}

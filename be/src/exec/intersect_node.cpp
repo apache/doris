@@ -88,7 +88,7 @@ Status IntersectNode::open(RuntimeState* state) {
 }
 
 Status IntersectNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());

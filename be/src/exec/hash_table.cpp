@@ -48,7 +48,7 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
     DCHECK_EQ((num_buckets & (num_buckets - 1)), 0) << "num_buckets must be a power of 2";
-    _mem_tracker = MemTracker::create_virtual_tracker(-1, mem_tracker->label() + ":HashTable",
+    _mem_tracker = MemTracker::create_virtual_tracker(-1, mem_tracker->label() + "HashTable",
                                                       mem_tracker);
     _buckets.resize(num_buckets);
     _num_buckets = num_buckets;

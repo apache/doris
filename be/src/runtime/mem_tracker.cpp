@@ -35,26 +35,33 @@ namespace doris {
 
 const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
-// The ancestor for all trackers. Every tracker is visible from the root down.
-// The consume/release of child tracker will not be synchronized to root tracker.
+// The ancestor for all trackers. Every tracker is visible from the process down.
+// The consume/release of child tracker will not be synchronized to process tracker.
 // It is used to independently statistics the real memory of the process in TCMalloc New/Delete Hook.
-static std::shared_ptr<MemTracker> root_tracker;
-static GoogleOnceType root_tracker_once = GOOGLE_ONCE_INIT;
+static std::shared_ptr<MemTracker> process_tracker;
+static MemTracker* raw_process_tracker;
+static GoogleOnceType process_tracker_once = GOOGLE_ONCE_INIT;
 
-void MemTracker::create_root_tracker() {
-    root_tracker.reset(new MemTracker(-1, "Root", nullptr, MemTrackerLevel::OVERVIEW, nullptr));
-    root_tracker->init();
+void MemTracker::create_process_tracker() {
+    process_tracker.reset(new MemTracker(-1, "Process", nullptr, MemTrackerLevel::OVERVIEW, nullptr));
+    process_tracker->init();
+    raw_process_tracker = process_tracker.get();
 }
 
-std::shared_ptr<MemTracker> MemTracker::get_root_tracker() {
-    GoogleOnceInit(&root_tracker_once, &MemTracker::create_root_tracker);
-    return root_tracker;
+std::shared_ptr<MemTracker> MemTracker::get_process_tracker() {
+    GoogleOnceInit(&process_tracker_once, &MemTracker::create_process_tracker);
+    return process_tracker;
 }
 
-void MemTracker::list_root_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers) {
+MemTracker* MemTracker::get_raw_process_tracker() {
+    GoogleOnceInit(&process_tracker_once, &MemTracker::create_process_tracker);
+    return raw_process_tracker;
+}
+
+void MemTracker::list_process_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers) {
     trackers->clear();
     std::deque<std::shared_ptr<MemTracker>> to_process;
-    to_process.push_front(get_root_tracker());
+    to_process.push_front(get_process_tracker());
     while (!to_process.empty()) {
         std::shared_ptr<MemTracker> t = to_process.back();
         to_process.pop_back();
@@ -79,13 +86,11 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
                                                        const std::shared_ptr<MemTracker>& parent,
                                                        MemTrackerLevel level,
                                                        RuntimeProfile* profile) {
-    std::shared_ptr<MemTracker> reset_parent = parent;
-    if (!reset_parent) {
-        reset_parent = thread_local_ctx.thread_mem_tracker();
-    }
+    std::shared_ptr<MemTracker> reset_parent = parent ? parent : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
+    DCHECK(reset_parent);
 
     std::shared_ptr<MemTracker> tracker(new MemTracker(
-            byte_limit, reset_parent->has_virtual_ancestor() == false ? label : "<Virtual>" + label,
+            byte_limit, label,
             reset_parent, level > reset_parent->_level ? level : reset_parent->_level, profile));
     reset_parent->add_child_tracker(tracker);
     tracker->init();
@@ -95,9 +100,12 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
 std::shared_ptr<MemTracker> MemTracker::create_virtual_tracker(
         int64_t byte_limit, const std::string& label, const std::shared_ptr<MemTracker>& parent,
         MemTrackerLevel level) {
+    std::shared_ptr<MemTracker> reset_parent = parent ? parent : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
+    DCHECK(reset_parent);
+
     std::shared_ptr<MemTracker> tracker(new MemTracker(
-            byte_limit, "<Virtual>" + label,
-            parent == nullptr ? thread_local_ctx.thread_mem_tracker() : parent, level, nullptr));
+            byte_limit, "[Virtual]-" + label, reset_parent, level, nullptr));
+    reset_parent->add_child_tracker(tracker);
     tracker->init_virtual();
     return tracker;
 }
@@ -109,7 +117,7 @@ MemTracker::MemTracker(int64_t byte_limit, const std::string& label)
 MemTracker::MemTracker(int64_t byte_limit, const std::string& label,
                        const std::shared_ptr<MemTracker>& parent, MemTrackerLevel level,
                        RuntimeProfile* profile)
-        : _limit(byte_limit), _label(label), _parent(parent), _level(level) {
+        : _limit(byte_limit), _label(label), _id(_label + std::to_string(GetCurrentTimeMicros()) + std::to_string(rand())), _parent(parent), _level(level) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
@@ -120,7 +128,7 @@ MemTracker::MemTracker(int64_t byte_limit, const std::string& label,
 void MemTracker::init() {
     DCHECK_GE(_limit, -1);
     MemTracker* tracker = this;
-    while (tracker != nullptr) {
+    while (tracker != nullptr && tracker->_virtual == false) {
         _all_trackers.push_back(tracker);
         if (tracker->has_limit()) _limit_trackers.push_back(tracker);
         tracker = tracker->_parent.get();
@@ -138,14 +146,14 @@ void MemTracker::init_virtual() {
 
 MemTracker::~MemTracker() {
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
-    if (_label == "Root") GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER();
+    if (_label == "Process") GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER();
     if (!_virtual && parent()) {
         if (consumption() != 0) {
             memory_leak_check(this);
             // At present, it can only guarantee the accurate recording of the Instance tracker,
             // lower layer has the problem of repeated release of different trackers, as explained above.
             if (_level <= MemTrackerLevel::INSTANCE) {
-                _parent->release(consumption());
+                // _parent->release(consumption());
             }
         }
 
@@ -157,9 +165,10 @@ MemTracker::~MemTracker() {
             _child_tracker_it = _parent->_child_trackers.end();
         }
     }
+    consume(_untracked_mem);
 }
 
-void MemTracker::transfer_to_relative(std::shared_ptr<MemTracker> dst, int64_t bytes) {
+void MemTracker::transfer_to_relative(const std::shared_ptr<MemTracker>& dst, int64_t bytes) {
     DCHECK_EQ(_all_trackers.back(), dst->_all_trackers.back()) << "Must have same ancestor";
     DCHECK(!dst->has_limit());
     // Find the common ancestor and update trackers between 'this'/'dst' and
@@ -177,22 +186,6 @@ void MemTracker::transfer_to_relative(std::shared_ptr<MemTracker> dst, int64_t b
     MemTracker* common_ancestor = _all_trackers[ancestor_idx];
     release(bytes, common_ancestor);
     dst->consume(bytes, common_ancestor);
-}
-
-Status MemTracker::transfer_to(std::shared_ptr<MemTracker> dst, int64_t bytes) {
-    // Must release first, then consume
-    release(bytes);
-    Status st = dst->try_consume(bytes);
-    if (!st) {
-        consume(bytes);
-        return st;
-    }
-    return Status::OK();
-}
-
-void MemTracker::transfer_to_force(std::shared_ptr<MemTracker> dst, int64_t bytes) {
-    release(bytes);
-    dst->consume(bytes);
 }
 
 // Calling this on the query tracker results in output like:
@@ -267,7 +260,7 @@ std::string MemTracker::log_usage(int max_recursive_depth,
 
 Status MemTracker::mem_limit_exceeded(RuntimeState* state, const std::string& details,
                                       int64_t failed_allocation_size, Status failed_alloc) {
-    MemTracker* process_tracker = ExecEnv::GetInstance()->process_mem_tracker().get();
+    MemTracker* process_tracker = MemTracker::get_raw_process_tracker();
     std::string detail =
             "Memory exceed limit. fragment={}, details={}, on backend={}. Memory left in process "
             "limit={}.";

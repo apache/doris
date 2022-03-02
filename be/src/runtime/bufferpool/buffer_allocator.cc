@@ -221,7 +221,7 @@ Status BufferPool::BufferAllocator::Allocate(ClientHandle* client, int64_t len,
     COUNTER_UPDATE(client->impl_->counters().cumulative_allocations, 1);
 
     RETURN_IF_ERROR(AllocateInternal(len, buffer));
-    thread_local_ctx.consume_mem(len);
+    // thread_local_ctx.get()->consume_mem(len);
     DCHECK(buffer->is_open());
     buffer->client_ = client;
     return Status::OK();
@@ -385,7 +385,7 @@ void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     handle.client_ = nullptr; // Buffer is no longer associated with a client.
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
-    thread_local_ctx.release_mem(handle.len());
+    // thread_local_ctx.get()->release_mem(handle.len());
     arena->AddFreeBuffer(std::move(handle));
 }
 

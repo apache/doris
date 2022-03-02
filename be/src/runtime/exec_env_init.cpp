@@ -149,7 +149,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
 
-    RETURN_IF_ERROR(_load_channel_mgr->init(_process_mem_tracker->limit()));
+    RETURN_IF_ERROR(_load_channel_mgr->init(MemTracker::get_process_tracker()->limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
     _is_init = true;
@@ -176,16 +176,20 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _process_mem_tracker =
-            MemTracker::create_tracker(global_memory_limit_bytes, "Process",
-                                       MemTracker::get_root_tracker(), MemTrackerLevel::OVERVIEW);
+    MemTracker::get_process_tracker()->set_limit(global_memory_limit_bytes);
+    // _process_mem_tracker =
+    //         MemTracker::create_tracker(global_memory_limit_bytes, "Process",
+    //                                    MemTracker::get_root_tracker(), MemTrackerLevel::OVERVIEW);
+    _new_process_mem_tracker =
+            MemTracker::create_virtual_tracker(global_memory_limit_bytes, "NewProcess",
+                                       nullptr, MemTrackerLevel::OVERVIEW);
     _query_pool_mem_tracker =
-            MemTracker::create_tracker(global_memory_limit_bytes, "QueryPool", _process_mem_tracker,
+            MemTracker::create_tracker(global_memory_limit_bytes, "QueryPool", MemTracker::get_process_tracker(),
                                        MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(query_mem_consumption,
                          [this]() { return _query_pool_mem_tracker->consumption(); });
     _load_pool_mem_tracker = MemTracker::create_tracker(
-            global_memory_limit_bytes, "LoadPool", _process_mem_tracker, MemTrackerLevel::OVERVIEW);
+            global_memory_limit_bytes, "LoadPool", MemTracker::get_process_tracker(), MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(load_mem_consumption,
                          [this]() { return _load_pool_mem_tracker->consumption(); });
     LOG(INFO) << "Using global memory limit: "
@@ -252,7 +256,7 @@ Status ExecEnv::_init_mem_tracker() {
     SegmentLoader::create_global_instance(config::segment_cache_capacity);
 
     // 4. init other managers
-    RETURN_IF_ERROR(_disk_io_mgr->init(_process_mem_tracker->limit()));
+    RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
 
     // TODO(zc): The current memory usage configuration is a bit confusing,

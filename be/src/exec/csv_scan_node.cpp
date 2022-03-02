@@ -129,7 +129,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
 
     // add timer
     _split_check_timer = ADD_TIMER(_runtime_profile, "split check timer");
@@ -212,7 +212,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
 }
 
 Status CsvScanNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << "CsvScanNode::Open";
 
@@ -235,7 +235,7 @@ Status CsvScanNode::open(RuntimeState* state) {
 }
 
 Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     VLOG_CRITICAL << "CsvScanNode::GetNext";
     if (nullptr == state || nullptr == row_batch || nullptr == eos) {
         return Status::InternalError("input is nullptr pointer");
@@ -324,7 +324,7 @@ Status CsvScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
+    // SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_1ARG(mem_tracker());
     VLOG_CRITICAL << "CsvScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 

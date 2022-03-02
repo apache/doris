@@ -457,9 +457,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
 
 FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}
 
-FileColumnIterator::~FileColumnIterator() {
-    _opts.mem_tracker->release(_opts.mem_tracker->consumption());
-}
+FileColumnIterator::~FileColumnIterator() {}
 
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));

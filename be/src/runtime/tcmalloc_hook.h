@@ -21,15 +21,7 @@
 
 #include "runtime/thread_context.h"
 
-void new_hook(const void* ptr, size_t size) {
-    doris::thread_local_ctx.consume_mem(tc_nallocx(size, 0));
-}
-
-void delete_hook(const void* ptr) {
-    doris::thread_local_ctx.release_mem(tc_malloc_size(const_cast<void*>(ptr)));
-}
-
-// Notice: modify the command in New/Delete Hook should be careful enough!!!,
+// Notice: modify the command in New/Delete Hook should be careful enough!,
 // and should be as simple as possible, otherwise it may cause weird errors. E.g:
 //  1. The first New Hook call of the process may be before some variables of
 //  the process are initialized.
@@ -38,6 +30,17 @@ void delete_hook(const void* ptr) {
 //  3. TCMalloc hook will be triggered during the process of initializing/Destructor
 //  memtracker shared_ptr, Using the object pointed to by this memtracker shared_ptr
 //  in TCMalloc hook may cause crash.
+//  4. Modifying additional thread local variables in ThreadContext construction and
+//  destructor to control the behavior of consume can lead to unexpected behavior,
+//  like this: if (LIKELY(doris::thread_mem_tracker_mgr_init)) {
+void new_hook(const void* ptr, size_t size) {
+    doris::thread_local_ctx.get()->consume_mem(tc_nallocx(size, 0));
+}
+
+void delete_hook(const void* ptr) {
+    doris::thread_local_ctx.get()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
+}
+
 void init_hook() {
     MallocHook::AddNewHook(&new_hook);
     MallocHook::AddDeleteHook(&delete_hook);

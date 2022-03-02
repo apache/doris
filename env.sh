@@ -42,7 +42,7 @@ if [[ -z ${DORIS_THIRDPARTY} ]]; then
 fi
 
 # check python
-export PYTHON=python
+export PYTHON=/home/disk3/zxy/tools/Python-2.7.10/python
 if ! ${PYTHON} --version; then
     export PYTHON=python2.7
     if ! ${PYTHON} --version; then
