@@ -718,6 +718,7 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
     }
 
     // serialize data values
+    // when data type is HLL, content_uncompressed_size maybe larger than real size.
     allocated_buf->resize(content_uncompressed_size);
     char* buf = allocated_buf->data();
     for (const auto& c : *this) {
