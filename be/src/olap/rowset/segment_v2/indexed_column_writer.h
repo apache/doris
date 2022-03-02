@@ -71,7 +71,7 @@ struct IndexedColumnWriterOptions {
 class IndexedColumnWriter {
 public:
     explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                 const TypeInfo* typeinfo, fs::WritableBlock* wblock);
+                                 std::shared_ptr<const TypeInfo> typeinfo, fs::WritableBlock* wblock);
 
     ~IndexedColumnWriter();
 
@@ -88,7 +88,7 @@ private:
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
     IndexedColumnWriterOptions _options;
-    const TypeInfo* _typeinfo;
+    std::shared_ptr<const TypeInfo> _typeinfo;
     fs::WritableBlock* _wblock;
     // only used for `_first_value`
     std::shared_ptr<MemTracker> _mem_tracker;
