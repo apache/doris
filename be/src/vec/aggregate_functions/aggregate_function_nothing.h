@@ -61,7 +61,7 @@ public:
 
     void deserialize(AggregateDataPtr, BufferReadable& buf, Arena*) const override {}
 
-    void insert_result_into(ConstAggregateDataPtr, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr, IColumn& to) const override {
         to.insert_default();
     }
 };

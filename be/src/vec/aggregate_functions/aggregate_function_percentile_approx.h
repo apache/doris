@@ -143,7 +143,7 @@ public:
         AggregateFunctionPercentileApprox::data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         double result = AggregateFunctionPercentileApprox::data(place).get();
 
@@ -330,7 +330,7 @@ public:
         AggregateFunctionPercentile::data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnVector<Float64>&>(to);
         col.insert_value(AggregateFunctionPercentile::data(place).get());
     }

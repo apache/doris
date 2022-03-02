@@ -102,7 +102,7 @@ public:
     virtual bool allocates_memory_in_arena() const { return false; }
 
     /// Inserts results into a column.
-    virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
+    virtual void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     /** Returns true for aggregate functions of type -State.
       * They are executed as other aggregate functions, but not finalized (return an aggregation state that can be combined with another).
