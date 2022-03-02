@@ -210,7 +210,7 @@ Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> pa
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
-        TypeInfo* type_info = get_type_info(&tablet_column);
+        auto type_info = get_type_info(&tablet_column);
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
                 new DefaultValueColumnIterator(
                         tablet_column.has_default_value(), tablet_column.default_value(),
