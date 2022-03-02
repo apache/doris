@@ -295,7 +295,7 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
         DorisMetrics::instance()->finish_task_requests_total->increment(1);
         Status client_status = _master_client->finish_task(finish_task_request, &result);
 
-        if (client_status == Status::OK()) {
+        if (client_status.ok()) {
             break;
         } else {
             DorisMetrics::instance()->finish_task_requests_failed->increment(1);
@@ -533,7 +533,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     // Because if delete failed create rollup will failed
     TTabletId new_tablet_id;
     TSchemaHash new_schema_hash = 0;
-    if (status == Status::OK()) {
+    if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
@@ -548,7 +548,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         }
     }
 
-    if (status == Status::OK()) {
+    if (status.ok()) {
         ++_s_report_version;
         LOG(INFO) << process_name << " finished. signature: " << signature;
     }
@@ -560,7 +560,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     finish_task_request->__set_signature(signature);
 
     std::vector<TTabletInfo> finish_tablet_infos;
-    if (status == Status::OK()) {
+    if (status.ok()) {
         TTabletInfo tablet_info;
         status = _get_tablet_info(new_tablet_id, new_schema_hash, signature, &tablet_info);
 
@@ -573,7 +573,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         }
     }
 
-    if (status == Status::OK()) {
+    if (status.ok()) {
         finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
         LOG(INFO) << process_name << " success. signature: " << signature;
         error_msgs.push_back(process_name + " success");
@@ -653,7 +653,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
             finish_task_request.__set_request_version(push_req.version);
         }
 
-        if (status == Status::OK()) {
+        if (status.ok()) {
             VLOG_NOTICE << "push ok. signature: " << agent_task_req.signature
                         << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");

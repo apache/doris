@@ -61,7 +61,7 @@ OLAPStatus EngineBatchLoadTask::execute() {
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
         _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();
-        if (status == Status::OK()) {
+        if (status.ok()) {
             uint32_t retry_time = 0;
             while (retry_time < PUSH_MAX_RETRY) {
                 status = _process();
@@ -248,7 +248,7 @@ Status EngineBatchLoadTask::_process() {
         }
     }
 
-    if (status == Status::OK()) {
+    if (status.ok()) {
         // Load delta file
         time_t push_begin = time(nullptr);
         OLAPStatus push_status = _push(_push_req, _tablet_infos);

@@ -111,7 +111,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
                   << ", clone version: " << _clone_req.committed_version
                   << ", download snapshot: " << status;
 
-        if (status == Status::OK()) {
+        if (status.ok()) {
             OLAPStatus olap_status =
                     _finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
                                   allow_incremental_clone);
@@ -143,14 +143,14 @@ OLAPStatus EngineCloneTask::_do_clone() {
         tablet_dir_stream << local_shard_root_path << "/" << _clone_req.tablet_id << "/"
                           << _clone_req.schema_hash;
 
-        if (status == Status::OK()) {
+        if (status.ok()) {
             bool allow_incremental_clone = false;
             status = _make_and_download_snapshots(*store, tablet_dir_stream.str(), &src_host,
                                                   &src_file_path, _error_msgs, nullptr,
                                                   &allow_incremental_clone);
         }
 
-        if (status == Status::OK()) {
+        if (status.ok()) {
             LOG(INFO) << "clone copy done. src_host: " << src_host.host
                       << " src_file_path: " << src_file_path;
             std::stringstream schema_hash_path_stream;
@@ -209,7 +209,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
 
 void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
     // Get clone tablet info
-    if (status == Status::OK()) {
+    if (status.ok()) {
         TTabletInfo tablet_info;
         tablet_info.__set_tablet_id(_clone_req.tablet_id);
         tablet_info.__set_schema_hash(_clone_req.schema_hash);
@@ -321,7 +321,7 @@ Status EngineCloneTask::_make_and_download_snapshots(
             // when there is an error, keep this program executing to release snapshot
         }
 
-        if (status == Status::OK()) {
+        if (status.ok()) {
             // change all rowset ids because they maybe its id same with local rowset
             auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
                     local_path, _clone_req.tablet_id, _clone_req.schema_hash);
@@ -343,7 +343,7 @@ Status EngineCloneTask::_make_and_download_snapshots(
                          << ", snapshot_path=" << *snapshot_path << ", error=" << st.to_string();
             // DON'T change the status
         }
-        if (status == Status::OK()) {
+        if (status.ok()) {
             break;
         }
     } // clone copy from one backend
