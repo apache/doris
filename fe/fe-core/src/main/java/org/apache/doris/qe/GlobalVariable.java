@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
 
+import org.apache.doris.mysql.MysqlHandshakePacket;
+
 import com.google.common.collect.Lists;
 
 import java.lang.reflect.Field;
@@ -47,7 +49,7 @@ public final class GlobalVariable {
             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
 
     @VariableMgr.VarAttr(name = VERSION, flag = VariableMgr.READ_ONLY)
-    public static String version = "5.1.0";
+    public static String version = MysqlHandshakePacket.SERVER_VERSION;
 
     // 0: table names are stored as specified and comparisons are case sensitive.
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.

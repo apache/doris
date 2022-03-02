@@ -48,6 +48,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RESOURCE_VARIABLE = "resource_group";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
+    public static final String TX_READ_ONLY = "tx_read_only";
+    public static final String TRANSACTION_READ_ONLY = "transaction_read_only";
+    public static final String TRANSACTION_ISOLATION = "transaction_isolation";
     public static final String CHARACTER_SET_CLIENT = "character_set_client";
     public static final String CHARACTER_SET_CONNNECTION = "character_set_connection";
     public static final String CHARACTER_SET_RESULTS = "character_set_results";
@@ -214,7 +217,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TX_READ_ONLY)
+    public boolean txReadonly = false;
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
+    public boolean transactionReadonly = false;
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
+    public String transactionIsolation = "REPEATABLE-READ";
+    
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -454,7 +469,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isAutoCommit() {
         return autoCommit;
     }
+    
+    public boolean isTxReadonly() {
+        return txReadonly;
+    }
 
+    public boolean isTransactionReadonly() {
+        return transactionReadonly;
+    }
+    
+    public String getTransactionIsolation() {
+        return transactionIsolation;
+    }
+    
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -948,6 +975,7 @@ public class SessionVariable implements Serializable, Writable {
         }
         Text.writeString(out, root.toString());
     }
+
 
     public void readFields(DataInput in) throws IOException {
         readFromJson(in);
