@@ -135,7 +135,7 @@ public class ExportMgr {
         long resultNum = limit == -1L ? Integer.MAX_VALUE : limit;
         LinkedList<List<Comparable>> exportJobInfos = new LinkedList<List<Comparable>>();
         PatternMatcher matcher = null;
-        if(isLabelUseLike){
+        if (isLabelUseLike) {
             matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
         }
 
@@ -155,10 +155,14 @@ public class ExportMgr {
                     continue;
                 }
 
-                if (!Strings.isNullOrEmpty(label) &&
-                        ((!isLabelUseLike && !jobLabel.equals(label))
-                                || (isLabelUseLike && !matcher.match(jobLabel)))) {
-                    continue;
+                if (!Strings.isNullOrEmpty(label)) {
+                    if (!isLabelUseLike && !jobLabel.equals(label)) {
+                        // use = but does not match
+                        continue;
+                    } else if (isLabelUseLike && !matcher.match(jobLabel)) {
+                        // use like but does not match
+                        continue;
+                    }
                 }
 
                 // check auth
