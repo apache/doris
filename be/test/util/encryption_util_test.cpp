@@ -117,7 +117,6 @@ TEST_F(EncryptionUtilTest, sm4_test_by_case) {
 
     std::unique_ptr<char[]> encrypt_1(new char[case_1.length()]);
     int length_1 = base64_decode(case_1.c_str(), case_1.length(), encrypt_1.get());
-    std::cout << encrypt_1.get();
     std::unique_ptr<char[]> decrypted_1(new char[case_1.length()]);
     int ret_code = EncryptionUtil::decrypt(SM4_128_ECB, (unsigned char*)encrypt_1.get(), length_1,
                                            (unsigned char*)_aes_key.c_str(), _aes_key.length(),
@@ -135,6 +134,96 @@ TEST_F(EncryptionUtilTest, sm4_test_by_case) {
     ASSERT_TRUE(ret_code > 0);
     std::string decrypted_content_2(decrypted_2.get(), ret_code);
     ASSERT_EQ(source_2, decrypted_content_2);
+}
+
+TEST_F(EncryptionUtilTest, aes_with_iv_test_by_case) {
+    std::string case_1 = "XbJgw1AxBNwZZPpvzPtWyg=="; // base64 for encrypted "hello, doris"
+    std::string source_1 = "hello, doris";
+    std::string case_2 = "gpKcO/iwgeRCIWBQdkpAkQ=="; // base64 for encrypted "doris test"
+    std::string source_2 = "doris test";
+    std::string iv = "doris";
+
+    std::unique_ptr<char[]> encrypt_1(new char[case_1.length()]);
+    int length_1 = base64_decode(case_1.c_str(), case_1.length(), encrypt_1.get());
+    std::unique_ptr<char[]> decrypted_1(new char[case_1.length()]);
+    int ret_code = EncryptionUtil::decrypt(AES_128_CBC, (unsigned char*)encrypt_1.get(), length_1,
+                                           (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                           iv.c_str(), true, (unsigned char*)decrypted_1.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_1(decrypted_1.get(), ret_code);
+    ASSERT_EQ(source_1, decrypted_content_1);
+    std::unique_ptr<char[]> decrypted_11(new char[case_1.length()]);
+
+    ret_code = EncryptionUtil::decrypt(AES_128_CBC, (unsigned char*)encrypt_1.get(), length_1,
+                                       (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                       iv.c_str(), true, (unsigned char*)decrypted_11.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_11(decrypted_11.get(), ret_code);
+    ASSERT_EQ(source_1, decrypted_content_11);
+
+    std::unique_ptr<char[]> encrypt_2(new char[case_2.length()]);
+    int length_2 = base64_decode(case_2.c_str(), case_2.length(), encrypt_2.get());
+    std::unique_ptr<char[]> decrypted_2(new char[case_2.length()]);
+    ret_code = EncryptionUtil::decrypt(AES_128_CBC, (unsigned char*)encrypt_2.get(), length_2,
+                                       (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                       iv.c_str(), true, (unsigned char*)decrypted_2.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_2(decrypted_2.get(), ret_code);
+    ASSERT_EQ(source_2, decrypted_content_2);
+
+    std::unique_ptr<char[]> decrypted_21(new char[case_2.length()]);
+    ret_code = EncryptionUtil::decrypt(AES_128_CBC, (unsigned char*)encrypt_2.get(), length_2,
+                                       (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                       iv.c_str(), true, (unsigned char*)decrypted_21.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_21(decrypted_21.get(), ret_code);
+    ASSERT_EQ(source_2, decrypted_content_21);
+}
+
+TEST_F(EncryptionUtilTest, sm4_with_iv_test_by_case) {
+    std::string case_1 = "9FFlX59+3EbIC7rqylMNwg=="; // base64 for encrypted "hello, doris"
+    std::string source_1 = "hello, doris";
+    std::string case_2 = "RIJVVUUmMT/4CVNYdxVvXA=="; // base64 for encrypted "doris test"
+    std::string source_2 = "doris test";
+    std::string iv = "doris";
+
+    std::unique_ptr<char[]> encrypt_1(new char[case_1.length()]);
+    int length_1 = base64_decode(case_1.c_str(), case_1.length(), encrypt_1.get());
+    std::unique_ptr<char[]> decrypted_1(new char[case_1.length()]);
+    std::unique_ptr<char[]> decrypted_11(new char[case_1.length()]);
+
+    int ret_code = EncryptionUtil::decrypt(SM4_128_CBC, (unsigned char*)encrypt_1.get(), length_1,
+                                           (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                           iv.c_str(), true, (unsigned char*)decrypted_1.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_1(decrypted_1.get(), ret_code);
+    ASSERT_EQ(source_1, decrypted_content_1);
+
+    std::unique_ptr<char[]> encrypt_2(new char[case_2.length()]);
+    int length_2 = base64_decode(case_2.c_str(), case_2.length(), encrypt_2.get());
+    std::unique_ptr<char[]> decrypted_2(new char[case_2.length()]);
+    std::unique_ptr<char[]> decrypted_21(new char[case_2.length()]);
+
+    ret_code = EncryptionUtil::decrypt(SM4_128_CBC, (unsigned char*)encrypt_2.get(), length_2,
+                                       (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                       iv.c_str(), true, (unsigned char*)decrypted_2.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_2(decrypted_2.get(), ret_code);
+    ASSERT_EQ(source_2, decrypted_content_2);
+
+    ret_code = EncryptionUtil::decrypt(SM4_128_CBC, (unsigned char*)encrypt_1.get(), length_1,
+                                       (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                       iv.c_str(), true, (unsigned char*)decrypted_11.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_11(decrypted_11.get(), ret_code);
+    ASSERT_EQ(source_1, decrypted_content_11);
+
+    ret_code = EncryptionUtil::decrypt(SM4_128_CBC, (unsigned char*)encrypt_2.get(), length_2,
+                                       (unsigned char*)_aes_key.c_str(), _aes_key.length(),
+                                       iv.c_str(), true, (unsigned char*)decrypted_21.get());
+    ASSERT_TRUE(ret_code > 0);
+    std::string decrypted_content_21(decrypted_21.get(), ret_code);
+    ASSERT_EQ(source_2, decrypted_content_21);
 }
 
 } // namespace doris
