@@ -25,7 +25,6 @@ namespace doris {
 // only used in Runtime Filter
 class MinMaxFuncBase {
 public:
-    virtual ~MinMaxFuncBase() = default;
     virtual void insert(const void* data) = 0;
     virtual bool find(void* data) = 0;
     virtual bool is_empty() = 0;
@@ -35,6 +34,7 @@ public:
     virtual Status assign(void* min_data, void* max_data) = 0;
     // merge from other minmax_func
     virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
+    virtual ~MinMaxFuncBase() = default;
 };
 
 template <class T>
