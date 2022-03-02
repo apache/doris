@@ -37,7 +37,7 @@ namespace doris {
 namespace segment_v2 {
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                         const TypeInfo* typeinfo, fs::WritableBlock* wblock)
+                                         std::shared_ptr<const TypeInfo> typeinfo, fs::WritableBlock* wblock)
         : _options(options),
           _typeinfo(typeinfo),
           _wblock(wblock),
@@ -54,7 +54,7 @@ IndexedColumnWriter::~IndexedColumnWriter() = default;
 
 Status IndexedColumnWriter::init() {
     const EncodingInfo* encoding_info;
-    RETURN_IF_ERROR(EncodingInfo::get(_typeinfo, _options.encoding, &encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_typeinfo.get(), _options.encoding, &encoding_info));
     _options.encoding = encoding_info->encoding();
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future

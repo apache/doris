@@ -1002,7 +1002,7 @@ OLAPStatus PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src,
         if (src_null) {
             break;
         }
-        const TypeInfo* type_info = get_type_info(type);
+        auto type_info = get_type_info(type);
         type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         break;
     }

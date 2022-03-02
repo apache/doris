@@ -90,7 +90,7 @@ public:
         //check values
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
-        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -187,7 +187,7 @@ public:
             //check values
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);
