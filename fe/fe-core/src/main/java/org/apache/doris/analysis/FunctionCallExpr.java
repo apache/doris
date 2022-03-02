@@ -54,6 +54,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -65,6 +66,7 @@ public class FunctionCallExpr extends Expr {
     private FunctionName fnName;
     // private BuiltinAggregateFunction.Operator aggOp;
     private FunctionParams fnParams;
+    private FunctionParams leftFnParams;
 
     // check analytic function
     private boolean isAnalyticFnCall = false;
@@ -129,32 +131,48 @@ public class FunctionCallExpr extends Expr {
     }
 
     public FunctionCallExpr(FunctionName fnName, FunctionParams params) {
-        this(fnName, params, false);
+        this(fnName, params, new FunctionParams(new ArrayList<Expr>()), false);
+    }
+
+    public FunctionCallExpr(FunctionName fnName, FunctionParams params, FunctionParams leftParams) {
+        this(fnName, params, leftParams, false);
+    }
+
+    private FunctionCallExpr(FunctionName fnName, FunctionParams params, boolean isMergeAggFn) {
+         this(fnName, params, new FunctionParams(new ArrayList<Expr>()), isMergeAggFn);
     }
 
     private FunctionCallExpr(
-            FunctionName fnName, FunctionParams params, boolean isMergeAggFn) {
+            FunctionName fnName, FunctionParams params, FunctionParams leftParams, boolean isMergeAggFn) {
         super();
         this.fnName = fnName;
         fnParams = params;
+        leftFnParams = leftParams;
         this.isMergeAggFn = isMergeAggFn;
+        if (leftParams.exprs() != null) {
+            children.addAll(leftParams.exprs());
+        }
         if (params.exprs() != null) {
             children.addAll(params.exprs());
-            originChildSize = children.size();
         }
+        originChildSize = children.size();
     }
 
     // Constructs the same agg function with new params.
-    public FunctionCallExpr(FunctionCallExpr e, FunctionParams params) {
+    public FunctionCallExpr(FunctionCallExpr e, FunctionParams params, FunctionParams leftParams) {
         Preconditions.checkState(e.isAnalyzed);
         Preconditions.checkState(e.isAggregateFunction() || e.isAnalyticFnCall);
         fnName = e.fnName;
         // aggOp = e.aggOp;
         isAnalyticFnCall = e.isAnalyticFnCall;
         fnParams = params;
+        leftParams = leftParams;
         // Just inherit the function object from 'e'.
         fn = e.fn;
         this.isMergeAggFn = e.isMergeAggFn;
+        if (leftParams.exprs() != null) {
+            children.addAll(leftParams.exprs());
+        }
         if (params.exprs() != null) {
             children.addAll(params.exprs());
         }
@@ -168,11 +186,20 @@ public class FunctionCallExpr extends Expr {
         // fnParams = other.fnParams;
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
+        if (other.leftFnParams.isStar()) {
+            leftFnParams = FunctionParams.createStarParam();
+        } else {
+            leftFnParams = new FunctionParams(other.leftFnParams.isDistinct(),
+                               other.leftFnParams.exprs() == null || children == null ? null :
+                               children.subList(0, other.leftFnParams.exprs().size()));
+        }
         if (other.fnParams.isStar()) {
             Preconditions.checkState(children.isEmpty());
             fnParams = FunctionParams.createStarParam();
         } else {
-            fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
+            fnParams = new FunctionParams(other.fnParams.isDistinct(),
+                              children == null || leftFnParams.exprs() == null ? children :
+                              children.subList(leftFnParams.exprs().size(), children.size()));
         }
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
@@ -233,32 +260,26 @@ public class FunctionCallExpr extends Expr {
         FunctionCallExpr o = (FunctionCallExpr) obj;
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
-                && fnParams.isStar() == o.fnParams.isStar();
+                && fnParams.isStar() == o.fnParams.isStar()
+                && leftFnParams.isDistinct() == o.leftFnParams.isDistinct()
+                && leftFnParams.isStar() == o.leftFnParams.isStar();
     }
 
-    @Override
-    public String toSqlImpl() {
-        Expr expr;
-        if (originStmtFnExpr != null) {
-            expr = originStmtFnExpr;
-        } else {
-            expr = this;
-        }
+    private String paramsToSql(FunctionParams params) {
         StringBuilder sb = new StringBuilder();
-        sb.append(((FunctionCallExpr) expr).fnName).append("(");
-        if (((FunctionCallExpr) expr).fnParams.isStar()) {
+        sb.append("(");
+
+        if (params.isStar()) {
             sb.append("*");
         }
-        if (((FunctionCallExpr) expr).fnParams.isDistinct()) {
+        if (params.isDistinct()) {
             sb.append("DISTINCT ");
         }
-        boolean isJsonFunction = false;
-        int len = children.size();
+        int len = params.exprs().size();
         List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array") ||
                 fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
-            isJsonFunction = true;
         }
         if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
                 fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
@@ -273,11 +294,30 @@ public class FunctionCallExpr extends Expr {
                     fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else {
-                result.add(children.get(i).toSql());
+                result.add(params.exprs().get(i).toSql());
             }
         }
         sb.append(Joiner.on(", ").join(result)).append(")");
-        if (fnName.getFunction().equalsIgnoreCase("json_quote") || isJsonFunction) {
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl() {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(((FunctionCallExpr) expr).fnName);
+        if (leftFnParams.exprs() != null && leftFnParams.exprs().size() > 0) {
+            sb.append(paramsToSql(leftFnParams));
+        }
+        sb.append(paramsToSql(fnParams));
+        if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
+            fnName.getFunction().equalsIgnoreCase("json_array") ||
+            fnName.getFunction().equalsIgnoreCase("json_object")) {
             return forJSON(sb.toString());
         }
         return sb.toString();
@@ -721,6 +761,7 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+
         if (isMergeAggFn) {
             // This is the function call expr after splitting up to a merge aggregation.
             // The function has already been analyzed so just do the minimal sanity
@@ -783,6 +824,33 @@ public class FunctionCallExpr extends Expr {
             }
 
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("window_funnel")) {
+            if (leftFnParams.exprs() == null || leftFnParams.exprs().size() != 1) {
+                throw new AnalysisException("The " + fnName + " function must have left params, like window_funnel()()");
+            }
+
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
+                throw new AnalysisException("The " + fnName + " function must have at lest one param");
+            }
+
+            if (!children.get(0).type.isIntegerType()) {
+                throw new AnalysisException("The left params of " + fnName + " function must be integer");
+            }
+
+            Type[] childTypes = new Type[children.size() - 1];
+            if (!children.get(1).type.isDateType()) {
+                throw new AnalysisException("The 1st param of " + fnName + " function must be DATE or DATETIME");
+            }
+            childTypes[0] = children.get(0).type;
+            for (int i = 2; i < children.size(); i++) {
+                if (children.get(i).type != Type.BOOLEAN) {
+                    throw new AnalysisException("The params of " + fnName + " function must be boolean");
+                }
+                childTypes[i - 1] = children.get(i).type;
+            }
+
+            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
