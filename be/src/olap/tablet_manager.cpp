@@ -880,7 +880,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
 
     DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
     HistogramStat tablet_version_num_hist;
-    std::shared_ptr<std::vector<TTabletStat>> local_cache = std::make_shared<std::vector<TTabletStat>>();
+    auto local_cache = std::make_shared<std::vector<TTabletStat>>();
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& item : tablets_shard.tablet_map) {
@@ -907,7 +907,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
             if (!t_tablet.tablet_infos.empty()) {
                 tablets_info->emplace(tablet_id, t_tablet);
                 TTabletStat t_tablet_stat;
-                auto& tablet_info = t_tablet.tablet_infos[0];
+                const auto& tablet_info = t_tablet.tablet_infos[0];
                 t_tablet_stat.tablet_id = tablet_info.tablet_id;
                 t_tablet_stat.data_size = tablet_info.data_size;
                 t_tablet_stat.row_num = tablet_info.row_count;
