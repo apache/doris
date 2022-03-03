@@ -912,7 +912,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
                 t_tablet_stat.data_size = tablet_info.data_size;
                 t_tablet_stat.row_num = tablet_info.row_count;
                 t_tablet_stat.version_count = tablet_info.version_count;
-                local_cache->emplace_back(t_tablet_stat);
+                local_cache->emplace_back(std::move(t_tablet_stat));
             }
         }
     }
