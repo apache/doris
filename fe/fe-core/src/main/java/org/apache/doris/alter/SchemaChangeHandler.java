@@ -695,7 +695,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     /*
      * Add 'newColumn' to specified index.
-     * Modified schema will be saved in 'indexSchemaMap'
+     * Modified schema will be saved in 'modIndexSchema'
      */
     private void addColumnInternal(Column newColumn, ColumnPosition columnPos,
                                    List<Column> modIndexSchema,
