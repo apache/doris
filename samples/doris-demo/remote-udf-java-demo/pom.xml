@@ -21,38 +21,39 @@ under the License.
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.apache.doris</groupId>
-    <artifactId>udf-demo</artifactId>
+    <artifactId>remote-udf-java-demo</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <name>udf-demo</name>
-    <!-- FIXME change it to the project's website -->
-    <url>http://www.example.com</url>
+    <name>Remote UDF Demo in Java</name>
+    <url>https://doris.apache.org/</url>
     <properties>
         <protobuf.version>3.14.0</protobuf.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <grpc.version>1.30.0</grpc.version>
+        <grpc.version>1.44.1</grpc.version>
         <java.version>1.8</java.version>
         <doris.thirdparty>${basedir}/../../../thirdparty</doris.thirdparty>
     </properties>
     <dependencies>
-        <!-- grpc -->
+        <!-- https://mvnrepository.com/artifact/io.grpc/grpc-protobuf -->
         <dependency>
-            <groupId>net.devh</groupId>
-            <artifactId>grpc-server-spring-boot-starter</artifactId>
-            <version>2.9.0.RELEASE</version>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-protobuf</artifactId>
+            <version>${grpc.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.22</version>
-            <scope>provided</scope>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
+            <version>${grpc.version}</version>
         </dependency>
-
-
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
-        <finalName>udf-demo</finalName>
+        <finalName>remote-udf-java-demo</finalName>
         <plugins>
             <!-- protobuf -->
             <plugin>
@@ -71,7 +72,7 @@ under the License.
                             <!--protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact-->
                             <protocVersion>${protobuf.version}</protocVersion>
                             <inputDirectories>
-                                <include>../udf-demo/src/main/proto</include>
+                                <include>../remote-udf-java-demo/src/main/proto</include>
                             </inputDirectories>
                             <outputTargets>
                                 <outputTarget>
@@ -107,6 +108,49 @@ under the License.
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.2.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>org.apache.doris.udf.FunctionServiceDemo</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                    <archive>
+                        <manifest>
+                            <mainClass>org.apache.doris.udf.FunctionServiceDemo</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>8</source>
+                    <target>8</target>
+                </configuration>
             </plugin>
         </plugins>
     </build>
