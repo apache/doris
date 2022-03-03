@@ -56,7 +56,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE).equalsIgnoreCase("random")) {
-                throw new AnalysisException("Can only change distribution type from RANDOM to HASH");
+                throw new AnalysisException("Can only change distribution type from HASH to RANDOM");
             }
             this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
