@@ -31,7 +31,7 @@ public:
 };
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
-    auto tracker = MemTracker::CreateTracker();
+    auto tracker = MemTracker::create_tracker();
     std::unique_ptr<IBloomFilterFuncBase> func(
             create_bloom_filter(tracker.get(), PrimitiveType::TYPE_INT));
     ASSERT_TRUE(func->init(1024, 0.05).ok());
@@ -53,7 +53,7 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
-    auto tracker = MemTracker::CreateTracker();
+    auto tracker = MemTracker::create_tracker();
     std::unique_ptr<IBloomFilterFuncBase> func(
             create_bloom_filter(tracker.get(), PrimitiveType::TYPE_VARCHAR));
     ASSERT_TRUE(func->init(1024, 0.05).ok());
@@ -104,7 +104,7 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_size_test) {
-    auto tracker = MemTracker::CreateTracker();
+    auto tracker = MemTracker::create_tracker();
     std::unique_ptr<IBloomFilterFuncBase> func(
             create_bloom_filter(tracker.get(), PrimitiveType::TYPE_VARCHAR));
     int length = 4096;

@@ -438,12 +438,10 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
     return hash >> (32 - kNumShardBits);
 }
 
-ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                                 std::shared_ptr<MemTracker> parent)
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type)
         : _name(name),
           _last_id(1),
-          _mem_tracker(MemTracker::CreateTracker(-1, name, parent, true, false,
-                                                 MemTrackerLevel::OVERVIEW)) {
+          _mem_tracker(MemTracker::create_tracker(-1, name, nullptr, MemTrackerLevel::OVERVIEW)) {
     const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
         _shards[s] = new LRUCache(type);
@@ -467,7 +465,6 @@ ShardedLRUCache::~ShardedLRUCache() {
     }
     _entity->deregister_hook(_name);
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
-    _mem_tracker->Release(_mem_tracker->consumption());
 }
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
@@ -541,17 +538,15 @@ void ShardedLRUCache::update_cache_metrics() const {
     hit_ratio->set_value(total_lookup_count == 0 ? 0
                                                  : ((double)total_hit_count / total_lookup_count));
 
-    _mem_tracker->Consume(total_usage - _mem_tracker->consumption());
+    _mem_tracker->consume(total_usage - _mem_tracker->consumption());
 }
 
-Cache* new_lru_cache(const std::string& name, size_t capacity,
-                     std::shared_ptr<MemTracker> parent_tracker) {
-    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE, parent_tracker);
+Cache* new_lru_cache(const std::string& name, size_t capacity) {
+    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE);
 }
 
-Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-                           std::shared_ptr<MemTracker> parent_tracker) {
-    return new ShardedLRUCache(name, capacity, type, parent_tracker);
+Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type) {
+    return new ShardedLRUCache(name, capacity, type);
 }
 
 } // namespace doris

@@ -33,7 +33,6 @@ class RuntimeProfile;
 class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
-class MemTracker;
 struct ResultFileOptions;
 
 namespace vectorized {

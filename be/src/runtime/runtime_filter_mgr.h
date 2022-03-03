@@ -91,7 +91,7 @@ private:
     std::map<int32_t, RuntimeFilterMgrVal> _producer_map;
 
     RuntimeState* _state;
-    MemTracker* _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
     TNetworkAddress _merge_addr;

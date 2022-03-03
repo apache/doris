@@ -25,7 +25,6 @@
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h" // for rowset id
 #include "olap/rowset/beta_rowset.h"
-#include "runtime/mem_tracker.h"
 #include "util/time.h"
 
 namespace doris {
@@ -107,7 +106,6 @@ private:
     static SegmentLoader* _s_instance;
     // A LRU cache to cache all opened segments
     std::unique_ptr<Cache> _cache = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 };
 
 // A handle for a single rowset from segment lru cache.

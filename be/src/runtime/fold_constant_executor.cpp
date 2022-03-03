@@ -50,7 +50,6 @@ Status FoldConstantExecutor::fold_constant_expr(
     // init
     Status status = _init(query_globals);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
         return status;
     }
 
@@ -64,7 +63,6 @@ Status FoldConstantExecutor::fold_constant_expr(
             // prepare and open context
             status = _prepare_and_open(ctx);
             if (UNLIKELY(!status.ok())) {
-                LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
                 return status;
             }
 
@@ -188,7 +186,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
-    _mem_tracker = MemTracker::CreateTracker(-1, "FoldConstantExpr", _runtime_state->instance_mem_tracker());
+    _mem_tracker = MemTracker::create_tracker(-1, "FoldConstantExpr", _runtime_state->instance_mem_tracker());
     _mem_pool.reset(new MemPool(_mem_tracker.get()));
 
     return Status::OK();

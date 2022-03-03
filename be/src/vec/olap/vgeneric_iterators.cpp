@@ -269,7 +269,7 @@ public:
     VMergeIterator(std::vector<RowwiseIterator*>& iters, std::shared_ptr<MemTracker> parent, int sequence_id_idx) : 
         _origin_iters(iters),_sequence_id_idx(sequence_id_idx) {
         // use for count the mem use of Block use in Merge
-        _mem_tracker = MemTracker::CreateTracker(-1, "VMergeIterator", parent, false);
+        _mem_tracker = MemTracker::create_tracker(-1, "VMergeIterator", parent);
     }
 
     ~VMergeIterator() override {
@@ -361,7 +361,7 @@ public:
     // Client should not use iterators any more.
     VUnionIterator(std::vector<RowwiseIterator*>& v, std::shared_ptr<MemTracker> parent)
             : _origin_iters(v.begin(), v.end()) {
-        _mem_tracker = MemTracker::CreateTracker(-1, "VUnionIterator", parent, false);
+        _mem_tracker = MemTracker::create_tracker(-1, "VUnionIterator", parent);
     }
 
     ~VUnionIterator() override {

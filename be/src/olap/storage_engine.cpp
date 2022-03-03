@@ -112,10 +112,18 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
-          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "AutoCompaction", nullptr, false,
-                                                            false, MemTrackerLevel::OVERVIEW)),
-          _tablet_mem_tracker(MemTracker::CreateTracker(-1, "TabletHeader", nullptr, false, false,
+          _compaction_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::AutoCompaction",
+                                                             nullptr, MemTrackerLevel::OVERVIEW)),
+          _tablet_mem_tracker(MemTracker::create_virtual_tracker(
+                  -1, "StorageEngine::TabletHeader", nullptr, MemTrackerLevel::OVERVIEW)),
+          _schema_change_mem_tracker(MemTracker::create_tracker(
+                  -1, "StorageEngine::SchemaChange", nullptr, MemTrackerLevel::OVERVIEW)),
+          _clone_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Clone", nullptr,
                                                         MemTrackerLevel::OVERVIEW)),
+          _batch_load_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::BatchLoad",
+                                                             nullptr, MemTrackerLevel::OVERVIEW)),
+          _consistency_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Consistency",
+                                                              nullptr, MemTrackerLevel::OVERVIEW)),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -1075,17 +1083,12 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
 
 void StorageEngine::create_cumulative_compaction(
         TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    std::string tracker_label =
-            "StorageEngine:CumulativeCompaction:" + std::to_string(best_tablet->tablet_id());
-    cumulative_compaction.reset(
-            new CumulativeCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
+    cumulative_compaction.reset(new CumulativeCompaction(best_tablet, _compaction_mem_tracker));
 }
 
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
-    std::string tracker_label =
-            "StorageEngine:BaseCompaction:" + std::to_string(best_tablet->tablet_id());
-    base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
+    base_compaction.reset(new BaseCompaction(best_tablet, _compaction_mem_tracker));
 }
 
 // Return json:

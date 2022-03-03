@@ -638,8 +638,6 @@ Status SpillSorter::Run::prepare_read() {
     _pin_next_fixed_len_block = _pin_next_var_len_block = false;
     _num_tuples_returned = 0;
 
-    // _buffered_batch.reset(new RowBatch(*_sorter->_output_row_desc,
-    //         _sorter->_state->batch_size(), _sorter->_mem_tracker));
     _buffered_batch.reset(new RowBatch(*_sorter->_output_row_desc, _sorter->_state->batch_size(),
                                        _sorter->_mem_tracker.get()));
 

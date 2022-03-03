@@ -22,6 +22,7 @@
 #include <mutex>
 
 #include "gutil/dynamic_annotations.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/memory/chunk.h"
 #include "runtime/memory/system_allocator.h"
 #include "util/bit_util.h"
@@ -114,6 +115,8 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
         : _reserve_bytes_limit(reserve_limit),
           _reserved_bytes(0),
           _arenas(CpuInfo::get_max_num_cores()) {
+    _mem_tracker =
+            MemTracker::create_tracker(-1, "ChunkAllocator", nullptr, MemTrackerLevel::OVERVIEW);
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
@@ -128,8 +131,16 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_cost_ns);
 }
 
-bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
+Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, bool check_limits) {
     // fast path: allocate from current core arena
+    if (tracker) {
+        if (check_limits) {
+            RETURN_IF_ERROR(tracker->try_consume_cache(size));
+        } else {
+            tracker->consume_cache(size);
+        }
+    }
+
     int core_id = CpuInfo::get_current_core();
     chunk->size = size;
     chunk->core_id = core_id;
@@ -138,7 +149,8 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
         DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
-        return true;
+        if (tracker) _mem_tracker->release_cache(size);
+        return Status::OK();
     }
     if (_reserved_bytes > size) {
         // try to allocate from other core's arena
@@ -150,7 +162,8 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
-                return true;
+                if (tracker) _mem_tracker->release_cache(size);
+                return Status::OK();
             }
         }
     }
@@ -164,15 +177,18 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);
     if (chunk->data == nullptr) {
-        return false;
+        if (tracker) tracker->release_cache(size);
+        return Status::MemoryAllocFailed(
+                fmt::format("ChunkAllocator failed to allocate chunk {} bytes", size));
     }
-    return true;
+    return Status::OK();
 }
 
-void ChunkAllocator::free(const Chunk& chunk) {
+void ChunkAllocator::free(Chunk& chunk, MemTracker* tracker) {
     if (chunk.core_id == -1) {
         return;
     }
+    if (tracker) tracker->transfer_to(_mem_tracker.get(), chunk.size);
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -193,8 +209,9 @@ void ChunkAllocator::free(const Chunk& chunk) {
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
-bool ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
-    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk);
+Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk, MemTracker* tracker,
+                                      bool check_limits) {
+    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk, tracker, check_limits);
 }
 
 } // namespace doris

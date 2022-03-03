@@ -95,7 +95,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         return_columns.push_back(i);
     }
 
-    auto tracker = MemTracker::CreateTracker(-1, "OlapScanner");
+    auto tracker = MemTracker::create_tracker(-1, "OlapScanner");
     std::shared_ptr<IBloomFilterFuncBase> bloom_filter(
             create_bloom_filter(tracker.get(), PrimitiveType::TYPE_FLOAT));
 

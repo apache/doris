@@ -28,8 +28,8 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
                          const std::string& sender_ip)
         : _load_id(load_id), _timeout_s(timeout_s), _is_high_priority(is_high_priority),
           _sender_ip(sender_ip) {
-    _mem_tracker = MemTracker::CreateTracker(
-            mem_limit, "LoadChannel:" + _load_id.to_string(), mem_tracker, true, false, MemTrackerLevel::TASK);
+    _mem_tracker = MemTracker::create_tracker(
+            mem_limit, "LoadChannel:" + _load_id.to_string(), mem_tracker, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.

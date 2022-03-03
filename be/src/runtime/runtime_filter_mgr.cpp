@@ -46,8 +46,9 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state
 RuntimeFilterMgr::~RuntimeFilterMgr() {}
 
 Status RuntimeFilterMgr::init() {
-    DCHECK(_state->instance_mem_tracker().get() != nullptr);
-    _tracker = _state->instance_mem_tracker().get();
+    DCHECK(_state->instance_mem_tracker() != nullptr);
+    _tracker = MemTracker::create_tracker(-1, "RuntimeFilterMgr", _state->instance_mem_tracker(),
+                                          MemTrackerLevel::TASK);
     return Status::OK();
 }
 
@@ -102,7 +103,7 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
     RuntimeFilterMgrVal filter_mgr_val;
     filter_mgr_val.role = role;
 
-    RETURN_IF_ERROR(IRuntimeFilter::create(_state, _tracker, &_pool, &desc, &options,
+    RETURN_IF_ERROR(IRuntimeFilter::create(_state, _tracker.get(), &_pool, &desc, &options,
                                            role, node_id, &filter_mgr_val.filter));
 
     filter_map->emplace(key, filter_mgr_val);
@@ -150,7 +151,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->target_info = *target_info;
     cntVal->pool.reset(new ObjectPool());
-    cntVal->tracker = MemTracker::CreateTracker();
+    cntVal->tracker = MemTracker::create_tracker();
     cntVal->filter = cntVal->pool->add(
             new IRuntimeFilter(nullptr, cntVal->tracker.get(), cntVal->pool.get()));
 

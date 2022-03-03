@@ -108,28 +108,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         _is_report_success = request.query_options.is_report_success;
     }
 
-    int64_t bytes_limit = request.query_options.mem_limit;
-    if (bytes_limit <= 0) {
-        // sometimes the request does not set the query mem limit, we use default one.
-        // TODO(cmy): we should not allow request without query mem limit.
-        bytes_limit = 2 * 1024 * 1024 * 1024L;
-    }
-
-    if (bytes_limit > _exec_env->process_mem_tracker()->limit()) {
-        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
-                    << " exceeds process memory limit of "
-                    << PrettyPrinter::print(_exec_env->process_mem_tracker()->limit(), TUnit::BYTES)
-                    << ". Using process memory limit instead";
-        bytes_limit = _exec_env->process_mem_tracker()->limit();
-    }
-    // NOTE: this MemTracker only for olap
-    _mem_tracker = MemTracker::CreateTracker(bytes_limit,
-                                             "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
-                                                     print_id(params.fragment_instance_id),
-                                             _exec_env->process_mem_tracker(), true, false,
-                                             MemTrackerLevel::TASK);
-    _runtime_state->set_fragment_mem_tracker(_mem_tracker);
-
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
 
     // set up desc tbl
@@ -231,7 +209,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 }
 
 Status PlanFragmentExecutor::open() {
-    int64_t mem_limit = _runtime_state->fragment_mem_tracker()->limit();
+    int64_t mem_limit = _runtime_state->instance_mem_tracker()->limit();
     TAG(LOG(INFO))
             .log("PlanFragmentExecutor::open, using query memory limit: " +
                  PrettyPrinter::print(mem_limit, TUnit::BYTES))
@@ -454,7 +432,7 @@ void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
     NodeStatistics* node_statistics =
             _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->add_peak_memory(_mem_tracker->peak_consumption());
+    node_statistics->add_peak_memory(_runtime_state->instance_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
@@ -608,7 +586,7 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
                 _runtime_state->set_mem_limit_exceeded(new_status.get_error_msg());
             }
             _status = new_status;
-            if (_runtime_state->query_options().query_type == TQueryType::EXTERNAL) {
+            if (_runtime_state->query_type() == TQueryType::EXTERNAL) {
                 TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
                 _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id,
                                                                    new_status);
@@ -696,10 +674,6 @@ void PlanFragmentExecutor::close() {
                   << print_id(_runtime_state->fragment_instance_id());
     }
 
-    // _mem_tracker init failed
-    if (_mem_tracker.get() != nullptr) {
-        _mem_tracker->Release(_mem_tracker->consumption());
-    }
     _closed = true;
 }
 

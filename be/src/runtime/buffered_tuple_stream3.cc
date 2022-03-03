@@ -18,7 +18,6 @@
 #include <gutil/strings/substitute.h>
 
 #include "runtime/buffered_tuple_stream3.inline.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"

@@ -151,8 +151,7 @@ Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* st
     DCHECK_EQ(intermediate_tuple_desc_->slots().size(), output_tuple_desc_->slots().size());
 
     const RowDescriptor& row_desc = child(0)->row_desc();
-    RETURN_IF_ERROR(Expr::create(tnode.agg_node.grouping_exprs, row_desc, state, &grouping_exprs_,
-                                 mem_tracker()));
+    RETURN_IF_ERROR(Expr::create(tnode.agg_node.grouping_exprs, row_desc, state, &grouping_exprs_));
     // Construct build exprs from intermediate_row_desc_
     for (int i = 0; i < grouping_exprs_.size(); ++i) {
         SlotDescriptor* desc = intermediate_tuple_desc_->slots()[i];
@@ -236,8 +235,8 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(PartitionedHashTableCtx::Create(
                 _pool, state, build_exprs_, grouping_exprs_, true,
                 vector<bool>(build_exprs_.size(), true), state->fragment_hash_seed(),
-                MAX_PARTITION_DEPTH, 1, expr_mem_pool(), expr_results_pool_.get(),
-                expr_mem_tracker(), build_row_desc, row_desc, &ht_ctx_));
+                MAX_PARTITION_DEPTH, 1, nullptr, expr_results_pool_.get(), expr_mem_tracker(),
+                build_row_desc, row_desc, &ht_ctx_));
     }
     // AddCodegenDisabledMessage(state);
     return Status::OK();
@@ -402,13 +401,14 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
         Tuple* tuple = batch_iter.get()->get_tuple(0);
         StringValue* sv = reinterpret_cast<StringValue*>(tuple->get_slot(slot_desc.tuple_offset()));
         if (sv == nullptr || sv->len == 0) continue;
-        char* new_ptr = reinterpret_cast<char*>(pool->try_allocate(sv->len));
+        Status rst;
+        char* new_ptr = reinterpret_cast<char*>(pool->try_allocate(sv->len, &rst));
         if (UNLIKELY(new_ptr == nullptr)) {
             string details = Substitute(
                     "Cannot perform aggregation at node with id $0."
                     " Failed to allocate $1 output bytes.",
                     _id, sv->len);
-            return pool->mem_tracker()->MemLimitExceeded(state_, details, sv->len);
+            RETURN_ALLOC_LIMIT_EXCEEDED(pool->mem_tracker(), state_, details, sv->len, rst);
         }
         memcpy(new_ptr, sv->ptr, sv->len);
         sv->ptr = new_ptr;
@@ -847,8 +847,7 @@ Status PartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
     // TODO(ml): enable spill
     std::stringstream msg;
     msg << "New partitioned Aggregation in spill";
-    LIMIT_EXCEEDED(parent->state_->query_mem_tracker(), parent->state_, msg.str());
-    // RETURN_IF_ERROR(parent->state_->StartSpilling(parent->mem_tracker()));
+    RETURN_LIMIT_EXCEEDED(parent->state_->query_mem_tracker(), parent->state_, msg.str());
 
     RETURN_IF_ERROR(SerializeStreamForSpilling());
 
@@ -919,7 +918,8 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
     const int fixed_size = intermediate_tuple_desc_->byte_size();
     const int varlen_size = GroupingExprsVarlenSize();
     const int tuple_data_size = fixed_size + varlen_size;
-    uint8_t* tuple_data = pool->try_allocate(tuple_data_size);
+    Status rst;
+    uint8_t* tuple_data = pool->try_allocate(tuple_data_size, &rst);
     if (UNLIKELY(tuple_data == nullptr)) {
         stringstream str;
         str << "Memory exceed limit. Cannot perform aggregation at node with id $0. Failed "
@@ -930,7 +930,7 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
             << ", Limit: " << pool->mem_tracker()->limit() << ". "
             << "You can change the limit by session variable exec_mem_limit.";
         string details = Substitute(str.str(), _id, tuple_data_size);
-        *status = pool->mem_tracker()->MemLimitExceeded(state_, details, tuple_data_size);
+        *status = pool->mem_tracker()->mem_limit_exceeded(state_, details, tuple_data_size, rst);
         return nullptr;
     }
     memset(tuple_data, 0, fixed_size);

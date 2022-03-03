@@ -52,6 +52,9 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
           _signature(signature),
           _res_status(res_status) {
     _download_status = Status::OK();
+    _mem_tracker = MemTracker::create_tracker(
+            -1, fmt::format("{}: {}", _push_req.push_type, std::to_string(_push_req.tablet_id)),
+            StorageEngine::instance()->batch_load_mem_tracker(), MemTrackerLevel::TASK);
 }
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {}

@@ -99,7 +99,7 @@ public:
 
     virtual ~BloomFilterFuncBase() {
         if (_tracker != nullptr) {
-            _tracker->Release(_bloom_filter_alloced);
+            _tracker->release(_bloom_filter_alloced);
         }
     }
 
@@ -115,7 +115,7 @@ public:
         _bloom_filter_alloced = bloom_filter_length;
         _bloom_filter.reset(BloomFilterAdaptor::create());
         RETURN_IF_ERROR(_bloom_filter->init(bloom_filter_length));
-        _tracker->Consume(_bloom_filter_alloced);
+        _tracker->consume(_bloom_filter_alloced);
         _inited = true;
         return Status::OK();
     }
@@ -138,7 +138,7 @@ public:
         }
 
         _bloom_filter_alloced = len;
-        _tracker->Consume(_bloom_filter_alloced);
+        _tracker->consume(_bloom_filter_alloced);
         return _bloom_filter->init(data, len);
     }
 

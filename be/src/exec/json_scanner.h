@@ -47,7 +47,6 @@ class Tuple;
 class SlotDescriptor;
 class RuntimeState;
 class TupleDescriptor;
-class MemTracker;
 class JsonReader;
 class LineReader;
 class FileReader;

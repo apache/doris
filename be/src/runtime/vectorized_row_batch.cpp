@@ -29,7 +29,7 @@ VectorizedRowBatch::VectorizedRowBatch(const TabletSchema* schema,
     _selected_in_use = false;
     _size = 0;
 
-    _tracker = MemTracker::CreateTracker(-1, "VectorizedRowBatch", parent_tracker);
+    _tracker = MemTracker::create_tracker(-1, "VectorizedRowBatch", parent_tracker);
     _mem_pool.reset(new MemPool(_tracker.get()));
 
     _selected = reinterpret_cast<uint16_t*>(new char[sizeof(uint16_t) * _capacity]);

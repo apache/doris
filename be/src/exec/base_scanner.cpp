@@ -42,7 +42,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
 #if BE_TEST
           _mem_tracker(new MemTracker()),
 #else
-          _mem_tracker(MemTracker::CreateTracker(
+          _mem_tracker(MemTracker::create_tracker(
                   -1, "BaseScanner:" + std::to_string(state->load_job_id()),
                   state->instance_mem_tracker())),
 #endif

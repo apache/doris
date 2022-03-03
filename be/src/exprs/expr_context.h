@@ -170,6 +170,8 @@ private:
     /// TODO: revisit this
     FunctionContext** _fn_contexts_ptr;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
+
     /// Pool backing fn_contexts_. Counts against the runtime state's UDF mem tracker.
     std::unique_ptr<MemPool> _pool;
 

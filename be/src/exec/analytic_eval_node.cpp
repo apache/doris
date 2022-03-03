@@ -201,7 +201,7 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
                 "Failed to acquire initial read buffer for analytic function "
                 "evaluation. Reducing query concurrency or increasing the memory limit may "
                 "help this query to complete successfully.");
-        return mem_tracker()->MemLimitExceeded(state, msg, -1);
+        RETURN_LIMIT_EXCEEDED(mem_tracker(), state, msg);
     }
 
     DCHECK_EQ(_evaluators.size(), _fn_ctxs.size());

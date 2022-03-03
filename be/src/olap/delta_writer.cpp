@@ -97,8 +97,8 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    _mem_tracker = MemTracker::CreateTracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()),
-                                             _parent_mem_tracker);
+    _mem_tracker = MemTracker::create_tracker(
+            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()), _parent_mem_tracker);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()

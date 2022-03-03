@@ -20,6 +20,7 @@
 #include <boost/algorithm/string.hpp>
 
 #include "runtime/disk_io_mgr_internal.h"
+#include "runtime/exec_env.h"
 
 using std::string;
 using std::stringstream;
@@ -229,13 +230,12 @@ void DiskIoMgr::BufferDescriptor::set_mem_tracker(std::shared_ptr<MemTracker> tr
     if (_mem_tracker.get() == tracker.get()) {
         return;
     }
-    // TODO(yingchun): use TransferTo?
     if (_mem_tracker != nullptr) {
-        _mem_tracker->Release(_buffer_len);
+        _mem_tracker->release(_buffer_len);
     }
     _mem_tracker = std::move(tracker);
-    if (_mem_tracker != nullptr) {
-        _mem_tracker->Consume(_buffer_len);
+    if (tracker != nullptr) {
+        _mem_tracker->consume(_buffer_len);
     }
 }
 
@@ -275,6 +275,8 @@ DiskIoMgr::DiskIoMgr()
 //         std::min((uint64_t)config::max_cached_file_handles, FileSystemUtil::max_num_file_handles()),
 //         &HdfsCachedFileHandle::release) {
 {
+    _mem_tracker =
+            MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
     int num_local_disks = (config::num_disks == 0 ? DiskInfo::num_disks() : config::num_disks);
@@ -295,6 +297,8 @@ DiskIoMgr::DiskIoMgr(int num_local_disks, int threads_per_disk, int min_buffer_s
 // _file_handle_cache(::min(config::max_cached_file_handles,
 //             FileSystemUtil::max_num_file_handles()), &HdfsCachedFileHandle::release) {
 {
+    _mem_tracker =
+            MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
     if (num_local_disks == 0) {
@@ -359,14 +363,14 @@ DiskIoMgr::~DiskIoMgr() {
      */
 }
 
-Status DiskIoMgr::init(const std::shared_ptr<MemTracker>& process_mem_tracker) {
-    DCHECK(process_mem_tracker != nullptr);
-    _process_mem_tracker = process_mem_tracker;
+Status DiskIoMgr::init(const int64_t mem_limit) {
+    _mem_tracker->set_limit(mem_limit);
+    _cached_buffers_mem_tracker = MemTracker::create_tracker(
+            mem_limit, "DiskIO:CachedBuffers", _mem_tracker, MemTrackerLevel::OVERVIEW);
     // If we hit the process limit, see if we can reclaim some memory by removing
     // previously allocated (but unused) io buffers.
-    /*
-     * process_mem_tracker->AddGcFunction(bind(&DiskIoMgr::gc_io_buffers, this));
-     */
+    MemTracker::get_process_tracker()->add_gc_function(
+            std::bind<void>(&DiskIoMgr::gc_io_buffers, this, std::placeholders::_1));
 
     for (int i = 0; i < _disk_queues.size(); ++i) {
         _disk_queues[i] = new DiskQueue(i);
@@ -713,9 +717,9 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
     char* buffer = nullptr;
     if (_free_buffers[idx].empty()) {
         ++_num_allocated_buffers;
-        // Update the process mem usage.  This is checked the next time we start
+        // Update the disk io mem usage.  This is checked the next time we start
         // a read for the next reader (DiskIoMgr::GetNextScanRange)
-        _process_mem_tracker->Consume(*buffer_size);
+        _cached_buffers_mem_tracker->consume(*buffer_size);
         buffer = new char[*buffer_size];
     } else {
         buffer = _free_buffers[idx].front();
@@ -725,20 +729,23 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
     return buffer;
 }
 
-void DiskIoMgr::gc_io_buffers() {
+void DiskIoMgr::gc_io_buffers(int64_t bytes_to_free) {
     unique_lock<mutex> lock(_free_buffers_lock);
-    int buffers_freed = 0;
+    int bytes_freed = 0;
     for (int idx = 0; idx < _free_buffers.size(); ++idx) {
         for (list<char*>::iterator iter = _free_buffers[idx].begin();
              iter != _free_buffers[idx].end(); ++iter) {
             int64_t buffer_size = (1 << idx) * _min_buffer_size;
-            _process_mem_tracker->Release(buffer_size);
+            _cached_buffers_mem_tracker->release(buffer_size);
             --_num_allocated_buffers;
             delete[] * iter;
 
-            ++buffers_freed;
+            bytes_freed += buffer_size;
         }
         _free_buffers[idx].clear();
+        if (bytes_freed >= bytes_to_free) {
+            break;
+        }
     }
 }
 
@@ -758,7 +765,7 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size) {
     if (!config::disable_mem_pools && _free_buffers[idx].size() < config::max_free_io_buffers) {
         _free_buffers[idx].push_back(buffer);
     } else {
-        _process_mem_tracker->Release(buffer_size);
+        _cached_buffers_mem_tracker->release(buffer_size);
         --_num_allocated_buffers;
         delete[] buffer;
     }
@@ -815,15 +822,9 @@ bool DiskIoMgr::get_next_request_range(DiskQueue* disk_queue, RequestRange** ran
         // We just picked a reader, check the mem limits.
         // TODO: we can do a lot better here.  The reader can likely make progress
         // with fewer io buffers.
-        bool process_limit_exceeded = _process_mem_tracker->limit_exceeded();
-        bool reader_limit_exceeded =
-                (*request_context)->_mem_tracker != nullptr
-                        ? (*request_context)->_mem_tracker->AnyLimitExceeded(MemLimit::HARD)
-                        : false;
-        // bool reader_limit_exceeded = (*request_context)->_mem_tracker != nullptr
-        //     ? (*request_context)->_mem_tracker->limit_exceeded() : false;
-
-        if (process_limit_exceeded || reader_limit_exceeded) {
+        if ((*request_context)->_mem_tracker != nullptr
+                    ? (*request_context)->_mem_tracker->any_limit_exceeded()
+                    : false) {
             (*request_context)->cancel(Status::MemoryLimitExceeded("Memory limit exceeded"));
         }
 
@@ -1017,11 +1018,11 @@ void DiskIoMgr::read_range(DiskQueue* disk_queue, RequestContext* reader, ScanRa
     int64_t buffer_size = std::min(bytes_remaining, static_cast<int64_t>(_max_buffer_size));
     bool enough_memory = true;
     if (reader->_mem_tracker != nullptr) {
-        enough_memory = reader->_mem_tracker->SpareCapacity(MemLimit::HARD) > LOW_MEMORY;
+        enough_memory = reader->_mem_tracker->spare_capacity() > LOW_MEMORY;
         if (!enough_memory) {
             // Low memory, GC and try again.
             gc_io_buffers();
-            enough_memory = reader->_mem_tracker->SpareCapacity(MemLimit::HARD) > LOW_MEMORY;
+            enough_memory = reader->_mem_tracker->spare_capacity() > LOW_MEMORY;
         }
     }
 

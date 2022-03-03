@@ -68,6 +68,7 @@ set(RUNTIME_FILES
     disk_io_mgr_scan_range.cc 
     buffered_block_mgr2.cc
     mem_tracker.cpp
+    mem_tracker_task_pool.cpp
     spill_sorter.cc
     sorted_run_merger.cc
     data_stream_recvr.cc
