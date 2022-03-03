@@ -44,10 +44,10 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
@@ -718,14 +718,12 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
     }
 
     // serialize data values
+    // when data type is HLL, content_uncompressed_size maybe larger than real size.
     allocated_buf->resize(content_uncompressed_size);
     char* buf = allocated_buf->data();
-    char* start_buf = buf;
     for (const auto& c : *this) {
         buf = c.type->serialize(*(c.column), buf);
     }
-    CHECK(content_uncompressed_size == (buf - start_buf))
-            << content_uncompressed_size << " vs. " << (buf - start_buf);
     *uncompressed_bytes = content_uncompressed_size;
 
     // compress
@@ -792,7 +790,8 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
 
         if (!slot_desc->type().is_string_type() && !slot_desc->type().is_date_type()) {
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), data_ref.data, data_ref.size);
-        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT && slot_desc->type() != TYPE_HLL) {
+        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT &&
+                   slot_desc->type() != TYPE_HLL) {
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), (const void*)(&data_ref),
                    sizeof(data_ref));
             // Copy the content of string
