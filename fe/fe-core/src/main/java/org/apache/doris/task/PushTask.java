@@ -41,7 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class PushTask extends AgentTask {
-    private static final Logger LOG = LogManager.getLogger(CreateReplicaTask.class);
+    private static final Logger LOG = LogManager.getLogger(PushTask.class);
 
     private long replicaId;
     private int schemaHash;
