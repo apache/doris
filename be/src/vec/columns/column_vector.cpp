@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnVector.cpp
 // and modified by Doris
 
+#include "vec/columns/columns_common.h"
 #include "vec/columns/column_vector.h"
 
 #include <pdqsort.h>
@@ -291,22 +292,7 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
 
 template <typename T>
 ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
-    size_t size = data.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
-    }
-
-    auto res = this->create(limit);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[perm[i]];
-
-    return res;
+    return permuteImpl(*this, perm, limit);
 }
 
 template <typename T>

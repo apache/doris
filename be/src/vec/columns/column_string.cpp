@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnString.cpp
 // and modified by Doris
 
+#include "vec/columns/columns_common.h"
 #include "vec/columns/column_string.h"
 
 #include "vec/columns/collator.h"
@@ -116,49 +117,7 @@ ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) con
 }
 
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
-    size_t size = offsets.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
-    }
-
-    if (limit == 0) return ColumnString::create();
-
-    auto res = ColumnString::create();
-
-    Chars& res_chars = res->chars;
-    Offsets& res_offsets = res->offsets;
-
-    if (limit == size)
-        res_chars.resize(chars.size());
-    else {
-        size_t new_chars_size = 0;
-        for (size_t i = 0; i < limit; ++i) new_chars_size += size_at(perm[i]);
-        res_chars.resize(new_chars_size);
-    }
-
-    res_offsets.resize(limit);
-
-    Offset current_new_offset = 0;
-
-    for (size_t i = 0; i < limit; ++i) {
-        size_t j = perm[i];
-        size_t string_offset = offsets[j - 1];
-        size_t string_size = offsets[j] - string_offset;
-
-        memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                 &chars[string_offset], string_size);
-
-        current_new_offset += string_size;
-        res_offsets[i] = current_new_offset;
-    }
-
-    return res;
+    return permuteImpl(*this, perm, limit);
 }
 
 StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,

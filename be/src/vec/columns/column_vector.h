@@ -360,12 +360,7 @@ protected:
 template <typename T>
 template <typename Type>
 ColumnPtr ColumnVector<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    size_t size = indexes.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
+    DCHECK(limit <= indexes.size());
 
     auto res = this->create(limit);
     typename Self::Container& res_data = res->get_data();

@@ -72,17 +72,7 @@ void ColumnConst::replicate(const uint32_t* counts, size_t target_size, IColumn&
 }
 
 ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
-    if (limit == 0) {
-        limit = s;
-    } else {
-        limit = std::min(s, limit);
-    }
-
-    if (perm.size() < limit) {
-        LOG(FATAL) << fmt::format("Size of permutation ({}) is less than required ({})",
-                                  perm.size(), limit);
-    }
-
+    limit = getLimitForPermutation(*this, perm, limit);
     return ColumnConst::create(data, limit);
 }
 

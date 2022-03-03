@@ -21,6 +21,7 @@
 #pragma once
 
 #include "vec/columns/column.h"
+#include "vec/common/pod_array.h"
 
 /// Common helper methods for implementation of different columns.
 
@@ -77,6 +78,28 @@ ColumnPtr select_index_impl(const Column& column, const IColumn& indexes, size_t
                    << indexes.get_name();
         return nullptr;
     }
+}
+
+template <typename Column>
+size_t getLimitForPermutation(const Column& column, const IColumn::Permutation& perm, size_t limit)
+{
+    if (limit == 0)
+        limit = column.size();
+    else
+        limit = std::min(column.size(), limit);
+    
+    if (perm.size() < limit){
+        LOG(FATAL) << "Size of permutation is less than required";
+    }
+
+    return limit;
+}
+
+template <typename Column>
+ColumnPtr permuteImpl(const Column& column, const IColumn::Permutation& perm, size_t limit)
+{
+    limit = getLimitForPermutation(column, perm, limit);
+    return column.index_impl(perm, limit);
 }
 
 #define INSTANTIATE_INDEX_IMPL(Column)                                                  \

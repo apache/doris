@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/ColumnDecimal.cpp
 // and modified by Doris
 
+#include "vec/columns/columns_common.h"
 #include "vec/columns/column_decimal.h"
 
 #include "vec/common/arena.h"
@@ -90,17 +91,7 @@ void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
 
 template <typename T>
 ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
-    size_t size = limit ? std::min(data.size(), limit) : data.size();
-    if (perm.size() < size) {
-        LOG(FATAL) << "Size of permutation is less than required.";
-    }
-
-    auto res = this->create(size, scale);
-    typename Self::Container& res_data = res->get_data();
-
-    for (size_t i = 0; i < size; ++i) res_data[i] = data[perm[i]];
-
-    return res;
+    return permuteImpl(*this, perm, limit);
 }
 
 template <typename T>
