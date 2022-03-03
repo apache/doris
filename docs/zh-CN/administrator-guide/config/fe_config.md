@@ -2209,7 +2209,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### max_bytes_sync_commit
 
- 数据同步作业线程池中的最大线程数量。此线程池整个FE中只有一个，用于处理FE中所有数据同步作业向BE发送数据的任务task，线程池的实现在`SyncTaskPool`类。
+ 数据同步作业线程池中的最大线程数量。此线程池整个FE中只有一个，用于处理FE中所有数据同步作业向BE发送数据的任务 task，线程池的实现在 `SyncTaskPool` 类。
 
 默认值：10
 
