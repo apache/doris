@@ -62,13 +62,11 @@ protected:
     }
 
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable)
-            place[0] = 0;
+        if constexpr (result_is_nullable) place[0] = 0;
     }
 
     static void set_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable)
-            place[0] = 1;
+        if constexpr (result_is_nullable) place[0] = 1;
     }
 
     static bool get_flag(ConstAggregateDataPtr __restrict place) noexcept {
@@ -117,7 +115,8 @@ public:
 
     size_t align_of_data() const override { return nested_function->align_of_data(); }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena* arena) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena* arena) const override {
         if (result_is_nullable && get_flag(rhs)) set_flag(place);
 
         nested_function->merge(nested_place(place), nested_place(rhs), arena);
@@ -131,7 +130,8 @@ public:
         }
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena* arena) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena* arena) const override {
         bool flag = true;
         if (result_is_nullable) read_binary(flag, buf);
         if (flag) {
@@ -145,10 +145,12 @@ public:
             ColumnNullable& to_concrete = assert_cast<ColumnNullable&>(to);
             if (get_flag(place)) {
                 if (nested_function->insert_to_null_default()) {
-                    nested_function->insert_result_into(nested_place(place), to_concrete.get_nested_column());
+                    nested_function->insert_result_into(nested_place(place),
+                                                        to_concrete.get_nested_column());
                     to_concrete.get_null_map_data().push_back(0);
                 } else {
-                    nested_function->insert_result_into(nested_place(place), to);  //want to insert into null value by self
+                    nested_function->insert_result_into(
+                            nested_place(place), to); //want to insert into null value by self
                 }
             } else {
                 to_concrete.insert_default();
@@ -163,8 +165,6 @@ public:
     }
 
     bool is_state() const override { return nested_function->is_state(); }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 /** There are two cases: for single argument and variadic.

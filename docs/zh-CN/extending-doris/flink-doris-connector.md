@@ -30,6 +30,8 @@ under the License.
 
 Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。
 
+代码库地址：https://github.com/apache/incubator-doris-flink-connector
+
 * 可以将`Doris`表映射为`DataStream`或者`Table`。
 
 >**注意：**
@@ -45,36 +47,17 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 | 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
 | 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
 
-**针对Flink 1.13.x版本适配问题**
-
-```xml
-    <properties>
-        <scala.version>2.12</scala.version>
-        <flink.version>1.11.2</flink.version>
-        <libthrift.version>0.9.3</libthrift.version>
-        <arrow.version>0.15.1</arrow.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.home>${basedir}/../../</doris.home>
-        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
-    </properties>
-```
-
-只需要将这里的 `flink.version` 改成和你 Flink 集群版本一致，重新编译即可。
-
 ## 编译与安装
 
-在 `extension/flink-doris-connector/` 源码目录下执行：
-
-**注意**
-
-1. 这里如果你没有整体编译过 doris 源码，需要首先编译一次 Doris 源码，不然会出现 thrift 命令找不到的情况，需要到 `incubator-doris` 目录下执行 `sh build.sh`
-2. 建议在 doris 的 docker 编译环境 `apache/incubator-doris:build-env-1.2` 下进行编译，因为 1.3 下面的JDK 版本是 11，会存在编译问题。
+在源码目录下执行：
 
 ```bash
-sh build.sh 1.11.6 2.12 # flink 1.11.6 scala 2.12
+sh build.sh --flink 1.11.6 --scala 2.12 # flink 1.11.6 scala 2.12
 ```
 
-编译成功后，会在 `output/` 目录下生成文件 `doris-flink-1.0.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
+> 注：如果你是从 tag 检出的源码，则可以直接执行 `sh build.sh --tag`，而无需指定 flink 和 scala 的版本。因为 tag 源码中的版本是固定的。比如 `1.13.5-2.12-1.0.1` 表示 flink 版本 1.13.5，scala 版本 2.12，connector 版本 1.0.1。
+
+编译成功后，会在 `output/` 目录下生成文件，如：`doris-flink-1.13.5-2.12-1.0.1-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
 **备注**
 
@@ -102,8 +85,6 @@ enable_http_server_v2 = true
 **备注**
 
 `1.11.6 ` 可以根据flink 版本替换成替换成 `1.12.7` 或者 `1.13.5`
-
-
 
 ## 使用方法
 

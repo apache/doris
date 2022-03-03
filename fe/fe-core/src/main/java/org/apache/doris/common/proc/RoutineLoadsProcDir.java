@@ -64,7 +64,7 @@ public class RoutineLoadsProcDir implements ProcDirInterface {
         baseProcResult.setNames(TITLE_NAMES);
         RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
         try {
-            List<RoutineLoadJob> routineLoadJobList = routineLoadManager.getJob(null, null, true);
+            List<RoutineLoadJob> routineLoadJobList = routineLoadManager.getJob(null, null, true, null);
             for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
                 baseProcResult.addRow(routineLoadJob.getShowStatistic());
             }

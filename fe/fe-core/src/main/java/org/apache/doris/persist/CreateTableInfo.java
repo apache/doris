@@ -17,12 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 
 import org.slf4j.Logger;
@@ -60,12 +56,7 @@ public class CreateTableInfo implements Writable {
         table.write(out);
     }
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            dbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
-        } else {
-            dbName = Text.readString(in);
-        }
-        
+        dbName = Text.readString(in);
         table = Table.read(in);
     }
     

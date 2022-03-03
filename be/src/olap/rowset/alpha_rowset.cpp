@@ -35,15 +35,14 @@ OLAPStatus AlphaRowset::do_load(bool use_cache) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to validate segment_group. [version=" << start_version() << "-"
-                         << end_version() << " version_hash=" << version_hash();
+                         << end_version();
             // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
         OLAPStatus res = segment_group->load(use_cache);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
-                         << "version=" << start_version() << "-" << end_version() << ", "
-                         << "version_hash=" << version_hash();
+                         << "version=" << start_version() << "-" << end_version();
             return res;
         }
     }
@@ -79,7 +78,7 @@ OLAPStatus AlphaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
-void AlphaRowset::make_visible_extra(Version version, VersionHash version_hash) {
+void AlphaRowset::make_visible_extra(Version version) {
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     std::vector<SegmentGroupPB> published_segment_groups;
@@ -87,7 +86,6 @@ void AlphaRowset::make_visible_extra(Version version, VersionHash version_hash) 
     int32_t segment_group_idx = 0;
     for (auto& segment_group : _segment_groups) {
         segment_group->set_version(version);
-        segment_group->set_version_hash(version_hash);
         segment_group->set_pending_finished();
         published_segment_groups.at(segment_group_idx).clear_load_id();
         ++segment_group_idx;
@@ -322,7 +320,7 @@ OLAPStatus AlphaRowset::init() {
         } else {
             segment_group.reset(new SegmentGroup(
                     _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path_desc.filepath,
-                    _rowset_meta->version(), _rowset_meta->version_hash(), false,
+                    _rowset_meta->version(), false,
                     segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
         }
         if (segment_group == nullptr) {

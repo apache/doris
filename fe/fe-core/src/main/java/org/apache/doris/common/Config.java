@@ -563,6 +563,12 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 600; // 600s
 
     /**
+     * Default stream load pre-commit status timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
+
+    /**
      * Max load timeout applicable to all type of load except for stream load
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1087,9 +1093,9 @@ public class Config extends ConfigBase {
     public static long es_state_sync_interval_second = 10;
 
     /**
-     * fe will create iceberg table every es_state_sync_interval_secs
+     * fe will create iceberg table every iceberg_table_creation_interval_second
      */
-    @ConfField
+    @ConfField(mutable = true, masterOnly = true)
     public static long iceberg_table_creation_interval_second = 10;
 
     /**
@@ -1271,7 +1277,7 @@ public class Config extends ConfigBase {
      * If set to true, Doris will check if the compiled and running versions of Java are compatible
      */
     @ConfField
-    public static boolean check_java_version = false;
+    public static boolean check_java_version = true;
 
     /**
      * control materialized view
@@ -1445,15 +1451,6 @@ public class Config extends ConfigBase {
     public static boolean enable_alpha_rowset = false;
 
     /**
-     * This config is used to solve fe heartbeat response read_timeout problem,
-     * When config is set to be true, master will get fe heartbeat response by thrift protocol
-     * instead of http protocol. In order to maintain compatibility with the old version,
-     * the default is false, and the configuration cannot be changed to true until all fe are upgraded.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_fe_heartbeat_by_thrift = false;
-
-    /**
      * If set to true, FE will be started in BDBJE debug mode
      */
     @ConfField
@@ -1572,7 +1569,7 @@ public class Config extends ConfigBase {
      * auto set the slowest compaction replica's status to bad
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean repair_slow_replica = true;
+    public static boolean repair_slow_replica = false;
 
     /*
      * The relocation of a colocation group may involve a large number of tablets moving within the cluster.
@@ -1613,4 +1610,31 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long min_bytes_indicate_replica_too_large = 2 * 1024 * 1024 * 1024L;
+
+    /**
+     * If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
+     * If set to FALSE, Doris only creates columns of supported data types.
+     * Default is true.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean iceberg_table_creation_strict_mode = true;
+
+    // statistics
+    /*
+     * the max unfinished statistics job number
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cbo_max_statistics_job_num = 20;
+    /*
+     * the concurrency of statistics task
+     */
+    // TODO change it to mutable true
+    @ConfField(mutable = false, masterOnly = true)
+    public static int cbo_concurrency_statistics_task_num = 1;
+    /*
+     * default sample percentage
+     * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cbo_default_sample_percentage = 10;
 }

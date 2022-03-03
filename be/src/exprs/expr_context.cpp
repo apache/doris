@@ -255,21 +255,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.string_val.len = v.len;
         return &_result.string_val;
     }
-#if 0
-    case TYPE_CHAR: {
-        doris_udf::StringVal v = e->get_string_val(this, row);
-        if (v.is_null) {
-            return nullptr;
-        }
-        _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
-        _result.string_val.len = v.len;
-        if (e->_type.IsVarLenStringType()) {
-            return &_result.string_val;
-        } else {
-            return _result.string_val.ptr;
-        }
-    }
-#endif
     case TYPE_DATE:
     case TYPE_DATETIME: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);

@@ -38,7 +38,7 @@ struct ModuloImpl {
     template <typename Result = ResultType>
     static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
         if constexpr (std::is_floating_point_v<Result>) {
-            null_map[index] = 0;
+            null_map[index] = b == 0;
             return std::fmod((double)a, (double)b);
         } else {
             null_map[index] = b == 0;
@@ -52,10 +52,32 @@ struct ModuloImpl {
         null_map[index] = b == DecimalV2Value(0);
         return a % (b + DecimalV2Value(b == DecimalV2Value(0)));
     }
+};
 
-#if USE_EMBEDDED_COMPILER
-    static constexpr bool compilable = false; /// don't know how to throw from LLVM IR
-#endif
+template <typename A, typename B>
+struct PModuloImpl {
+    using ResultType = typename NumberTraits::ResultOfModulo<A, B>::Type;
+
+    template <typename Result = ResultType>
+    static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
+        if constexpr (std::is_floating_point_v<Result>) {
+            null_map[index] = 0;
+            return std::fmod(std::fmod((double)a, (double)b) + (double)b, (double)b);
+        } else {
+            null_map[index] = b == 0;
+            return (typename NumberTraits::ToInteger<A>::Type(a) %
+                            (typename NumberTraits::ToInteger<B>::Type(b) + (b == 0)) +
+                    typename NumberTraits::ToInteger<B>::Type(b)) %
+                   (typename NumberTraits::ToInteger<B>::Type(b) + (b == 0));
+        }
+    }
+
+    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map,
+                                       size_t index) {
+        null_map[index] = b == DecimalV2Value(0);
+        return (a % (b + DecimalV2Value(b == DecimalV2Value(0))) + b) %
+               (b + DecimalV2Value(b == DecimalV2Value(0)));
+    }
 };
 
 template <typename A, typename B>
@@ -151,10 +173,17 @@ struct BinaryOperationImpl<Int32, Int64, ModuloImpl<Int32, Int64>>
 struct NameModulo {
     static constexpr auto name = "mod";
 };
+struct NamePModulo {
+    static constexpr auto name = "pmod";
+};
+
 using FunctionModulo = FunctionBinaryArithmeticToNullType<ModuloImpl, NameModulo, false>;
+using FunctionPModulo = FunctionBinaryArithmeticToNullType<PModuloImpl, NamePModulo, false>;
 
 void register_function_modulo(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionModulo>();
+    factory.register_function<FunctionPModulo>();
+    factory.register_alias("mod", "fmod");
 }
 
 } // namespace doris::vectorized

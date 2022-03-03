@@ -44,9 +44,10 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
 }
 
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
-    const auto& arr = get_null_map_data();
-    hash.update(arr[n]);
-    if (arr[n] == 0) get_nested_column().update_hash_with_value(n, hash);
+    if (is_null_at(n))
+        hash.update(0);
+    else
+        get_nested_column().update_hash_with_value(n, hash);
 }
 
 MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
@@ -182,19 +183,13 @@ ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) c
     return ColumnNullable::create(filtered_data, filtered_null_map);
 }
 
-ColumnPtr ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, ColumnPtr* ptr) {
-    if (ptr != nullptr) {
-        const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>((*ptr).get());
-        ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;
-        ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
-        get_nested_column().filter_by_selector(sel, sel_size, &nest_col_ptr);
-        get_null_map_column().filter_by_selector(sel, sel_size, &null_map_ptr);
-        return *ptr;
-    } else {
-        ColumnPtr filtered_data = get_nested_column().filter_by_selector(sel, sel_size);
-        ColumnPtr filtered_null_map = get_null_map_column().filter_by_selector(sel, sel_size);
-        return ColumnNullable::create(filtered_data, filtered_null_map);
-    }
+Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
+    ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;
+    ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
+    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
+    RETURN_IF_ERROR(get_null_map_column().filter_by_selector(sel, sel_size, const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
+    return Status::OK();
 }
 
 ColumnPtr ColumnNullable::permute(const Permutation& perm, size_t limit) const {

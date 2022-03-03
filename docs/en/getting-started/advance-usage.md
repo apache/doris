@@ -264,7 +264,7 @@ I retry and load balancing in application layer code. For example, if a connecti
 If you use MySQL JDBC connector to connect Doris, you can use jdbc's automatic retry mechanism:
 
 ```
-jdbc:mysql:/[host:port],[host:port].../[database][? propertyName1][=propertyValue1][&propertyName2][=propertyValue2]...
+jdbc:mysql://[host1][:port1],[host2][:port2][,[host3][:port3]]...[/[database]][?propertyName1=propertyValue1[&propertyName2=propertyValue2]...]
 ```
 
 **The third**

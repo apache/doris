@@ -22,7 +22,8 @@ public enum TransactionStatus {
     PREPARE(1),
     COMMITTED(2),
     VISIBLE(3),
-    ABORTED(4);
+    ABORTED(4),
+    PRECOMMITTED(5);
     
     private final int flag;
     
@@ -46,6 +47,8 @@ public enum TransactionStatus {
                 return VISIBLE;
             case 4:
                 return ABORTED;
+            case 5:
+                return PRECOMMITTED;
             default:
                 return null;
         }
@@ -68,6 +71,8 @@ public enum TransactionStatus {
                 return "VISIBLE";
             case ABORTED:
                 return "ABORTED";
+            case PRECOMMITTED:
+                return "PRECOMMITTED";
             default:
                 return "UNKNOWN";
         }

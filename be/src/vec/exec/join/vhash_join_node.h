@@ -115,6 +115,31 @@ using HashTableVariants =
                      I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
                      I256FixedKeyHashTableContext<false>>;
 
+using JoinOpVariants = std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::MERGE_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
+                                    std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+
+#define APPLY_FOR_JOINOP_VARIANTS(M)        \
+    M(INNER_JOIN)                           \
+    M(LEFT_SEMI_JOIN)                       \
+    M(LEFT_ANTI_JOIN)                       \
+    M(LEFT_OUTER_JOIN)                      \
+    M(FULL_OUTER_JOIN)                      \
+    M(RIGHT_OUTER_JOIN)                     \
+    M(CROSS_JOIN)                           \
+    M(MERGE_JOIN)                           \
+    M(RIGHT_SEMI_JOIN)                      \
+    M(RIGHT_ANTI_JOIN)                      \
+    M(NULL_AWARE_LEFT_ANTI_JOIN)
+
 class VExprContext;
 
 class HashJoinNode : public ::doris::ExecNode {
@@ -122,18 +147,21 @@ public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~HashJoinNode() override;
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos);
-    virtual Status close(RuntimeState* state);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    virtual Status prepare(RuntimeState* state) override;
+    virtual Status open(RuntimeState* state) override;
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    virtual Status close(RuntimeState* state) override;
     HashTableVariants& get_hash_table_variants() { return _hash_table_variants; }
+    void init_join_op();
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
 
     TJoinOp::type _join_op;
+
+    JoinOpVariants _join_op_variants;
     // probe expr
     VExprContexts _probe_expr_ctxs;
     // build expr
@@ -173,8 +201,8 @@ private:
 
     Arena _arena;
     HashTableVariants _hash_table_variants;
-    AcquireList<Block> _acquire_list;
 
+    std::vector<Block> _build_blocks;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
@@ -190,16 +218,18 @@ private:
     const bool _match_all_build; // output all rows coming from the build input. Full/Right Join
     bool _build_unique;          // build a hash table without duplicated rows. Left semi/anti Join
 
-    const bool _is_left_semi_anti;
     const bool _is_right_semi_anti;
     const bool _is_outer_join;
     bool _have_other_join_conjunct = false;
 
     RowDescriptor _row_desc_for_other_join_conjunt;
 
+    std::vector<uint32_t> _items_counts;
+    std::vector<int8_t> _build_block_offsets;
+    std::vector<int> _build_block_rows;
 private:
     Status _hash_table_build(RuntimeState* state);
-    Status _process_build_block(RuntimeState* state, Block& block);
+    Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
     Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
                                      bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);
@@ -210,13 +240,13 @@ private:
     void _hash_table_init();
 
     template <class HashTableContext, bool ignore_null, bool build_unique>
-    friend class ProcessHashTableBuild;
+    friend struct ProcessHashTableBuild;
 
-    template <class HashTableContext, bool ignore_null>
-    friend class ProcessHashTableProbe;
+    template <class HashTableContext, class JoinOpType, bool ignore_null>
+    friend struct ProcessHashTableProbe;
 
     template <class HashTableContext>
-    friend class ProcessRuntimeFilterBuild;
+    friend struct ProcessRuntimeFilterBuild;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;

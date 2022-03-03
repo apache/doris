@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "env/env_remote.h"
+
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "env/env.h"
-#include "env/env_remote.h"
+#include "gutil/strings/substitute.h"
 #include "util/s3_storage_backend.h"
 #include "util/s3_util.h"
-
-#include "gutil/strings/substitute.h"
 
 namespace doris {
 
@@ -34,8 +34,7 @@ class RemoteRandomAccessFile : public RandomAccessFile {
 public:
     RemoteRandomAccessFile(std::string filename, std::shared_ptr<StorageBackend> storage_backend)
             : _filename(std::move(filename)), _storage_backend(storage_backend) {}
-    ~RemoteRandomAccessFile() {
-    }
+    ~RemoteRandomAccessFile() {}
 
     Status read_at(uint64_t offset, const Slice* result) const override {
         return readv_at(offset, result, 1);
@@ -47,9 +46,7 @@ public:
     Status read_all(std::string* content) const override {
         return _storage_backend->direct_download(_filename, content);
     }
-    Status size(uint64_t* size) const override {
-        return Status::NotSupported("No support", 1, "");
-    }
+    Status size(uint64_t* size) const override { return Status::NotSupported("No support", 1, ""); }
 
     const std::string& file_name() const override { return _filename; }
 
@@ -60,7 +57,8 @@ private:
 
 class RemoteWritableFile : public WritableFile {
 public:
-    RemoteWritableFile(std::string filename, std::shared_ptr<StorageBackend> storage_backend, uint64_t filesize)
+    RemoteWritableFile(std::string filename, std::shared_ptr<StorageBackend> storage_backend,
+                       uint64_t filesize)
             : _filename(std::move(filename)),
               _storage_backend(storage_backend),
               _filesize(filesize) {}
@@ -79,8 +77,9 @@ public:
             bytes_written += data[i].size;
         }
         Status status = _storage_backend->direct_upload(_filename, content);
-        RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-                "direct_upload failed: $0, err=$1", _filename, status.to_string()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                status, strings::Substitute("direct_upload failed: $0, err=$1", _filename,
+                                            status.to_string()));
         _filesize += bytes_written;
         return Status::OK();
     }
@@ -89,17 +88,11 @@ public:
         return Status::NotSupported("No support", 1, "");
     }
 
-    Status close() override {
-        return Status::OK();
-    }
+    Status close() override { return Status::OK(); }
 
-    Status flush(FlushMode mode) override {
-        return Status::OK();
-    }
+    Status flush(FlushMode mode) override { return Status::OK(); }
 
-    Status sync() override {
-        return Status::OK();
-    }
+    Status sync() override { return Status::OK(); }
 
     uint64_t size() const override { return _filesize; }
     const string& filename() const override { return _filename; }
@@ -115,7 +108,6 @@ public:
     RemoteRandomRWFile(const FilePathDesc& path_desc) : _path_desc(path_desc) {}
 
     ~RemoteRandomRWFile() { WARN_IF_ERROR(close(), "Failed to close " + _path_desc.filepath); }
-
     virtual Status read_at(uint64_t offset, const Slice& result) const {
         return Status::NotSupported("No support", 1, "");
     }
@@ -136,39 +128,36 @@ public:
         return Status::NotSupported("No support", 1, "");
     }
 
-    Status sync() {
-        return Status::NotSupported("No support", 1, "");
-    }
+    Status sync() { return Status::NotSupported("No support", 1, ""); }
 
-    Status close() {
-        return Status::NotSupported("No support", 1, "");
-    }
+    Status close() { return Status::NotSupported("No support", 1, ""); }
 
-    Status size(uint64_t* size) const {
-        return Status::NotSupported("No support", 1, "");
-    }
+    Status size(uint64_t* size) const { return Status::NotSupported("No support", 1, ""); }
 
     const string& filename() const { return _path_desc.filepath; }
 
 private:
     const FilePathDesc _path_desc;
-    const bool _sync_on_close = false;
-    bool _closed = false;
 };
 
 Status RemoteEnv::init_conf() {
     std::map<std::string, std::string> storage_prop;
-    if (doris::config::default_remote_storage_s3_ak.empty() || doris::config::default_remote_storage_s3_sk.empty()
-            || doris::config::default_remote_storage_s3_endpoint.empty() || doris::config::default_remote_storage_s3_region.empty()) {
+    if (doris::config::default_remote_storage_s3_ak.empty() ||
+        doris::config::default_remote_storage_s3_sk.empty() ||
+        doris::config::default_remote_storage_s3_endpoint.empty() ||
+        doris::config::default_remote_storage_s3_region.empty()) {
         return Status::OK();
     }
     storage_prop[S3_AK] = doris::config::default_remote_storage_s3_ak;
     storage_prop[S3_SK] = doris::config::default_remote_storage_s3_sk;
     storage_prop[S3_ENDPOINT] = doris::config::default_remote_storage_s3_endpoint;
     storage_prop[S3_REGION] = doris::config::default_remote_storage_s3_region;
-    storage_prop[S3_MAX_CONN_SIZE] = std::to_string(doris::config::default_remote_storage_s3_max_conn);
-    storage_prop[S3_REQUEST_TIMEOUT_MS] = std::to_string(doris::config::default_remote_storage_s3_request_timeout_ms);
-    storage_prop[S3_CONN_TIMEOUT_MS] = std::to_string(doris::config::default_remote_storage_s3_conn_timeout_ms);
+    storage_prop[S3_MAX_CONN_SIZE] =
+            std::to_string(doris::config::default_remote_storage_s3_max_conn);
+    storage_prop[S3_REQUEST_TIMEOUT_MS] =
+            std::to_string(doris::config::default_remote_storage_s3_request_timeout_ms);
+    storage_prop[S3_CONN_TIMEOUT_MS] =
+            std::to_string(doris::config::default_remote_storage_s3_conn_timeout_ms);
 
     if (ClientFactory::is_s3_conf_valid(storage_prop)) {
         _storage_backend.reset(new S3StorageBackend(storage_prop));
@@ -187,13 +176,15 @@ Status RemoteEnv::new_random_access_file(const std::string& fname,
     return new_random_access_file(RandomAccessFileOptions(), fname, result);
 }
 
-Status RemoteEnv::new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
+Status RemoteEnv::new_random_access_file(const RandomAccessFileOptions& opts,
+                                         const std::string& fname,
                                          std::unique_ptr<RandomAccessFile>* result) {
     result->reset(new RemoteRandomAccessFile(fname, _storage_backend));
     return Status::OK();
 }
 
-Status RemoteEnv::new_writable_file(const std::string& fname, std::unique_ptr<WritableFile>* result) {
+Status RemoteEnv::new_writable_file(const std::string& fname,
+                                    std::unique_ptr<WritableFile>* result) {
     return new_writable_file(WritableFileOptions(), fname, result);
 }
 
@@ -207,7 +198,8 @@ Status RemoteEnv::new_writable_file(const WritableFileOptions& opts, const std::
     return Status::OK();
 }
 
-Status RemoteEnv::new_random_rw_file(const std::string& fname, std::unique_ptr<RandomRWFile>* result) {
+Status RemoteEnv::new_random_rw_file(const std::string& fname,
+                                     std::unique_ptr<RandomRWFile>* result) {
     return new_random_rw_file(RandomRWFileOptions(), fname, result);
 }
 
@@ -224,8 +216,8 @@ Status RemoteEnv::path_exists(const std::string& fname, bool is_dir) {
     } else {
         status = storage_backend->exist(fname);
     }
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "path_exists failed: $0, err=$1", fname, status.to_string()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("path_exists failed: $0, err=$1",
+                                                               fname, status.to_string()));
     return Status::OK();
 }
 
@@ -233,16 +225,15 @@ Status RemoteEnv::get_children(const std::string& dir, std::vector<std::string>*
     return Status::IOError(strings::Substitute("Unable to get_children $0", dir), 0, "");
 }
 
-Status RemoteEnv::iterate_dir(const std::string& dir,
-                              const std::function<bool(const char*)>& cb) {
+Status RemoteEnv::iterate_dir(const std::string& dir, const std::function<bool(const char*)>& cb) {
     return Status::IOError(strings::Substitute("Unable to iterate_dir $0", dir), 0, "");
 }
 
 Status RemoteEnv::delete_file(const std::string& fname) {
     std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rm(fname);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "delete_file failed: $0, err=$1", fname, status.to_string()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("delete_file failed: $0, err=$1",
+                                                               fname, status.to_string()));
     return Status::OK();
 }
 
@@ -269,8 +260,8 @@ Status RemoteEnv::create_dirs(const string& dirname) {
 Status RemoteEnv::delete_dir(const std::string& dirname) {
     std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rmdir(dirname);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "delete_dir failed: $0, err=$1", dirname, status.to_string()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("delete_dir failed: $0, err=$1",
+                                                               dirname, status.to_string()));
     return Status::OK();
 }
 
@@ -313,7 +304,8 @@ Status RemoteEnv::get_file_size(const std::string& fname, uint64_t* size) {
 }
 
 Status RemoteEnv::get_file_modified_time(const std::string& fname, uint64_t* file_mtime) {
-    return Status::IOError(strings::Substitute("Unable to get_file_modified_time $0", fname), 0, "");
+    return Status::IOError(strings::Substitute("Unable to get_file_modified_time $0", fname), 0,
+                           "");
 }
 
 Status RemoteEnv::copy_path(const std::string& src, const std::string& target) {
@@ -323,24 +315,27 @@ Status RemoteEnv::copy_path(const std::string& src, const std::string& target) {
 Status RemoteEnv::rename_file(const std::string& src, const std::string& target) {
     std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rename(src, target);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "rename_file failed: from $0 to $1, err=$2", src, target, status.to_string()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            status, strings::Substitute("rename_file failed: from $0 to $1, err=$2", src, target,
+                                        status.to_string()));
     return Status::OK();
 }
 
 Status RemoteEnv::rename_dir(const std::string& src, const std::string& target) {
     std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->rename_dir(src, target);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "rename_dir failed: from $0 to $1, err=$2", src, target, status.to_string()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            status, strings::Substitute("rename_dir failed: from $0 to $1, err=$2", src, target,
+                                        status.to_string()));
     return Status::OK();
 }
 
 Status RemoteEnv::link_file(const std::string& old_path, const std::string& new_path) {
     std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = storage_backend->copy(old_path, new_path);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "link_file failed: from $0 to $1, err=$2", old_path, new_path, status.to_string()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            status, strings::Substitute("link_file failed: from $0 to $1, err=$2", old_path,
+                                        new_path, status.to_string()));
     return Status::OK();
 }
 

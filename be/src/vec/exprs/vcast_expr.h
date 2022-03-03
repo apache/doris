@@ -20,18 +20,18 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
-class VCastExpr final: public VExpr {
+class VCastExpr final : public VExpr {
 public:
     VCastExpr(const TExprNode& node) : VExpr(node) {}
     ~VCastExpr() = default;
     virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id);
+                                  int* result_column_id) override;
     virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context);
+                                  VExprContext* context) override;
     virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope);
+                               FunctionContext::FunctionStateScope scope) override;
     virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+                       FunctionContext::FunctionStateScope scope) override;
     virtual VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VCastExpr(*this));
     }

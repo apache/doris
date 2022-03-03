@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -304,6 +303,10 @@ public class TableRef implements ParseNode, Writable {
 
     public void setUsingClause(List<String> colNames) {
         this.usingColNames = colNames;
+    }
+
+    public List<String> getUsingClause() {
+        return this.usingColNames;
     }
 
     public TableRef getLeftTblRef() {
@@ -802,17 +805,7 @@ public class TableRef implements ParseNode, Writable {
         name = new TableName();
         name.readFields(in);
         if (in.readBoolean()) {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_77) {
-                List<String> partitions = Lists.newArrayList();
-                int size = in.readInt();
-                for (int i = 0; i < size; i++) {
-                    String partName = Text.readString(in);
-                    partitions.add(partName);
-                }
-                partitionNames = new PartitionNames(false, partitions);
-            } else {
-                partitionNames = PartitionNames.read(in);
-            }
+            partitionNames = PartitionNames.read(in);
         }
 
         if (in.readBoolean()) {

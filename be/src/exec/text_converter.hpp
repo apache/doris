@@ -41,7 +41,7 @@ namespace doris {
 inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tuple,
                                       const char* data, int len, bool copy_string, bool need_escape,
                                       MemPool* pool) {
-    //小批量导入只有\N被认为是NULL,没有批量导入的replace_value函数
+    //Small batch import only \N is considered to be NULL, there is no replace_value function for batch import
     if (true == slot_desc->is_nullable()) {
         if (len == 2 && data[0] == '\\' && data[1] == 'N') {
             tuple->set_null(slot_desc->null_indicator_offset());
@@ -185,7 +185,10 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
 
     // Parse the raw-text data. Translate the text string to internal format.
     switch (slot_desc->type().type) {
-    case TYPE_HLL:
+    case TYPE_HLL: {
+        reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(HyperLogLog(Slice(data, len)));
+        break;
+    }
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
         if (need_escape) {

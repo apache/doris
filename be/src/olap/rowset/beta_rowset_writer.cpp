@@ -82,7 +82,6 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
         _rowset_meta->set_load_id(_context.load_id);
     } else {
         _rowset_meta->set_version(_context.version);
-        _rowset_meta->set_version_hash(_context.version_hash);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
 
@@ -218,7 +217,8 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::
     DCHECK(block_mgr != nullptr);
     Status st = block_mgr->create_block(opts, &wblock);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath;
+        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath 
+                     << ", err: " << st.get_error_msg();
         return OLAP_ERR_INIT_FAILED;
     }
 

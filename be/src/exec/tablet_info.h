@@ -156,8 +156,9 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this tuple in partition
-    bool find_tablet(Tuple* tuple, const OlapTablePartition** partitions,
-                     uint32_t* dist_hash) const;
+    bool find_partition(Tuple* tuple, const OlapTablePartition** partition) const;
+
+    uint32_t find_tablet(Tuple* tuple, const OlapTablePartition& partition) const;
 
     const std::vector<OlapTablePartition*>& get_partitions() const { return _partitions; }
     std::string debug_string() const;
@@ -167,7 +168,7 @@ private:
 
     Status _create_partition_key(const TExprNode& t_expr, Tuple* tuple, SlotDescriptor* slot_desc);
 
-    uint32_t _compute_dist_hash(Tuple* key) const;
+    std::function<uint32_t(Tuple*, int64_t)> _compute_tablet_index;
 
     // check if this partition contain this key
     bool _part_contains(OlapTablePartition* part, Tuple* key) const {
@@ -264,9 +265,10 @@ public:
     int64_t table_id() const { return _t_param.table_id; }
     int64_t version() const { return _t_param.version; }
 
-    // return true if we found this tuple in partition
-    bool find_tablet(BlockRow* block_row, const VOlapTablePartition** partitions,
-                     uint32_t* dist_hash) const;
+    // return true if we found this block_row in partition
+    bool find_partition(BlockRow* block_row, const VOlapTablePartition** partition) const;
+
+    uint32_t find_tablet(BlockRow* block_row, const VOlapTablePartition& partition) const;
 
     const std::vector<VOlapTablePartition*>& get_partitions() const { return _partitions; }
 
@@ -275,7 +277,7 @@ private:
 
     Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos);
 
-    uint32_t _compute_dist_hash(BlockRow* key) const;
+    std::function<uint32_t(BlockRow*, int64_t)> _compute_tablet_index;
 
     // check if this partition contain this key
     bool _part_contains(VOlapTablePartition* part, BlockRow* key) const {

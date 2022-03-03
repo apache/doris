@@ -174,6 +174,8 @@ You can try to compile Doris directly in your own Linux environment.
        enabled=1
        ```
        After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
+       > nit: you can find the jdk install directory by using command `alternatives --list`
+
        Doris 0.14.0 will use gcc7 env to compile.
 
 2. Compile Doris

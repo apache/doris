@@ -36,7 +36,6 @@ struct RowsetWriterContext {
               tablet_schema(nullptr),
               rowset_state(PREPARED),
               version(Version(0, 0)),
-              version_hash(0),
               txn_id(0),
               tablet_uid(0, 0),
               segments_overlap(OVERLAP_UNKNOWN) {
@@ -55,7 +54,6 @@ struct RowsetWriterContext {
     RowsetStatePB rowset_state;
     // properties for non-pending rowset
     Version version;
-    VersionHash version_hash;
 
     // properties for pending rowset
     int64_t txn_id;

@@ -238,7 +238,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
         std::string tracker_label = "CompactionAction:CumulativeCompaction:" + std::to_string(syscall(__NR_gettid));
         CumulativeCompaction cumulative_compaction(tablet, tracker_label, _compaction_mem_tracker);
         OLAPStatus res = cumulative_compaction.compact();
-        if (res != OLAP_SUCCESS && res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
             DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                          << ", table=" << tablet->full_name();

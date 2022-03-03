@@ -37,8 +37,8 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
-Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema,
-                     std::shared_ptr<Segment>* output) {
+Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id,
+                     const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(path_desc, segment_id, tablet_schema));
     if (!Env::get_env(path_desc.storage_medium)->is_remote_env()) {
         RETURN_IF_ERROR(segment->_open());
@@ -47,11 +47,12 @@ Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id, const T
     return Status::OK();
 }
 
-Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _path_desc(path_desc), _segment_id(segment_id),
-          _tablet_schema(tablet_schema) {
+Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id,
+                 const TabletSchema* tablet_schema)
+        : _path_desc(path_desc), _segment_id(segment_id), _tablet_schema(tablet_schema) {
 #ifndef BE_TEST
-    _mem_tracker = MemTracker::CreateTracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);
+    _mem_tracker = MemTracker::CreateTracker(
+            -1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);
 #else
     _mem_tracker = MemTracker::CreateTracker(-1, "Segment", nullptr, false);
 #endif
@@ -74,7 +75,6 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     if (!_is_open) {
         RETURN_IF_ERROR(_open());
     }
-    DCHECK_NOTNULL(read_options.stats);
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
@@ -109,8 +109,8 @@ Status Segment::_parse_footer() {
     RETURN_IF_ERROR(rblock->size(&file_size));
 
     if (file_size < 12) {
-        return Status::Corruption(
-                strings::Substitute("Bad segment file $0: file size $1 < 12", _path_desc.filepath, file_size));
+        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < 12",
+                                                      _path_desc.filepath, file_size));
     }
 
     uint8_t fixed_buf[12];
@@ -118,15 +118,16 @@ Status Segment::_parse_footer() {
 
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(
-                strings::Substitute("Bad segment file $0: magic number not match", _path_desc.filepath));
+        return Status::Corruption(strings::Substitute("Bad segment file $0: magic number not match",
+                                                      _path_desc.filepath));
     }
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
         return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
-                                                      _path_desc.filepath, file_size, 12 + footer_length));
+                                                      _path_desc.filepath, file_size,
+                                                      12 + footer_length));
     }
     _mem_tracker->Consume(footer_length);
 
@@ -146,7 +147,7 @@ Status Segment::_parse_footer() {
     // deserialize footer PB
     if (!_footer.ParseFromString(footer_buf)) {
         return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: failed to parse SegmentFooterPB",  _path_desc.filepath));
+                "Bad segment file $0: failed to parse SegmentFooterPB", _path_desc.filepath));
     }
     return Status::OK();
 }
@@ -202,19 +203,21 @@ Status Segment::_create_column_readers() {
     return Status::OK();
 }
 
-Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent, ColumnIterator** iter) {
+Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent,
+                                    ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
         const TabletColumn& tablet_column = _tablet_schema->column(cid);
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
-        TypeInfo* type_info = get_type_info(&tablet_column);
+        auto type_info = get_type_info(&tablet_column);
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
                 new DefaultValueColumnIterator(
                         tablet_column.has_default_value(), tablet_column.default_value(),
                         tablet_column.is_nullable(), type_info, tablet_column.length()));
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "DefaultColumnIterator", parent, false);
+        iter_opts.mem_tracker =
+                MemTracker::CreateTracker(-1, "DefaultColumnIterator", parent, false);
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();

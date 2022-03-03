@@ -36,6 +36,7 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
+#include "util/priority_work_stealing_thread_pool.hpp"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -82,10 +83,8 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(RuntimeFilterRole::CONSUMER,
-                                                                   filter_desc,
-                                                                   state->query_options(),
-                                                                   id()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+                RuntimeFilterRole::CONSUMER, filter_desc, state->query_options(), id()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
                                                                         &runtime_filter));
 
@@ -161,7 +160,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _olap_wait_batch_queue_timer = ADD_TIMER(_runtime_profile, "BatchQueueWaitTime");
 
     // for the purpose of debugging or profiling
-    for (int i = 0; i < sizeof(_general_debug_timer)/sizeof(*_general_debug_timer); ++i) {
+    for (int i = 0; i < GENERAL_DEBUG_COUNT; ++i) {
         char name[64];
         snprintf(name, sizeof(name), "GeneralDebugTimer%d", i);
         _general_debug_timer[i] = ADD_TIMER(_segment_profile, name);
@@ -425,7 +424,6 @@ Status OlapScanNode::close(RuntimeState* state) {
 //  1: required list<Types.TNetworkAddress> hosts
 //  2: required string schema_hash
 //  3: required string version
-//  4: required string version_hash
 //  5: required Types.TTabletId tablet_id
 //  6: required string db_name
 //  7: optional list<TKeyRange> partition_column_ranges
@@ -529,6 +527,7 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
             iter->second->runtimefilter->set_push_down_profile();
         }
     }
+
     // set vconjunct_ctx is empty, if all conjunct
     if (_direct_conjunct_size == 0) {
         if (_vconjunct_ctx_ptr.get() != nullptr) {
@@ -536,8 +535,11 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
             _vconjunct_ctx_ptr = nullptr;
         }
     }
+
     // filter idle conjunct in vexpr_contexts
-    _peel_pushed_conjuncts();
+    auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
+    std::string vconjunct_information = _peel_pushed_vconjunct(checker);
+    _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
 }
 
 void OlapScanNode::eval_const_conjuncts() {
@@ -1437,6 +1439,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 PriorityThreadPool::Task task;
                 task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
                 task.priority = _nice;
+                task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
                 (*iter)->start_wait_worker_timer();
                 if (thread_pool->offer(task)) {
                     olap_scanners.erase(iter++);
@@ -1678,48 +1681,4 @@ Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
     _row_batch_added_cv.notify_one();
     return Status::OK();
 }
-
-
-vectorized::VExpr* OlapScanNode::_dfs_peel_conjunct(vectorized::VExpr* expr, int& leaf_index) {
-    static constexpr auto is_leaf = [](vectorized::VExpr* expr) { return !expr->is_and_expr(); };
-
-    if (is_leaf(expr)) {
-        return _pushed_conjuncts_index.count(leaf_index++) ? nullptr : expr;
-    } else {
-        vectorized::VExpr* left_child = _dfs_peel_conjunct(expr->children()[0], leaf_index);
-        vectorized::VExpr* right_child = _dfs_peel_conjunct(expr->children()[1], leaf_index);
-
-        if (left_child != nullptr && right_child != nullptr) {
-            expr->set_children({left_child, right_child});
-            return expr;
-        }
-        // here do not close Expr* now
-        return left_child != nullptr ? left_child : right_child;
-    }
-}
-
-// This function is used to remove pushed expr in expr tree.
-// It relies on the logic of function convertConjunctsToAndCompoundPredicate() of FE splicing expr.
-// It requires FE to satisfy each splicing with 'and' expr, and spliced from left to right, in order.
-// Expr tree specific forms do not require requirements.
-void OlapScanNode::_peel_pushed_conjuncts() {
-    if (_vconjunct_ctx_ptr.get() == nullptr) return;
-
-    int leaf_index = 0;
-    vectorized::VExpr* conjunct_expr_root = (*_vconjunct_ctx_ptr.get())->root();
-
-    if (conjunct_expr_root != nullptr) {
-        vectorized::VExpr* new_conjunct_expr_root =
-                _dfs_peel_conjunct(conjunct_expr_root, leaf_index);
-        if (new_conjunct_expr_root == nullptr) {
-            _vconjunct_ctx_ptr = nullptr;
-            _scanner_profile->add_info_string("VconjunctExprTree", "null");
-        } else {
-            (*_vconjunct_ctx_ptr.get())->set_root(new_conjunct_expr_root);
-            _scanner_profile->add_info_string("VconjunctExprTree",
-                                              new_conjunct_expr_root->debug_string());
-        }
-    }
-}
-
 } // namespace doris

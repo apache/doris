@@ -364,7 +364,7 @@ public class StmtExecutor implements ProfileWriter {
                         if (scanNode instanceof OlapScanNode) {
                             OlapScanNode olapScanNode = (OlapScanNode) scanNode;
                             Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitaions(olapScanNode.getSelectedPartitionNum().longValue(),
-                                        olapScanNode.getSelectedTabletsNum(), olapScanNode.getCardinality(), analyzer.getQualifiedUser());
+                                    olapScanNode.getSelectedTabletsNum(), olapScanNode.getCardinality(), analyzer.getQualifiedUser());
                         }
                     }
                 }
@@ -439,18 +439,18 @@ public class StmtExecutor implements ProfileWriter {
                 context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
             }
         } catch (IOException e) {
-            LOG.warn("execute IOException ", e);
+            LOG.warn("execute IOException. {}", context.getQueryIdentifier(), e);
             // the exception happens when interact with client
             // this exception shows the connection is gone
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw e;
         } catch (UserException e) {
             // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. {}", e.getMessage());
+            LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(), e.getMessage());
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
-            LOG.warn("execute Exception", e);
+            LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
@@ -466,7 +466,7 @@ public class StmtExecutor implements ProfileWriter {
                 sessionVariable.setIsSingleSetVar(false);
                 sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
-                LOG.warn("failed to revert Session value.", e);
+                LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
             if (!context.isTxnModel() && parsedStmt instanceof InsertStmt) {
@@ -480,7 +480,7 @@ public class StmtExecutor implements ProfileWriter {
                                 insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
                                 (errMsg == null ? "unknown reason" : errMsg));
                     } catch (Exception abortTxnException) {
-                        LOG.warn("errors when abort txn", abortTxnException);
+                        LOG.warn("errors when abort txn. {}", context.getQueryIdentifier(), abortTxnException);
                     }
                 }
             }
@@ -580,7 +580,7 @@ public class StmtExecutor implements ProfileWriter {
             } catch (UserException e) {
                 throw e;
             } catch (Exception e) {
-                LOG.warn("Analyze failed because ", e);
+                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             } finally {
                 MetaLockUtils.readUnlockTables(tables);
@@ -591,7 +591,7 @@ public class StmtExecutor implements ProfileWriter {
             } catch (UserException e) {
                 throw e;
             } catch (Exception e) {
-                LOG.warn("Analyze failed because ", e);
+                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
@@ -678,7 +678,7 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 if (explainOptions != null) parsedStmt.setIsExplain(explainOptions);
             }
-            
+
             if (parsedStmt instanceof InsertStmt && parsedStmt.isExplain()) {
                 if (ConnectContext.get() != null &&
                         ConnectContext.get().getExecutor() != null &&
@@ -728,7 +728,7 @@ public class StmtExecutor implements ProfileWriter {
     // Handle kill statement.
     private void handleKill() throws DdlException {
         KillStmt killStmt = (KillStmt) parsedStmt;
-        long id = killStmt.getConnectionId();
+        int id = killStmt.getConnectionId();
         ConnectContext killCtx = context.getConnectScheduler().getContext(id);
         if (killCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);

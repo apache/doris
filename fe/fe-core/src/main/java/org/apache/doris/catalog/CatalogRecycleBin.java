@@ -815,12 +815,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             tableId = in.readLong();
             partition = Partition.read(in);
             range = RangeUtils.readRange(in);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
-                listPartitionItem = ListPartitionItem.read(in);
-            } else {
-                listPartitionItem = ListPartitionItem.DUMMY_ITEM;
-            }
-
+            listPartitionItem = ListPartitionItem.read(in);
             dataProperty = DataProperty.read(in);
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
                 short replicationNum = in.readShort();
@@ -828,9 +823,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             } else {
                 replicaAlloc = ReplicaAllocation.read(in);
             }
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-                isInMemory = in.readBoolean();
-            }
+            isInMemory = in.readBoolean();
         }
     }
     

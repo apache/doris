@@ -138,7 +138,7 @@ public class RestoreJob extends AbstractJob {
 
     // save all restored partitions' version info which are already exist in catalog
     // table id -> partition id -> (version, version hash)
-    private com.google.common.collect.Table<Long, Long, Pair<Long, Long>> restoredVersionInfo = HashBasedTable.create();
+    private com.google.common.collect.Table<Long, Long, Long> restoredVersionInfo = HashBasedTable.create();
     // tablet id->(be id -> snapshot info)
     private com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos = HashBasedTable.create();
 
@@ -845,7 +845,7 @@ public class RestoreJob extends AbstractJob {
                     SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature,
                             jobId, db.getId(),
                             tbl.getId(), part.getId(), index.getId(), tablet.getId(),
-                            part.getVisibleVersion(), part.getVisibleVersionHash(),
+                            part.getVisibleVersion(),
                             tbl.getSchemaHashByIndexId(index.getId()), timeoutMs,
                             true /* is restore task*/);
                     batchTask.addTask(task);
@@ -924,9 +924,7 @@ public class RestoreJob extends AbstractJob {
         OlapTable localOlapTbl = (OlapTable) localTbl;
         genFileMapping(localOlapTbl, localPartition, tblInfo.id, backupPartInfo,
                 true /* overwrite when commit */);
-        restoredVersionInfo.put(localOlapTbl.getId(), localPartition.getId(),
-                Pair.create(backupPartInfo.version,
-                        backupPartInfo.versionHash));
+        restoredVersionInfo.put(localOlapTbl.getId(), localPartition.getId(), backupPartInfo.version);
         return false;
     }
 
@@ -945,7 +943,7 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), indexMeta.getShortKeyColumnCount(),
                             indexMeta.getSchemaHash(), restoreReplica.getVersion(),
-                            restoreReplica.getVersionHash(), indexMeta.getKeysType(), TStorageType.COLUMN,
+                            indexMeta.getKeysType(), TStorageType.COLUMN,
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
                             localTbl.getCopiedIndexes(),
@@ -990,7 +988,6 @@ public class RestoreJob extends AbstractJob {
 
         // save version info for creating replicas
         long visibleVersion = remotePart.getVisibleVersion();
-        long visibleVersionHash = remotePart.getVisibleVersionHash();
 
         // tablets
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1011,7 +1008,7 @@ public class RestoreJob extends AbstractJob {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = catalog.getNextId();
                             Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                    visibleVersion, visibleVersionHash, schemaHash);
+                                    visibleVersion, schemaHash);
                             newTablet.addReplica(newReplica, true /* is restore */);
                         }
                     }
@@ -1401,8 +1398,8 @@ public class RestoreJob extends AbstractJob {
                 continue;
             }
             try {
-                Map<Long, Pair<Long, Long>> map = restoredVersionInfo.rowMap().get(tblId);
-                for (Map.Entry<Long, Pair<Long, Long>> entry : map.entrySet()) {
+                Map<Long, Long> map = restoredVersionInfo.rowMap().get(tblId);
+                for (Map.Entry<Long, Long> entry : map.entrySet()) {
                     long partId = entry.getKey();
                     Partition part = olapTbl.getPartition(partId);
                     if (part == null) {
@@ -1410,23 +1407,22 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // update partition visible version
-                    part.updateVersionForRestore(entry.getValue().first, entry.getValue().second);
+                    part.updateVersionForRestore(entry.getValue());
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(),
-                                        part.getVisibleVersionHash(), false)) {
-                                    replica.updateVersionInfo(part.getVisibleVersion(), part.getVisibleVersionHash(),
+                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(),false)) {
+                                    replica.updateVersionInfo(part.getVisibleVersion(),
                                             replica.getDataSize(), replica.getRowCount());
                                 }
                             }
                         }
                     }
 
-                    LOG.debug("restore set partition {} version in table {}, version: {}, version hash: {}",
-                            partId, tblId, entry.getValue().first, entry.getValue().second);
+                    LOG.debug("restore set partition {} version in table {}, version: {}",
+                            partId, tblId, entry.getValue());
                 }
             } finally {
                 tbl.writeUnlock();
@@ -1706,10 +1702,11 @@ public class RestoreJob extends AbstractJob {
         for (long tblId : restoredVersionInfo.rowKeySet()) {
             out.writeLong(tblId);
             out.writeInt(restoredVersionInfo.row(tblId).size());
-            for (Map.Entry<Long, Pair<Long, Long>> entry : restoredVersionInfo.row(tblId).entrySet()) {
+            for (Map.Entry<Long, Long> entry : restoredVersionInfo.row(tblId).entrySet()) {
                 out.writeLong(entry.getKey());
-                out.writeLong(entry.getValue().first);
-                out.writeLong(entry.getValue().second);
+                out.writeLong(entry.getValue());
+                // It is version hash in the past, but it useless but should compatible with old version so that write 0 here
+                out.writeLong(0l);
             }
         }
 
@@ -1783,8 +1780,9 @@ public class RestoreJob extends AbstractJob {
             for (int j = 0; j < innerSize; j++) {
                 long partId = in.readLong();
                 long version = in.readLong();
+                // Useless but read it to compatible with meta
                 long versionHash = in.readLong();
-                restoredVersionInfo.put(tblId, partId, Pair.create(version, versionHash));
+                restoredVersionInfo.put(tblId, partId, version);
             }
         }
 
@@ -1797,10 +1795,6 @@ public class RestoreJob extends AbstractJob {
                 SnapshotInfo info = SnapshotInfo.read(in);
                 snapshotInfos.put(tabletId, beId, info);
             }
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
-            return;
         }
 
         // restored resource

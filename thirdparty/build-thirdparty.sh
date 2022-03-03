@@ -164,6 +164,14 @@ check_prerequest "automake --version" "automake"
 # sudo yum install libtool
 check_prerequest "libtoolize --version" "libtool"
 
+# aclocal_version should equal to automake_version
+aclocal_version=`aclocal --version | sed -n '1p'|awk 'NF>1{print $NF}'`
+automake_version=`automake --version | sed -n '1p'|awk 'NF>1{print $NF}'`
+if [ ${aclocal_version} != ${automake_version} ] ; then
+    echo "Error: aclocal version(${aclocal_version}) is not equal to automake version(${automake_version})."
+    exit 1
+fi
+
 # sudo apt-get install binutils-dev
 # sudo yum install binutils-devel
 #check_prerequest "locate libbfd.a" "binutils-dev"
@@ -972,6 +980,22 @@ build_breakpad() {
     make -j $PARALLEL && make install
 }
 
+# simdjson
+build_simdjson() {
+    check_if_source_exist $SIMDJSON_SOURCE
+    cd $TP_SOURCE_DIR/$SIMDJSON_SOURCE
+
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    CXX_FLAGS="-O3" \
+    C_FLAGS="-O3" \
+    $CMAKE_CMD ..
+    $CMAKE_CMD --build .
+
+    cp $TP_SOURCE_DIR/$SIMDJSON_SOURCE/$BUILD_DIR/libsimdjson.a $TP_INSTALL_DIR/lib64
+
+    cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1024,6 +1048,7 @@ build_gsasl
 build_hdfs3
 build_benchmark
 build_breakpad
+build_simdjson
 
 echo "Finished to build all thirdparties"
 

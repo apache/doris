@@ -48,6 +48,7 @@ public:
 
         const Slice* ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        ASSERT_TRUE(ret.ok());
 
         OwnedSlice s = page_builder.finish();
         ASSERT_EQ(slices.size(), page_builder.count());
@@ -73,20 +74,14 @@ public:
         // because every slice is unique
         ASSERT_EQ(slices.size(), dict_page_decoder->count());
 
-        uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
-        uint32_t dict_len_array[dict_page_decoder->_num_elems];
-        for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-            const uint32_t start_offset = dict_page_decoder->offset(i);
-            uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-            dict_start_offset_array[i] = start_offset;
-            dict_len_array[i] = len;
-        }
+        StringRef dict_word_info[dict_page_decoder->_num_elems];
+        dict_page_decoder->get_dict_word_info(dict_word_info);
 
         // decode
         PageDecoderOptions decoder_options;
         BinaryDictPageDecoder page_decoder(s.slice(), decoder_options);
 
-        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
+        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
 
         status = page_decoder.init();
         ASSERT_TRUE(status.ok());
@@ -95,7 +90,7 @@ public:
         //check values
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
-        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -141,6 +136,7 @@ public:
             size_t add_num = 1;
             const Slice* ptr = &contents[i];
             Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            ASSERT_TRUE(ret.ok());
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 total_size += s.slice().size;
@@ -177,27 +173,21 @@ public:
             status = dict_page_decoder->init();
             ASSERT_TRUE(status.ok());
 
-            uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
-            uint32_t dict_len_array[dict_page_decoder->_num_elems];
-            for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-                const uint32_t start_offset = dict_page_decoder->offset(i);
-                uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-                dict_start_offset_array[i] = start_offset;
-                dict_len_array[i] = len;
-            }
+            StringRef dict_word_info[dict_page_decoder->_num_elems];
+            dict_page_decoder->get_dict_word_info(dict_word_info);
 
             // decode
             PageDecoderOptions decoder_options;
             BinaryDictPageDecoder page_decoder(results[slice_index].slice(), decoder_options);
             status = page_decoder.init();
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
+            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
             ASSERT_TRUE(status.ok());
 
             //check values
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);

@@ -27,8 +27,10 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/exception.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris::vectorized {
 
 #define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                     \
@@ -46,7 +48,6 @@ namespace doris::vectorized {
 TO_TIME_FUNCTION(ToYearImpl, year);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);
-TO_TIME_FUNCTION(ToWeekImpl, week);
 TO_TIME_FUNCTION(ToDayImpl, day);
 TO_TIME_FUNCTION(ToHourImpl, hour);
 TO_TIME_FUNCTION(ToMinuteImpl, minute);
@@ -58,7 +59,24 @@ TIME_FUNCTION_IMPL(DayOfMonthImpl, dayofmonth, day());
 TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
-TIME_FUNCTION_IMPL(ToYearWeekImpl, yearweek, year_week(mysql_week_mode(0)));
+
+#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)             \
+    struct CLASS {                                                    \
+        static constexpr auto name = #UNIT;                           \
+        static inline auto execute(const Int64& t, bool& is_null) {   \
+            const auto& date_time_value = (doris::vectorized::VecDateTimeValue&)(t); \
+            is_null = !date_time_value.is_valid_date();               \
+            return date_time_value.FUNCTION;                          \
+        }                                                             \
+                                                                      \
+        static DataTypes get_variadic_argument_types() {              \
+             return {std::make_shared<DataTypeDateTime>()};           \
+        }                                                             \
+    }
+
+TIME_FUNCTION_ONE_ARG_IMPL(ToWeekOneArgImpl, week, week(mysql_week_mode(0)));
+TIME_FUNCTION_ONE_ARG_IMPL(ToYearWeekOneArgImpl, yearweek, year_week(mysql_week_mode(0)));
+
 struct ToDateImpl {
     static constexpr auto name = "to_date";
 

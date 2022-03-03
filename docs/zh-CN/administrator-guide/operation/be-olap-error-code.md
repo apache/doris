@@ -96,6 +96,7 @@ under the License.
 | OLAP_ERR_TOO_MANY_VERSION                        | -235   | tablet的数据版本超过了最大限制（默认500）                    |
 | OLAP_ERR_NOT_INITIALIZED                         | -236   | 不能初始化                                                   |
 | OLAP_ERR_ALREADY_CANCELLED                       | -237   | 已经被取消                                                   |
+| OLAP_ERR_TOO_MANY_SEGMENTS                       | -238   | 通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多 |
 | 命令执行异常代码                                 |        |                                                              |
 | OLAP_ERR_CE_CMD_PARAMS_ERROR                     | -300   | 命令参数错误                                                 |
 | OLAP_ERR_CE_BUFFER_TOO_SMALL                     | -301   | 缓冲区太多小文件                                             |
@@ -140,7 +141,6 @@ under the License.
 | OLAP_ERR_BE_VERSION_NOT_MATCH                    | -800   | BE Compaction 版本不匹配错误                                 |
 | OLAP_ERR_BE_REPLACE_VERSIONS_ERROR               | -801   | BE Compaction 替换版本错误                                   |
 | OLAP_ERR_BE_MERGE_ERROR                          | -802   | BE Compaction合并错误                                        |
-| OLAP_ERR_BE_COMPUTE_VERSION_HASH_ERROR           | -803   | BE Compaction 计算版本哈希错误                               |
 | OLAP_ERR_CAPTURE_ROWSET_ERROR                    | -804   | 找不到Rowset对应的版本                                       |
 | OLAP_ERR_BE_SAVE_HEADER_ERROR                    | -805   | BE Compaction保存Header错误                                  |
 | OLAP_ERR_BE_INIT_OLAP_DATA                       | -806   | BE Compaction 初始化OLAP数据错误                             |

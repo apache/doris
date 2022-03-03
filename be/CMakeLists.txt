@@ -20,7 +20,7 @@ cmake_minimum_required(VERSION 3.19.2)
 project(doris CXX C)
 
 # Write compile_commands.json
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # set platforms
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
@@ -327,16 +327,12 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
 #    integers
-#  -Wno-unknown-pragmas: suppress warnings for unknown (compiler specific) pragmas
-#  -Wno-deprecated: gutil contains deprecated headers
-#  -Wno-vla: we use C99-style variable-length arrays
 #  -pthread: enable multithreaded malloc
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -pthread -Werror")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
@@ -364,96 +360,6 @@ if (COMPILER_CLANG)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
     endif()
-
-    # TODO: Fix all these warnings
-    add_compile_options(
-        -Wno-address-of-packed-member
-        -Wno-ambiguous-reversed-operator
-        -Wno-atomic-implicit-seq-cst
-        -Wno-cast-align
-        -Wno-cast-qual
-        -Wno-comma
-        -Wno-conditional-uninitialized
-        -Wno-constant-conversion
-        -Wno-covered-switch-default
-        -Wno-delete-abstract-non-virtual-dtor
-        -Wno-delete-non-abstract-non-virtual-dtor
-        -Wno-deprecated
-        -Wno-deprecated-copy-with-dtor
-        -Wno-deprecated-copy-with-user-provided-copy
-        -Wno-deprecated-copy-with-user-provided-dtor
-        -Wno-deprecated-declarations
-        -Wno-deprecated-this-capture
-        -Wno-documentation
-        -Wno-embedded-directive
-        -Wno-enum-compare-switch
-        -Wno-extra-semi
-        -Wno-extra-semi-stmt
-        -Wno-format-nonliteral
-        -Wno-frame-larger-than
-        -Wno-gnu-label-as-value
-        -Wno-gnu-redeclared-enum
-        -Wno-gnu-statement-expression
-        -Wno-gnu-zero-variadic-macro-arguments
-        -Wno-header-hygiene
-        -Wno-ignored-qualifiers
-        -Wno-implicit-const-int-float-conversion
-        -Wno-implicit-exception-spec-mismatch
-        -Wno-implicit-fallthrough
-        -Wno-inconsistent-missing-destructor-override
-        -Wno-inconsistent-missing-override
-        -Wno-instantiation-after-specialization
-        -Wno-macro-redefined
-        -Wno-mismatched-new-delete
-        -Wno-mismatched-tags
-        -Wno-missing-field-initializers
-        -Wno-missing-noreturn
-        -Wno-newline-eof
-        -Wno-non-virtual-dtor
-        -Wno-null-conversion
-        -Wno-null-dereference
-        -Wno-old-style-cast
-        -Wno-overloaded-virtual
-        -Wno-pedantic
-        -Wno-pessimizing-move
-        -Wno-pragma-once-outside-header
-        -Wno-reserved-identifier
-        -Wno-reserved-macro-identifier
-        -Wno-return-type
-        -Wno-shadow
-        -Wno-shadow-field
-        -Wno-shadow-field-in-constructor
-        -Wno-shadow-uncaptured-local
-        -Wno-shift-count-overflow
-        -Wno-sign-compare
-        -Wno-string-plus-int
-        -Wno-suggest-destructor-override
-        -Wno-suggest-override
-        -Wno-tautological-constant-out-of-range-compare
-        -Wno-tautological-unsigned-zero-compare
-        -Wno-undef
-        -Wno-uninitialized
-        -Wno-unknown-pragmas
-        -Wno-unknown-warning-option
-        -Wno-unreachable-code
-        -Wno-unreachable-code-break
-        -Wno-unreachable-code-return
-        -Wno-unused-but-set-variable
-        -Wno-unused-const-variable
-        -Wno-unused-exception-parameter
-        -Wno-unused-function
-        -Wno-unused-lambda-capture
-        -Wno-unused-local-typedef
-        -Wno-unused-macros
-        -Wno-unused-member-function
-        -Wno-unused-parameter
-        -Wno-unused-private-field
-        -Wno-unused-result
-        -Wno-unused-value
-        -Wno-unused-variable
-        -Wno-variadic-macros
-        -Wno-zero-as-null-pointer-constant
-    )
 endif ()
 
 # https://github.com/boostorg/uuid/issues/92
@@ -480,38 +386,29 @@ if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
 endif()
 
 # For any gcc builds:
-#   -g: Enable symbols for profiler tools
+#   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
 set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 
 # For CMAKE_BUILD_TYPE=Debug
-#   -ggdb: Enable gdb debugging
-# Debug information is stored as dwarf2 to be as compatible as possible
-#   -Werror: compile warnings should be errors when using the toolchain compiler.
-# Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
-#   -gdwarf-2: Debug information is stored as dwarf2 to be as compatible as possible
-set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
+set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
 
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=address -DADDRESS_SANITIZER")
-SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=leak -DLEAK_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize=undefined")
-# Ignore a number of noisy errors with too many false positives:
-# TODO(zc):
-# SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-sanitize=alignment,function,vptr,float-divide-by-zero,float-cast-overflow")
-# Don't enforce wrapped signed integer arithmetic so that the sanitizer actually sees
+SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
+SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -586,7 +483,6 @@ set(DORIS_LINK_LIBS
     Webserver
     Geo
     Vec
-    Plugin
     ${WL_END_GROUP}
 )
 if (${MAKE_TEST} STREQUAL "ON")
@@ -667,14 +563,12 @@ if(ARCH_AARCH64)
         ${DORIS_DEPENDENCIES}
         ${WL_START_GROUP}
         ${COMMON_THIRDPARTY}
-        ${WL_END_GROUP}
     )
 else()
     set(DORIS_DEPENDENCIES
         ${DORIS_DEPENDENCIES}
         ${WL_START_GROUP}
         ${X86_DEPENDENCIES}
-        ${WL_END_GROUP}
     )
 endif()
 
@@ -689,6 +583,8 @@ if (WITH_MYSQL)
         mysql
         )
 endif()
+
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
@@ -774,7 +670,6 @@ if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
 endif()
 
 add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/plugin)
 add_subdirectory(${SRC_DIR}/vec)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
@@ -794,24 +689,6 @@ FUNCTION(ADD_BE_TEST TEST_NAME)
         SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_DIR_NAME}")
     endif()
     ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
-ENDFUNCTION()
-
-FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
-    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
-
-    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-    get_filename_component(PLUGIN_DIR_NAME ${PLUGIN_NAME} PATH)
-    get_filename_component(PLUGIN_FILE_NAME ${PLUGIN_NAME} NAME)
-
-    ADD_LIBRARY(${PLUGIN_FILE_NAME} SHARED ${PLUGIN_NAME}.cpp)
-
-    TARGET_LINK_LIBRARIES(${PLUGIN_FILE_NAME} ${DORIS_LINK_LIBS})
-    SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
-
-    if (NOT "${PLUGIN_DIR_NAME}" STREQUAL "")
-        SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${PLUGIN_DIR_NAME}")
-    endif ()
-
 ENDFUNCTION()
 
 if (${MAKE_TEST} STREQUAL "ON")
@@ -834,8 +711,6 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/vec/function)
     add_subdirectory(${TEST_DIR}/vec/runtime)
     add_subdirectory(${TEST_DIR}/vec/aggregate_functions)
-    add_subdirectory(${TEST_DIR}/plugin)
-    add_subdirectory(${TEST_DIR}/plugin/example)
     add_subdirectory(${TEST_DIR}/tools)
 endif ()
 

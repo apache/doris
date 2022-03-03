@@ -72,8 +72,7 @@ OLAPStatus IntegerColumnReader::next(int64_t* value) {
 
 StringColumnDirectReader::StringColumnDirectReader(uint32_t column_unique_id,
                                                    uint32_t dictionary_size)
-        : _eof(false),
-          _column_unique_id(column_unique_id),
+        : _column_unique_id(column_unique_id),
           _values(nullptr),
           _data_stream(nullptr),
           _length_reader(nullptr) {}

@@ -49,6 +49,7 @@ public:
     virtual Status close(RuntimeState* state);
 
 protected:
+    using ExecNode::debug_string;
     virtual std::string debug_string();
 
 private:
@@ -72,7 +73,7 @@ private:
     Status _output_current_block(Block* block);
     BlockRowPos _get_partition_by_end();
     BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end);
-    
+
     Status _fetch_next_block_data(RuntimeState* state);
     Status _consumed_block_and_init_partition(RuntimeState* state, bool* next_partition, bool* eos);
     bool whether_need_next_partition(BlockRowPos found_partition_end);

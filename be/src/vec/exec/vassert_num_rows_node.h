@@ -30,8 +30,8 @@ public:
         return Status::NotSupported("Not Implemented VAnalyticEvalNode::get_next.");
     }
 
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos);
+    virtual Status open(RuntimeState* state) override;
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
 private:
     int64_t _desired_num_rows;
@@ -39,4 +39,4 @@ private:
     TAssertion::type _assertion;
 };
 
-} // namespace doris
+} // namespace doris::vectorized

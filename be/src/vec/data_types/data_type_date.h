@@ -27,13 +27,14 @@ namespace doris::vectorized {
 class DataTypeDate final : public DataTypeNumberBase<Int64> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::Date; }
-    const char* get_family_name() const override { return "Date"; }
+    const char* get_family_name() const override { return "DateTime"; }
+    std::string do_get_name() const override {return "Date"; }
 
     bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
-    std::string to_string(const IColumn& column, size_t row_num) const;
+    std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     static void cast_to_date(Int64& x);

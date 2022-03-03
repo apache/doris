@@ -373,6 +373,18 @@ Translated with www.DeepL.com/Translator (free version)
 
     Used for compatibility with MySQL clients. No practical effect.
     
+* `tx_read_only`
+
+    Used for compatibility with MySQL clients. No practical effect.
+    
+* `transaction_read_only`
+
+    Used for compatibility with MySQL clients. No practical effect.
+    
+* `transaction_isolation`
+
+    Used for compatibility with MySQL clients. No practical effect.
+    
 * `version`
 
     Used for compatibility with MySQL clients. No practical effect.

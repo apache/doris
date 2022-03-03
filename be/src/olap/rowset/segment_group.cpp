@@ -68,14 +68,13 @@ namespace doris {
 
 SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
                            const std::string& rowset_path_prefix, Version version,
-                           VersionHash version_hash, bool delete_flag, int32_t segment_group_id,
+                           bool delete_flag, int32_t segment_group_id,
                            int32_t num_segments)
         : _tablet_id(tablet_id),
           _rowset_id(rowset_id),
           _schema(schema),
           _rowset_path_prefix(rowset_path_prefix),
           _version(version),
-          _version_hash(version_hash),
           _delete_flag(delete_flag),
           _segment_group_id(segment_group_id),
           _num_segments(num_segments) {
@@ -118,7 +117,6 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
           _partition_id(partition_id),
           _txn_id(transaction_id) {
     _version = {-1, -1};
-    _version_hash = 0;
     _load_id.set_hi(0);
     _load_id.set_lo(0);
     _index_loaded = false;
@@ -584,7 +582,8 @@ OLAPStatus SegmentGroup::add_segment() {
     index_header = _file_header.mutable_message();
     index_header->set_start_version(_version.first);
     index_header->set_end_version(_version.second);
-    index_header->set_cumulative_version_hash(_version_hash);
+    // Version hash is useless but it is a required field in header message pb
+    index_header->set_cumulative_version_hash(0);
     index_header->set_segment(_num_segments - 1);
     index_header->set_num_rows_per_block(_schema->num_rows_per_row_block());
     index_header->set_delete_flag(_delete_flag);
@@ -1007,12 +1006,12 @@ std::string SegmentGroup::_construct_old_file_path(const std::string& path_prefi
                                                    const std::string& suffix) const {
     char file_path[OLAP_MAX_PATH_LEN];
     if (_segment_group_id == -1) {
-        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%ld_%d%s", path_prefix.c_str(),
-                 _tablet_id, _version.first, _version.second, _version_hash, segment_id,
+        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d%s", path_prefix.c_str(),
+                 _tablet_id, _version.first, _version.second, segment_id,
                  suffix.c_str());
     } else {
-        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%ld_%d_%d%s", path_prefix.c_str(),
-                 _tablet_id, _version.first, _version.second, _version_hash, _segment_group_id,
+        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d_%d%s", path_prefix.c_str(),
+                 _tablet_id, _version.first, _version.second, _segment_group_id,
                  segment_id, suffix.c_str());
     }
 
@@ -1024,8 +1023,8 @@ std::string SegmentGroup::_construct_err_sg_file_path(const std::string& path_pr
                                                       int32_t segment_id,
                                                       const std::string& suffix) const {
     char file_path[OLAP_MAX_PATH_LEN];
-    snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%ld_%d%s", path_prefix.c_str(),
-             _tablet_id, _version.first, _version.second, _version_hash, segment_id,
+    snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d%s", path_prefix.c_str(),
+             _tablet_id, _version.first, _version.second, segment_id,
              suffix.c_str());
 
     return file_path;

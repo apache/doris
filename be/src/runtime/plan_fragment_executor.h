@@ -127,7 +127,8 @@ public:
     void set_abort();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel();
+    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
+                const std::string& msg = "");
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -138,7 +139,7 @@ public:
 
     const Status& status() const { return _status; }
 
-    DataSink* get_sink() { return _sink.get(); }
+    DataSink* get_sink() const { return _sink.get(); }
 
     void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -208,6 +209,10 @@ private:
     std::shared_ptr<QueryStatistics> _query_statistics;
     bool _collect_query_statistics_with_every_batch;
 
+    // Record the cancel information when calling the cancel() method, return it to FE
+    PPlanFragmentCancelReason _cancel_reason;
+    std::string _cancel_msg;
+
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges
@@ -245,7 +250,7 @@ private:
     // Idempotent.
     void stop_report_thread();
 
-    const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
+    const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
 

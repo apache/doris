@@ -26,8 +26,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 # Build this library twice. Once to be linked into the main Doris. This version
 # can have dependencies on our other libs. The second version is shipped as part
 # of the UDF sdk, which can't use other libs.
-add_library(Udf udf.cpp udf_ir.cpp)
-add_library(DorisUdf udf.cpp udf_ir.cpp)
+add_library(Udf udf.cpp)
+add_library(DorisUdf udf.cpp)
 set_target_properties(DorisUdf PROPERTIES COMPILE_FLAGS "-DDORIS_UDF_SDK_BUILD")
 
 # We can't use the normal link list since we want to pick up libDorisUdf (the external

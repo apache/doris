@@ -124,12 +124,6 @@ void AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDat
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena);
 }
 
-void AggFnEvaluator::execute_single_merge(AggregateDataPtr place, ConstAggregateDataPtr rhs,
-                                          Arena* arena) {
-    SCOPED_TIMER(_merge_timer);
-    _function->merge(place, rhs, arena);
-}
-
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {
     _function->insert_result_into(place, *column);
 }

@@ -54,7 +54,7 @@ public:
     void add(AggregateDataPtr, const IColumn**, size_t, Arena*) const override {}
 
     void reset(AggregateDataPtr place) const override {}
-    
+
     void merge(AggregateDataPtr, ConstAggregateDataPtr, Arena*) const override {}
 
     void serialize(ConstAggregateDataPtr, BufferWritable& buf) const override {}
@@ -64,8 +64,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr, IColumn& to) const override {
         to.insert_default();
     }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 } // namespace doris::vectorized

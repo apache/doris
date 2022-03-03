@@ -25,16 +25,14 @@ public class CheckConsistencyTask extends AgentTask {
 
     private int schemaHash;
     private long version;
-    private long versionHash;
 
     public CheckConsistencyTask(TResourceInfo resourceInfo, long backendId, long dbId,
                                 long tableId, long partitionId, long indexId, long tabletId,
-                                int schemaHash, long version, long versionHash) {
+                                int schemaHash, long version) {
         super(resourceInfo, backendId, TTaskType.CHECK_CONSISTENCY, dbId, tableId, partitionId, indexId, tabletId);
 
         this.schemaHash = schemaHash;
         this.version = version;
-        this.versionHash = versionHash;
     }
 
     public int getSchemaHash() {
@@ -45,12 +43,8 @@ public class CheckConsistencyTask extends AgentTask {
         return version;
     }
 
-    public long getVersionHash() {
-        return versionHash;
-    }
-
     public TCheckConsistencyReq toThrift() {
-        TCheckConsistencyReq request = new TCheckConsistencyReq(tabletId, schemaHash, version, versionHash);
+        TCheckConsistencyReq request = new TCheckConsistencyReq(tabletId, schemaHash, version, 0l);
         return request;
     }
 }

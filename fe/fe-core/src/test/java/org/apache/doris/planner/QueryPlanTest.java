@@ -55,6 +55,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.File;
@@ -392,7 +393,7 @@ public class QueryPlanTest {
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"mysql\"\n" +
                 ");");
-        
+
         createTable("create table test.tbl_int_date (" +
                 "`date` datetime NULL," +
                 "`day` date NULL," +
@@ -410,6 +411,27 @@ public class QueryPlanTest {
 
         createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as concat FROM test.test1;");
 
+        createTable("create table test.tbl_using_a\n" +
+                "(\n" +
+                "    k1 int,\n" +
+                "    k2 int,\n" +
+                "    v1 int sum\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"" +
+                ");");
+
+        createTable("create table test.tbl_using_b\n" +
+                "(\n" +
+                "    k1 int,\n" +
+                "    k2 int,\n" +
+                "    k3 int \n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"" +
+                ");");
     }
 
     @AfterClass
@@ -422,6 +444,7 @@ public class QueryPlanTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
+
     private static void createView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createView(createViewStmt);
@@ -597,7 +620,7 @@ public class QueryPlanTest {
     @Test
     public void testMultiStmts() throws Exception {
         String sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
-        List<StatementBase>stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
 
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
@@ -670,7 +693,7 @@ public class QueryPlanTest {
         String createSchemaSql = "create schema if not exists test";
         String createDbSql = "create database if not exists test";
         CreateDbStmt createSchemaStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createSchemaSql, connectContext);
-        CreateDbStmt createDbStmt =  (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
         Assert.assertEquals(createDbStmt.toSql(), createSchemaStmt.toSql());
     }
 
@@ -1097,12 +1120,12 @@ public class QueryPlanTest {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle1");
         for (Partition partition : tbl.getPartitions()) {
-            partition.updateVisibleVersionAndVersionHash(2, 0);
+            partition.updateVisibleVersion(2);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 10000);
                     }
                 }
             }
@@ -1111,12 +1134,12 @@ public class QueryPlanTest {
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
         tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle2");
         for (Partition partition : tbl.getPartitions()) {
-            partition.updateVisibleVersionAndVersionHash(2, 0);
+            partition.updateVisibleVersion(2);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 10000);
                     }
                 }
             }
@@ -1181,12 +1204,12 @@ public class QueryPlanTest {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
-            partition.updateVisibleVersionAndVersionHash(2, 0);
+            partition.updateVisibleVersion(2);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 10000);
                     }
                 }
             }
@@ -1208,12 +1231,12 @@ public class QueryPlanTest {
 
         // should clear the jointest table to make sure do not affect other test
         for (Partition partition : tbl.getPartitions()) {
-            partition.updateVisibleVersionAndVersionHash(2, 0);
+            partition.updateVisibleVersion(2);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersionInfo(2, 0, 0);
                     }
                 }
             }
@@ -1228,12 +1251,12 @@ public class QueryPlanTest {
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
-            partition.updateVisibleVersionAndVersionHash(2, 0);
+            partition.updateVisibleVersion(2);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 10000);
                     }
                 }
             }
@@ -1255,12 +1278,12 @@ public class QueryPlanTest {
 
         // should clear the jointest table to make sure do not affect other test
         for (Partition partition : tbl.getPartitions()) {
-            partition.updateVisibleVersionAndVersionHash(2, 0);
+            partition.updateVisibleVersion(2);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersionInfo(2, 0, 0);
                     }
                 }
             }
@@ -1505,7 +1528,7 @@ public class QueryPlanTest {
         sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
         sqls.add("explain select * from baseall join bigtable as b on null = 2");
 
-        for (String sql: sqls) {
+        for (String sql : sqls) {
             String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
             Assert.assertTrue(explainString.contains(emptyNode));
             Assert.assertFalse(explainString.contains(denseRank));
@@ -1714,7 +1737,7 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where day = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `day` = 1980"));
-       //invalid date
+        //invalid date
         sql = "select day from tbl_int_date where day = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `day` = -20"));
@@ -1785,7 +1808,7 @@ public class QueryPlanTest {
     }
 
     @Test
-    public void testNullColumnViewOrderBy() throws Exception{
+    public void testNullColumnViewOrderBy() throws Exception {
         FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
         String sql = "select * from tbl_null_column_view where add_column is not null;";
@@ -1876,7 +1899,7 @@ public class QueryPlanTest {
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
-    
+
     // Fix: issue-#7929
     @Test
     public void testEmptyNodeWithOuterJoinAndAnalyticFunction() throws Exception {
@@ -1912,7 +1935,26 @@ public class QueryPlanTest {
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
         Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
+    }
 
+    @Ignore
+    // Open it after fixing issue #7971
+    public void testGroupingSetOutOfBoundError() throws Exception {
+        String createDbStmtStr = "create database issue1111;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createTable("CREATE TABLE issue1111.`test1` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
+                ");");
+        String sql = "SELECT k1 ,GROUPING(k2) FROM issue1111.test1 GROUP BY CUBE (k1) ORDER BY k1";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
+        System.out.println(explainStr);
     }
 
     // --begin-- implicit cast in explain verbose
@@ -1942,4 +1984,94 @@ public class QueryPlanTest {
     }
     // --end--
 
+    @Test
+    public void testGroupingSets() throws Exception {
+        String createDbStmtStr = "create database issue7971;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createTable("CREATE TABLE issue7971.`t` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+                "  `k3` smallint(6) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")");
+        String sql = "SELECT k1, k2, GROUPING(k1), GROUPING(k2), SUM(k3) FROM issue7971.t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k1), ( ) );";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertTrue(explainStr.contains("REPEAT_NODE"));
+        sql = "SELECT k1 ,GROUPING(k2) FROM issue7971.t GROUP BY CUBE (k1) ORDER BY k1;";
+        explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertTrue(explainStr.contains("errCode = 2"));
+    }
+
+    @Test
+    public void testQueryWithUsingClause() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String iSql1 = "explain insert into test.tbl_using_a values(1,3,7),(2,2,8),(3,1,9)";
+        String iSql2 = "explain insert into test.tbl_using_b values(1,3,1),(3,1,1),(4,1,1),(5,2,1)";
+        UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, iSql1);
+        UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, iSql2);
+        String qSQL = "explain  select t1.* from test.tbl_using_a t1 join test.tbl_using_b t2 using(k1,k2) where t1.k1 " +
+                "between 1 and 3 and t2.k3 between 1+0 and 3+0";
+        try {
+            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, qSQL);
+        } catch (AnalysisException e) {
+            Assert.fail();
+        }
+    }
+
+    @Test
+    public void testResultExprs() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE test.result_exprs (\n" +
+                "  `aid` int(11) NULL,\n" +
+                "  `bid` int(11) NULL\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`aid`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`aid`) BUCKETS 7\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"business_key_column_name\" = \"\",\n" +
+                "\"storage_medium\" = \"HDD\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ");\n");
+        String queryStr = "EXPLAIN INSERT INTO result_exprs\n" +
+                "SELECT a.aid,\n" +
+                "       b.bid\n" +
+                "FROM\n" +
+                "  (SELECT 3 AS aid)a\n" +
+                "RIGHT JOIN\n" +
+                "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+    }
+
+    @Test
+    public void testInsertIntoSelect() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE test.`decimal_tb` (\n" +
+                "  `k1` decimal(1, 0) NULL COMMENT \"\",\n" +
+                "  `v1` decimal(1, 0) SUM NULL COMMENT \"\",\n" +
+                "  `v2` decimal(1, 0) MAX NULL COMMENT \"\",\n" +
+                "  `v3` decimal(1, 0) MIN NULL COMMENT \"\",\n" +
+                "  `v4` decimal(1, 0) REPLACE NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`k1`)\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
+                ")");
+        String sql = "explain insert into test.decimal_tb select 1, 10, 1, 1, 1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
+    }
 }

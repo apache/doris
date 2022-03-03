@@ -48,6 +48,7 @@ private:
         }
         return std::make_shared<typename Impl::Type>();
     }
+
     DataTypes get_variadic_argument_types_impl() const override {
         if constexpr (has_variadic_argument) return Impl::get_variadic_argument_types();
         return {};

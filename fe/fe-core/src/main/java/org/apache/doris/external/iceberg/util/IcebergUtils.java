@@ -34,6 +34,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprOpcode;
@@ -110,12 +111,21 @@ public class IcebergUtils {
     public static List<Column> createSchemaFromIcebergSchema(Schema schema) throws DdlException {
         List<Column> columns = Lists.newArrayList();
         for (Types.NestedField nestedField : schema.columns()) {
-            columns.add(nestedFieldToColumn(nestedField));
+            try {
+                columns.add(nestedFieldToColumn(nestedField));
+            } catch (UnsupportedOperationException e) {
+                if (Config.iceberg_table_creation_strict_mode) {
+                    throw e;
+                }
+                LOG.warn("Unsupported data type in Doris, ignore column[{}], with error: {}",
+                        nestedField.name(), e.getMessage());
+                continue;
+            }
         }
         return columns;
     }
 
-    public static Column nestedFieldToColumn(Types.NestedField field) throws DdlException {
+    public static Column nestedFieldToColumn(Types.NestedField field) {
         Type type = convertIcebergToDoris(field.type());
         return new Column(field.name(), type, true, null, field.isOptional(), null, field.doc());
     }

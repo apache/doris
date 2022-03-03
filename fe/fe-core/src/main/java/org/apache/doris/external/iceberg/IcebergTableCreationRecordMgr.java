@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.common.property.PropertySchema;
 import org.apache.doris.common.util.MasterDaemon;
 
@@ -63,8 +64,8 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     // used to create table
     private Map<Database, Map<TableIdentifier, IcebergProperty>> dbToTableIdentifiers = Maps.newConcurrentMap();
     // table creation records, used for show stmt
-    // db -> table -> create msg
-    private Map<String, Map<String, IcebergTableCreationRecord>> dbToTableToCreationRecord = Maps.newConcurrentMap();
+    // dbId -> tableId -> create msg
+    private Map<Long, Map<Long, IcebergTableCreationRecord>> dbToTableToCreationRecord = Maps.newConcurrentMap();
 
     private Queue<IcebergTableCreationRecord> tableCreationRecordQueue = new PriorityQueue<>(new TableCreationComparator());
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -94,8 +95,8 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     public void deregisterDb(Database db) {
         icebergDbs.remove(db.getId());
         dbToTableIdentifiers.remove(db);
-        dbToTableToCreationRecord.remove(db.getFullName());
-        LOG.info("Deregister database[{}]", db.getFullName());
+        dbToTableToCreationRecord.remove(db.getId());
+        LOG.info("Deregister database[{}-{}]", db.getFullName(), db.getId());
     }
 
     public void deregisterTable(Database db, IcebergTable table) {
@@ -104,21 +105,21 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             Map<TableIdentifier, IcebergProperty> identifierToProperties = dbToTableIdentifiers.get(db);
             identifierToProperties.remove(identifier);
         }
-        if (dbToTableToCreationRecord.containsKey(db.getFullName())) {
-            Map<String, IcebergTableCreationRecord> recordMap = dbToTableToCreationRecord.get(db.getFullName());
-            recordMap.remove(table.getName());
+        if (dbToTableToCreationRecord.containsKey(db.getId())) {
+            Map<Long, IcebergTableCreationRecord> recordMap = dbToTableToCreationRecord.get(db.getId());
+            recordMap.remove(table.getId());
         }
-        LOG.info("Deregister table[{}] from database[{}]", table.getName(), db.getFullName());
+        LOG.info("Deregister table[{}-{}] from database[{}-{}]", table.getName(),
+                table.getId(), db.getFullName(), db.getId());
     }
 
     // remove already created tables or failed tables
     private void removeDuplicateTables() {
-        for (Map.Entry<String, Map<String, IcebergTableCreationRecord>> entry : dbToTableToCreationRecord.entrySet()) {
-            String dbName = entry.getKey();
-            Catalog.getCurrentCatalog().getDb(dbName).ifPresent(db -> {
+        for (Map.Entry<Long, Map<Long, IcebergTableCreationRecord>> entry : dbToTableToCreationRecord.entrySet()) {
+            Catalog.getCurrentCatalog().getDb(entry.getKey()).ifPresent(db -> {
                 if (dbToTableIdentifiers.containsKey(db)) {
-                    for (Map.Entry<String, IcebergTableCreationRecord> innerEntry : entry.getValue().entrySet()) {
-                        String tableName = innerEntry.getKey();
+                    for (Map.Entry<Long, IcebergTableCreationRecord> innerEntry : entry.getValue().entrySet()) {
+                        String tableName = innerEntry.getValue().getTable();
                         String icebergDbName = db.getDbProperties().getIcebergProperty().getDatabase();
                         TableIdentifier identifier = TableIdentifier.of(icebergDbName, tableName);
                         dbToTableIdentifiers.get(db).remove(identifier);
@@ -142,7 +143,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             try {
                 icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
             } catch (DdlException e) {
-                addTableCreationRecord(db.getFullName(), "", FAIL,
+                addTableCreationRecord(db.getId(), -1, db.getFullName(), "", FAIL,
                         prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
                 LOG.warn("Failed get Iceberg catalog, hive.metastore.uris[{}], error: {}",
                         icebergProperty.getHiveMetastoreUris(), e.getMessage());
@@ -152,14 +153,15 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
                 icebergTables = icebergCatalog.listTables(icebergProperty.getDatabase());
 
             } catch (DorisIcebergException e) {
-                addTableCreationRecord(db.getFullName(), "", FAIL,
+                addTableCreationRecord(db.getId(), -1, db.getFullName(), "", FAIL,
                         prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
                 LOG.warn("Failed list remote Iceberg database, hive.metastore.uris[{}], database[{}], error: {}",
                         icebergProperty.getHiveMetastoreUris(), icebergProperty.getDatabase(), e.getMessage());
             }
             for (TableIdentifier identifier : icebergTables) {
-                icebergProperty.setTable(identifier.name());
-                registerTable(db, identifier, icebergProperty);
+                IcebergProperty tableProperties = new IcebergProperty(icebergProperty);
+                tableProperties.setTable(identifier.name());
+                registerTable(db, identifier, tableProperties);
             }
         }
 
@@ -169,20 +171,21 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             for (Map.Entry<TableIdentifier, IcebergProperty> innerEntry : entry.getValue().entrySet()) {
                 TableIdentifier identifier = innerEntry.getKey();
                 IcebergProperty icebergProperty = innerEntry.getValue();
+                long tableId = SystemIdGenerator.getNextId();
                 try {
                     // get doris table from iceberg
-                    IcebergTable table = IcebergCatalogMgr.getTableFromIceberg(identifier.name(),
+                    IcebergTable table = IcebergCatalogMgr.getTableFromIceberg(tableId, identifier.name(),
                             icebergProperty, identifier, false);
                     // check iceberg table if exists in doris database
                     if (!db.createTableWithLock(table, false, false).first) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE,
                                 table.getName(), ErrorCode.ERR_TABLE_EXISTS_ERROR.getCode());
                     }
-                    addTableCreationRecord(db.getFullName(), table.getName(), SUCCESS,
+                    addTableCreationRecord(db.getId(), tableId, db.getFullName(), table.getName(), SUCCESS,
                             prop.writeTimeFormat(new Date(System.currentTimeMillis())), "");
-                    LOG.info("Successfully create table[{}-{}]", table.getName(), table.getId());
+                    LOG.info("Successfully create table[{}-{}]", table.getName(), tableId);
                 } catch (Exception e) {
-                    addTableCreationRecord(db.getFullName(), identifier.name(), FAIL,
+                    addTableCreationRecord(db.getId(), tableId, db.getFullName(), identifier.name(), FAIL,
                             prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
                     LOG.warn("Failed create table[{}], error: {}", identifier.name(), e.getMessage());
                 }
@@ -191,19 +194,18 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
         removeDuplicateTables();
     }
 
-    private void addTableCreationRecord(String db, String table, String status, String createTime, String errorMsg) {
+    private void addTableCreationRecord(long dbId, long tableId, String db, String table, String status,
+                                        String createTime, String errorMsg) {
         writeLock();
         try {
             while (isQueueFull()) {
                 IcebergTableCreationRecord record = tableCreationRecordQueue.poll();
                 if (record != null) {
-                    String recordDb = record.getDb();
-                    String recordTable = record.getTable();
-                    Map<String, IcebergTableCreationRecord> tableRecords = dbToTableToCreationRecord.get(recordDb);
-                    Iterator<Map.Entry<String, IcebergTableCreationRecord>> tableRecordsIterator = tableRecords.entrySet().iterator();
+                    Map<Long, IcebergTableCreationRecord> tableRecords = dbToTableToCreationRecord.get(record.getDbId());
+                    Iterator<Map.Entry<Long, IcebergTableCreationRecord>> tableRecordsIterator = tableRecords.entrySet().iterator();
                     while (tableRecordsIterator.hasNext()) {
-                        String t = tableRecordsIterator.next().getKey();
-                        if (t.equals(recordTable)) {
+                        long t = tableRecordsIterator.next().getKey();
+                        if (t == record.getTableId()) {
                             tableRecordsIterator.remove();
                             break;
                         }
@@ -211,31 +213,32 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
                 }
             }
 
-            IcebergTableCreationRecord record = new IcebergTableCreationRecord(db, table, status, createTime, errorMsg);
+            IcebergTableCreationRecord record = new IcebergTableCreationRecord(dbId, tableId, db, table, status,
+                    createTime, errorMsg);
             tableCreationRecordQueue.offer(record);
 
-            if (!dbToTableToCreationRecord.containsKey(db)) {
-                dbToTableToCreationRecord.put(db, new ConcurrentHashMap<>());
+            if (!dbToTableToCreationRecord.containsKey(dbId)) {
+                dbToTableToCreationRecord.put(dbId, new ConcurrentHashMap<>());
             }
-            Map<String, IcebergTableCreationRecord> tableToRecord = dbToTableToCreationRecord.get(db);
-            if (!tableToRecord.containsKey(table)) {
-                tableToRecord.put(table, record);
+            Map<Long, IcebergTableCreationRecord> tableToRecord = dbToTableToCreationRecord.get(dbId);
+            if (!tableToRecord.containsKey(tableId)) {
+                tableToRecord.put(tableId, record);
             }
         } finally {
             writeUnlock();
         }
     }
 
-    public List<IcebergTableCreationRecord> getTableCreationRecordByDb(String db) {
+    public List<IcebergTableCreationRecord> getTableCreationRecordByDbId(long dbId) {
         List<IcebergTableCreationRecord> records = new ArrayList<>();
 
         readLock();
         try {
-            if (!dbToTableToCreationRecord.containsKey(db)) {
+            if (!dbToTableToCreationRecord.containsKey(dbId)) {
                 return records;
             }
-            Map<String, IcebergTableCreationRecord> tableToRecords = dbToTableToCreationRecord.get(db);
-            for (Map.Entry<String, IcebergTableCreationRecord> entry : tableToRecords.entrySet()) {
+            Map<Long, IcebergTableCreationRecord> tableToRecords = dbToTableToCreationRecord.get(dbId);
+            for (Map.Entry<Long, IcebergTableCreationRecord> entry : tableToRecords.entrySet()) {
                 records.add(entry.getValue());
             }
 

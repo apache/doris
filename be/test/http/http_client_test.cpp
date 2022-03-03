@@ -111,7 +111,10 @@ TEST_F(HttpClientTest, get_normal) {
     client.set_basic_auth("test1", "");
     st = client.execute();
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, client.get_content_length());
+    uint64_t len = 0;
+    st = client.get_content_length(&len);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(5, len);
 }
 
 TEST_F(HttpClientTest, download) {

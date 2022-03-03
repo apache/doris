@@ -43,6 +43,7 @@ public class AlterRoutineLoadOperationLogTest {
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();
+        file.deleteOnExit();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         long jobId = 1000;

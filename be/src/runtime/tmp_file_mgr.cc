@@ -245,15 +245,6 @@ void TmpFileMgr::File::report_io_error(const std::string& error_msg) {
     LOG(ERROR) << "Error for temporary file '" << _path << "': " << error_msg;
 }
 
-#if 0
-void TmpFileMgr::File::report_io_error(const ErrorMsg& msg) {
-    LOG(ERROR) << "Error for temporary file '" << _path << "': " << msg.msg();
-    // IMPALA-2305: avoid blacklisting to prevent test failures.
-    // blacklisted_ = true;
-    // mgr_->BlacklistDevice(device_id_);
-}
-#endif
-
 Status TmpFileMgr::File::remove() {
     if (_current_size > 0) {
         FileSystemUtil::remove_paths(vector<string>(1, _path));

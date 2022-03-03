@@ -46,7 +46,6 @@ public:
     virtual OLAPStatus execute();
 
 private:
-    // The initial function of pusher
     virtual AgentStatus _init();
 
     // The process of push data to olap engine
@@ -77,6 +76,6 @@ private:
     AgentStatus* _res_status;
     std::string _remote_file_path;
     std::string _local_file_path;
-}; // class Pusher
+}; // class EngineBatchLoadTask
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H

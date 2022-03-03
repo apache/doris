@@ -57,9 +57,6 @@ public:
     void execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                            Arena* arena = nullptr);
 
-    void execute_single_merge(AggregateDataPtr place, ConstAggregateDataPtr rhs,
-                              Arena* arena = nullptr);
-
     void insert_result_info(AggregateDataPtr place, IColumn* column);
 
     void reset(AggregateDataPtr place);

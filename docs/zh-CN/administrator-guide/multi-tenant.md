@@ -138,7 +138,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
     
 ## 单查询资源限制
 
-前面提到的资源组方法是节点级别的资源隔离和限制。而在资源组内，依然可能发生资源抢占问题。比如前文提到的将3个业务部门安排在同一资源组内。虽然降低了资源竞争程度，但是这3各部门的查询依然有可能相互影响。
+前面提到的资源组方法是节点级别的资源隔离和限制。而在资源组内，依然可能发生资源抢占问题。比如前文提到的将3个业务部门安排在同一资源组内。虽然降低了资源竞争程度，但是这3个部门的查询依然有可能相互影响。
 
 因此，除了资源组方案外，Doris 还提供了对单查询的资源限制功能。
 
@@ -213,7 +213,7 @@ Tag 划分和 CPU 限制是 0.15 版本中的新功能。为了保证可以从�
     ADMIN SET FRONTEND CONFIG ("disable_tablet_scheduler" = "false");
     ```
     
-    该过程根据涉及到的数据量会持续一段时间。并且会导致部分 colocation table 无法进行 colocation 规划（因为副本在迁移中）。可以通过 ` show proc "/cluster_balance/` 来查看进度。也可以通过 `show proc "/statistic"` 中 `UnhealthyTabletNum` 的数量来判断进度。当 `UnhealthyTabletNum` 降为 0 时，则代表数据重分布完毕。
+    该过程根据涉及到的数据量会持续一段时间。并且会导致部分 colocation table 无法进行 colocation 规划（因为副本在迁移中）。可以通过 ` show proc "/cluster_balance/"` 来查看进度。也可以通过 `show proc "/statistic"` 中 `UnhealthyTabletNum` 的数量来判断进度。当 `UnhealthyTabletNum` 降为 0 时，则代表数据重分布完毕。
     
 4. 设置用户的资源标签权限。
     

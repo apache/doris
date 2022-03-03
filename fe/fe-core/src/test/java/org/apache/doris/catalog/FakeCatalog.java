@@ -39,11 +39,6 @@ public class FakeCatalog extends MockUp<Catalog> {
         FakeCatalog.systemInfo = systemInfo;
     }
 
-    // @Mock
-    // public int getJournalVersion() {
-    // return FeMetaVersion.VERSION_45;
-    // }
-
     @Mock
     public static Catalog getCurrentCatalog() {
         System.out.println("fake get current catalog is called");

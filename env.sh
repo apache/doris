@@ -91,6 +91,9 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     if test -x ${DORIS_CLANG_HOME}/bin/ld.lld; then
         export DORIS_BIN_UTILS=${DORIS_CLANG_HOME}/bin/
     fi
+    if [[ -f ${DORIS_CLANG_HOME}/bin/llvm-symbolizer ]]; then
+        export ASAN_SYMBOLIZER_PATH=${DORIS_CLANG_HOME}/bin/llvm-symbolizer
+    fi
 else
     echo "Error: unknown DORIS_TOOLCHAIN=${DORIS_TOOLCHAIN}, currently only 'gcc' and 'clang' are supported"
     exit 1

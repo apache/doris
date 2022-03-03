@@ -18,6 +18,8 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionDateOrDatetimeToSomething.h
 // and modified by Doris
 
+#pragma once
+
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/functions/date_time_transforms.h"
@@ -30,12 +32,19 @@ template <typename ToDataType, typename Transform>
 class FunctionDateOrDateTimeToSomething : public IFunction {
 public:
     static constexpr auto name = Transform::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+
     static FunctionPtr create() { return std::make_shared<FunctionDateOrDateTimeToSomething>(); }
 
     String get_name() const override { return name; }
 
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() == 1) {

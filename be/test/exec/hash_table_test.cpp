@@ -353,8 +353,6 @@ TEST_F(HashTableTest, GrowTableTest) {
 // This test continues adding to the hash table to trigger the resize code paths
 TEST_F(HashTableTest, GrowTableTest2) {
     int build_row_val = 0;
-    int num_to_add = 1024;
-    int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
             MemTracker::CreateTracker(1024 * 1024 * 1024, "hash-table-grow2-tracker", _tracker);
@@ -371,7 +369,6 @@ TEST_F(HashTableTest, GrowTableTest2) {
 
     for (int i = 0; i < test_size; ++i) {
         hash_table.insert(create_tuple_row(build_row_val++));
-        expected_size += num_to_add;
     }
 
     LOG(INFO) << time(nullptr);

@@ -37,6 +37,7 @@ public:
     VMysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VMysqlScanNode();
 
+    using MysqlScanNode::get_next;
     // Fill the next block by calling next() on the _mysql_scanner,
     // converting text data in MySQL cells to binary data.
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);

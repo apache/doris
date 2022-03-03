@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <cstdint>
+#include <iostream>
 #include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
@@ -28,11 +29,11 @@
 // object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
 class FunctionContextImpl;
-class ColumnPtrWrapper;
+struct ColumnPtrWrapper;
 struct StringValue;
-struct BitmapValue;
-struct DecimalV2Value;
-struct DateTimeValue;
+class BitmapValue;
+class DecimalV2Value;
+class DateTimeValue;
 struct CollectionValue;
 } // namespace doris
 
@@ -656,7 +657,9 @@ struct StringVal : public AnyVal {
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
                 int64_t buf2_len);
+    std::string to_string() const { return std::string((char*)ptr, len); }
 };
+std::ostream& operator<<(std::ostream& os, const StringVal& string_val);
 
 struct DecimalV2Val : public AnyVal {
     __int128 val;

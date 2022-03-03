@@ -68,7 +68,6 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
         _current_rowset_meta->set_load_id(_rowset_writer_context.load_id);
     } else {
         _current_rowset_meta->set_version(_rowset_writer_context.version);
-        _current_rowset_meta->set_version_hash(_rowset_writer_context.version_hash);
     }
     RETURN_NOT_OK(_init());
     return OLAP_SUCCESS;
@@ -259,7 +258,7 @@ OLAPStatus AlphaRowsetWriter::_init() {
         _cur_segment_group = new (std::nothrow) SegmentGroup(
                 _rowset_writer_context.tablet_id, _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema, _rowset_writer_context.path_desc.filepath,
-                _rowset_writer_context.version, _rowset_writer_context.version_hash, false,
+                _rowset_writer_context.version, false,
                 _segment_group_id, 0);
     }
     DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";

@@ -26,12 +26,14 @@ class VCaseExpr final : public VExpr {
 public:
     VCaseExpr(const TExprNode& node);
     ~VCaseExpr() = default;
-    virtual Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id);
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context);
+    virtual Status execute(VExprContext* context, vectorized::Block* block,
+                           int* result_column_id) override;
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc,
+                           VExprContext* context) override;
     virtual Status open(RuntimeState* state, VExprContext* context,
-                        FunctionContext::FunctionStateScope scope);
+                        FunctionContext::FunctionStateScope scope) override;
     virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+                       FunctionContext::FunctionStateScope scope) override;
     virtual VExpr* clone(ObjectPool* pool) const override {
         return pool->add(new VCaseExpr(*this));
     }

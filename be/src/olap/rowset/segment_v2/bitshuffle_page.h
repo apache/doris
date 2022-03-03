@@ -37,8 +37,8 @@
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
-#include "vec/runtime/vdatetime_value.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -124,7 +124,7 @@ public:
         _remain_element_capacity = block_size / SIZE_OF_TYPE;
     }
 
-    size_t count() const { return _count; }
+    size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
@@ -217,9 +217,7 @@ public:
               _size_of_element(0),
               _cur_index(0) {}
 
-    ~BitShufflePageDecoder() {
-        ChunkAllocator::instance()->free(_chunk);
-    }
+    ~BitShufflePageDecoder() { ChunkAllocator::instance()->free(_chunk); }
 
     Status init() override {
         CHECK(!_parsed);
@@ -350,63 +348,20 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
             return Status::OK();
         }
- 
+
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
- 
-        int begin = _cur_index;
-        int end = _cur_index + max_fetch;
 
-        auto* dst_col_ptr = dst.get();
-        if (dst->is_nullable()) {
-            auto nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
-            dst_col_ptr = nullable_column->get_nested_column_ptr().get();
-
-            // fill null bitmap here, not null;
-            nullable_column->get_null_map_column().insert_zeroed_elements(end - begin);
-        }
-
-        // todo(wb) Try to eliminate type judgment in pagedecoder
-        if (dst_col_ptr->is_column_decimal()) { // decimal non-predicate column
-            for (; begin < end; begin++) {
-                const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
-                int64_t int_value = *(int64_t*)(cur_ptr);
-                int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
-                DecimalV2Value data(int_value, frac_value);
-                dst_col_ptr->insert_data(reinterpret_cast<char*>(&data), 0);
-            }
-        } else if (dst_col_ptr->is_date_type()) {
-            for (; begin < end; begin++) {
-                const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
-                uint64_t value = 0;
-                value = *(unsigned char*)(cur_ptr + 2);
-                value <<= 8;
-                value |= *(unsigned char*)(cur_ptr + 1);
-                value <<= 8;
-                value |= *(unsigned char*)(cur_ptr);
-                vectorized::VecDateTimeValue date;
-                date.from_olap_date(value);
-                dst_col_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
-            }
-        } else if (dst_col_ptr->is_datetime_type()) {
-            for (; begin < end; begin++) {
-                const char* cur_ptr = (const char*)&_chunk.data[begin * SIZE_OF_TYPE];
-                uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
-                vectorized::VecDateTimeValue date(value);
-                dst_col_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
-            }
-        } else {
-            dst_col_ptr->insert_elements(&_chunk.data[begin * SIZE_OF_TYPE], (end - begin));
-        }
+        dst->insert_many_fix_len_data((char*)&_chunk.data[_cur_index * SIZE_OF_TYPE], max_fetch);
 
         *n = max_fetch;
         _cur_index += max_fetch;
- 
+
         return Status::OK();
     };
 
@@ -426,7 +381,8 @@ private:
     Status _decode() {
         if (_num_elements > 0) {
             int64_t bytes;
-            if (!ChunkAllocator::instance()->allocate_align(_num_element_after_padding * _size_of_element, &_chunk)) {
+            if (!ChunkAllocator::instance()->allocate_align(
+                        _num_element_after_padding * _size_of_element, &_chunk)) {
                 return Status::RuntimeError("Decoded Memory Alloc failed");
             }
             char* in = const_cast<char*>(&_data[BITSHUFFLE_PAGE_HEADER_SIZE]);

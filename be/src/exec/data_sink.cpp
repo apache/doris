@@ -37,7 +37,9 @@
 
 #include "vec/sink/result_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vmysql_table_writer.h"
 #include "vec/sink/vtablet_sink.h"
+#include "vec/sink/vmysql_table_sink.h"
 
 namespace doris {
 
@@ -113,10 +115,14 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-
-        // TODO: figure out good buffer size based on size of output row
-        MysqlTableSink* mysql_tbl_sink = new MysqlTableSink(pool, row_desc, output_exprs);
-        sink->reset(mysql_tbl_sink);
+        if (is_vec) {
+            doris::vectorized::VMysqlTableSink* vmysql_tbl_sink = new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+            sink->reset(vmysql_tbl_sink);
+        } else {
+            // TODO: figure out good buffer size based on size of output row
+            MysqlTableSink* mysql_tbl_sink = new MysqlTableSink(pool, row_desc, output_exprs);
+            sink->reset(mysql_tbl_sink);
+        }
         break;
 #else
         return Status::InternalError(

@@ -597,6 +597,7 @@ struct TStreamLoadPutRequest {
     34: optional string auth_code_uuid
     35: optional i32 send_batch_parallelism
     36: optional double max_filter_ratio
+    37: optional bool load_to_single_tablet
 }
 
 struct TStreamLoadPutResult {
@@ -653,6 +654,23 @@ struct TLoadTxnCommitRequest {
 }
 
 struct TLoadTxnCommitResult {
+    1: required Status.TStatus status
+}
+
+struct TLoadTxn2PCRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: optional string db
+    5: optional string user_ip
+    6: optional i64 txnId
+    7: optional string operation
+    8: optional i64 auth_code
+    9: optional string auth_code_uuid
+    10: optional i64 thrift_rpc_timeout_ms
+}
+
+struct TLoadTxn2PCResult {
     1: required Status.TStatus status
 }
 
@@ -749,6 +767,8 @@ service FrontendService {
     TFeResult updateExportTaskStatus(1: TUpdateExportTaskStatusRequest request)
 
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
+    TLoadTxnCommitResult loadTxnPreCommit(1: TLoadTxnCommitRequest request)
+    TLoadTxn2PCResult loadTxn2PC(1: TLoadTxn2PCRequest request)
     TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)
     TLoadTxnRollbackResult loadTxnRollback(1: TLoadTxnRollbackRequest request)
 

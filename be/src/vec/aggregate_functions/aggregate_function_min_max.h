@@ -35,7 +35,8 @@ struct SingleValueDataFixed {
 private:
     using Self = SingleValueDataFixed;
 
-    bool has_value = false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
+    bool has_value =
+            false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
     T value;
 
 public:
@@ -50,7 +51,7 @@ public:
 
     void reset() {
         if (has()) {
-            has_value = false;    
+            has_value = false;
         }
     }
 
@@ -166,10 +167,10 @@ public:
 
     void reset() {
         if (has()) {
-            has_value = false;    
+            has_value = false;
         }
     }
-    
+
     void write(BufferWritable& buf) const {
         write_binary(has(), buf);
         if (has()) write_binary(value, buf);
@@ -297,13 +298,13 @@ public:
 
     void reset() {
         if (size != -1) {
-            size = -1;    
-            capacity = 0; 
+            size = -1;
+            capacity = 0;
             delete large_data;
             large_data = nullptr;
         }
     }
-    
+
     void write(BufferWritable& buf) const {
         write_binary(size, buf);
         if (has()) buf.write(get_data(), size);
@@ -497,11 +498,10 @@ public:
         this->data(place).change_if_better(*columns[0], row_num, arena);
     }
 
-    void reset(AggregateDataPtr place) const override {
-        this->data(place).reset();
-    }
+    void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena* arena) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena* arena) const override {
         this->data(place).change_if_better(this->data(rhs), arena);
     }
 
@@ -509,7 +509,8 @@ public:
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         this->data(place).read(buf);
     }
 
@@ -518,8 +519,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
-
-    const char* get_header_file_path() const override { return __FILE__; }
 };
 
 AggregateFunctionPtr create_aggregate_function_max(const std::string& name,

@@ -55,7 +55,6 @@ private:
     size_t _step_size;
 
     // Bloom filter param
-    uint32_t _bit_num;
     uint32_t _hash_function_num;
 
     // BloomFilterIndexReader will not release bloom filter index buffer in destructor

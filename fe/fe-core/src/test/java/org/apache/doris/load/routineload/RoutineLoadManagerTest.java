@@ -33,6 +33,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -495,7 +496,7 @@ public class RoutineLoadManagerTest {
     @Test
     public void testGetJob(@Injectable RoutineLoadJob routineLoadJob1,
                            @Injectable RoutineLoadJob routineLoadJob2,
-                           @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException {
+                           @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException, AnalysisException {
 
         new Expectations() {
             {
@@ -508,6 +509,15 @@ public class RoutineLoadManagerTest {
                 routineLoadJob3.isFinal();
                 minTimes = 0;
                 result = true;
+                routineLoadJob1.getName();
+                minTimes = 0;
+                result = "routine_load_job_test1";
+                routineLoadJob2.getName();
+                minTimes = 0;
+                result = "routine_load_job";
+                routineLoadJob3.getName();
+                minTimes = 0;
+                result = "routine_load_job_test2";
             }
         };
 
@@ -517,12 +527,18 @@ public class RoutineLoadManagerTest {
         idToRoutineLoadJob.put(2L, routineLoadJob2);
         idToRoutineLoadJob.put(3L, routineLoadJob3);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        List<RoutineLoadJob> result = routineLoadManager.getJob(null, null, true);
+        List<RoutineLoadJob> result = routineLoadManager.getJob(null, null, true, null);
 
         Assert.assertEquals(3, result.size());
         Assert.assertEquals(routineLoadJob2, result.get(0));
         Assert.assertEquals(routineLoadJob1, result.get(1));
         Assert.assertEquals(routineLoadJob3, result.get(2));
+
+        PatternMatcher matcher = PatternMatcher.createMysqlPattern("%test%", true);
+        result = routineLoadManager.getJob(null, null, true, matcher);
+        Assert.assertEquals(2, result.size());
+        Assert.assertEquals(routineLoadJob1, result.get(0));
+        Assert.assertEquals(routineLoadJob3, result.get(1));
     }
 
     @Test
@@ -561,7 +577,7 @@ public class RoutineLoadManagerTest {
         nameToRoutineLoadJob.put("", routineLoadJobList);
         dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
-        List<RoutineLoadJob> result = routineLoadManager.getJob("", "", true);
+        List<RoutineLoadJob> result = routineLoadManager.getJob("", "", true, null);
 
         Assert.assertEquals(3, result.size());
         Assert.assertEquals(routineLoadJob2, result.get(0));

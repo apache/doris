@@ -39,6 +39,7 @@ public:
     public:
         int priority;
         WorkFunction work_function;
+        int queue_id;
         bool operator<(const Task& o) const { return priority < o.priority; }
 
         Task& operator++() {
@@ -63,7 +64,7 @@ public:
 
     // Destructor ensures that all threads are terminated before this object is freed
     // (otherwise they may continue to run and reference member variables)
-    ~PriorityThreadPool() {
+    virtual ~PriorityThreadPool() {
         shutdown();
         join();
     }
@@ -79,10 +80,10 @@ public:
     //
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
-    bool offer(Task task) { return _work_queue.blocking_put(task); }
+    virtual bool offer(Task task) { return _work_queue.blocking_put(task); }
 
-    bool offer(WorkFunction func) {
-        PriorityThreadPool::Task task = {0, func};
+    virtual bool offer(WorkFunction func) {
+        PriorityThreadPool::Task task = {0, func, 0};
         return _work_queue.blocking_put(task);
     }
 
@@ -90,21 +91,21 @@ public:
     // and the worker threads to terminate once they have processed their current work item.
     // Returns once the shutdown flag has been set, does not wait for the threads to
     // terminate.
-    void shutdown() {
+    virtual void shutdown() {
         _shutdown = true;
         _work_queue.shutdown();
     }
 
     // Blocks until all threads are finished. shutdown does not need to have been called,
     // since it may be called on a separate thread.
-    void join() { _threads.join_all(); }
+    virtual void join() { _threads.join_all(); }
 
-    uint32_t get_queue_size() const { return _work_queue.get_size(); }
+    virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
 
     // Blocks until the work queue is empty, and then calls shutdown to stop the worker
     // threads and Join to wait until they are finished.
     // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
-    void drain_and_shutdown() {
+    virtual void drain_and_shutdown() {
         {
             std::unique_lock<std::mutex> l(_lock);
             while (_work_queue.get_size() != 0) {
@@ -114,7 +115,8 @@ public:
         shutdown();
         join();
     }
-
+protected:
+    virtual bool is_shutdown() { return _shutdown; }
 private:
     // Driver method for each thread in the pool. Continues to read work from the queue
     // until the pool is shutdown.
@@ -129,8 +131,6 @@ private:
             }
         }
     }
-
-    bool is_shutdown() { return _shutdown; }
 
     // Queue on which work items are held until a thread is available to process them in
     // FIFO order.

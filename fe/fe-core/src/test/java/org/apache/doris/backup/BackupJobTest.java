@@ -46,6 +46,12 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -61,11 +67,6 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 public class BackupJobTest {
 
@@ -79,7 +80,6 @@ public class BackupJobTest {
     private long tabletId = 5;
     private long backendId = 10000;
     private long version = 6;
-    private long versionHash = 7;
 
     private long repoId = 20000;
     private AtomicLong id = new AtomicLong(50000);
@@ -145,7 +145,7 @@ public class BackupJobTest {
         // Thread is unmockable after Jmockit version 1.48, so use reflection to set field instead.
         Deencapsulation.setField(catalog, "backupHandler", backupHandler);
 
-        db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
+        db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
 
         new Expectations(catalog) {
             {
@@ -302,7 +302,7 @@ public class BackupJobTest {
         BackupMeta restoreMetaInfo = null;
         BackupJobInfo restoreJobInfo = null;
         try {
-            restoreMetaInfo = BackupMeta.fromFile(job.getLocalMetaInfoFilePath(), -1);
+            restoreMetaInfo = BackupMeta.fromFile(job.getLocalMetaInfoFilePath(), FeConstants.meta_version);
             Assert.assertEquals(1, restoreMetaInfo.getTables().size());
             OlapTable olapTable = (OlapTable) restoreMetaInfo.getTable(tblId);
             Assert.assertNotNull(olapTable);

@@ -24,6 +24,7 @@
 namespace doris {
 
 ExplodeSplitTableFunction::ExplodeSplitTableFunction() {
+    _fn_name = "explode_split";
 }
 
 ExplodeSplitTableFunction::~ExplodeSplitTableFunction() {

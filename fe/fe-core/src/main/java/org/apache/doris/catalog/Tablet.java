@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.resource.Tag;
@@ -79,6 +78,7 @@ public class Tablet extends MetaObject implements Writable {
     private List<Replica> replicas;
     @SerializedName(value = "checkedVersion")
     private long checkedVersion;
+    @Deprecated
     @SerializedName(value = "checkedVersionHash")
     private long checkedVersionHash;
     @SerializedName(value = "isConsistent")
@@ -104,7 +104,6 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         checkedVersion = -1L;
-        checkedVersionHash = -1L;
 
         isConsistent = true;
     }
@@ -121,13 +120,8 @@ public class Tablet extends MetaObject implements Writable {
         return this.checkedVersion;
     }
 
-    public long getCheckedVersionHash() {
-        return this.checkedVersionHash;
-    }
-
-    public void setCheckedVersion(long checkedVersion, long checkedVersionHash) {
+    public void setCheckedVersion(long checkedVersion) {
         this.checkedVersion = checkedVersion;
-        this.checkedVersionHash = checkedVersionHash;
     }
 
     public void setIsConsistent(boolean good) {
@@ -216,8 +210,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public void getQueryableReplicas(List<Replica> allQuerableReplica, long visibleVersion,
-                                     long visibleVersionHash, int schemaHash) {
+    public void getQueryableReplicas(List<Replica> allQuerableReplica, long visibleVersion, int schemaHash) {
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -231,7 +224,7 @@ public class Tablet extends MetaObject implements Writable {
             ReplicaState state = replica.getState();
             if (state.canQuery()) {
                 // replica.getSchemaHash() == -1 is for compatibility
-                if (replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)
+                if (replica.checkVersionCatchUp(visibleVersion, false)
                         && (replica.getSchemaHash() == -1 || replica.getSchemaHash() == schemaHash)) {
                     allQuerableReplica.add(replica);
                 }
@@ -342,11 +335,9 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_6) {
-            checkedVersion = in.readLong();
-            checkedVersionHash = in.readLong();
-            isConsistent = in.readBoolean();
-        }
+        checkedVersion = in.readLong();
+        checkedVersionHash = in.readLong();
+        isConsistent = in.readBoolean();
     }
 
     public static Tablet read(DataInput in) throws IOException {
@@ -397,7 +388,7 @@ public class Tablet extends MetaObject implements Writable {
      */
     public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
-            long visibleVersion, long visibleVersionHash, ReplicaAllocation replicaAlloc,
+            long visibleVersion, ReplicaAllocation replicaAlloc,
             List<Long> aliveBeIdsInCluster) {
 
 

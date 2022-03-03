@@ -711,8 +711,11 @@ public class SingleNodePlanner {
             candidates.add(new Pair<>(ref, new Long(materializedSize)));
             LOG.debug("The candidate of " + ref.getUniqueAlias() + ": " + materializedSize);
         }
-        // (ML): 这里感觉是不可能运行到的，因为起码第一个节点是inner join
-        if (candidates.isEmpty()) return null;
+        if (candidates.isEmpty()) {
+            // This branch should not be reached, because the first one should be inner join.
+            LOG.warn("Something wrong happens, the code should not be runned");
+            return null;
+        }
 
         // order candidates by descending materialized size; we want to minimize the memory
         // consumption of the materialized hash tables required for the join sequence
@@ -1693,6 +1696,10 @@ public class SingleNodePlanner {
                 break;
             case HIVE:
                 scanNode = new HiveScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
+                        null, -1);
+                break;
+            case ICEBERG:
+                scanNode = new IcebergScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
                         null, -1);
                 break;
             default:

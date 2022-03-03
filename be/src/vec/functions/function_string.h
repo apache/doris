@@ -21,18 +21,21 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
+#include <cstdint>
 #include <string_view>
 
 #include "exprs/anyval_util.h"
 #include "exprs/math_functions.h"
 #include "exprs/string_functions.h"
 #include "runtime/string_value.hpp"
+#include "udf/udf.h"
 #include "util/md5.h"
 #include "util/url_parser.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -65,6 +68,25 @@ inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str
     for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
         char_size = get_utf8_byte_length(str[i]);
         str_index->push_back(i);
+        ++char_len;
+    }
+    return char_len;
+}
+
+inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
+    size_t char_len = 0;
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        str_index->push_back(i);
+        ++char_len;
+    }
+    return char_len;
+}
+
+inline size_t get_char_len(const StringValue& str, size_t end_pos) {
+    size_t char_len = 0;
+    for (size_t i = 0, char_size = 0; i < std::min(str.len, end_pos); i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
         ++char_len;
     }
     return char_len;
@@ -105,9 +127,12 @@ struct SubstringUtil {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
@@ -499,13 +524,18 @@ public:
         std::vector<const ColumnUInt8::Container*> null_list(argument_size);
 
         ColumnPtr argument_columns[argument_size];
+        ColumnPtr argument_null_columns[argument_size];
 
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 null_list[i] = &nullable->get_null_map_data();
+                argument_null_columns[i] = nullable->get_null_map_column_ptr();
+                argument_columns[i] = nullable->get_nested_column_ptr();
             } else {
                 null_list[i] = &const_null_map->get_data();
             }
@@ -648,9 +678,12 @@ public:
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
@@ -795,9 +828,12 @@ public:
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
@@ -1079,7 +1115,7 @@ struct MoneyFormatDoubleImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                          const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnType* data_column, size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
@@ -1095,7 +1131,7 @@ struct MoneyFormatInt64Impl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt64>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                          const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnType* data_column, size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
             StringVal str = StringFunctions::do_money_format<Int64, 26>(context, value);
@@ -1110,7 +1146,7 @@ struct MoneyFormatInt128Impl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt128>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                          const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnType* data_column, size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
             StringVal str = StringFunctions::do_money_format<Int128, 52>(context, value);
@@ -1127,7 +1163,7 @@ struct MoneyFormatDecimalImpl {
     }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                          const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnType* data_column, size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             DecimalV2Val value = DecimalV2Val(data_column->get_element(i));
 
@@ -1138,6 +1174,86 @@ struct MoneyFormatDecimalImpl {
                     context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+        }
+    }
+};
+
+class FunctionStringLocatePos : public IFunction {
+public:
+    static constexpr auto name = "locate";
+    static FunctionPtr create() { return std::make_shared<FunctionStringLocatePos>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt32>();
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeInt32>()};
+    }
+
+    bool is_variadic() const override { return true; }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto col_substr =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_str =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_pos =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+
+        ColumnInt32::MutablePtr col_res = ColumnInt32::create();
+
+        auto& vec_pos = reinterpret_cast<const ColumnInt32*>(col_pos.get())->get_data();
+        auto& vec_res = col_res->get_data();
+        vec_res.resize(input_rows_count);
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            vec_res[i] = locate_pos(col_substr->get_data_at(i).to_string_val(),
+                                    col_str->get_data_at(i).to_string_val(), vec_pos[i]);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    int locate_pos(StringVal substr, StringVal str, int start_pos) {
+        if (substr.len == 0) {
+            if (start_pos <= 0) {
+                return 0;
+            } else if (start_pos == 1) {
+                return 1;
+            } else if (start_pos > str.len) {
+                return 0;
+            } else {
+                return start_pos;
+            }
+        }
+        // Hive returns 0 for *start_pos <= 0,
+        // but throws an exception for *start_pos > str->len.
+        // Since returning 0 seems to be Hive's error condition, return 0.
+        std::vector<size_t> index;
+        size_t char_len = get_char_len(str, &index);
+        if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
+            return 0;
+        }
+        StringValue substr_sv = StringValue::from_string_val(substr);
+        StringSearch search(&substr_sv);
+        // Input start_pos starts from 1.
+        StringValue adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
+                                 str.len - index[start_pos - 1]);
+        int32_t match_pos = search.search(&adjusted_str);
+        if (match_pos >= 0) {
+            // Hive returns the position in the original string starting from 1.
+            return start_pos + get_char_len(adjusted_str, match_pos);
+        } else {
+            return 0;
         }
     }
 };

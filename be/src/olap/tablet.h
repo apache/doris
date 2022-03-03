@@ -164,8 +164,6 @@ public:
     uint32_t calc_compaction_score(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
-    static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
-                                                  VersionHash* version_hash);
 
     // operation for clone
     void calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions);
@@ -174,7 +172,7 @@ public:
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
-    void max_continuous_version_from_beginning(Version* version, VersionHash* v_hash);
+    void max_continuous_version_from_beginning(Version* version);
 
     // operation for query
     OLAPStatus split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
@@ -244,8 +242,9 @@ public:
 
     double calculate_scan_frequency();
 
-    int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                     TabletSharedPtr tablet);
+    Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
+                                                    TabletSharedPtr tablet,
+                                                    int64_t* permits);
     void execute_compaction(CompactionType compaction_type);
     void reset_compaction(CompactionType compaction_type);
 
@@ -269,8 +268,7 @@ private:
 
     // Returns:
     // version: the max continuous version from beginning
-    void _max_continuous_version_from_beginning_unlocked(Version* version,
-                                                         VersionHash* v_hash) const;
+    void _max_continuous_version_from_beginning_unlocked(Version* version) const;
     RowsetSharedPtr _rowset_with_largest_size();
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.

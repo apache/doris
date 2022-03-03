@@ -38,12 +38,13 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
+    using VSetOperationNode::get_next;
     virtual Status get_next(RuntimeState* state, vectorized::Block* output_block, bool* eos);
     virtual Status close(RuntimeState* state);
 
 private:
     template <class HashTableContext, bool is_intersected>
-    friend class HashTableProbe;
+    friend struct HashTableProbe;
 };
 } // namespace vectorized
 } // namespace doris

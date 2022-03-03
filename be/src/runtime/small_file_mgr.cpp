@@ -84,7 +84,8 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     std::string md5 = parts[1];
 
     if (_file_cache.find(file_id) != _file_cache.end()) {
-        return Status::InternalError("File with same id is already been loaded: " + file_id);
+        return Status::InternalError(
+                fmt::format("File with same id is already been loaded: {}", file_id));
     }
 
     std::string file_md5;

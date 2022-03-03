@@ -148,7 +148,7 @@ class MemTracker;
 /// same Client, PageHandle or BufferHandle.
 class BufferPool : public CacheLineAligned {
 public:
-    class BufferAllocator;
+    struct BufferAllocator;
     class BufferHandle;
     class ClientHandle;
     class PageHandle;
@@ -295,7 +295,7 @@ private:
     class Client;
     class FreeBufferArena;
     class PageList;
-    struct Page;
+    class Page;
 
     /// Allocator for allocating and freeing all buffer memory and managing lists of free
     /// buffers and clean pages.

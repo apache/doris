@@ -25,7 +25,7 @@
 
 namespace doris {
 
-class Chunk;
+struct Chunk;
 class ChunkArena;
 class MetricEntity;
 

@@ -161,6 +161,12 @@ SmallIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::TinyIntVal
     return SmallIntVal(std::abs(int16_t(val.val)));
 }
 
+#define LOG_MATH_FN(NAME, RET_TYPE, INPUT_TYPE, FN)                           \
+    RET_TYPE MathFunctions::NAME(FunctionContext* ctx, const INPUT_TYPE& v) { \
+        if (v.is_null || v.val <= 0) return RET_TYPE::null();                 \
+        return RET_TYPE(FN(v.val));                                           \
+    }
+
 // Generates a UDF that always calls FN() on the input val and returns it.
 #define ONE_ARG_MATH_FN(NAME, RET_TYPE, INPUT_TYPE, FN)                       \
     RET_TYPE MathFunctions::NAME(FunctionContext* ctx, const INPUT_TYPE& v) { \
@@ -179,9 +185,9 @@ ONE_ARG_MATH_FN(atan, DoubleVal, DoubleVal, std::atan);
 ONE_ARG_MATH_FN(sqrt, DoubleVal, DoubleVal, std::sqrt);
 ONE_ARG_MATH_FN(ceil, BigIntVal, DoubleVal, std::ceil);
 ONE_ARG_MATH_FN(floor, BigIntVal, DoubleVal, std::floor);
-ONE_ARG_MATH_FN(ln, DoubleVal, DoubleVal, std::log);
-ONE_ARG_MATH_FN(log10, DoubleVal, DoubleVal, std::log10);
 ONE_ARG_MATH_FN(exp, DoubleVal, DoubleVal, std::exp);
+LOG_MATH_FN(ln, DoubleVal, DoubleVal, std::log);
+LOG_MATH_FN(log10, DoubleVal, DoubleVal, std::log10);
 
 TinyIntVal MathFunctions::sign(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
@@ -227,7 +233,7 @@ DoubleVal MathFunctions::truncate(FunctionContext* ctx, const DoubleVal& v, cons
 }
 
 DoubleVal MathFunctions::log2(FunctionContext* ctx, const DoubleVal& v) {
-    if (v.is_null) {
+    if (v.is_null || v.val <= 0.0) {
         return DoubleVal::null();
     }
     return DoubleVal(std::log(v.val) / std::log(2.0));
@@ -696,167 +702,4 @@ GREATEST_FNS();
     GREATEST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 
 GREATEST_NONNUMERIC_FNS();
-
-#if 0
-void* MathFunctions::greatest_bigint(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        int64_t* arg = reinterpret_cast<int64_t*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-
-        if (*arg > *reinterpret_cast<int64_t*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.bigint_val;
-}
-
-void* MathFunctions::greatest_double(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        double* arg = reinterpret_cast<double*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-
-        if (*arg > *reinterpret_cast<double*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.double_val;
-}
-
-void* MathFunctions::greatest_string(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        StringValue* arg = reinterpret_cast<StringValue*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-        if (*arg > *reinterpret_cast<StringValue*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.string_val;
-}
-
-void* MathFunctions::greatest_timestamp(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        DateTimeValue* arg = reinterpret_cast<DateTimeValue*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-        if (*arg > *reinterpret_cast<DateTimeValue*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.datetime_val;
-}
-void* MathFunctions::least_bigint(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        int64_t* arg = reinterpret_cast<int64_t*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-
-        if (*arg < *reinterpret_cast<int64_t*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.bigint_val;
-
-}
-
-void* MathFunctions::least_double(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        double* arg = reinterpret_cast<double*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-
-        if (*arg < *reinterpret_cast<double*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.double_val;
-}
-
-void* MathFunctions::least_decimalv2(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        DecimalV2Value* arg = reinterpret_cast<DecimalV2Value*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-        if (*arg < *reinterpret_cast<DecimalV2Value*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.decimalv2_val;
-}
-
-
-void* MathFunctions::least_string(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        StringValue* arg = reinterpret_cast<StringValue*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-        if (*arg < *reinterpret_cast<StringValue*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.string_val;
-}
-
-void* MathFunctions::least_timestamp(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is nullptr, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        DateTimeValue* arg = reinterpret_cast<DateTimeValue*>(e->children()[i]->get_value(row));
-        if (arg == nullptr) {
-            return nullptr;
-        }
-        if (*arg < *reinterpret_cast<DateTimeValue*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.datetime_val;
-}
-
-#endif
 } // namespace doris

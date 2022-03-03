@@ -23,6 +23,7 @@
 #include <initializer_list>
 #include <list>
 #include <set>
+#include <utility>
 #include <vector>
 #include <parallel_hashmap/phmap.h>
 
@@ -95,6 +96,22 @@ public:
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
+
+    Status copy_column_data_to_block(bool is_block_mem_reuse, doris::vectorized::IColumn* input_col_ptr, 
+        uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid, size_t batch_size) {
+        if (is_block_mem_reuse) {
+            auto* raw_res_ptr = this->get_by_position(block_cid).column.get();
+            const_cast<doris::vectorized::IColumn*>(raw_res_ptr)->reserve(batch_size);
+            return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, const_cast<doris::vectorized::IColumn*>(raw_res_ptr));
+        } else {
+            MutableColumnPtr res_col_ptr = data[block_cid].type->create_column();
+            res_col_ptr->reserve(batch_size);
+            auto* raw_res_ptr = res_col_ptr.get();
+            RETURN_IF_ERROR(input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, const_cast<doris::vectorized::IColumn*>(raw_res_ptr)));
+            this->replace_by_position(block_cid, std::move(res_col_ptr));
+            return Status::OK();
+        }
+    }
 
     void replace_by_position(size_t position, ColumnPtr&& res) {
         this->get_by_position(position).column = std::move(res);
@@ -257,6 +274,14 @@ public:
         return 0;
     }
 
+    //note(wb) no DCHECK here, because this method is only used after compare_at now, so no need to repeat check here.
+    // If this method is used in more places, you can add DCHECK case by case.
+    int compare_column_at(size_t n, size_t m, size_t col_idx, const Block& rhs, int nan_direction_hint) const {
+        auto res = get_by_position(col_idx).column->compare_at(n, m, *(rhs.get_by_position(col_idx).column),
+                                                             nan_direction_hint);
+        return res;
+    }
+
     doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int, bool padding_char = false);
 
 private:
@@ -281,12 +306,21 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(MutableColumns&& columns, DataTypes&& data_types)
-            : _columns(std::move(columns)), _data_types(std::move(data_types)) {}
+    MutableBlock(DataTypes data_types) :  _columns(data_types.size()), _data_types(std::move(data_types)) {
+        for (int i = 0; i < _data_types.size(); ++i) {
+            _columns[i] = _data_types[i]->create_column();
+        }
+    }
+
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
     MutableBlock(Block&& block)
             : _columns(block.mutate_columns()), _data_types(block.get_data_types()) {}
+
+    void operator=(MutableBlock&& m_block) {
+        _columns = std::move(m_block._columns);
+        _data_types = std::move(m_block._data_types);
+    }
 
     size_t rows() const;
     size_t columns() const { return _columns.size(); }
@@ -348,9 +382,6 @@ public:
         _columns.clear();
         _data_types.clear();
     }
-
-    // TODO: use add_rows instead of this
-    // add_rows(Block* block,PODArray<Int32>& group,int group_num);
 };
 
 } // namespace vectorized
