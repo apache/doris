@@ -22,33 +22,12 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
-#include "util/encryption_util.h"
 #include "util/md5.h"
 #include "util/sm3.h"
-#include "util/string_util.h"
 #include "util/url_coding.h"
 
 namespace doris {
 void EncryptionFunctions::init() {}
-
-StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
-        {"AES_128_ECB", AES_128_ECB},       {"AES_192_ECB", AES_192_ECB},
-        {"AES_256_ECB", AES_256_ECB},       {"AES_128_CBC", AES_128_CBC},
-        {"AES_192_CBC", AES_192_CBC},       {"AES_256_CBC", AES_256_CBC},
-        {"AES_128_CFB", AES_128_CFB},       {"AES_192_CFB", AES_192_CFB},
-        {"AES_256_CFB", AES_256_CFB},       {"AES_128_CFB1", AES_128_CFB1},
-        {"AES_192_CFB1", AES_192_CFB1},     {"AES_256_CFB1", AES_256_CFB1},
-        {"AES_128_CFB8", AES_128_CFB8},     {"AES_192_CFB8", AES_192_CFB8},
-        {"AES_256_CFB8", AES_256_CFB8},     {"AES_128_CFB128", AES_128_CFB128},
-        {"AES_192_CFB128", AES_192_CFB128}, {"AES_256_CFB128", AES_256_CFB128},
-        {"AES_128_CTR", AES_128_CTR},       {"AES_192_CTR", AES_192_CTR},
-        {"AES_256_CTR", AES_256_CTR},       {"AES_128_OFB", AES_128_OFB},
-        {"AES_192_OFB", AES_192_OFB},       {"AES_256_OFB", AES_256_OFB}};
-StringCaseUnorderedMap<EncryptionMode> sm4_mode_map {{"SM4_128_ECB", SM4_128_ECB},
-                                                     {"SM4_128_CBC", SM4_128_CBC},
-                                                     {"SM4_128_CFB128", SM4_128_CFB128},
-                                                     {"SM4_128_OFB", SM4_128_OFB},
-                                                     {"SM4_128_CTR", SM4_128_CTR}};
 
 StringVal encrypt(FunctionContext* ctx, const StringVal& src, const StringVal& key,
                   const StringVal& iv, EncryptionMode mode) {
