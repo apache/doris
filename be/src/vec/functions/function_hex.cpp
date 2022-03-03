@@ -41,6 +41,10 @@ public:
         return std::make_shared<DataTypeString>();
     }
 
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -149,25 +153,23 @@ struct HexHLLImpl {
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         const auto* str_col = check_and_get_column<ColumnHLL>(argument_column.get());
         const auto& hll_data = str_col->get_data();
-        size_t total_length = 0;
-        std::vector<std::string> hll_str(input_rows_count);
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            hll_str[i].resize(hll_data[i].max_serialized_size(), '0');
-            size_t actual_size = hll_data[i].serialize((uint8_t*)hll_str[i].data());
-            hll_str[i].resize(actual_size);
-            total_length += actual_size;
-        }
-
-        size_t offset = 0;
-        res_data.resize(total_length * 2 + input_rows_count);
         res_offsets.resize(input_rows_count);
-        unsigned char* dst_data_ptr = res_data.data();
+        size_t total_length = 0, offset = 0;
+        std::string hll_str;
+        unsigned char* dst_data_ptr = nullptr;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            hex_encode(reinterpret_cast<const unsigned char*>(hll_str[i].data()),
-                       hll_str[i].length(), dst_data_ptr, offset);
+            hll_str.resize(hll_data[i].max_serialized_size(), '0');
+            size_t actual_size = hll_data[i].serialize((uint8_t*)hll_str.data());
+            hll_str.resize(actual_size);
+            total_length += actual_size;
+
+            res_data.resize(total_length * 2 + (i + 1));
+            dst_data_ptr = res_data.data() + offset;
+            hex_encode(reinterpret_cast<const unsigned char*>(hll_str.data()), hll_str.length(),
+                       dst_data_ptr, offset);
             res_offsets[i] = offset;
+            hll_str.clear();
         }
         return Status::OK();
     }
