@@ -17,13 +17,15 @@
 
 package org.apache.doris.http;
 
-import okhttp3.Request;
-import okhttp3.Response;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+
+import okhttp3.Request;
+import okhttp3.Response;
 
 
 public class TableRowCountActionTest extends DorisHttpTestCase {
@@ -38,8 +40,8 @@ public class TableRowCountActionTest extends DorisHttpTestCase {
                 .build();
 
         Response response = networkClient.newCall(request).execute();
-        JSONObject jsonObject = new JSONObject(response.body().string());
-        Assert.assertEquals(200, jsonObject.getInt("status"));
-        Assert.assertEquals(2000, jsonObject.getLong("size"));
+        JSONObject jsonObject = (JSONObject) JSONValue.parse(response.body().string());
+        Assert.assertEquals(200, (long) jsonObject.get("status"));
+        Assert.assertEquals(2000, (long) jsonObject.get("size"));
     }
 }
