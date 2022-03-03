@@ -161,7 +161,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                 if constexpr (std::is_same_v<type, StringValue>) {                                 \
                     auto* nested_col_ptr = vectorized::check_and_get_column<                       \
                             vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);          \
-                    auto code = nested_col_ptr->get_code(_value);                                  \
+                    auto code = nested_col_ptr->find_code(_value);                                 \
                     auto& data_array = nested_col_ptr->get_data();                                 \
                     for (uint16_t i = 0; i < *size; i++) {                                         \
                         uint16_t idx = sel[i];                                                     \
@@ -192,7 +192,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(        \
                                 column);                                                           \
                 auto& data_array = dict_col.get_data();                                            \
-                auto code = dict_col.get_code(_value);                                             \
+                auto code = dict_col.find_code(_value);                                            \
                 for (uint16_t i = 0; i < *size; ++i) {                                             \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \

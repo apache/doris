@@ -156,7 +156,11 @@ public:
 
     const Container& get_data() const { return codes; }
 
-    T get_code(const StringValue& value) const { return dict.get_code(value); }
+    T find_code(const StringValue& value) const { return dict.find_code(value); }
+
+    phmap::flat_hash_set<T> find_codes(const phmap::flat_hash_set<StringValue>& values) const {
+        return dict.find_codes(values);
+    }
 
     // it's impossable to use ComplexType as key , so we don't have to implemnt them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
@@ -297,8 +301,23 @@ public:
             inverted_index[value] = inverted_index.size();
         }
 
-        inline T get_code(const StringValue& value) const {
-            return inverted_index.find(value)->second;
+        inline T find_code(const StringValue& value) const {
+            auto it = inverted_index.find(value);
+            if (it != inverted_index.end()) {
+                return it->second;
+            }
+            return -1;
+        }
+
+        inline phmap::flat_hash_set<T> find_codes(const phmap::flat_hash_set<StringValue>& values) const {
+            phmap::flat_hash_set<T> code_set;
+            for (const auto& value : values) {
+                auto it = inverted_index.find(value);
+                if (it != inverted_index.end()) {
+                    code_set.insert(it->second);
+                }
+            }
+            return code_set;
         }
 
         inline StringValue& get_value(T code) { return dict_data[code]; }
