@@ -2169,7 +2169,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### enable_create_sync_job
 
-开启Mysql数据同步作业功能。默认是false，关闭此功能
+开启 MySQL 数据同步作业功能。默认是 false，关闭此功能
 
 默认值：false
 
