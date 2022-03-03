@@ -392,6 +392,7 @@ public class SchemaChangeJobV2Test {
         // prepare file
         File file = new File(fileName);
         file.createNewFile();
+        file.deleteOnExit();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1,1, "test",600000);
