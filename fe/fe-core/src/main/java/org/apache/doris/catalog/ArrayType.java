@@ -70,6 +70,10 @@ public class ArrayType extends Type {
             return true;
         }
 
+        if (((ArrayType) t).getItemType().isNull()) {
+            return true;
+        }
+
         return itemType.matchesType(((ArrayType) t).itemType);
     }
 

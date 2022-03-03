@@ -120,6 +120,9 @@ visible_functions = [
     [['%element_extract%'], 'VARCHAR', ['MAP', 'INT'],  '', '', '', '', ''],
     [['%element_extract%'], 'VARCHAR', ['STRUCT', 'INT'],  '', '', '', '', ''],
     [['%element_extract%'], 'VARCHAR', ['STRUCT', 'VARCHAR'],  '', '', '', '', ''],
+    [['array_contains'], 'BOOLEAN', ['ARRAY', 'INT'],
+        '_ZN5doris10vectorized18FunctionArrayIndexINS0_19ArrayContainsActionENS0_17NameArrayContainsEE12execute_implEPN9doris_udf15FunctionContextERNS0_5BlockERKSt6vectorImSaImEEmm',
+        '', '', 'vec', ''],
 
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],

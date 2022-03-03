@@ -106,6 +106,8 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  functions/array/function_array_index.cpp
+  functions/array/function_array_register.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
   functions/comparison.cpp

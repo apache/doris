@@ -1095,8 +1095,12 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
         final Type[] candicateArgTypes = candicate.getArgs();
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
+            if (descArgTypes[0].isArrayType() && candicateArgTypes[0].isArrayType()) {
+                return true;
+            }
             return false;
         }
+
         if (functionName.equalsIgnoreCase("hex")
                 || functionName.equalsIgnoreCase("greast")
                 || functionName.equalsIgnoreCase("least")

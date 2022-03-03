@@ -21,6 +21,7 @@
 #pragma once
 
 #include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
