@@ -29,6 +29,7 @@ class PFunctionCallResponse;
 class RPCFnCall : public Expr {
 public:
     RPCFnCall(const TExprNode& node);
+    ~RPCFnCall() = default;
 
     virtual Status prepare(RuntimeState* state, const RowDescriptor& desc,
                            ExprContext* context) override;
@@ -52,12 +53,14 @@ public:
     virtual doris_udf::CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
 
 private:
-    Status _eval_children(ExprContext* context, TupleRow* row, PFunctionCallResponse* response);
+    Status call_rpc(ExprContext* context, TupleRow* row, PFunctionCallResponse* response);
     template <typename RETURN_TYPE>
     RETURN_TYPE interpret_eval(ExprContext* context, TupleRow* row);
+    void cancel(const std::string& msg);
 
     std::shared_ptr<PFunctionService_Stub> _client = nullptr;
     int _fn_context_index;
     std::string _rpc_function_symbol;
+    RuntimeState* _state;
 };
-}; // namespace doris
+} // namespace doris
