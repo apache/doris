@@ -36,6 +36,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
@@ -469,6 +470,16 @@ public class RestoreJob extends AbstractJob {
                 }
 
                 olapTbl.setState(OlapTableState.RESTORE);
+                // set restore status for partitions
+                BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                for (Map.Entry<String, BackupPartitionInfo> partitionEntry : tblInfo.partitions.entrySet()) {
+                    String partitionName = partitionEntry.getKey();
+                    Partition partition = olapTbl.getPartition(partitionName);
+                    if (partition == null) {
+                        continue;
+                    }
+                    partition.setState(PartitionState.RESTORE);
+                }
             } finally {
                 olapTbl.writeUnlock();
             }
@@ -578,6 +589,7 @@ public class RestoreJob extends AbstractJob {
                                         return;
                                     }
                                 }
+
                             } else {
                                 // partitions does not exist
                                 PartitionInfo localPartitionInfo = localOlapTbl.getPartitionInfo();
@@ -1076,6 +1088,16 @@ public class RestoreJob extends AbstractJob {
             tbl.writeLock();
             try {
                 olapTbl.setState(OlapTableState.RESTORE);
+                // set restore status for partitions
+                BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                for (Map.Entry<String, BackupPartitionInfo> partitionEntry : tblInfo.partitions.entrySet()) {
+                    String partitionName = partitionEntry.getKey();
+                    Partition partition = olapTbl.getPartition(partitionName);
+                    if (partition == null) {
+                        continue;
+                    }
+                    partition.setState(PartitionState.RESTORE);
+                }
             } finally {
                 tbl.writeUnlock();
             }
@@ -1649,6 +1671,18 @@ public class RestoreJob extends AbstractJob {
                 if (olapTbl.getState() == OlapTableState.RESTORE
                         || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {
                     olapTbl.setState(OlapTableState.NORMAL);
+                }
+
+                BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
+                for (Map.Entry<String, BackupPartitionInfo> partitionEntry : tblInfo.partitions.entrySet()) {
+                    String partitionName = partitionEntry.getKey();
+                    Partition partition = olapTbl.getPartition(partitionName);
+                    if (partition == null) {
+                        continue;
+                    }
+                    if (partition.getState() == PartitionState.RESTORE) {
+                        partition.setState(PartitionState.NORMAL);
+                    }
                 }
             } finally {
                 tbl.writeUnlock();

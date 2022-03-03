@@ -39,6 +39,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
@@ -597,6 +598,13 @@ public class OlapScanNode extends ScanNode {
                   .collect(Collectors.toList());
         }
         selectedPartitionNum = selectedPartitionIds.size();
+
+        for(long id : selectedPartitionIds){
+            Partition partition = olapTable.getPartition(id);
+            if(partition.getState() == PartitionState.RESTORE){
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), "RESTORING");
+            }
+        }
         LOG.debug("partition prune cost: {} ms, partitions: {}",
                 (System.currentTimeMillis() - start), selectedPartitionIds);
     }
