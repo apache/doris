@@ -53,6 +53,7 @@ public final class ProcService {
         root.register("current_query_stmts", new CurrentQueryStatementsProcNode());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
         root.register("cluster_balance", new ClusterBalanceProcDir());
+        root.register("cluster_health", new ClusterHealthProcDir(Catalog.getCurrentCatalog()));
         root.register("routine_loads", new RoutineLoadsProcDir());
         root.register("stream_loads", new StreamLoadProcNode());
         root.register("colocation_group", new ColocationGroupProcDir());
