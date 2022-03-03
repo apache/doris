@@ -2179,7 +2179,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### sync_commit_interval_second
 
-提交事务的最大时间间隔。若超过了这个时间channel中还有数据没有提交，consumer会通知channel提交事务。
+提交事务的最大时间间隔。若超过了这个时间 channel 中还有数据没有提交，consumer 会通知 channel 提交事务。
 
 默认值：10（秒）
 
