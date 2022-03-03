@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Native User Defined Function",
+    "title": "原生UDF",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# User Defined Function
+# UDF
 
 UDF 主要适用于，用户需要的分析能力 Doris 并不具备的场景。用户可以自行根据自己的需求，实现自定义的函数，并且通过 UDF 框架注册到 Doris 中，来扩展 Doris 的能力，并解决用户分析需求。
 
