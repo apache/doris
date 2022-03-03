@@ -55,6 +55,9 @@ import java.util.stream.LongStream;
  */
 public class Tablet extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
+    // if current version count of replica is more than QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
+    // then the replica would not be considered as queryable.
+    private static final int QUERYABLE_TIMES_OF_MIN_VERSION_COUNT = 3;
 
     public enum TabletStatus {
         HEALTHY,
@@ -243,7 +246,7 @@ public class Tablet extends MetaObject implements Writable {
             final long finalMinVersionCount = minVersionCount;
             return allQueryableReplica.stream().filter(replica -> replica.getVersionCount() == -1 ||
                             replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow ||
-                            replica.getVersionCount() < finalMinVersionCount * 3)
+                            replica.getVersionCount() < finalMinVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT)
                     .collect(Collectors.toList());
         }
         return allQueryableReplica;
