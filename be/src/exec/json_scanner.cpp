@@ -406,7 +406,7 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
         fmt::format_to(error_msg, "Parse json data for JsonDoc failed. code: {}, error info: {}",
                 _origin_json_doc.GetParseError(), rapidjson::GetParseError_En(_origin_json_doc.GetParseError()));
         RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return std::string((char*)json_str, *size); },
-                [&]() -> std::string { return error_msg.data(); }, _scanner_eof));
+                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
         _counter->num_rows_filtered++;
         if (*_scanner_eof) {
             // Case A: if _scanner_eof is set to true in "append_error_msg_to_file", which means
@@ -415,7 +415,7 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
             *eof = true;
             return Status::OK();
         }
-        return Status::DataQualityError(error_msg.data());
+        return Status::DataQualityError(fmt::to_string(error_msg));
     }
 
     // set json root
@@ -426,14 +426,14 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
             fmt::memory_buffer error_msg;
             fmt::format_to(error_msg, "{}", "JSON Root not found.");
             RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return _print_json_value(_origin_json_doc); },
-                    [&]() -> std::string { return error_msg.data(); }, _scanner_eof));
+                    [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
             _counter->num_rows_filtered++;
             if (*_scanner_eof) {
                 // Same as Case A
                 *eof = true;
                 return Status::OK();
             }
-            return Status::DataQualityError(error_msg.data());
+            return Status::DataQualityError(fmt::to_string(error_msg));
         }
     } else {
         _json_doc = &_origin_json_doc;
@@ -443,28 +443,28 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "{}", "JSON data is array-object, `strip_outer_array` must be TRUE.");
         RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return _print_json_value(_origin_json_doc); },
-                [&]() -> std::string { return error_msg.data(); }, _scanner_eof));
+                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
         _counter->num_rows_filtered++;
         if (*_scanner_eof) {
             // Same as Case A
             *eof = true;
             return Status::OK();
         }
-        return Status::DataQualityError(error_msg.data());
+        return Status::DataQualityError(fmt::to_string(error_msg));
     }
 
     if (!_json_doc->IsArray() && _strip_outer_array) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "{}", "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
         RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return _print_json_value(_origin_json_doc); },
-                [&]() -> std::string { return error_msg.data(); }, _scanner_eof));
+                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
         _counter->num_rows_filtered++;
         if (*_scanner_eof) {
             // Same as Case A
             *eof = true;
             return Status::OK();
         }
-        return Status::DataQualityError(error_msg.data());
+        return Status::DataQualityError(fmt::to_string(error_msg));
     }
 
     return Status::OK();
@@ -539,7 +539,7 @@ Status JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator val
                     [&]() -> std::string {
                     fmt::memory_buffer error_msg;
                     fmt::format_to(error_msg, "Json value is null, but the column `{}` is not nullable.", desc->col_name());
-                    return error_msg.data();
+                    return fmt::to_string(error_msg);
                     }, _scanner_eof));
             _counter->num_rows_filtered++;
             *valid = false;
@@ -600,7 +600,7 @@ Status JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
                         [&]() -> std::string {
                         fmt::memory_buffer error_msg;
                         fmt::format_to(error_msg, "The column `{}` is not nullable, but it's not found in jsondata.", v->col_name());
-                        return error_msg.data();
+                        return fmt::to_string(error_msg);
                         }, _scanner_eof));
                 _counter->num_rows_filtered++;
                 *valid = false; // current row is invalid
@@ -723,7 +723,7 @@ Status JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemP
                         [&]() -> std::string {
                         fmt::memory_buffer error_msg;
                         fmt::format_to(error_msg, "The column `{}` is not nullable, but it's not found in jsondata.", slot_descs[i]->col_name());
-                        return error_msg.data();
+                        return fmt::to_string(error_msg);
                         }, _scanner_eof));
                 _counter->num_rows_filtered++;
                 *valid = false; // current row is invalid

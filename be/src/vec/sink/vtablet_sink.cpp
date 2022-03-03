@@ -111,7 +111,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
                     [&]() -> std::string {
                     fmt::memory_buffer buf;
                     fmt::format_to(buf, "no partition for this tuple. tuple=[]");
-                    return buf.data();
+                    return fmt::to_string(buf);
                     }, &stop_processing));
             _number_filtered_rows++;
             if (stop_processing) {
@@ -157,7 +157,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
     auto set_invalid_and_append_error_msg = [&](int row) {
          filter_bitmap->Set(row, true);
          return state->append_error_msg_to_file([]() -> std::string { return ""; },
-                 [&error_msg]() -> std::string { return error_msg.data(); }, stop_processing);
+                 [&error_msg]() -> std::string { return fmt::to_string(error_msg); }, stop_processing);
     };
 
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
