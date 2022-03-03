@@ -236,8 +236,9 @@ ConvertTypeResolver::ConvertTypeResolver() {
     add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_DATE>();
 
     // supported type convert should annotate in doc:
-    // http://doris.incubator.apache.org/master/zh-CN/sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html#description
-    // If type convert is supported here, you should check fe/src/main/java/org/apache/doris/catalog/ColumnType.java to supported it either
+    // http://doris.incubator.apache.org/sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html
+    // If type convert is supported here, you should check
+    // fe/src/main/java/org/apache/doris/catalog/ColumnType.java to supported it either
     // from varchar type
     add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_TINYINT>();
     add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_SMALLINT>();
@@ -472,7 +473,8 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
     // a.1 First determine whether the data needs to be filtered, and finally only those marked as 1 are left as needed
     // For those without filter, it is equivalent to leave after setting all to 1
     const uint32_t row_num = ref_block->row_block_info().row_num;
-    // (0 means no need to filter out, 1 means yes, during the process 2 means that this row needs to be cut and there is no need to compare other columns later)
+    // (0 means no need to filter out, 1 means yes, during the process
+    // 2 means that this row needs to be cut and there is no need to compare other columns later)
     std::vector<int8_t> is_data_left_vec(row_num, 1);
 
     // Compare each row
@@ -1067,7 +1069,8 @@ OLAPStatus SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader,
         RETURN_NOT_OK(reserve_block(&new_row_block, ref_row_block->row_block_info().row_num,
                                     _row_block_allocator));
 
-        // Change ref to new. This step is reasonable to say that it does need to wait for a large block, but theoretically it has nothing to do with the writer.
+        // Change ref to new. This step is reasonable to say that it does need to wait for
+        // a large block, but theoretically it has nothing to do with the writer.
         uint64_t filtered_rows = 0;
         res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
                                                   new_row_block.get(), &filtered_rows);
@@ -1122,7 +1125,8 @@ SchemaChangeWithSorting::SchemaChangeWithSorting(const RowBlockChanger& row_bloc
           _row_block_changer(row_block_changer),
           _memory_limitation(memory_limitation),
           _row_block_allocator(nullptr) {
-    // Every time SchemaChange is used for external rowing, some temporary versions (such as 999, 1000, 1001) will be written, in order to avoid Cache conflicts, temporary
+    // Every time SchemaChange is used for external rowing, some temporary
+    // versions (such as 999, 1000, 1001) will be written, in order to avoid Cache conflicts, temporary
     // The version number takes a BIG NUMBER plus the version number of the current SchemaChange
     _temp_delta_versions.first = (1 << 28);
     _temp_delta_versions.second = (1 << 28);
@@ -1713,7 +1717,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     }
 
     // NOTE split_table if row_block is used, the original block will become smaller
-    // But since the historical data will become normal after the subsequent base/cumulative, it is also possible to use directly
+    // But since the historical data will become normal after the subsequent base/cumulative,
+    // it is also possible to use directly.
     // b. Generate historical data converter
     SchemaChange* sc_procedure = nullptr;
     if (sc_sorting) {
@@ -1939,8 +1944,9 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
         new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
                                                    rowset_writer->rowset_id().to_string());
-        // Add the new version of the data to the header
-        // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
+        // Add the new version of the data to the header.
+        // In order to prevent the occurrence of deadlock, we must first lock the old table,
+        // and then lock the new table.
         sc_params.new_tablet->obtain_push_lock();
         RowsetSharedPtr new_rowset = rowset_writer->build();
         if (new_rowset == nullptr) {
@@ -1974,12 +1980,13 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                    << " version=" << rs_reader->version().first << "-"
                    << rs_reader->version().second;
     }
-    // XXX:The SchemaChange state should not be canceled at this time, because the new Delta has to be converted to the old and new Schema version
+    // XXX:The SchemaChange state should not be canceled at this time, because
+    // the new Delta has to be converted to the old and new Schema version
 PROCESS_ALTER_EXIT : {
-    // save tablet meta here because rowset meta is not saved during add rowset
-    WriteLock new_wlock(sc_params.new_tablet->get_header_lock_ptr());
-    sc_params.new_tablet->save_meta();
-}
+        // save tablet meta here because rowset meta is not saved during add rowset
+        WriteLock new_wlock(sc_params.new_tablet->get_header_lock_ptr());
+        sc_params.new_tablet->save_meta();
+    }
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
         res = sc_params.new_tablet->check_version_integrity(test_version);
