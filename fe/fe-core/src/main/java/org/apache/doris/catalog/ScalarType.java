@@ -57,9 +57,6 @@ public class ScalarType extends Type {
     // Longest supported VARCHAR and CHAR, chosen to match Hive.
     public static final int MAX_VARCHAR_LENGTH = 65533;
 
-    // 2GB - 4  4bytes for storage string length
-    public static final int MAX_STRING_LENGTH = 2147483643;
-
     public static final int MAX_CHAR_LENGTH = 255;
 
     // HLL DEFAULT LENGTH  2^14(registers) + 1(type)
@@ -68,6 +65,11 @@ public class ScalarType extends Type {
     // Longest CHAR that we in line in the tuple.
     // Keep consistent with backend ColumnType::CHAR_INLINE_LENGTH
     public static final int CHAR_INLINE_LENGTH = 128;
+
+    // Max length of String types, in be storage layer store string length
+    // using int32, the max length is 2GB, the first 4 bytes store the length
+    // so the max available length is 2GB - 4
+    public static final int MAX_STRING_LENGTH = 0x7fffffff - 4;
 
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
@@ -291,7 +293,7 @@ public class ScalarType extends Type {
     public static ScalarType createStringType() {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.STRING);
-        type.len = -1;
+        type.len = MAX_STRING_LENGTH;
         return type;
     }
 

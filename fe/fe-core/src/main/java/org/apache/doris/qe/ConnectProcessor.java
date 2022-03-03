@@ -331,8 +331,8 @@ public class ConnectProcessor {
         MysqlCommand command = MysqlCommand.fromCode(code);
         if (command == null) {
             ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + command + ")");
-            LOG.warn("Unknown command(" + command + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
+            LOG.warn("Unknown command(" + code + ")");
             return;
         }
         ctx.setCommand(command);
