@@ -144,7 +144,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(), true) !=
              _is_null_safe_eq_join.end());
     _hash_tbl.reset(new HashTable(_build_expr_ctxs, _probe_expr_ctxs, _build_tuple_size,
-                                  stores_nulls, _is_null_safe_eq_join, id(), mem_tracker(), 1024));
+                                  stores_nulls, _is_null_safe_eq_join, id(), mem_tracker(),
+                                  state->batch_size() * 2));
 
     _probe_batch.reset(
             new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
@@ -762,7 +763,6 @@ Status HashJoinNode::process_build_batch(RuntimeState* state, RowBatch* build_ba
     // insert build row into our hash table
     if (_build_unique) {
         for (int i = 0; i < build_batch->num_rows(); ++i) {
-            // _hash_tbl->insert_unique(build_batch->get_row(i));
             TupleRow* tuple_row = nullptr;
             if (_hash_tbl->emplace_key(build_batch->get_row(i), &tuple_row)) {
                 build_batch->get_row(i)->deep_copy(tuple_row,
@@ -775,9 +775,9 @@ Status HashJoinNode::process_build_batch(RuntimeState* state, RowBatch* build_ba
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch->tuple_data_pool(), false);
         RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
-
+        RETURN_IF_ERROR(_hash_tbl->resize_buckets_ahead(build_batch->num_rows()));
         for (int i = 0; i < build_batch->num_rows(); ++i) {
-            _hash_tbl->insert(build_batch->get_row(i));
+            _hash_tbl->insert_without_check(build_batch->get_row(i));
         }
     }
     return Status::OK();
