@@ -45,10 +45,12 @@ public class Replica implements Writable {
         SCHEMA_CHANGE,
         CLONE,
         ALTER, // replica is under rollup or schema change
-        DECOMMISSION; // replica is ready to be deleted
+        DECOMMISSION, // replica is ready to be deleted
+        COMPACTION_TOO_SLOW; // replica version count is too large
+
 
         public boolean canLoad() {
-            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER;
+            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER || this == COMPACTION_TOO_SLOW;
         }
 
         public boolean canQuery() {
@@ -405,19 +407,23 @@ public class Replica implements Writable {
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
     }
-    
+
     public ReplicaState getState() {
         return this.state;
     }
 
+    public boolean tooSlow() {
+        return state == ReplicaState.COMPACTION_TOO_SLOW;
+    }
+
     public long getVersionCount() {
-		return versionCount;
-	}
+        return versionCount;
+    }
 
     public void setVersionCount(long versionCount) {
-		this.versionCount = versionCount;
-	}
-    
+        this.versionCount = versionCount;
+    }
+
     @Override
     public String toString() {
         StringBuffer strBuffer = new StringBuffer("[replicaId=");

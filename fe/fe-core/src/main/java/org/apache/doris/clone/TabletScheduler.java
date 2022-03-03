@@ -39,7 +39,6 @@ import org.apache.doris.clone.TabletSchedCtx.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -53,6 +52,8 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.transaction.DatabaseTransactionMgr;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
@@ -63,8 +64,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 
-import org.apache.doris.transaction.DatabaseTransactionMgr;
-import org.apache.doris.transaction.TransactionState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -639,13 +638,17 @@ public class TabletScheduler extends MasterDaemon {
      */
     private void handleReplicaMissing(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
         stat.counterReplicaMissingErr.incrementAndGet();
+        // check compaction too slow file is recovered
+        if (tabletCtx.compactionRecovered()) {
+            return;
+        }
+
         // find proper tag
         Tag tag = chooseProperTag(tabletCtx, true);
         // find an available dest backend and path
         RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletCtx, tag, false /* not for colocate */);
         Preconditions.checkNotNull(destPath);
         tabletCtx.setDest(destPath.getBeId(), destPath.getPathHash());
-
         // choose a source replica for cloning from
         tabletCtx.chooseSrcReplica(backendsWorkingSlots, -1);
 
@@ -664,7 +667,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be != null && be.isScheduleAvailable() && replica.isAlive()) {
+            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()) {
                 Short num = currentAllocMap.getOrDefault(be.getTag(), (short) 0);
                 currentAllocMap.put(be.getTag(), (short) (num + 1));
             }
@@ -780,6 +783,7 @@ public class TabletScheduler extends MasterDaemon {
         if (deleteBackendDropped(tabletCtx, force)
                 || deleteBadReplica(tabletCtx, force)
                 || deleteBackendUnavailable(tabletCtx, force)
+                || deleteTooSlowReplica(tabletCtx, force)
                 || deleteCloneOrDecommissionReplica(tabletCtx, force)
                 || deleteReplicaWithFailedVersion(tabletCtx, force)
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
@@ -810,6 +814,16 @@ public class TabletScheduler extends MasterDaemon {
         for (Replica replica : tabletCtx.getReplicas()) {
             if (replica.isBad()) {
                 deleteReplicaInternal(tabletCtx, replica, "replica is bad", force);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean deleteTooSlowReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        for (Replica replica : tabletCtx.getReplicas()) {
+            if (replica.tooSlow()) {
+                deleteReplicaInternal(tabletCtx, replica, "replica is too slow", force);
                 return true;
             }
         }
@@ -1007,12 +1021,16 @@ public class TabletScheduler extends MasterDaemon {
      * remove the replica which has the most version count, and much more than others
      * return true if delete one replica, otherwise, return false.
      */
-    private boolean handleReplicaTooSlow(TabletSchedCtx tabletCtx) throws SchedException {
+    private void handleReplicaTooSlow(TabletSchedCtx tabletCtx) throws SchedException {
         Replica chosenReplica = null;
         Replica minReplica = null;
         long maxVersionCount = -1;
         long minVersionCount = Integer.MAX_VALUE;
+        int normalReplicaCount = 0;
         for (Replica replica : tabletCtx.getReplicas()) {
+            if (replica.isAlive() && !replica.tooSlow()) {
+                normalReplicaCount++;
+            }
             if (replica.getVersionCount() > maxVersionCount) {
                 maxVersionCount = replica.getVersionCount();
                 chosenReplica = replica;
@@ -1023,17 +1041,15 @@ public class TabletScheduler extends MasterDaemon {
             }
         }
 
-        if (chosenReplica != null && !chosenReplica.equals(minReplica) && minReplica.isAlive()) {
-            try {
-                Catalog.getCurrentCatalog().setReplicaStatus(tabletCtx.getTabletId(), chosenReplica.getBackendId(),
-                        Replica.ReplicaStatus.BAD);
-                throw new SchedException(Status.FINISHED, "set slow replica as bad");
-            } catch (MetaNotFoundException e) {
-                LOG.warn("set slow replica bad failed:", e);
-                return false;
-            }
+        if (chosenReplica != null && !chosenReplica.equals(minReplica) && minReplica.isAlive() && !minReplica.tooSlow()
+                && normalReplicaCount >= 1) {
+            chosenReplica.setState(ReplicaState.COMPACTION_TOO_SLOW);
+            LOG.info("set replica id :{} tablet id: {}, backend id: {} to COMPACTION_TOO_SLOW", chosenReplica.getId()
+                    , tabletCtx.getTablet()
+                    .getId(), chosenReplica.getBackendId());
+            throw new SchedException(Status.FINISHED, "set replica to COMPACTION_TOO_SLOW");
         }
-        return false;
+        throw new SchedException(Status.FINISHED, "No replica too slow");
     }
 
     private void deleteReplicaInternal(TabletSchedCtx tabletCtx, Replica replica, String reason, boolean force) throws SchedException {
