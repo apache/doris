@@ -2199,7 +2199,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### min_bytes_sync_commit
 
-提交事务需满足的最小数据大小。若Fe接收到的数据大小小于它，会继续等待下一批数据直到时间超过了`sync_commit_interval_second`为止。默认值是15MB，如果你想修改此配置，请确保此值小于canal端的`canal.instance.memory.buffer.size`和`canal.instance.memory.buffer.memunit`的乘积（默认16MB），否则在ack前Fe会尝试获取比store空间更大的数据，导致store队列阻塞至超时为止。
+提交事务需满足的最小数据大小。若 Fe 接收到的数据大小小于它，会继续等待下一批数据直到时间超过了 `sync_commit_interval_second` 为止。默认值是 15 MB，如果你想修改此配置，请确保此值小于 canal 端的 `canal.instance.memory.buffer.size` 和 `canal.instance.memory.buffer.memunit` 的乘积（默认 16 MB），否则在 ack 前 Fe 会尝试获取比 store 空间更大的数据，导致 store 队列阻塞至超时为止。
 
 默认值：15 * 1024 * 1024（15M）
 
