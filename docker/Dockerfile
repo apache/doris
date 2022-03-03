@@ -17,9 +17,15 @@
 
 FROM centos:7 AS builder
 
+# install epel repo for ccache
+RUN yum install epel-release -y && yum clean all && yum makecache
+
 # install dependencies
 RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
     ccache wget git python2 bison java-11-openjdk-devel java-1.8.0-openjdk-devel
+
+# clean cache
+RUN yum clean all
 
 # install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
@@ -59,8 +65,9 @@ RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.s
 
 RUN alternatives --set java java-11-openjdk.x86_64 && alternatives --set javac java-11-openjdk.x86_64
 
-FROM scratch
 
+# squash all layers to reduce the image size
+FROM scratch
 COPY --from=builder / /
 ENV JAVA_HOME="/usr/lib/jvm/java-11" \
     MAVEN_HOME="/usr/share/maven" \
@@ -71,4 +78,3 @@ ENV JAVA_HOME="/usr/lib/jvm/java-11" \
 WORKDIR /root
 
 CMD ["/bin/bash"]
-

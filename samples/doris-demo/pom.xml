@@ -29,7 +29,6 @@ under the License.
         <module>spark-demo</module>
         <module>stream-load-demo</module>
         <module>spring-jdbc-demo</module>
-        <module>udf-demo</module>
     </modules>
     <name>doris-demo</name>
     <url>http://www.example.com</url>
