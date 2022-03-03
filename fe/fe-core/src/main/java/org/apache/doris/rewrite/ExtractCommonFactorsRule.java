@@ -59,8 +59,6 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private final static Logger LOG = LogManager.getLogger(ExtractCommonFactorsRule.class);
     public static ExtractCommonFactorsRule INSTANCE = new ExtractCommonFactorsRule();
 
-    int flag = 0;
-
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         Expr resultExpr = null;
@@ -425,19 +423,17 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         // only OR will be rewrite to IN
         if (op == CompoundPredicate.Operator.OR) {
             rewritePredicate = rewriteOrToIn(exprs);
-        }
-        // IF rewrite finished, rewritePredicate will not be null
-        // IF not rewrite, do compoundPredicate
-        if (rewritePredicate != null) {
-            flag = 1;
-            return rewritePredicate;
+            // IF rewrite finished, rewritePredicate will not be null
+            // IF not rewrite, do compoundPredicate
+            if (rewritePredicate != null) {
+                return rewritePredicate;
+            }
         }
         CompoundPredicate result = new CompoundPredicate(op, exprs.get(0), exprs.get(1));
         for (int i = 2; i < exprs.size(); ++i) {
             result = new CompoundPredicate(op, result.clone(), exprs.get(i));
         }
 
-        //result.setPrintSqlInParens(true);
         return result;
     }
 
