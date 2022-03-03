@@ -35,8 +35,6 @@ class TupleRow;
 class MemTracker;
 class RuntimeState;
 
-using std::vector;
-
 // Hash table implementation designed for hash aggregation and hash joins.  This is not
 // templatized and is tailored to the usage pattern for aggregation and joins.  The
 // hash table store TupleRows and allows for different exprs for insertions and finds.
@@ -101,20 +99,40 @@ public:
 
     // Insert row into the hash table.  Row will be evaluated over _build_expr_ctxs
     // This will grow the hash table if necessary
-    void insert(TupleRow* row) {
+    Status insert(TupleRow* row) {
         if (_num_filled_buckets > _num_buckets_till_resize) {
-            // TODO: next prime instead of double?
-            resize_buckets(_num_buckets * 2);
+            RETURN_IF_ERROR(resize_buckets(_num_buckets * 2));
         }
 
         insert_impl(row);
+        return Status::OK();
     }
 
+    void insert_without_check(TupleRow* row) { insert_impl(row); }
+
     // Insert row into the hash table. if the row is already exist will not insert
-    void insert_unique(TupleRow* row) {
+    Status insert_unique(TupleRow* row) {
         if (find(row, false) == end()) {
-            insert(row);
+            return insert(row);
         }
+        return Status::OK();
+    }
+
+    void insert_unique_without_check(TupleRow* row) {
+        if (find(row, false) == end()) {
+            insert_without_check(row);
+        }
+    }
+
+    Status resize_buckets_ahead(int64_t estimate_buckets) {
+        if (_num_filled_buckets + estimate_buckets > _num_buckets_till_resize) {
+            int64_t new_bucket_size = _num_buckets * 2;
+            while (new_bucket_size <= _num_filled_buckets + estimate_buckets) {
+                new_bucket_size = new_bucket_size * 2;
+            }
+            return resize_buckets(new_bucket_size);
+        }
+        return Status::OK();
     }
 
     bool emplace_key(TupleRow* row, TupleRow** key_addr);

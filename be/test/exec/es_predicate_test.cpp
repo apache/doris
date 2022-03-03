@@ -143,7 +143,6 @@ TEST_F(EsPredicateTest, normal) {
     std::vector<ExprContext*> conjunct_ctxs;
     Status status = build_expr_context_list(conjunct_ctxs);
     ASSERT_TRUE(status.ok());
-
     TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     std::vector<EsPredicate*> predicates;
     for (int i = 0; i < conjunct_ctxs.size(); ++i) {
