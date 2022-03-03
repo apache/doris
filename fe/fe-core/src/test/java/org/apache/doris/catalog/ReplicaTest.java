@@ -17,11 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import static org.junit.Assert.assertEquals;
-
-import mockit.Expectations;
 import org.apache.doris.catalog.Replica.ReplicaState;
-import org.apache.doris.common.FeMetaVersion;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -36,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import mockit.Mocked;
+import static org.junit.Assert.assertEquals;
 
 public class ReplicaTest {
     
@@ -49,7 +46,6 @@ public class ReplicaTest {
     private long version;
     private long dataSize;
     private long rowCount;
-    
     
     @Before
     public void setUp() {
@@ -86,13 +82,6 @@ public class ReplicaTest {
 
     @Test
     public void testSerialization() throws Exception {
-        new Expectations() {
-            {
-                Catalog.getCurrentCatalogJournalVersion();
-                result = FeMetaVersion.VERSION_45;
-            }
-        };
-
         // 1. Write objects to file
         File file = new File("./olapReplicaTest");
         file.createNewFile();
