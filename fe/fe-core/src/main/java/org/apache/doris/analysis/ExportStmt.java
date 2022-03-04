@@ -232,16 +232,17 @@ public class ExportStmt extends StatementBase {
         if (Strings.isNullOrEmpty(path)) {
             throw new AnalysisException("No dest path specified.");
         }
-
+        if (type == StorageBackend.StorageType.BROKER) {
+            if (!path.toLowerCase().contains("bos") && !path.toLowerCase().contains("afs")
+                    && !path.toLowerCase().contains("hdfs")) {
+                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
+            }
+            return path;
+        }
         try {
             URI uri = new URI(path);
             String schema = uri.getScheme();
-            if (type == StorageBackend.StorageType.BROKER) {
-                if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs"))) {
-                    throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
-                }
-            } else if (type == StorageBackend.StorageType.S3) {
+            if (type == StorageBackend.StorageType.S3) {
                 if (schema == null || !schema.equalsIgnoreCase("s3")) {
                     throw new AnalysisException("Invalid export path. please use valid 'S3://' path.");
                 }
