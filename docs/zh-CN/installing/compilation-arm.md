@@ -24,7 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-
 # ARM64 + KylinOS 编译运行 Doris
 
 本文档介绍如何在 ARM64 平台上编译 Doris。
@@ -52,17 +51,30 @@ under the License.
     model name  : Phytium,FT-2000+/64
     ```
 
-3. Doris 版本
+## 使用 ldb-toolchain 编译
 
-    commit 68bab73
+该方法适用于 [commit 7f3564](https://github.com/apache/incubator-doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1) 之后的 Doris 版本。
 
-## 编译工具安装（无网络）
+下载 [ldb\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
+
+之后的编译方式参阅 [使用 LDB toolchain 编译](./compilation-with-ldb-toolchain.md)
+
+注意其中 jdk 和 nodejs 都需要下载对应的 aarch64 版本：
+
+1. [Java8-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz)
+2. [Node v12.13.0-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz)
+
+## ~~使用 GCC 10 编译（已废弃）~~
+
+该方法仅适用于 [commit 68bab73](https://github.com/apache/incubator-doris/commit/68bab73c359e40bf485a663e9a6e6ee76d81d382) 之前的 Doris 源码。
+
+### 编译工具安装（无网络）
 
 示例中，所有工具安装在在 `/home/doris/tools/installed/` 目录下。
 
 所需安装包请先在有网络情况下获取。
 
-### 1. 安装gcc10
+#### 1. 安装gcc10
 
 下载 gcc-10.1.0
     
@@ -101,7 +113,7 @@ make -j && make install
 
 编译时间较长。
 
-### 2. 安装其他编译组件
+#### 2. 安装其他编译组件
 
 1. jdk-8u291-linux-aarch64.tar.gz
 
@@ -157,7 +169,7 @@ make -j && make install
     
     编译后会产生 libiberty.a，后续移动到 Doris 的thirdparty 的 lib64 目录中即可。
     
-### 3. 编译第三方库
+#### 3. 编译第三方库
 
 假设Doris源码在 `/home/doris/doris-src/` 下。
 
@@ -218,11 +230,11 @@ make -j && make install
 
         不确定原因。解决方案：重跑 `build-thirdparty.sh`。`build-thirdparty.sh` 是可以重复执行的。
 
-### 4. 编译Doris源码
+#### 4. 编译Doris源码
 
 执行 `sh build.sh` 即可。
 
-### 5. 常见错误
+#### 5. 常见错误
 
 1. 编译 Doris 时出现 `undefined reference to psl_free`
 

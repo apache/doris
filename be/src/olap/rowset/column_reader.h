@@ -688,7 +688,6 @@ public:
         }
 
         _values = reinterpret_cast<FLOAT_TYPE*>(mem_pool->allocate(size * sizeof(FLOAT_TYPE)));
-
         return OLAP_SUCCESS;
     }
     virtual OLAPStatus seek(PositionProvider* position) {

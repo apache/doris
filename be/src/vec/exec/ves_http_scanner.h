@@ -16,28 +16,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_EXEC_VES_HTTP_SCANNER_H
-#define BE_EXEC_VES_HTTP_SCANNER_H
+#pragma once
 
 #include <exec/es_http_scanner.h>
 
-namespace doris {
+namespace doris::vectorized {
 
 class VEsHttpScanner : public EsHttpScanner {
 public:
     VEsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
-                  const std::map<std::string, std::string>& properties,
-                  const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
-                  bool doc_value_mode): EsHttpScanner(state, profile, tuple_id, properties,
-                            conjunct_ctxs, counter, doc_value_mode) {};
+                   const std::map<std::string, std::string>& properties,
+                   const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
+                   bool doc_value_mode)
+            : EsHttpScanner(state, profile, tuple_id, properties, conjunct_ctxs, counter,
+                            doc_value_mode) {};
     ~VEsHttpScanner();
 
-    Status get_next(std::vector<vectorized::MutableColumnPtr>& columns,
-                    MemPool* tuple_pool, bool* eof,
-                    const std::map<std::string, std::string>& docvalue_context);
-
+    Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, MemPool* tuple_pool,
+                    bool* eof, const std::map<std::string, std::string>& docvalue_context);
 };
 
-} // namespace doris
-
-#endif
+} // namespace doris::vectorized

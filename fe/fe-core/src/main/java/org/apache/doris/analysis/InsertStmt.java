@@ -301,7 +301,6 @@ public class InsertStmt extends DdlStmt {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
         }
         if (!isExplain() && !isTransactionBegin) {
-
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 MetricRepo.COUNTER_LOAD_ADD.increase(1L);
@@ -318,7 +317,7 @@ public class InsertStmt extends DdlStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism);
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
         }
     }
 
@@ -511,7 +510,9 @@ public class InsertStmt extends DdlStmt {
             } else {
                 // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
-                rows.add(selectStmt.getResultExprs());
+                // ATTN: must copy the `selectStmt.getResultExprs()`, otherwise the following
+                // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing error.
+                rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
                 analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
@@ -667,7 +668,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void prepareExpressions() throws UserException {
-        List<Expr> selectList = Expr.cloneList(queryStmt.getBaseTblResultExprs());
+        List<Expr> selectList = Expr.cloneList(queryStmt.getResultExprs());
         // check type compatibility
         int numCols = targetColumns.size();
         for (int i = 0; i < numCols; ++i) {

@@ -216,21 +216,20 @@ public abstract class AlterHandler extends MasterDaemon {
                 throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
             }
 
-            LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
-                    task.getSignature(), replica, task.getVersion(), task.getVersionHash());
+            LOG.info("before handle alter task tablet {}, replica: {}, task version: {}",
+                    task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
-                replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRowCount());
                 versionChanged = true;
             }
 
             if (versionChanged) {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
                         task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                        replica.getId(), replica.getVersion(), replica.getVersionHash(), -1,
+                        replica.getId(), replica.getVersion(), -1, 
                         replica.getDataSize(), replica.getRowCount(),
-                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
-                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                        replica.getLastFailedVersion(), replica.getLastSuccessVersion());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
 

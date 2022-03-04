@@ -30,8 +30,8 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/debug_util.h"
 #include "test_util/test_util.h"
+#include "util/debug_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -48,6 +48,7 @@ public:
 
         const Slice* ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        ASSERT_TRUE(ret.ok());
 
         OwnedSlice s = page_builder.finish();
         ASSERT_EQ(slices.size(), page_builder.count());
@@ -89,7 +90,7 @@ public:
         //check values
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
-        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -135,6 +136,7 @@ public:
             size_t add_num = 1;
             const Slice* ptr = &contents[i];
             Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            ASSERT_TRUE(ret.ok());
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 total_size += s.slice().size;
@@ -185,7 +187,7 @@ public:
             //check values
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);

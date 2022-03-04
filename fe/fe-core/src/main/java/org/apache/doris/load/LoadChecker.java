@@ -50,6 +50,7 @@ import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -63,7 +64,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import avro.shaded.com.google.common.collect.Lists;
 
 public class LoadChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadChecker.class);
@@ -461,7 +461,7 @@ public class LoadChecker extends MasterDaemon {
                                                                       replica.getBackendId(), db.getId(), tableId,
                                                                       partitionId, indexId,
                                                                       tabletId, replicaId, schemaHash,
-                                                                      -1, 0, filePath, fileSize, 0,
+                                                                      -1, filePath, fileSize, 0,
                                                                       job.getId(), type, job.getConditions(),
                                                                       needDecompress, job.getPriority(), 
                                                                       TTaskType.REALTIME_PUSH, 

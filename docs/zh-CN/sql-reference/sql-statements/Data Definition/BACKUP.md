@@ -30,7 +30,7 @@ under the License.
     语法：
         BACKUP SNAPSHOT [db_name].{snapshot_name}
         TO `repository_name`
-        ON (
+        [ON|EXCLUDE] (
             `table_name` [PARTITION (`p1`, ...)],
             ...
         )
@@ -39,7 +39,8 @@ under the License.
     说明：
         1. 同一数据库下只能有一个正在执行的 BACKUP 或 RESTORE 任务。
         2. ON 子句中标识需要备份的表和分区。如果不指定分区，则默认备份该表的所有分区。
-        3. PROPERTIES 目前支持以下属性：
+        3. EXCLUDE 子句中标识不需要备份的表和分区。备份除了指定的表或分区之外这个数据库中所有表的所有分区数据。
+        4. PROPERTIES 目前支持以下属性：
                 "type" = "full"：表示这是一次全量更新（默认）。
                 "timeout" = "3600"：任务超时时间，默认为一天。单位秒。
 
@@ -59,6 +60,11 @@ under the License.
             example_tbl PARTITION (p1,p2),
             example_tbl2
         );
+
+    3. 全量备份 example_db 下除了表 example_tbl 的其他所有表到仓库 example_repo 中： 
+        BACKUP SNAPSHOT example_db.snapshot_label3
+        TO example_repo
+        EXCLUDE (example_tbl);
 
 ## keyword
     BACKUP

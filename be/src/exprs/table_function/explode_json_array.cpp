@@ -128,6 +128,20 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
 ExplodeJsonArrayTableFunction::ExplodeJsonArrayTableFunction(ExplodeJsonArrayType type)
     : _type(type) {
     
+    switch (type) {
+        case ExplodeJsonArrayType::INT:
+            _fn_name = "explode_json_array_int";
+            break;
+        case ExplodeJsonArrayType::DOUBLE:
+            _fn_name = "explode_json_array_double";
+            break;
+        case ExplodeJsonArrayType::STRING:
+            _fn_name = "explode_json_array_string";
+            break;
+        default:
+            _fn_name = "unknown";
+            break;
+    }
 }
 
 ExplodeJsonArrayTableFunction::~ExplodeJsonArrayTableFunction() {

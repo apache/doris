@@ -14,9 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionStringOrArrayToT.h
-// and modified by Doris
+
+#pragma once
 
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"

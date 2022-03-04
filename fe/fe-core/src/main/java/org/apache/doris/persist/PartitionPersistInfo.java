@@ -120,12 +120,7 @@ public class PartitionPersistInfo implements Writable {
         partition = Partition.read(in);
 
         range = RangeUtils.readRange(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
-            listPartitionItem = ListPartitionItem.read(in);
-        } else {
-            listPartitionItem = ListPartitionItem.DUMMY_ITEM;
-        }
-
+        listPartitionItem = ListPartitionItem.read(in);
         dataProperty = DataProperty.read(in);
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             this.replicaAlloc = new ReplicaAllocation(in.readShort());
@@ -133,13 +128,8 @@ public class PartitionPersistInfo implements Writable {
             this.replicaAlloc = ReplicaAllocation.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-            isInMemory = in.readBoolean();
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
-            isTempPartition = in.readBoolean();
-        }
+        isInMemory = in.readBoolean();
+        isTempPartition = in.readBoolean();
     }
     
     public boolean equals(Object obj) {

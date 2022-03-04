@@ -18,15 +18,14 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Ifnull.h
 // and modified by Doris
 
-#ifndef DORIS_FUNCTION_IFNULL_H
-#define DORIS_FUNCTION_IFNULL_H
+#pragma once
 
-#include "vec/functions/simple_function_factory.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/utils/util.hpp"
-#include "vec/functions/function_string.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/functions/function_helpers.h"
+#include "vec/functions/function_string.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 class FunctionIfNull : public IFunction {
@@ -59,43 +58,35 @@ public:
             return Status::OK();
         }
 
-        ColumnWithTypeAndName null_column_arg0 {
-            nullptr, std::make_shared<DataTypeUInt8>(),""
-        };
-        ColumnWithTypeAndName nested_column_arg0 {
-            nullptr, col_left.type, ""
-        };
+        ColumnWithTypeAndName null_column_arg0 {nullptr, std::make_shared<DataTypeUInt8>(), ""};
+        ColumnWithTypeAndName nested_column_arg0 {nullptr, col_left.type, ""};
 
         /// implement isnull(col_left) logic
         if (auto* nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {
             null_column_arg0.column = nullable->get_null_map_column_ptr();
             nested_column_arg0.column = nullable->get_nested_column_ptr();
-            nested_column_arg0.type = reinterpret_cast<const DataTypeNullable*>(
-                    nested_column_arg0.type.get())->get_nested_type();
+            nested_column_arg0.type =
+                    reinterpret_cast<const DataTypeNullable*>(nested_column_arg0.type.get())
+                            ->get_nested_type();
         } else {
             block.get_by_position(result).column = col_left.column;
             return Status::OK();
         }
-        const ColumnsWithTypeAndName if_columns
-        {
-            null_column_arg0,
-            block.get_by_position(arguments[1]),
-            nested_column_arg0
-        };
+        const ColumnsWithTypeAndName if_columns {
+                null_column_arg0, block.get_by_position(arguments[1]), nested_column_arg0};
 
-        Block temporary_block(
-                {
-                        null_column_arg0,
-                        block.get_by_position(arguments[1]),
-                        nested_column_arg0,
-                        block.get_by_position(result),
-                });
+        Block temporary_block({
+                null_column_arg0,
+                block.get_by_position(arguments[1]),
+                nested_column_arg0,
+                block.get_by_position(result),
+        });
 
-        auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns, block.get_by_position(result).type);
+        auto func_if = SimpleFunctionFactory::instance().get_function(
+                "if", if_columns, block.get_by_position(result).type);
         func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count);
         block.get_by_position(result).column = temporary_block.get_by_position(3).column;
         return Status::OK();
     }
 };
-}
-#endif //DORIS_FUNCTION_IFNULL_H
+} // namespace doris::vectorized

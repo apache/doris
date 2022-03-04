@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/types.h"
+#include <memory>
 
 namespace doris {
 
@@ -43,10 +44,10 @@ class ScalarTypeInfoResolver {
     DECLARE_SINGLETON(ScalarTypeInfoResolver);
 
 public:
-    TypeInfo* get_type_info(const FieldType t) {
+    std::shared_ptr<const TypeInfo> get_type_info(const FieldType t) {
         auto pair = _scalar_type_mapping.find(t);
         DCHECK(pair != _scalar_type_mapping.end()) << "Bad field type: " << t;
-        return pair->second.get();
+        return pair->second;
     }
 
 private:
@@ -54,10 +55,10 @@ private:
     void add_mapping() {
         TypeTraits<field_type> traits;
         _scalar_type_mapping.emplace(field_type,
-                                     std::shared_ptr<TypeInfo>(new ScalarTypeInfo(traits)));
+                                     std::shared_ptr<const TypeInfo>(new ScalarTypeInfo(traits)));
     }
 
-    std::unordered_map<FieldType, std::shared_ptr<TypeInfo>, std::hash<size_t>>
+    std::unordered_map<FieldType, std::shared_ptr<const TypeInfo>, std::hash<size_t>>
             _scalar_type_mapping;
 
     DISALLOW_COPY_AND_ASSIGN(ScalarTypeInfoResolver);
@@ -97,7 +98,7 @@ bool is_scalar_type(FieldType field_type) {
     }
 }
 
-TypeInfo* get_scalar_type_info(FieldType field_type) {
+std::shared_ptr<const TypeInfo> get_scalar_type_info(FieldType field_type) {
     return ScalarTypeInfoResolver::instance()->get_type_info(field_type);
 }
 
@@ -105,10 +106,31 @@ class ArrayTypeInfoResolver {
     DECLARE_SINGLETON(ArrayTypeInfoResolver);
 
 public:
-    TypeInfo* get_type_info(const FieldType t) {
+    std::shared_ptr<const TypeInfo> get_type_info(const FieldType t) {
         auto pair = _type_mapping.find(t);
         DCHECK(pair != _type_mapping.end()) << "Bad field type: list<" << t << ">";
-        return pair->second.get();
+        return pair->second;
+    }
+
+    std::shared_ptr<const TypeInfo> get_type_info(const TabletColumn& column) {
+        DCHECK(column.get_subtype_count() == 1) << "more than 1 child type.";
+        const auto &sub_column = column.get_sub_column(0);
+        if (is_scalar_type(sub_column.type())) {
+            return get_type_info(sub_column.type());
+        } else {
+            return std::make_shared<const ArrayTypeInfo>(get_type_info(sub_column));
+        }
+    }
+
+    std::shared_ptr<const TypeInfo> get_type_info(const segment_v2::ColumnMetaPB& column_meta_pb) {
+        DCHECK(column_meta_pb.children_columns_size() >= 1 && column_meta_pb.children_columns_size() <= 3)
+                << "more than 3 children or no children.";
+        const auto& child_type = column_meta_pb.children_columns(0);
+        if (is_scalar_type((FieldType)child_type.type())) {
+            return get_type_info((FieldType)child_type.type());
+        } else {
+            return std::make_shared<const ArrayTypeInfo>(get_type_info(child_type));
+        }
     }
 
 private:
@@ -116,11 +138,11 @@ private:
     void add_mapping() {
         _type_mapping.emplace(
                 item_type,
-                std::shared_ptr<TypeInfo>(new ArrayTypeInfo(get_scalar_type_info(item_type))));
+                std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(get_scalar_type_info(item_type))));
     }
 
     // item_type_info -> list_type_info
-    std::unordered_map<FieldType, std::shared_ptr<TypeInfo>, std::hash<size_t>> _type_mapping;
+    std::unordered_map<FieldType, std::shared_ptr<const TypeInfo>, std::hash<size_t>> _type_mapping;
 };
 
 ArrayTypeInfoResolver::~ArrayTypeInfoResolver() = default;
@@ -144,27 +166,23 @@ ArrayTypeInfoResolver::ArrayTypeInfoResolver() {
 }
 
 // equal to get_scalar_type_info
-TypeInfo* get_type_info(FieldType field_type) {
+std::shared_ptr<const TypeInfo> get_type_info(FieldType field_type) {
     return get_scalar_type_info(field_type);
 }
 
 // get array array type info
-TypeInfo* get_collection_type_info(FieldType sub_type) {
+std::shared_ptr<const TypeInfo> get_collection_type_info(FieldType sub_type) {
     return ArrayTypeInfoResolver::instance()->get_type_info(sub_type);
 }
 
-TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
+std::shared_ptr<const TypeInfo> get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
     FieldType type = (FieldType)column_meta_pb->type();
     if (is_scalar_type(type)) {
         return get_scalar_type_info(type);
     } else {
         switch (type) {
         case OLAP_FIELD_TYPE_ARRAY: {
-            DCHECK(column_meta_pb->children_columns_size() >= 1 &&
-                   column_meta_pb->children_columns_size() <= 3)
-                    << "more than 3 children or no children.";
-            auto child_type = (FieldType)column_meta_pb->children_columns(0).type();
-            return ArrayTypeInfoResolver::instance()->get_type_info(child_type);
+            return ArrayTypeInfoResolver::instance()->get_type_info(*column_meta_pb);
         }
         default:
             DCHECK(false) << "Bad field type: " << type;
@@ -173,14 +191,13 @@ TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
     }
 }
 
-TypeInfo* get_type_info(const TabletColumn* col) {
+std::shared_ptr<const TypeInfo> get_type_info(const TabletColumn* col) {
     if (is_scalar_type(col->type())) {
         return get_scalar_type_info(col->type());
     } else {
         switch (col->type()) {
         case OLAP_FIELD_TYPE_ARRAY:
-            DCHECK(col->get_subtype_count() == 1) << "more than 1 child type.";
-            return ArrayTypeInfoResolver::instance()->get_type_info(col->get_sub_column(0).type());
+            return ArrayTypeInfoResolver::instance()->get_type_info(*col);
         default:
             DCHECK(false) << "Bad field type: " << col->type();
             return nullptr;

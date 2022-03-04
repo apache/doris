@@ -15,18 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_MOCK_MOCK_PUSHER_H
-#define DORIS_BE_SRC_AGENT_MOCK_MOCK_PUSHER_H
+#include "vec/functions/function_fake.h"
 
-#include "gmock/gmock.h"
+namespace doris::vectorized {
 
-namespace doris {
+void register_function_fake(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
+}
 
-class MockPusher : public Pusher {
-public:
-    MockPusher(const TPushReq& push_req);
-    MOCK_METHOD0(init, AgentStatus());
-    MOCK_METHOD1(process, AgentStatus(std::vector<TTabletInfo>* tablet_infos));
-}; // class MockPusher
-} // namespace doris
-#endif // DORIS_BE_SRC_AGENT_SERVICE_PUSHER_H
+} // namespace doris::vectorized

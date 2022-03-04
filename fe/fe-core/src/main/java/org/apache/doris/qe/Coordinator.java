@@ -56,6 +56,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -145,7 +146,7 @@ public class Coordinator {
 
     private Set<Long> alreadySentBackendIds = Sets.newHashSet();
 
-    // Why we use query global?
+    // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
     // but, we execute `NOW()` distributed.
     // So we make a query global value here to make one `now()` value in one query process.
@@ -533,10 +534,10 @@ public class Coordinator {
                 // update memory limit for colocate join
                 if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
                     int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceNum);
-                    long newmemory = memoryLimit / rate;
+                    long newMemory = memoryLimit / rate;
 
                     for (TExecPlanFragmentParams tParam : tParams) {
-                        tParam.query_options.setMemLimit(newmemory);
+                        tParam.query_options.setMemLimit(newMemory);
                     }
                 }
 
@@ -610,7 +611,7 @@ public class Coordinator {
                         LOG.warn("exec plan fragment failed, errmsg={}, code: {}, fragmentId={}, backend={}:{}",
                                 errMsg, code, fragment.getFragmentId(),
                                 pair.first.address.hostname, pair.first.address.port);
-                        cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                        cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
                                 throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
@@ -741,7 +742,7 @@ public class Coordinator {
             queryStatus.setStatus(status);
             LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {}, query id: {}, instance id: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN");
-            cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
         } finally {
             lock.unlock();
         }
@@ -796,7 +797,7 @@ public class Coordinator {
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
-                cancelInternal(InternalService.PPlanFragmentCancelReason.LIMIT_REACH);
+                cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
             }
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
@@ -818,13 +819,13 @@ public class Coordinator {
                 queryStatus.setStatus(Status.CANCELLED);
             }
             LOG.warn("cancel execution of query, this is outside invoke");
-            cancelInternal(InternalService.PPlanFragmentCancelReason.USER_CANCEL);
+            cancelInternal(Types.PPlanFragmentCancelReason.USER_CANCEL);
         } finally {
             unlock();
         }
     }
 
-    private void cancelInternal(InternalService.PPlanFragmentCancelReason cancelReason) {
+    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
             receiver.cancel();
         }
@@ -836,7 +837,7 @@ public class Coordinator {
         }
     }
 
-    private void cancelRemoteFragmentsAsync(InternalService.PPlanFragmentCancelReason cancelReason) {
+    private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
         for (BackendExecState backendExecState : backendExecStates) {
             backendExecState.cancelFragmentInstance(cancelReason);
         }
@@ -1096,7 +1097,7 @@ public class Coordinator {
 
                 int inputFragmentIndex = 0;
                 int maxParallelism = 0;
-                // If the fragment has three children, then the first child and the second child are the child(both exchange node) of shuffle HashJoinNode,
+                // If the fragment has three children, then the first child and the second child are the children(both exchange node) of shuffle HashJoinNode,
                 // and the third child is the right child(ExchangeNode) of broadcast HashJoinNode.
                 // We only need to pay attention to the maximum parallelism among the two ExchangeNodes of shuffle HashJoinNode.
                 int childrenCount = (fatherNode != null) ? fatherNode.getChildren().size() : 1;
@@ -1116,7 +1117,7 @@ public class Coordinator {
                 }
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId).instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
-                    // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute several instances
+                    // get distinct host, when parallel_fragment_exec_instance_num > 1, single host may execute several instances
                     Set<TNetworkAddress> hostSet = Sets.newHashSet();
                     for (FInstanceExecParam execParams : fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
                         hostSet.add(execParams.host);
@@ -1935,7 +1936,7 @@ public class Coordinator {
 
         // cancel the fragment instance.
         // return true if cancel success. Otherwise, return false
-        public synchronized boolean cancelFragmentInstance(InternalService.PPlanFragmentCancelReason cancelReason) {
+        public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {}, fragment instance id={}, reason: {}",
                         this.initiated, this.done, this.hasCanceled, backend.getId(),
@@ -2019,7 +2020,7 @@ public class Coordinator {
                     public InternalService.PExecPlanFragmentResult get() {
                         InternalService.PExecPlanFragmentResult result = InternalService.PExecPlanFragmentResult
                                 .newBuilder()
-                                .setStatus(org.apache.doris.proto.Types.PStatus.newBuilder()
+                                .setStatus(Types.PStatus.newBuilder()
                                         .addErrorMsgs(e.getMessage())
                                         .setStatusCode(TStatusCode.THRIFT_RPC_ERROR.getValue())
                                         .build())

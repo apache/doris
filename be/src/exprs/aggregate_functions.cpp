@@ -784,7 +784,7 @@ void AggregateFunctions::max(FunctionContext*, const DateTimeVal& src, DateTimeV
 
 void AggregateFunctions::string_concat(FunctionContext* ctx, const StringVal& src,
                                        const StringVal& separator, StringVal* result) {
-    if (src.is_null) {
+    if (src.is_null || separator.is_null) {
         return;
     }
 
@@ -819,7 +819,7 @@ void AggregateFunctions::string_concat_update(FunctionContext* ctx, const String
 
 void AggregateFunctions::string_concat_update(FunctionContext* ctx, const StringVal& src,
                                               const StringVal& separator, StringVal* result) {
-    if (src.is_null) {
+    if (src.is_null || separator.is_null) {
         return;
     }
     const StringVal* sep = separator.is_null ? &DEFAULT_STRING_CONCAT_DELIM : &separator;

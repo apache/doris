@@ -14,14 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/Helpers.h
-// and modified by Doris
 
 #pragma once
 
 #include "http/http_status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
@@ -47,11 +45,16 @@
     M(Date, ColumnInt64)            \
     M(DateTime, ColumnInt64)
 
+#define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
+    M(BitMap, ColumnBitmap)            \
+    M(HLL, ColumnHLL)
+
 #define TYPE_TO_COLUMN_TYPE(M)     \
     NUMERIC_TYPE_TO_COLUMN_TYPE(M) \
     DECIMAL_TYPE_TO_COLUMN_TYPE(M) \
     STRING_TYPE_TO_COLUMN_TYPE(M)  \
-    TIME_TYPE_TO_COLUMN_TYPE(M)
+    TIME_TYPE_TO_COLUMN_TYPE(M)    \
+    COMPLEX_TYPE_TO_COLUMN_TYPE(M)
 
 namespace doris::vectorized {
 

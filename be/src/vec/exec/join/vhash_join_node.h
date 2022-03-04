@@ -201,8 +201,8 @@ private:
 
     Arena _arena;
     HashTableVariants _hash_table_variants;
-    AcquireList<Block> _acquire_list;
 
+    std::vector<Block> _build_blocks;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
@@ -218,18 +218,18 @@ private:
     const bool _match_all_build; // output all rows coming from the build input. Full/Right Join
     bool _build_unique;          // build a hash table without duplicated rows. Left semi/anti Join
 
-    const bool _is_left_semi_anti;
     const bool _is_right_semi_anti;
     const bool _is_outer_join;
     bool _have_other_join_conjunct = false;
 
     RowDescriptor _row_desc_for_other_join_conjunt;
-    int _right_col_idx = 0;
-    int _right_col_len = 0;
 
+    std::vector<uint32_t> _items_counts;
+    std::vector<int8_t> _build_block_offsets;
+    std::vector<int> _build_block_rows;
 private:
     Status _hash_table_build(RuntimeState* state);
-    Status _process_build_block(RuntimeState* state, Block& block);
+    Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
     Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
                                      bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);

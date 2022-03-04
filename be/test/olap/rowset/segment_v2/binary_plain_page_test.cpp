@@ -53,6 +53,7 @@ public:
 
         Slice* ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        ASSERT_TRUE(ret.ok());
 
         OwnedSlice owned_slice = page_builder.finish();
 

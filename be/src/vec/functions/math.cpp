@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/field_visitors.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_const.h"
-#include "vec/functions/function_math_binary_float64.h"
+#include "vec/functions/function_binary_arithmetic.h"
+#include "vec/functions/function_binary_arithmetic_to_null_type.h"
 #include "vec/functions/function_math_unary.h"
+#include "vec/functions/function_math_unary_to_null_type.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
@@ -125,37 +126,41 @@ struct ExpName {
 };
 using FunctionExp = FunctionMathUnary<UnaryFunctionVectorized<ExpName, std::exp>>;
 
-struct LnName {
-    static constexpr auto name = "ln";
-};
-using FunctionLn = FunctionMathUnary<UnaryFunctionVectorized<LnName, std::log>>;
+#define LOG_FUNCTION_IMPL(CLASS, NAME, FUNC)                                    \
+struct CLASS##Impl {                                                            \
+    using Type = DataTypeFloat64;                                               \
+    using RetType = Float64;                                                    \
+    static constexpr auto name = #NAME;                                         \
+    template <typename T, typename U>                                           \
+    static void execute(const T* src, U* dst, UInt8& null_flag) {               \
+        null_flag = src[0] <= 0;                                                \
+        dst[0] = static_cast<U>(FUNC((double)src[0]));                          \
+    }                                                                           \
+};                                                                              \
+using Function##CLASS = FunctionMathUnaryToNullType<CLASS##Impl>;
 
-struct Log2Name {
-    static constexpr auto name = "log2";
-};
-using FunctionLog2 = FunctionMathUnary<UnaryFunctionVectorized<Log2Name, std::log2>>;
-
-struct Log10Name {
-    static constexpr auto name = "log10";
-};
-using FunctionLog10 = FunctionMathUnary<UnaryFunctionVectorized<Log10Name, std::log10>>;
+LOG_FUNCTION_IMPL(Log10, log10, std::log10);
+LOG_FUNCTION_IMPL(Log2, log2, std::log2);
+LOG_FUNCTION_IMPL(Ln, ln, std::log);
 
 struct LogName {
     static constexpr auto name = "log";
 };
 
-template <typename Name>
+template <typename A, typename B>
 struct LogImpl {
-    static constexpr auto name = LogName::name;
-    static constexpr auto rows_per_iteration = 1;
+    using ResultType = Float64;
+    static const constexpr bool allow_decimal = false;
 
-    template <typename T1, typename T2>
-    static void execute(const T1* src_left, const T2* src_right, Float64* dst) {
-        dst[0] = static_cast<Float64>(std::log(static_cast<Float64>(src_right[0])) /
-                                      std::log(static_cast<Float64>(src_left[0])));
+    template <typename Result>
+    static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
+        constexpr double EPSILON = 1e-9;
+        null_map[index] = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
+        return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
+                                      std::log(static_cast<Float64>(a)));
     }
 };
-using FunctionLog = FunctionMathBinaryFloat64<LogImpl<LogName>>;
+using FunctionLog = FunctionBinaryArithmeticToNullType<LogImpl, LogName>;
 
 struct CeilName {
     static constexpr auto name = "ceil";
@@ -301,28 +306,6 @@ struct FloorName {
 };
 using FunctionFloor = FunctionMathUnary<UnaryFunctionVectorized<FloorName, std::floor, DataTypeInt64>>;
 
-struct PowName {
-    static constexpr auto name = "pow";
-};
-using FunctionPow = FunctionMathBinaryFloat64<BinaryFunctionVectorized<PowName, std::pow>>;
-
-struct TruncateName {
-    static constexpr auto name = "truncate";
-};
-
-template <typename Name>
-struct TruncateImpl {
-    static constexpr auto rows_per_iteration = 1;
-    static constexpr auto name = TruncateName::name;
-
-    template <typename T1, typename T2>
-    static void execute(const T1* src_left, const T2* src_right, Float64* dst) {
-        dst[0] = static_cast<Float64>(my_double_round(
-                static_cast<Float64>(src_left[0]), static_cast<Int32>(src_right[0]), false, true));
-    }
-};
-using FunctionTruncate = FunctionMathBinaryFloat64<TruncateImpl<TruncateName>>;
-
 template <typename A>
 struct RadiansImpl {
     using ResultType = A;
@@ -412,26 +395,62 @@ struct RoundOneImpl {
 };
 using FunctionRoundOne = FunctionMathUnary<RoundOneImpl<RoundName>>;
 
+template <typename A, typename B>
+struct PowImpl {
+    using ResultType = double;
+    static const constexpr bool allow_decimal = false;
+
+    template <typename type>
+    static inline double apply(A a, B b) {
+        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
+        return std::pow((double)a, (double) b);
+    }
+};
+struct PowName {
+    static constexpr auto name = "pow";
+};
+using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName>;
+
+template <typename A, typename B>
+struct TruncateImpl {
+    using ResultType = double;
+    static const constexpr bool allow_decimal = false;
+
+    template <typename type>
+    static inline double apply(A a, B b) {
+        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
+        return static_cast<Float64>(my_double_round(
+                static_cast<Float64>(a), static_cast<Int32>(b), false, true));
+    }
+};
+struct TruncateName {
+    static constexpr auto name = "truncate";
+};
+using FunctionTruncate = FunctionBinaryArithmetic<TruncateImpl, TruncateName>;
+
 /// round(double,int32)-->double
 /// key_str:roundFloat64Int32
-template <typename Name>
+template <typename A, typename B>
 struct RoundTwoImpl {
-    static constexpr auto name = RoundName::name;
-    static constexpr auto rows_per_iteration = 1;
-    
+    using ResultType = double;
+    static const constexpr bool allow_decimal = false;
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<vectorized::DataTypeFloat64>(),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 
-    template <typename T1, typename T2>
-    static void execute(const T1* src_left, const T2* src_right, Float64* dst) {
-        dst[0] = my_double_round(static_cast<Float64>(src_left[0]),
-                                 static_cast<Int32>(src_right[0]), false, false);
+    template <typename type>
+    static inline double apply(A a, B b) {
+        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
+        return static_cast<Float64>(my_double_round(
+                static_cast<Float64>(a), static_cast<Int32>(b), false, false));
     }
 };
-using FunctionRoundTwo = FunctionMathBinaryFloat64<RoundTwoImpl<RoundName>>;
+using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName>;
 
+// TODO: Now math may cause one thread compile time too long, because the function in math
+// so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();

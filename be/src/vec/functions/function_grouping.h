@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_FUNCTION_GROUPING_H
-#define DORIS_FUNCTION_GROUPING_H
+#pragma once
 
-#include "vec/functions/simple_function_factory.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/utils/util.hpp"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/functions/function_helpers.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -64,5 +63,4 @@ public:
 
     String get_name() const override { return name; }
 };
-}
-#endif //DORIS_FUNCTION_GROUPING_H
+} // namespace doris::vectorized

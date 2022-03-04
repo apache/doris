@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
+#pragma once
 
 #include <string>
 
 #include "exec/exec_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -90,6 +90,9 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
+    std::string _peel_pushed_vconjunct(
+            const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
+
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
     // # rows/tuples read from the scanner (including those discarded by eval_conjuncts())
     RuntimeProfile::Counter* _rows_read_counter;
@@ -99,5 +102,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

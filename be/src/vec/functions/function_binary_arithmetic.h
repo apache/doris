@@ -461,6 +461,8 @@ template <template <typename, typename> class Op, typename Name,
           bool CanBeExecutedOnDefaultArguments = true>
 class FunctionBinaryArithmetic : public IFunction {
     bool check_decimal_overflow = true;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op<int,int>>()))>;
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
@@ -507,6 +509,11 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) return Op<int, int>::get_variadic_argument_types();
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr type_res;
