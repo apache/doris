@@ -44,7 +44,6 @@ struct WriteRequest {
     int64_t txn_id;
     int64_t partition_id;
     PUniqueId load_id;
-    bool need_gen_rollup;
     TupleDescriptor* tuple_desc;
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
@@ -107,8 +106,6 @@ private:
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
-    RowsetSharedPtr _new_rowset;
-    TabletSharedPtr _new_tablet;
     std::unique_ptr<RowsetWriter> _rowset_writer;
     std::shared_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;

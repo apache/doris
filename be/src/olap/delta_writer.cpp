@@ -40,8 +40,6 @@ DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& p
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
-          _new_rowset(nullptr),
-          _new_tablet(nullptr),
           _rowset_writer(nullptr),
           _tablet_schema(nullptr),
           _delta_written_success(false),
@@ -87,12 +85,6 @@ void DeltaWriter::_garbage_collection() {
     // when rollback failed should not delete rowset
     if (rollback_status == OLAP_SUCCESS) {
         _storage_engine->add_unused_rowset(_cur_rowset);
-    }
-    if (_new_tablet != nullptr) {
-        rollback_status = txn_mgr->rollback_txn(_req.partition_id, _new_tablet, _req.txn_id);
-        if (rollback_status == OLAP_SUCCESS) {
-            _storage_engine->add_unused_rowset(_new_rowset);
-        }
     }
 }
 
@@ -313,37 +305,11 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
         return res;
     }
 
-    if (_new_tablet != nullptr) {
-        LOG(INFO) << "convert version for schema change";
-        auto schema_change_handler = SchemaChangeHandler::instance();
-        res = schema_change_handler->schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
-                                                   &_new_rowset);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to convert delta for new tablet in schema change."
-                         << "res: " << res << ", "
-                         << "new_tablet: " << _new_tablet->full_name();
-            return res;
-        }
-
-        res = _storage_engine->txn_manager()->commit_txn(
-                _req.partition_id, _new_tablet, _req.txn_id, _req.load_id, _new_rowset, false);
-
-        if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-            LOG(WARNING) << "Failed to save pending rowset. rowset_id:" << _new_rowset->rowset_id();
-            return res;
-        }
-    }
-
 #ifndef BE_TEST
     if (!is_broken) {
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(_tablet->tablet_id());
         tablet_info->set_schema_hash(_tablet->schema_hash());
-        if (_new_tablet != nullptr) {
-            tablet_info = tablet_vec->Add();
-            tablet_info->set_tablet_id(_new_tablet->tablet_id());
-            tablet_info->set_schema_hash(_new_tablet->schema_hash());
-        }
     }
 #endif
 
