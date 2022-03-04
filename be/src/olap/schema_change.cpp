@@ -693,8 +693,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
         }
 
         if (_row_block_allocator->allocate(&_swap_row_block, row_num, null_supported) !=
-                    OLAP_SUCCESS ||
-            _swap_row_block == nullptr) {
+                    OLAP_SUCCESS) {
             LOG(WARNING) << "fail to allocate memory.";
             return false;
         }
@@ -769,7 +768,7 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
                      << "You can increase the memory "
                      << "by changing the Config.memory_limitation_per_thread_for_schema_change";
         *row_block = nullptr;
-        return OLAP_SUCCESS;
+        return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
     // TODO(lijiao) : Why abandon the original m_row_block_buffer
