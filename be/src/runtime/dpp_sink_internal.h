@@ -34,7 +34,6 @@ class MemTracker;
 class ObjectPool;
 class RuntimeState;
 class RowDescriptor;
-class TRollupSchema;
 class TPartitionKey;
 class TPartitionRange;
 class TRangePartition;

@@ -100,21 +100,6 @@ struct TOdbcTableSink {
     3: optional bool use_transaction
 }
 
-// Following is used to split data read from 
-// Used to describe rollup schema
-struct TRollupSchema {
-    1: required list<Exprs.TExpr> keys
-    2: required list<Exprs.TExpr> values
-    3: required list<Types.TAggregationType> value_ops
-    4: optional string keys_type 
-}
-
-struct TDataSplitSink {
-    1: required list<Exprs.TExpr> partition_exprs
-    2: required list<Partitions.TRangePartition> partition_infos
-    4: required map<string, TRollupSchema> rollup_schemas
-}
-
 struct TExportSink {
     1: required Types.TFileType file_type
     2: required string export_path
@@ -148,7 +133,6 @@ struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
   3: optional TResultSink result_sink
-  4: optional TDataSplitSink split_sink
   5: optional TMysqlTableSink mysql_table_sink
   6: optional TExportSink export_sink
   7: optional TOlapTableSink olap_table_sink
