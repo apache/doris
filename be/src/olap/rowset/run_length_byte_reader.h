@@ -35,7 +35,7 @@ public:
     explicit RunLengthByteReader(ReadOnlyFileStream* input);
     ~RunLengthByteReader() {}
     bool has_next() const;
-    // 获取下一条数据, 如果没有更多的数据了, 返回OLAP_ERR_DATA_EOF
+    // Gets the next piece of data, or if there is no more, returns OLAP_ERR_DATA_EOF
     OLAPStatus next(char* value);
     OLAPStatus seek(PositionProvider* position);
     OLAPStatus skip(uint64_t num_values);
