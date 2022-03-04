@@ -33,50 +33,6 @@ PartRangeKey PartRangeKey::_s_neg_infinite(-1);
 
 PartRange PartRange::_s_all_range(PartRangeKey::neg_infinite(), PartRangeKey::pos_infinite(), true, true);
 
-RollupSchema::RollupSchema() {}
-
-RollupSchema::~RollupSchema() {}
-
-Status RollupSchema::from_thrift(ObjectPool* pool, const TRollupSchema& t_schema,
-                                 RollupSchema* schema) {
-    if (t_schema.values.size() != t_schema.value_ops.size()) {
-        std::stringstream ss;
-        ss << "values size(" << t_schema.values.size() << ") not equal with value_ops size("
-           << t_schema.value_ops.size() << ")";
-        return Status::InternalError(ss.str());
-    }
-    schema->_keys_type = t_schema.keys_type;
-    if (false == t_schema.__isset.keys_type) {
-        //be compatible for existing table with no keys type
-        schema->_keys_type = "AGG_KEYS";
-    } else {
-        schema->_keys_type = t_schema.keys_type;
-    }
-    RETURN_IF_ERROR(Expr::create_expr_trees(pool, t_schema.keys, &schema->_key_ctxs));
-    RETURN_IF_ERROR(Expr::create_expr_trees(pool, t_schema.values, &schema->_value_ctxs));
-    schema->_value_ops.assign(t_schema.value_ops.begin(), t_schema.value_ops.end());
-
-    return Status::OK();
-}
-
-Status RollupSchema::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                             const std::shared_ptr<MemTracker>& mem_tracker) {
-    RETURN_IF_ERROR(Expr::prepare(_key_ctxs, state, row_desc, mem_tracker));
-    RETURN_IF_ERROR(Expr::prepare(_value_ctxs, state, row_desc, mem_tracker));
-    return Status::OK();
-}
-
-Status RollupSchema::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Expr::open(_key_ctxs, state));
-    RETURN_IF_ERROR(Expr::open(_value_ctxs, state));
-    return Status::OK();
-}
-
-void RollupSchema::close(RuntimeState* state) {
-    Expr::close(_key_ctxs, state);
-    Expr::close(_value_ctxs, state);
-}
-
 Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, PartRangeKey* key) {
     key->_sign = t_key.sign;
     if (key->_sign != 0) {

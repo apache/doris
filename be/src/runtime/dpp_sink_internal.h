@@ -39,37 +39,6 @@ class TPartitionKey;
 class TPartitionRange;
 class TRangePartition;
 
-class RollupSchema {
-public:
-    RollupSchema();
-
-    ~RollupSchema();
-
-    static Status from_thrift(ObjectPool* pool, const TRollupSchema& t_schema,
-                              RollupSchema* schema);
-
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   const std::shared_ptr<MemTracker>& mem_tracker);
-
-    Status open(RuntimeState* state);
-
-    void close(RuntimeState* state);
-
-    const std::string& keys_type() const { return _keys_type; }
-
-    const std::vector<ExprContext*>& keys() const { return _key_ctxs; }
-
-    const std::vector<ExprContext*>& values() const { return _value_ctxs; }
-
-    const std::vector<TAggregationType::type>& value_ops() const { return _value_ops; }
-
-private:
-    std::string _keys_type;
-    std::vector<ExprContext*> _key_ctxs;
-    std::vector<ExprContext*> _value_ctxs;
-    std::vector<TAggregationType::type> _value_ops;
-};
-
 class PartRangeKey {
 public:
     PartRangeKey() {}
@@ -251,32 +220,6 @@ private:
     int32_t _distributed_bucket;
 };
 
-// which tablet this batch belong to
-// TODO(zc): remove rollup
-struct TabletDesc {
-    int64_t partition_id;
-    uint32_t bucket_id;
-
-    bool operator==(const TabletDesc& other) const {
-        return (bucket_id == other.bucket_id) && (partition_id == other.partition_id);
-    }
-};
-
 } // namespace doris
-
-namespace std {
-
-// TODO(zc)
-template <>
-struct hash<doris::TabletDesc> {
-    std::size_t operator()(const doris::TabletDesc& desc) const {
-        uint32_t seed = 0;
-        seed = doris::HashUtil::crc_hash(&desc.partition_id, sizeof(desc.partition_id), seed);
-        seed = doris::HashUtil::crc_hash(&desc.bucket_id, sizeof(desc.bucket_id), seed);
-        return seed;
-    }
-};
-
-} // namespace std
 
 #endif
