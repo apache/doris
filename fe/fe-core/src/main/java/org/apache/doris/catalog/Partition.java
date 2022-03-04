@@ -423,19 +423,15 @@ public class Partition extends MetaObject implements Writable {
         }
 
         buffer.append("committedVersion: ").append(visibleVersion).append("; ");
-
         buffer.append("distribution_info.type: ").append(distributionInfo.getType().name()).append("; ");
         buffer.append("distribution_info: ").append(distributionInfo.toString());
 
         return buffer.toString();
     }
 
-    public boolean convertRandomDistributionToHashDistribution(List<Column> baseSchema) {
-        boolean hasChanged = false;
-        if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
-            distributionInfo = ((RandomDistributionInfo) distributionInfo).toHashDistributionInfo(baseSchema);
-            hasChanged = true;
+    public void convertHashDistributionToRandomDistribution() {
+        if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
-        return hasChanged;
     }
 }

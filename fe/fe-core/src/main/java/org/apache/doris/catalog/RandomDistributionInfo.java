@@ -20,12 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
 
-import com.google.common.collect.Lists;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 
 /**
  * Random partition.
@@ -89,16 +86,5 @@ public class RandomDistributionInfo extends DistributionInfo {
 
         return type == randomDistributionInfo.type
                 && bucketNum == randomDistributionInfo.bucketNum;
-    }
-
-    public HashDistributionInfo toHashDistributionInfo(List<Column> baseSchema) {
-        List<Column> keyColumns = Lists.newArrayList();
-        for (Column column : baseSchema) {
-            if (column.isKey()) {
-                keyColumns.add(column);
-            }
-        }
-        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(bucketNum, keyColumns);
-        return hashDistributionInfo;
     }
 }
