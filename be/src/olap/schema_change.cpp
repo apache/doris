@@ -92,7 +92,7 @@ private:
     };
 
     bool _make_heap(const std::vector<RowBlock*>& row_block_arr);
-    bool _pop_heap();
+    void _pop_heap();
 
     TabletSharedPtr _tablet;
     std::priority_queue<MergeElement> _heap;
@@ -841,9 +841,7 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
         init_row_with_others(&row_cursor, *(_heap.top().row_cursor), mem_pool.get(),
                              agg_object_pool.get());
 
-        if (!_pop_heap()) {
-            goto MERGE_ERR;
-        }
+        _pop_heap();
 
         if (KeysType::DUP_KEYS == _tablet->keys_type()) {
             if (rowset_writer->add_row(row_cursor) != OLAP_SUCCESS) {
@@ -858,9 +856,7 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
             // we should fix this trick ASAP
             agg_update_row(&row_cursor, *(_heap.top().row_cursor), nullptr);
             ++tmp_merged_rows;
-            if (!_pop_heap()) {
-                goto MERGE_ERR;
-            }
+            _pop_heap();
         }
         agg_finalize_row(&row_cursor, mem_pool.get());
         if (rowset_writer->add_row(row_cursor) != OLAP_SUCCESS) {
@@ -917,19 +913,19 @@ bool RowBlockMerger::_make_heap(const std::vector<RowBlock*>& row_block_arr) {
     return true;
 }
 
-bool RowBlockMerger::_pop_heap() {
+void RowBlockMerger::_pop_heap() {
     MergeElement element = _heap.top();
     _heap.pop();
 
     if (++element.row_block_index >= element.row_block->row_block_info().row_num) {
         SAFE_DELETE(element.row_cursor);
-        return true;
+        return;
     }
 
     element.row_block->get_row(element.row_block_index, element.row_cursor);
 
     _heap.push(element);
-    return true;
+    return;
 }
 
 OLAPStatus LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
