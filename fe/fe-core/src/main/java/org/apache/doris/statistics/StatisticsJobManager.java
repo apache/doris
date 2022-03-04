@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Maps;
 
@@ -38,21 +39,13 @@ public class StatisticsJobManager {
     // statistics job
     private Map<Long, StatisticsJob> idToStatisticsJob = Maps.newConcurrentMap();
 
-    public void createStatisticsJob(AnalyzeStmt analyzeStmt) {
-        // step0: init statistics job by analyzeStmt
-        StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
-        // step1: get statistics to be analyzed
-        Set<Long> tableIdList = statisticsJob.relatedTableId();
-        // step2: check restrict
-        checkRestrict(tableIdList);
-        // step3: check permission
-        checkPermission();
-        // step4: create it
-        createStatisticsJob(statisticsJob);
+    public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws DdlException {
+        StatisticsJob statisticsJob = new StatisticsJob(analyzeStmt);
+        this.createStatisticsJob(statisticsJob);
     }
 
     public void createStatisticsJob(StatisticsJob statisticsJob) {
-        idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
+        this.idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
         try {
             Catalog.getCurrentCatalog().getStatisticsJobScheduler().addPendingJob(statisticsJob);
         } catch (IllegalStateException e) {
