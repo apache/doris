@@ -24,6 +24,7 @@ import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.TableInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionState;
 
@@ -92,6 +93,11 @@ public class FakeEditLog extends MockUp<EditLog> {
 
     @Mock
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation info) {
+
+    }
+
+    @Mock
+    public void logModifyDistributionType(TableInfo tableInfo) {
 
     }
 
