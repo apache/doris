@@ -193,12 +193,6 @@ public class CatalogTestUtil {
         tablet.addReplica(replica2);
         tablet.addReplica(replica3);
 
-        // partition
-        RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
-        Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
-        partition.updateVisibleVersion(testStartVersion);
-        partition.setNextVersion(testStartVersion + 1);
-
         // columns
         List<Column> columns = new ArrayList<Column>();
         Column temp = new Column("k1", PrimitiveType.INT);
@@ -216,6 +210,11 @@ public class CatalogTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         keysColumn.add(temp);
+
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(10, keysColumn);
+        Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
+        partition.updateVisibleVersion(testStartVersion);
+        partition.setNextVersion(testStartVersion + 1);
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
