@@ -112,8 +112,8 @@ CsvScanNode::~CsvScanNode() {
     // do nothing
 }
 
-Status CsvScanNode::init(const TPlanNode& tnode) {
-    return ExecNode::init(tnode);
+Status CsvScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    return ExecNode::init(tnode, state);
 }
 
 Status CsvScanNode::prepare(RuntimeState* state) {
@@ -556,7 +556,7 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
                                               fields[i].length(), slot, state, &error_msg);
 
         if (flag == false) {
-            LOG(INFO) << error_msg.str();;
+            LOG(INFO) << error_msg.str();
             return false;
         }
     }

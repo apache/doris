@@ -237,7 +237,7 @@ public:
     //convert and copy field from src to desc
     inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) const {
-        return _type_info->convert_from(dest, src, src_type, mem_pool);
+        return _type_info->convert_from(dest, src, src_type, mem_pool, get_variable_len());
     }
 
     // Copy source content to destination in index format.
@@ -278,7 +278,7 @@ public:
 
     FieldType type() const { return _type_info->type(); }
     FieldAggregationMethod aggregation() const { return _agg_info->agg_method(); }
-    const TypeInfo* type_info() const { return _type_info; }
+    std::shared_ptr<const TypeInfo> type_info() const { return _type_info; }
     bool is_nullable() const { return _is_nullable; }
 
     // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
@@ -301,7 +301,7 @@ public:
     Field* get_sub_field(int i) { return _sub_fields[i].get(); }
 
 protected:
-    const TypeInfo* _type_info;
+    std::shared_ptr<const TypeInfo> _type_info;
     const AggregateInfo* _agg_info;
     // unit : byte
     // except for strings, other types have fixed lengths

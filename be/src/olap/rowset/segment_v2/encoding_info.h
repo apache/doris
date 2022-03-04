@@ -31,8 +31,8 @@ namespace segment_v2 {
 
 class PageBuilder;
 class PageDecoder;
-class PageBuilderOptions;
-class PageDecoderOptions;
+struct PageBuilderOptions;
+struct PageDecoderOptions;
 
 class EncodingInfo {
 public:

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
 #include <string>
 
 #include "gtest/gtest.h"
@@ -45,7 +46,8 @@ TEST(AggTest, basic_test) {
     DataTypes data_types = {data_type};
     Array array;
     auto agg_function = factory.get("sum", data_types, array);
-    AggregateDataPtr place = new char[agg_function->size_of_data()];
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
     agg_function->create(place);
     const IColumn* column[1] = {column_vector_int32.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
@@ -55,11 +57,8 @@ TEST(AggTest, basic_test) {
     for (int i = 0; i < agg_test_batch_size; i++) {
         ans += i;
     }
-    ASSERT_EQ(ans, *(int32_t*)place);
+    ASSERT_EQ(ans, *reinterpret_cast<int32_t*>(place));
     agg_function->destroy(place);
-    if(place) {
-        free(place);
-    }
 }
 
 TEST(AggTest, topn_test) {
@@ -80,7 +79,8 @@ TEST(AggTest, topn_test) {
     Array array;
 
     auto agg_function = factory.get("topn", data_types, array);
-    AggregateDataPtr place = new char[agg_function->size_of_data()];
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
     agg_function->create(place);
 
     IColumn* columns[2] = {datas[0].get(), datas[1].get()};
@@ -90,7 +90,9 @@ TEST(AggTest, topn_test) {
     }
 
     std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place)->get();
-    std::string expect_result="{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":46,\"10\":37}";
+    std::string expect_result =
+            "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
+            "46,\"10\":37}";
     ASSERT_EQ(result, expect_result);
     agg_function->destroy(place);
 }

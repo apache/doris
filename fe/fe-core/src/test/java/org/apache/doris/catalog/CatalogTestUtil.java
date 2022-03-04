@@ -77,9 +77,6 @@ public class CatalogTestUtil {
     public static long testTabletId2 = 18;
 
     public static long testStartVersion = 12;
-    public static long testStartVersionHash = 12312;
-    public static long testPartitionCurrentVersionHash = 12312;
-    public static long testPartitionNextVersionHash = 123123123;
     public static long testRollupIndexId2 = 13;
     public static String testRollupIndex2 = "newRollupIndex";
     public static String testRollupIndex3 = "newRollupIndex2";
@@ -116,7 +113,7 @@ public class CatalogTestUtil {
         Catalog.getCurrentSystemInfo().addBackend(backend3);
         catalog.initDefaultCluster();
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
-                testStartVersion, testStartVersionHash);
+                testStartVersion);
         catalog.unprotectCreateDb(db);
         return catalog;
     }
@@ -137,9 +134,7 @@ public class CatalogTestUtil {
                     return false;
                 }
                 if (masterPartition.getVisibleVersion() != slavePartition.getVisibleVersion()
-                        || masterPartition.getVisibleVersionHash() != slavePartition.getVisibleVersionHash()
-                        || masterPartition.getNextVersion() != slavePartition.getNextVersion()
-                        || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()) {
+                        || masterPartition.getNextVersion() != slavePartition.getNextVersion()) {
                     return false;
                 }
                 List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices(IndexExtState.ALL);
@@ -159,12 +154,8 @@ public class CatalogTestUtil {
                             Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
                             if (slaveReplica.getBackendId() != masterReplica.getBackendId()
                                     || slaveReplica.getVersion() != masterReplica.getVersion()
-                                    || slaveReplica.getVersionHash() != masterReplica.getVersionHash()
                                     || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
-                                    || slaveReplica.getLastFailedVersionHash() != masterReplica.getLastFailedVersionHash()
-                                    || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()
-                                    || slaveReplica.getLastSuccessVersionHash() != slaveReplica
-                                    .getLastSuccessVersionHash()) {
+                                    || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()) {
                                 return false;
                             }
                         }
@@ -178,17 +169,17 @@ public class CatalogTestUtil {
     }
 
     public static Database createSimpleDb(long dbId, long tableId, long partitionId, long indexId, long tabletId,
-            long version, long versionHash) {
+            long version) {
         Catalog.getCurrentInvertedIndex().clear();
 
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0, 0, 0);
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L,
+                ReplicaState.NORMAL, -1, 0);
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L,
+                ReplicaState.NORMAL, -1, 0);
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L,
+                ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new Tablet(tabletId);
@@ -201,13 +192,6 @@ public class CatalogTestUtil {
         tablet.addReplica(replica1);
         tablet.addReplica(replica2);
         tablet.addReplica(replica3);
-
-        // partition
-        RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
-        Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
-        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
-        partition.setNextVersion(testStartVersion + 1);
-        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
         // columns
         List<Column> columns = new ArrayList<Column>();
@@ -226,6 +210,11 @@ public class CatalogTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         keysColumn.add(temp);
+
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(10, keysColumn);
+        Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
+        partition.updateVisibleVersion(testStartVersion);
+        partition.setNextVersion(testStartVersion + 1);
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
@@ -256,8 +245,8 @@ public class CatalogTestUtil {
     public static void createDupTable(Database db) {
 
         // replica
-        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, testStartVersionHash, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0, 0, 0);
+        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L,
+                ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new Tablet(testTabletId2);
@@ -272,9 +261,8 @@ public class CatalogTestUtil {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(1);
         Partition partition = new Partition(testPartitionId2, testPartition2, index, distributionInfo);
-        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersion(testStartVersion);
         partition.setNextVersion(testStartVersion + 1);
-        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
         // columns
         List<Column> columns = new ArrayList<Column>();

@@ -24,9 +24,8 @@
 #include "common/object_pool.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/descriptors.pb.h"
-
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
@@ -87,7 +86,8 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
     auto data_column = type().get_data_type_ptr()->create_column();
     if (is_nullable()) {
-        return doris::vectorized::ColumnNullable::create(std::move(data_column), doris::vectorized::ColumnUInt8::create());
+        return doris::vectorized::ColumnNullable::create(std::move(data_column),
+                                                         doris::vectorized::ColumnUInt8::create());
     }
     return data_column;
 }
@@ -109,7 +109,6 @@ std::string SlotDescriptor::debug_string() const {
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
         : _name(tdesc.tableName),
           _database(tdesc.dbName),
-          _id(tdesc.id),
           _num_cols(tdesc.numCols),
           _num_clustering_cols(tdesc.numClusteringCols) {}
 
@@ -145,6 +144,28 @@ BrokerTableDescriptor::~BrokerTableDescriptor() {}
 std::string BrokerTableDescriptor::debug_string() const {
     std::stringstream out;
     out << "BrokerTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
+HiveTableDescriptor::HiveTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+HiveTableDescriptor::~HiveTableDescriptor() {}
+
+std::string HiveTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "HiveTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
+IcebergTableDescriptor::IcebergTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+IcebergTableDescriptor::~IcebergTableDescriptor() {}
+
+std::string IcebergTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "IcebergTable(" << TableDescriptor::debug_string() << ")";
     return out.str();
 }
 
@@ -523,6 +544,12 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::ES_TABLE:
             desc = pool->add(new EsTableDescriptor(tdesc));
+            break;
+        case TTableType::HIVE_TABLE:
+            desc = pool->add(new HiveTableDescriptor(tdesc));
+            break;
+        case TTableType::ICEBERG_TABLE:
+            desc = pool->add(new IcebergTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

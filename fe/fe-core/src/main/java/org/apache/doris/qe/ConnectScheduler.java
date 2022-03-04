@@ -128,7 +128,7 @@ public class ConnectScheduler {
         }
     }
 
-    public ConnectContext getContext(long connectionId) {
+    public ConnectContext getContext(int connectionId) {
         return connectionMap.get(connectionId);
     }
 

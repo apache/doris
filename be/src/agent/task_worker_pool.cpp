@@ -203,7 +203,8 @@ void TaskWorkerPool::start() {
         break;
     case TaskWorkerType::SUBMIT_TABLE_COMPACTION:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback, this);
+        cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
+                             this);
         break;
     default:
         // pass
@@ -252,7 +253,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
             _worker_thread_condition_variable.notify_one();
         }
         LOG(INFO) << "success to submit task. type=" << type_str << ", signature=" << signature
-                  << ", task_count_in_queue=" << task_count_in_queue;
+                  << ", queue size=" << task_count_in_queue;
     } else {
         LOG(INFO) << "fail to register task. type=" << type_str << ", signature=" << signature;
     }
@@ -280,8 +281,8 @@ void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t 
 
     std::string type_str;
     EnumToString(TTaskType, task_type, type_str);
-    LOG(INFO) << "remove task info. type=" << type_str << ", signature=" << signature
-              << ", queue_size=" << queue_size;
+    VLOG_NOTICE << "remove task info. type=" << type_str << ", signature=" << signature
+                << ", queue_size=" << queue_size;
     TRACE("remove task info");
 }
 
@@ -298,8 +299,9 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
             break;
         } else {
             DorisMetrics::instance()->finish_task_requests_failed->increment(1);
-            LOG(WARNING) << "finish task failed. type=" << to_string(finish_task_request.task_type) << ", signature="
-                         << finish_task_request.signature <<  ", status_code=" << result.status.status_code;
+            LOG(WARNING) << "finish task failed. type=" << to_string(finish_task_request.task_type)
+                         << ", signature=" << finish_task_request.signature
+                         << ", status_code=" << result.status.status_code;
             try_time += 1;
         }
         sleep(config::sleep_one_second);
@@ -383,7 +385,8 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.tablet_id = tablet->table_id();
             tablet_info.schema_hash = tablet->schema_hash();
             tablet_info.version = create_tablet_req.version;
-            tablet_info.version_hash = create_tablet_req.version_hash;
+            // Useless but it is a required field in TTabletInfo
+            tablet_info.version_hash = 0;
             tablet_info.row_count = 0;
             tablet_info.data_size = 0;
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
@@ -533,8 +536,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     if (status == DORIS_SUCCESS) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
-        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2, signature, task_type,
-                                          &error_msgs, process_name);
+        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
         OLAPStatus sc_status = _env->storage_engine()->execute_task(&engine_task);
         if (sc_status != OLAP_SUCCESS) {
             if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
@@ -662,7 +664,6 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         finish_task_request.__set_signature(agent_task_req.signature);
         if (push_req.push_type == TPushType::DELETE) {
             finish_task_request.__set_request_version(push_req.version);
-            finish_task_request.__set_request_version_hash(push_req.version_hash);
         }
 
         if (status == DORIS_SUCCESS) {
@@ -713,7 +714,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         }
 
         DorisMetrics::instance()->publish_task_request_total->increment(1);
-        LOG(INFO) << "get publish version task, signature:" << agent_task_req.signature;
+        VLOG_NOTICE << "get publish version task, signature:" << agent_task_req.signature;
 
         Status st;
         std::vector<TTabletId> error_tablet_ids;
@@ -1072,9 +1073,9 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         TStatus task_status;
 
         uint32_t checksum = 0;
-        EngineChecksumTask engine_task(
-                check_consistency_req.tablet_id, check_consistency_req.schema_hash,
-                check_consistency_req.version, check_consistency_req.version_hash, &checksum);
+        EngineChecksumTask engine_task(check_consistency_req.tablet_id,
+                                       check_consistency_req.schema_hash,
+                                       check_consistency_req.version, &checksum);
         OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "check consistency failed. status: " << res
@@ -1095,7 +1096,6 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         finish_task_request.__set_task_status(task_status);
         finish_task_request.__set_tablet_checksum(static_cast<int64_t>(checksum));
         finish_task_request.__set_request_version(check_consistency_req.version);
-        finish_task_request.__set_request_version_hash(check_consistency_req.version_hash);
 
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
@@ -1404,7 +1404,6 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
             LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                          << ", schema_hash:" << snapshot_request.schema_hash
                          << ", version:" << snapshot_request.version
-                         << ", version_hash:" << snapshot_request.version_hash
                          << ", status: " << make_snapshot_status;
             error_msgs.push_back("make_snapshot failed. status: " +
                                  boost::lexical_cast<string>(make_snapshot_status));
@@ -1412,7 +1411,6 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
             LOG(INFO) << "make_snapshot success. tablet_id:" << snapshot_request.tablet_id
                       << ", schema_hash:" << snapshot_request.schema_hash
                       << ", version:" << snapshot_request.version
-                      << ", version_hash:" << snapshot_request.version_hash
                       << ", snapshot_path:" << snapshot_path;
             if (snapshot_request.__isset.list_files) {
                 // list and save all snapshot files
@@ -1427,7 +1425,6 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
                     LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                                  << ", schema_hash:" << snapshot_request.schema_hash
                                  << ", version:" << snapshot_request.version
-                                 << ", version_hash:" << snapshot_request.version_hash
                                  << ",list file failed: " << st.get_error_msg();
                     error_msgs.push_back("make_snapshot failed. list file failed: " +
                                          st.get_error_msg());
@@ -1694,8 +1691,8 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
                 continue;
             }
 
-            Status status = StorageEngine::instance()->submit_compaction_task(
-                    tablet_ptr, compaction_type);
+            Status status =
+                    StorageEngine::instance()->submit_compaction_task(tablet_ptr, compaction_type);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to submit table compaction task. " << status.to_string();
             }

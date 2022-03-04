@@ -47,7 +47,7 @@ public class ConnectionAction extends RestBaseAction {
             sendResult(request, response, HttpResponseStatus.BAD_REQUEST);
             return;
         }
-        long connectionId = Long.valueOf(connStr.trim());
+        int connectionId = Integer.valueOf(connStr.trim());
         ConnectContext context = ExecuteEnv.getInstance().getScheduler().getContext(connectionId);
         if (context == null || context.queryId() == null) {
             response.getContent().append("connection id " + connectionId + " not found.");

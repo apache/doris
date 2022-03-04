@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_EXEC_ES_HTTP_SCAN_NODE_H
-#define BE_EXEC_ES_HTTP_SCAN_NODE_H
+#pragma once
 
 #include <atomic>
 #include <condition_variable>
@@ -29,9 +28,9 @@
 
 #include "common/status.h"
 #include "exec/es_http_scanner.h"
-#include "vec/exec/ves_http_scanner.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "vec/exec/ves_http_scanner.h"
 
 namespace doris {
 
@@ -99,13 +98,11 @@ private:
     Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
                         const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
 
-    virtual Status scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
-            return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
+    virtual Status scanner_scan(std::unique_ptr<vectorized::VEsHttpScanner> scanner) {
+        return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
     };
 
     Status build_conjuncts_list();
-
-    bool _all_scanners_finished;
 
     std::vector<std::thread> _scanner_threads;
     std::vector<std::promise<Status>> _scanners_status;
@@ -119,8 +116,9 @@ private:
     std::vector<EsPredicate*> _predicates;
 
     std::vector<int> _predicate_to_conjunct;
+    std::vector<int> _conjunct_to_predicate;
+
+    std::unique_ptr<RuntimeProfile> _scanner_profile;
 };
 
 } // namespace doris
-
-#endif

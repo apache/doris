@@ -91,7 +91,6 @@ struct ParsedData {
                 *output = _data[offset];
                 break;
             case ExplodeJsonArrayType::STRING:
-                // LOG(INFO) << "cmy get_value offset: " << offset << ", is null: " << _string_nulls[offset] << ", data: " << (_string_nulls[offset] ? "null2" : _backup_string[offset]);
                 *output = _string_nulls[offset] ? nullptr : &_data_string[offset];
                 break;
             default:

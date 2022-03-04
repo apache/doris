@@ -34,11 +34,11 @@ class WritableBlock;
 
 namespace segment_v2 {
 
-class BloomFilterOptions;
+struct BloomFilterOptions;
 
 class BloomFilterIndexWriter {
 public:
-    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
+    static Status create(const BloomFilterOptions& bf_options, std::shared_ptr<const TypeInfo> typeinfo,
                          std::unique_ptr<BloomFilterIndexWriter>* res);
 
     BloomFilterIndexWriter() = default;

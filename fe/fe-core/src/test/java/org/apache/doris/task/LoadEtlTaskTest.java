@@ -87,7 +87,7 @@ public class LoadEtlTaskTest {
     @Test
     public void testRunEtlTask(@Mocked DppScheduler dppScheduler) throws Exception {
         // mock catalog
-        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
+        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
         new Expectations(catalog) {
             {
                 catalog.getDbNullable(dbId);

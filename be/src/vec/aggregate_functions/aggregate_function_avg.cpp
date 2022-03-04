@@ -27,8 +27,6 @@
 
 namespace doris::vectorized {
 
-namespace {
-
 template <typename T>
 struct Avg {
     using FieldType = std::conditional_t<IsDecimalNumber<T>, Decimal128, NearestFieldType<T>>;
@@ -59,8 +57,6 @@ AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
     }
     return res;
 }
-
-} // namespace
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("avg", create_aggregate_function_avg);

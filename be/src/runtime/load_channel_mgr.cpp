@@ -161,7 +161,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
 
     // 4. handle finish
     if (channel->is_finished()) {
-        LOG(INFO) << "removing load channel " << load_id << " because it's finished";
+        VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
         {
             std::lock_guard<std::mutex> l(_lock);
             _load_channels.erase(load_id);

@@ -357,7 +357,9 @@ enum TTableType {
     KUDU_TABLE, // Deprecated
     BROKER_TABLE,
     ES_TABLE,
-    ODBC_TABLE
+    ODBC_TABLE,
+    HIVE_TABLE,
+    ICEBERG_TABLE
 }
 
 enum TOdbcTableType {

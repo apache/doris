@@ -37,7 +37,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
 }
 
 LoadChannel::~LoadChannel() {
-    LOG(INFO) << "load channel mem peak usage=" << _mem_tracker->peak_consumption()
+    LOG(INFO) << "load channel removed. mem peak usage=" << _mem_tracker->peak_consumption()
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
               << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip;
 }

@@ -171,16 +171,6 @@ Default：false
 
 If set to true, FE will be started in BDBJE debug mode
 
-### enable_fe_heartbeat_by_thrift
-
-Default：false
-
-IsMutable：true
-
-MasterOnly：true
-
-This config is used to solve fe heartbeat response read_timeout problem,  When config is set to be true, master will get fe heartbeat response by thrift protocol  instead of http protocol. In order to maintain compatibility with the old version,  the default is false, and the configuration cannot be changed to true until all fe are upgraded.
-
 ### enable_alpha_rowset
 
 Default：false
@@ -404,7 +394,7 @@ IsMutable：true
 MasterOnly：true
 
 If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
-  
+
 ### drop_backend_after_decommission
 
 Default：false
@@ -458,9 +448,9 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### check_java_version
 
-Default：false
+Default：true
 
-If set to true, Doris will check whether the compiled and running Java versions are compatible
+Doris will check whether the compiled and run Java versions are compatible, if not, it will throw a Java version mismatch exception message and terminate the startup
 
 ### max_running_rollup_job_num_per_table
 
@@ -2083,7 +2073,7 @@ Default: true
 Whether to use compressed format to send query plan structure. After it is turned on, the size of the query plan structure can be reduced by about 50%, thereby avoiding some "send fragment timeout" errors.
 However, in some high-concurrency small query scenarios, the concurrency may be reduced by about 10%.
 
-### force_drop_redundant_replica
+### enable_force_drop_redundant_replica
 
 Default: false
 
@@ -2096,7 +2086,7 @@ When there are a large number of replicas waiting to be balanced or repaired in 
 
 ### repair_slow_replica
 
-Default: true
+Default: false
 
 IsMutable：true
 

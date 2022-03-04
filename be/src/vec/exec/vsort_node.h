@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include "exec/exec_node.h"
-
 #include <queue>
 
+#include "exec/exec_node.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
 #include "vec/exec/vsort_exec_exprs.h"
@@ -33,30 +32,30 @@ namespace doris::vectorized {
 // support spill to disk in the future
 class VSortNode : public doris::ExecNode {
 public:
-    VSortNode(ObjectPool *pool, const TPlanNode &tnode, const DescriptorTbl &descs);
+    VSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
     ~VSortNode() override = default;
 
-    virtual Status init(const TPlanNode &tnode, RuntimeState *state = nullptr);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
-    virtual Status prepare(RuntimeState *state);
+    virtual Status prepare(RuntimeState* state) override;
 
-    virtual Status open(RuntimeState *state);
+    virtual Status open(RuntimeState* state) override;
 
-    virtual Status get_next(RuntimeState *state, RowBatch *row_batch, bool *eos);
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
 
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos);
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
-    virtual Status reset(RuntimeState *state);
+    virtual Status reset(RuntimeState* state) override;
 
-    virtual Status close(RuntimeState *state);
+    virtual Status close(RuntimeState* state) override;
 
 protected:
-    virtual void debug_string(int indentation_level, std::stringstream *out) const;
+    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     // Fetch input rows and feed them to the sorter until the input is exhausted.
-    Status sort_input(RuntimeState *state);
+    Status sort_input(RuntimeState* state);
 
     Status pretreat_block(Block& block);
 
@@ -87,6 +86,4 @@ private:
     std::priority_queue<SortBlockCursor> _block_priority_queue;
 };
 
-} // end namespace doris
-
-
+} // namespace doris::vectorized

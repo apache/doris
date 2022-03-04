@@ -171,7 +171,7 @@ public class StatisticProcDir implements ProcDirInterface {
                                 } else {
                                     Pair<TabletStatus, Priority> pair = tablet.getHealthStatusWithPriority(
                                             infoService, db.getClusterName(),
-                                            partition.getVisibleVersion(), partition.getVisibleVersionHash(),
+                                            partition.getVisibleVersion(),
                                             replicaAlloc, aliveBeIdsInCluster);
                                     res = pair.first;
                                 }

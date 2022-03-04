@@ -32,7 +32,7 @@ namespace doris {
 class FreePool;
 class MemPool;
 class RuntimeState;
-class ColumnPtrWrapper;
+struct ColumnPtrWrapper;
 class PFunctionContext;
 
 // This class actually implements the interface of FunctionContext. This is split to

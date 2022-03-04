@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -131,14 +130,8 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
     }
 
     public static FsBroker readIn(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_73) {
-            FsBroker broker = new FsBroker();
-            broker.readFields(in);
-            return broker;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, FsBroker.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, FsBroker.class);
     }
 }
 

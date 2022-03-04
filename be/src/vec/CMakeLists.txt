@@ -33,6 +33,9 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_window.cpp
   aggregate_functions/aggregate_function_stddev.cpp
   aggregate_functions/aggregate_function_topn.cpp
+  aggregate_functions/aggregate_function_approx_count_distinct.cpp
+  aggregate_functions/aggregate_function_group_concat.cpp
+  aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   columns/collator.cpp
   columns/column.cpp
@@ -55,6 +58,7 @@ set(VEC_FILES
   core/materialize_block.cpp
   data_types/data_type.cpp
   data_types/data_type_bitmap.cpp
+  data_types/data_type_hll.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nullable.cpp
@@ -101,6 +105,7 @@ set(VEC_FILES
   exprs/vinfo_func.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
+  functions/function_bitmap_variadic.cpp
   functions/comparison.cpp
   functions/comparison_less.cpp
   functions/comparison_equals.cpp
@@ -117,6 +122,7 @@ set(VEC_FILES
   functions/function_utility.cpp
   functions/comparison_equal_for_null.cpp
   functions/function_json.cpp
+  functions/function_datetime_floor_ceil.cpp
   functions/hll_cardinality.cpp
   functions/hll_empty.cpp
   functions/hll_hash.cpp
@@ -143,6 +149,9 @@ set(VEC_FILES
   functions/function_datetime_string_to_string.cpp
   functions/function_grouping.cpp
   functions/function_rpc.cpp
+  functions/function_convert_tz.cpp
+  functions/least_greast.cpp
+  functions/function_fake.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
@@ -150,6 +159,8 @@ set(VEC_FILES
   sink/result_sink.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
+  sink/vmysql_table_writer.cpp
+  sink/vmysql_table_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp

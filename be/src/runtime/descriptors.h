@@ -33,7 +33,7 @@
 #include "runtime/types.h"
 
 namespace doris::vectorized {
-class ColumnWithTypeAndName;
+struct ColumnWithTypeAndName;
 }
 
 namespace doris {
@@ -106,6 +106,7 @@ public:
     doris::vectorized::MutableColumnPtr get_empty_mutable_column() const;
 
     doris::vectorized::DataTypePtr get_data_type_ptr() const;
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -159,7 +160,6 @@ public:
 private:
     std::string _name;
     std::string _database;
-    TableId _id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -185,6 +185,24 @@ class BrokerTableDescriptor : public TableDescriptor {
 public:
     BrokerTableDescriptor(const TTableDescriptor& tdesc);
     virtual ~BrokerTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
+class HiveTableDescriptor : public TableDescriptor {
+public:
+    HiveTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~HiveTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
+class IcebergTableDescriptor : public TableDescriptor {
+public:
+    IcebergTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~IcebergTableDescriptor();
     virtual std::string debug_string() const;
 
 private:
@@ -380,9 +398,7 @@ public:
     // to GetAvgRowSize()
     int get_row_size() const;
 
-    int num_materialized_slots() const {
-        return _num_materialized_slots;
-    }
+    int num_materialized_slots() const { return _num_materialized_slots; }
 
     int num_null_slots() const { return _num_null_slots; }
 

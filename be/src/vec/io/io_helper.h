@@ -33,10 +33,12 @@
 #include "vec/io/var_int.h"
 #include "vec/runtime/vdatetime_value.h"
 
-#define DEFAULT_MAX_STRING_SIZE (1ULL << 30)
-#define WRITE_HELPERS_MAX_INT_WIDTH 40U
-
 namespace doris::vectorized {
+
+// Define in the namespace and avoid defining global macros, 
+// because it maybe conflict with other libs
+static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
+static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
 template <typename T>
 inline T decimal_scale_multiplier(UInt32 scale);
@@ -218,16 +220,6 @@ inline void read_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
-#if 0
-inline void read_binary(const PColumn& pcolumn, std::string* data) {
-    if (pcolumn.compressed()) {
-        snappy::Uncompress(pcolumn.binary().data(), pcolumn.binary().size(), data);
-    } else {
-        *data = pcolumn.binary();
-    }
-}
-#endif
-
 template <typename T>
 bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     static_assert(std::is_same_v<T, double> || std::is_same_v<T, float>,
@@ -266,6 +258,7 @@ bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
     auto ans = dv.from_date_str(buf.position(), buf.count());
+    dv.to_datetime();
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();

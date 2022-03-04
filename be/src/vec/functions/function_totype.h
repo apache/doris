@@ -195,9 +195,17 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionBinaryToType>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<ResultDataType>();
     }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
+    bool is_variadic() const override { return true; }
+
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -283,9 +291,12 @@ public:
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
@@ -348,9 +359,12 @@ public:
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
@@ -369,10 +383,10 @@ public:
         if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString>) {
             auto& res_data = res->get_chars();
             auto& res_offsets = res->get_offsets();
-            Impl::vector_vector(ldata, loffsets, rdata, roffsets, res_data, res_offsets,
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data, res_offsets,
                                 null_map->get_data());
         } else {
-            Impl::vector_vector(ldata, loffsets, rdata, roffsets, res->get_data(),
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
                                 null_map->get_data());
         }
 

@@ -252,7 +252,7 @@ public class BackupHandlerTest {
         // handleFinishedSnapshotTask
         BackupJob backupJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
         SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                0, 0, 0, 0, 0, 0, 0, 1, false);
+                0, 0, 0, 0, 0, 0, 1, false);
         TFinishTaskRequest request = new TFinishTaskRequest();
         List<String> snapshotFiles = Lists.newArrayList();
         request.setSnapshotFiles(snapshotFiles);
@@ -302,7 +302,7 @@ public class BackupHandlerTest {
         // handleFinishedSnapshotTask
         RestoreJob restoreJob = (RestoreJob) handler.getJob(CatalogMocker.TEST_DB_ID);
         snapshotTask = new SnapshotTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                0, 0, 0, 0, 0, 0, 0, 1, true);
+                0, 0, 0, 0, 0, 0, 1, true);
         request = new TFinishTaskRequest();
         request.setSnapshotPath("./snapshot/path");
         request.setTaskStatus(new TStatus(TStatusCode.OK));

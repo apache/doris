@@ -359,8 +359,6 @@ public class BackupJobInfo implements Writable {
         public long id;
         @SerializedName("version")
         public long version;
-        @SerializedName("version_hash")
-        public long versionHash;
         @SerializedName("indexes")
         public Map<String, BackupIndexInfo> indexes = Maps.newHashMap();
 
@@ -516,7 +514,6 @@ public class BackupJobInfo implements Writable {
                     BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
                     partitionInfo.id = partition.getId();
                     partitionInfo.version = partition.getVisibleVersion();
-                    partitionInfo.versionHash = partition.getVisibleVersionHash();
                     tableInfo.partitions.put(partition.getName(), partitionInfo);
                     // indexes
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {

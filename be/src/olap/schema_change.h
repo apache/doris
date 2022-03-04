@@ -76,7 +76,8 @@ private:
 
 class RowBlockAllocator {
 public:
-    RowBlockAllocator(const TabletSchema& tablet_schema, std::shared_ptr<MemTracker> parent, size_t memory_limitation);
+    RowBlockAllocator(const TabletSchema& tablet_schema, std::shared_ptr<MemTracker> parent,
+                      size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
@@ -85,7 +86,6 @@ public:
 
 private:
     const TabletSchema& _tablet_schema;
-    size_t _memory_allocated;
     std::shared_ptr<MemTracker> _mem_tracker;
     size_t _row_len;
     size_t _memory_limitation;
@@ -93,7 +93,8 @@ private:
 
 class SchemaChange {
 public:
-    SchemaChange(std::shared_ptr<MemTracker> tracker) : _mem_tracker(std::move(tracker)), _filtered_rows(0), _merged_rows(0) {}
+    SchemaChange(std::shared_ptr<MemTracker> tracker)
+            : _mem_tracker(std::move(tracker)), _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() = default;
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader,
@@ -111,8 +112,10 @@ public:
     void reset_filtered_rows() { _filtered_rows = 0; }
 
     void reset_merged_rows() { _merged_rows = 0; }
+
 protected:
     std::shared_ptr<MemTracker> _mem_tracker;
+
 private:
     uint64_t _filtered_rows;
     uint64_t _merged_rows;
@@ -120,7 +123,8 @@ private:
 
 class LinkedSchemaChange : public SchemaChange {
 public:
-    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer, std::shared_ptr<MemTracker> mem_tracker)
+    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer,
+                                std::shared_ptr<MemTracker> mem_tracker)
             : SchemaChange(mem_tracker), _row_block_changer(row_block_changer) {}
     ~LinkedSchemaChange() {}
 
@@ -137,7 +141,8 @@ class SchemaChangeDirectly : public SchemaChange {
 public:
     // @params tablet           the instance of tablet which has new schema.
     // @params row_block_changer    changer to modify the data of RowBlock
-    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer, std::shared_ptr<MemTracker> mem_tracker);
+    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer,
+                                  std::shared_ptr<MemTracker> mem_tracker);
     virtual ~SchemaChangeDirectly();
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
@@ -156,7 +161,8 @@ private:
 // @breif schema change with sorting
 class SchemaChangeWithSorting : public SchemaChange {
 public:
-    explicit SchemaChangeWithSorting(const RowBlockChanger& row_block_changer, std::shared_ptr<MemTracker> mem_tracker,
+    explicit SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
+                                     std::shared_ptr<MemTracker> mem_tracker,
                                      size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
@@ -166,9 +172,9 @@ public:
 
 private:
     bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
-                           const Version& temp_delta_versions, const VersionHash version_hash,
-                           TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
-                           SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
+                           const Version& temp_delta_versions, TabletSharedPtr new_tablet,
+                           RowsetTypePB new_rowset_type, SegmentsOverlapPB segments_overlap,
+                           RowsetSharedPtr* rowset);
 
     bool _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
                            TabletSharedPtr new_tablet);
@@ -237,6 +243,7 @@ private:
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,
                                            const TabletColumn& column_schema,
                                            const std::string& value);
+
 private:
     SchemaChangeHandler();
     virtual ~SchemaChangeHandler();

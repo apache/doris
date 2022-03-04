@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+
 #include <mutex>
 #include <string>
 
@@ -46,6 +47,7 @@ void register_function_bit(SimpleFunctionFactory& factory);
 void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
+void register_function_bitmap_variadic(SimpleFunctionFactory& factory);
 void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
 void register_function_to_time_fuction(SimpleFunctionFactory& factory);
@@ -67,6 +69,10 @@ void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
+void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
+void register_function_convert_tz(SimpleFunctionFactory& factory);
+void register_function_least_greast(SimpleFunctionFactory& factory);
+void register_function_fake(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -74,7 +80,7 @@ class SimpleFunctionFactory {
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
 
 public:
-    void register_function(const std::string& name, Creator ptr) {
+    void register_function(const std::string& name, const Creator& ptr) {
         DataTypes types = ptr()->get_variadic_argument_types();
         // types.empty() means function is not variadic
         if (!types.empty()) {
@@ -83,8 +89,8 @@ public:
 
         std::string key_str = name;
         if (!types.empty()) {
-            for (auto type : types) {
-                key_str.append(type->get_name());
+            for (const auto& type : types) {
+                key_str.append(type->get_family_name());
             }
         }
         function_creators[key_str] = ptr;
@@ -116,8 +122,8 @@ public:
                 key_str.append(arg.type->is_nullable()
                                        ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
                                                  ->get_nested_type()
-                                                 ->get_name()
-                                       : arg.type->get_name());
+                                                 ->get_family_name()
+                                       : arg.type->get_family_name());
             }
         }
 
@@ -145,6 +151,7 @@ public:
         static SimpleFunctionFactory instance;
         std::call_once(oc, [&]() {
             register_function_bitmap(instance);
+            register_function_bitmap_variadic(instance);
             register_function_hll_cardinality(instance);
             register_function_hll_empty(instance);
             register_function_hll_hash(instance);
@@ -183,6 +190,10 @@ public:
             register_function_random(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
+            register_function_datetime_floor_ceil(instance);
+            register_function_convert_tz(instance);
+            register_function_least_greast(instance);
+            register_function_fake(instance);
         });
         return instance;
     }

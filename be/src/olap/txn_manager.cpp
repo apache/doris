@@ -97,11 +97,9 @@ OLAPStatus TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedP
 }
 
 OLAPStatus TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                                   TTransactionId transaction_id, const Version& version,
-                                   VersionHash version_hash) {
+                                   TTransactionId transaction_id, const Version& version) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), version,
-                       version_hash);
+                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), version);
 }
 
 // delete the txn from manager if it is not committed(not have a valid rowset)
@@ -246,11 +244,11 @@ OLAPStatus TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         txn_tablet_map[key][tablet_info] = load_info;
         _insert_txn_partition_map_unlocked(transaction_id, partition_id);
-        LOG(INFO) << "commit transaction to engine successfully."
-                  << " partition_id: " << key.first << ", transaction_id: " << key.second
-                  << ", tablet: " << tablet_info.to_string()
-                  << ", rowsetid: " << rowset_ptr->rowset_id()
-                  << ", version: " << rowset_ptr->version().first;
+        VLOG_NOTICE << "commit transaction to engine successfully."
+                    << " partition_id: " << key.first << ", transaction_id: " << key.second
+                    << ", tablet: " << tablet_info.to_string()
+                    << ", rowsetid: " << rowset_ptr->rowset_id()
+                    << ", version: " << rowset_ptr->version().first;
     }
     return OLAP_SUCCESS;
 }
@@ -259,7 +257,7 @@ OLAPStatus TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                    TTransactionId transaction_id, TTabletId tablet_id,
                                    SchemaHash schema_hash, TabletUid tablet_uid,
-                                   const Version& version, VersionHash version_hash) {
+                                   const Version& version) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset_ptr = nullptr;
@@ -283,7 +281,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     if (rowset_ptr != nullptr) {
         // TODO(ygl): rowset is already set version here, memory is changed, if save failed
         // it maybe a fatal error
-        rowset_ptr->make_visible(version, version_hash);
+        rowset_ptr->make_visible(version);
         OLAPStatus save_status =
                 RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
                                         rowset_ptr->rowset_meta()->get_rowset_pb());
@@ -302,11 +300,11 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         auto it = txn_tablet_map.find(key);
         if (it != txn_tablet_map.end()) {
             it->second.erase(tablet_info);
-            LOG(INFO) << "publish txn successfully."
-                      << " partition_id: " << key.first << ", txn_id: " << key.second
-                      << ", tablet: " << tablet_info.to_string()
-                      << ", rowsetid: " << rowset_ptr->rowset_id() << ", version: " << version.first
-                      << "," << version.second;
+            VLOG_NOTICE << "publish txn successfully."
+                        << " partition_id: " << key.first << ", txn_id: " << key.second
+                        << ", tablet: " << tablet_info.to_string()
+                        << ", rowsetid: " << rowset_ptr->rowset_id() << ", version: " << version.first
+                        << "," << version.second;
             if (it->second.empty()) {
                 txn_tablet_map.erase(it);
                 _clear_txn_partition_map_unlocked(transaction_id, partition_id);

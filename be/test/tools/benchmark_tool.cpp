@@ -135,7 +135,8 @@ private:
 
 class BinaryDictPageBenchmark : public BaseBenchmark {
 public:
-    BinaryDictPageBenchmark(const std::string& name, int iterations) : BaseBenchmark(name, iterations) {}
+    BinaryDictPageBenchmark(const std::string& name, int iterations)
+            : BaseBenchmark(name, iterations) {}
     virtual ~BinaryDictPageBenchmark() override {}
 
     virtual void init() override {}
@@ -151,7 +152,7 @@ public:
         for (size_t i = 0; i < contents.size(); i++) {
             const Slice* ptr = &contents[i];
             size_t add_num = 1;
-            Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 results.emplace_back(std::move(s));
@@ -163,8 +164,9 @@ public:
         results.emplace_back(std::move(s));
         page_start_ids.push_back(contents.size());
 
-        Status status = page_builder.get_dictionary_page(&dict_slice);
+        page_builder.get_dictionary_page(&dict_slice);
     }
+
     void decode_pages() {
         int slice_index = 0;
         for (auto& src : results) {
@@ -173,29 +175,22 @@ public:
                     new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
             dict_page_decoder->init();
 
-            uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
-            uint32_t dict_len_array[dict_page_decoder->_num_elems];
-            for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-                const uint32_t start_offset = dict_page_decoder->offset(i);
-                uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-                dict_start_offset_array[i] = start_offset;
-                dict_len_array[i] = len;
-            }
+            StringRef dict_word_info[dict_page_decoder->_num_elems];
+            dict_page_decoder->get_dict_word_info(dict_word_info);
 
             // decode
             PageDecoderOptions decoder_options;
             BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
             page_decoder.init();
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array,
-                                          dict_len_array);
+            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
 
             //check values
             size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
 
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(num, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);
@@ -428,7 +423,8 @@ private:
 
 class SegmentWriteByFileBenchmark : public SegmentBenchmark {
 public:
-    SegmentWriteByFileBenchmark(const std::string& name, int iterations, const std::string& file_str)
+    SegmentWriteByFileBenchmark(const std::string& name, int iterations,
+                                const std::string& file_str)
             : SegmentBenchmark(name + "/file_path:" + file_str, iterations) {
         std::ifstream file(file_str);
         assert(file.is_open());
@@ -458,7 +454,8 @@ private:
 
 class SegmentScanBenchmark : public SegmentBenchmark {
 public:
-    SegmentScanBenchmark(const std::string& name, int iterations, const std::string& column_type, int rows_number)
+    SegmentScanBenchmark(const std::string& name, int iterations, const std::string& column_type,
+                         int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
               _dataset(generate_dataset(rows_number)) {}
@@ -473,13 +470,11 @@ public:
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();
-        int rowid = 0;
         while (left > 0) {
             int rows_read = std::min(left, 1024);
             block.clear();
             iter->next_batch(&block);
             left -= rows_read;
-            rowid += rows_read;
         }
     }
 
@@ -520,13 +515,11 @@ public:
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();
-        int rowid = 0;
         while (left > 0) {
             int rows_read = std::min(left, 1024);
             block.clear();
             iter->next_batch(&block);
             left -= rows_read;
-            rowid += rows_read;
         }
     }
 

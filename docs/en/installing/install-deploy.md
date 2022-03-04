@@ -115,15 +115,15 @@ Doris instances communicate directly over the network. The following table shows
 
 | Instance Name | Port Name | Default Port | Communication Direction | Description|
 | ---|---|---|---|---|
-| BE | be_port | 9060 | FE - > BE | BE for receiving requests from FE|
+| BE | be_port | 9060 | FE --> BE | BE for receiving requests from FE|
 | BE | webserver\_port | 8040 | BE <--> BE | BE|
-| BE | heartbeat\_service_port | 9050 | FE - > BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
-| BE | brpc\_port* | 8060 | FE < - > BE, BE < - > BE | BE for communication between BEs|
-| FE | http_port* | 8030 | FE < - > FE, HTTP server port on user | FE|
-| FE | rpc_port | 9020 | BE - > FE, FE < - > FE | thrift server port on FE, the configuration of each fe needs to be consistent|
-| FE | query_port | 9030 | user | FE|
+| BE | heartbeat\_service_port | 9050 | FE --> BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
+| BE | brpc\_port | 8060 | FE <--> BE, BE <--> BE | BE for communication between BEs|
+| FE | http_port | 8030 | FE <--> FE, user <--> FE | HTTP server port on FE |
+| FE | rpc_port | 9020 | BE --> FE, FE <--> FE | thrift server port on FE, the configuration of each fe needs to be consistent|
+| FE | query_port | 9030 | user <--> FE | FE|
 | FE | edit\_log_port | 9010 | FE <--> FE | FE|
-| Broker | broker ipc_port | 8000 | FE - > Broker, BE - > Broker | Broker for receiving requests|
+| Broker | broker ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker for receiving requests|
 
 > Note:
 > 
@@ -177,7 +177,7 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
 * Start FE
 
-	`sh bin/start_fe.sh --daemon`
+	`bin/start_fe.sh --daemon`
 
 	The FE process starts and enters the background execution. Logs are stored in the log/ directory by default. If startup fails, you can view error messages by looking at log/fe.log or log/fe.out.
 
@@ -236,7 +236,7 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
 * Start BE
 
-	`sh bin/start_be.sh --daemon`
+	`bin/start_be.sh --daemon`
 
 	The BE process will start and go into the background for execution. Logs are stored in be/log/directory by default. If startup fails, you can view error messages by looking at be/log/be.log or be/log/be.out.
 
@@ -256,7 +256,7 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 * Start Broker
 
-	`sh bin /start'u broker.sh --daemon ` start Broker
+	`bin/start_broker.sh --daemon ` start Broker
 
 * Add Broker
 

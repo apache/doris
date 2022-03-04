@@ -55,7 +55,7 @@ import java.util.List;
 import java.util.Map;
 
 import io.grpc.ManagedChannel;
-import io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {
@@ -275,14 +275,17 @@ public class CreateFunctionStmt extends DdlStmt {
                     .usePlaintext().build();
             PFunctionServiceGrpc.PFunctionServiceBlockingStub stub = PFunctionServiceGrpc.newBlockingStub(channel);
             FunctionService.PCheckFunctionRequest.Builder builder = FunctionService.PCheckFunctionRequest.newBuilder();
-            builder.getFunctionBuilder().setFunctionName(functionName.getFunction());
+            builder.getFunctionBuilder().setFunctionName(symbol);
             for (Type arg : argsDef.getArgTypes()) {
                 builder.getFunctionBuilder().addInputs(convertToPParameterType(arg));
             }
             builder.getFunctionBuilder().setOutput(convertToPParameterType(returnType.getType()));
             FunctionService.PCheckFunctionResponse response = stub.checkFn(builder.build());
+            if (response == null || !response.hasStatus()) {
+                throw new AnalysisException("cannot access function server");
+            }
             if (response.getStatus().getStatusCode() != 0) {
-                throw new AnalysisException("cannot access function server:" + response.getStatus());
+                throw new AnalysisException("check function [" + symbol + "] failed: " + response.getStatus());
             }
         }
         function = ScalarFunction.createUdf(binaryType,

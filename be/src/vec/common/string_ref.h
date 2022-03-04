@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/StringRef.h
+// https://github.com/ClickHouse/ClickHouse/blob/master/base/base/StringRef.h
 // and modified by Doris
 
 #pragma once
@@ -27,6 +27,7 @@
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
+#include "udf/udf.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -53,6 +54,14 @@ struct StringRef {
     std::string to_string() const { return std::string(data, size); }
 
     explicit operator std::string() const { return to_string(); }
+
+    StringVal to_string_val() {
+        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
+    }
+
+    static StringRef from_string_val(StringVal sv) {
+        return StringRef(reinterpret_cast<char*>(sv.ptr), sv.len);
+    }
 };
 
 using StringRefs = std::vector<StringRef>;
@@ -89,6 +98,32 @@ inline bool compareSSE2x4(const char* p1, const char* p2) {
 }
 
 inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
+    /** The order of branches and the trick with overlapping comparisons
+      * are the same as in memcpy implementation.
+      * See the comments in
+      * https://github.com/ClickHouse/ClickHouse/blob/master/base/glibc-compatibility/memcpy/memcpy.h
+      */
+
+    if (size <= 16) {
+        if (size >= 8) {
+            /// Chunks of [8,16] bytes.
+            return unaligned_load<uint64_t>(p1) == unaligned_load<uint64_t>(p2) &&
+                   unaligned_load<uint64_t>(p1 + size - 8) == unaligned_load<uint64_t>(p2 + size - 8);
+        } else if (size >= 4) {
+            /// Chunks of [4,7] bytes.
+            return unaligned_load<uint32_t>(p1) == unaligned_load<uint32_t>(p2) &&
+                   unaligned_load<uint32_t>(p1 + size - 4) == unaligned_load<uint32_t>(p2 + size - 4);
+        } else if (size >= 2) {
+            /// Chunks of [2,3] bytes.
+            return unaligned_load<uint16_t>(p1) == unaligned_load<uint16_t>(p2) &&
+                   unaligned_load<uint16_t>(p1 + size - 2) == unaligned_load<uint16_t>(p2 + size - 2);
+        } else if (size >= 1) {
+            /// A single byte.
+            return *p1 == *p2;
+        }
+        return true;
+    }
+    
     while (size >= 64) {
         if (compareSSE2x4(p1, p2)) {
             p1 += 64;
@@ -98,74 +133,14 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
             return false;
     }
 
-    switch ((size % 64) / 16) {
-    case 3:
-        if (!compareSSE2(p1 + 32, p2 + 32)) return false;
-        [[fallthrough]];
-    case 2:
-        if (!compareSSE2(p1 + 16, p2 + 16)) return false;
-        [[fallthrough]];
-    case 1:
-        if (!compareSSE2(p1, p2)) return false;
-        [[fallthrough]];
-    case 0:
-        break;
+    switch (size / 16)
+    {
+        case 3: if (!compareSSE2(p1 + 32, p2 + 32)) return false; [[fallthrough]];
+        case 2: if (!compareSSE2(p1 + 16, p2 + 16)) return false; [[fallthrough]];
+        case 1: if (!compareSSE2(p1, p2)) return false;
     }
 
-    p1 += (size % 64) / 16 * 16;
-    p2 += (size % 64) / 16 * 16;
-
-    switch (size % 16) {
-    case 15:
-        if (p1[14] != p2[14]) return false;
-        [[fallthrough]];
-    case 14:
-        if (p1[13] != p2[13]) return false;
-        [[fallthrough]];
-    case 13:
-        if (p1[12] != p2[12]) return false;
-        [[fallthrough]];
-    case 12:
-        if (unaligned_load<uint32_t>(p1 + 8) == unaligned_load<uint32_t>(p2 + 8))
-            goto l8;
-        else
-            return false;
-    case 11:
-        if (p1[10] != p2[10]) return false;
-        [[fallthrough]];
-    case 10:
-        if (p1[9] != p2[9]) return false;
-        [[fallthrough]];
-    case 9:
-        if (p1[8] != p2[8]) return false;
-    l8:
-        [[fallthrough]];
-    case 8:
-        return unaligned_load<uint64_t>(p1) == unaligned_load<uint64_t>(p2);
-    case 7:
-        if (p1[6] != p2[6]) return false;
-        [[fallthrough]];
-    case 6:
-        if (p1[5] != p2[5]) return false;
-        [[fallthrough]];
-    case 5:
-        if (p1[4] != p2[4]) return false;
-        [[fallthrough]];
-    case 4:
-        return unaligned_load<uint32_t>(p1) == unaligned_load<uint32_t>(p2);
-    case 3:
-        if (p1[2] != p2[2]) return false;
-        [[fallthrough]];
-    case 2:
-        return unaligned_load<uint16_t>(p1) == unaligned_load<uint16_t>(p2);
-    case 1:
-        if (p1[0] != p2[0]) return false;
-        [[fallthrough]];
-    case 0:
-        break;
-    }
-
-    return true;
+    return compareSSE2(p1 + size - 16, p2 + size - 16);
 }
 
 #endif
@@ -291,7 +266,7 @@ struct StringRefHash : CRC32Hash {};
 
 struct CRC32Hash {
     size_t operator()(StringRef /* x */) const {
-        throw std::logic_error{"Not implemented CRC32Hash without SSE"};
+        throw std::logic_error {"Not implemented CRC32Hash without SSE"};
     }
 };
 
@@ -312,13 +287,6 @@ inline void set(StringRef& x) {
     x.size = 0;
 }
 } // namespace ZeroTraits
-
-inline bool operator==(StringRef lhs, const char* rhs) {
-    for (size_t pos = 0; pos < lhs.size; ++pos)
-        if (!rhs[pos] || lhs.data[pos] != rhs[pos]) return false;
-
-    return true;
-}
 
 inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
     if (str.data) os.write(str.data, str.size);

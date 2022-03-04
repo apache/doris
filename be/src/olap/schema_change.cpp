@@ -590,7 +590,7 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
                         const Field* ref_field = read_helper.column_schema(ref_column);
                         char* ref_value = read_helper.cell_ptr(ref_column);
                         OLAPStatus st = write_helper.convert_from(i, ref_value,
-                                                                  ref_field->type_info(), mem_pool);
+                                                                  ref_field->type_info().get(), mem_pool);
                         if (st != OLAPStatus::OLAP_SUCCESS) {
                             LOG(WARNING)
                                     << "the column type which was altered from was unsupported."
@@ -1123,9 +1123,7 @@ SchemaChangeWithSorting::SchemaChangeWithSorting(const RowBlockChanger& row_bloc
           _memory_limitation(memory_limitation),
           _row_block_allocator(nullptr) {
     // Every time SchemaChange is used for external rowing, some temporary versions (such as 999, 1000, 1001) will be written, in order to avoid Cache conflicts, temporary
-    // The version performs 2 processes:
-    // 1. Random value as VersionHash
-    // 2. The version number takes a BIG NUMBER plus the version number of the current SchemaChange
+    // The version number takes a BIG NUMBER plus the version number of the current SchemaChange
     _temp_delta_versions.first = (1 << 28);
     _temp_delta_versions.second = (1 << 28);
     // TODO(zyh): remove the magic number
@@ -1238,7 +1236,7 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
             if (!_internal_sorting(
                         row_block_arr,
                         Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                        rowset_reader->version_hash(), new_tablet, new_rowset_type,
+                        new_tablet, new_rowset_type,
                         segments_overlap, &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 return OLAP_ERR_ALTER_STATUS_ERR;
@@ -1294,7 +1292,7 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
         }
         if (!_internal_sorting(row_block_arr,
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                               rowset_reader->version_hash(), new_tablet, new_rowset_type,
+                               new_tablet, new_rowset_type,
                                segments_overlap, &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             return OLAP_ERR_ALTER_STATUS_ERR;
@@ -1350,7 +1348,7 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
 }
 
 bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& row_block_arr,
-                                                const Version& version, VersionHash version_hash,
+                                                const Version& version,
                                                 TabletSharedPtr new_tablet,
                                                 RowsetTypePB new_rowset_type,
                                                 SegmentsOverlapPB segments_overlap,
@@ -1369,7 +1367,6 @@ bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& ro
     context.tablet_schema = &(new_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
     context.version = version;
-    context.version_hash = version_hash;
     context.segments_overlap = segments_overlap;
     context.parent_mem_tracker = _mem_tracker;
 
@@ -1437,8 +1434,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
               << ", base_schema_hash=" << request.base_schema_hash
               << ", new_tablet_id=" << request.new_tablet_id
               << ", new_schema_hash=" << request.new_schema_hash
-              << ", alter_version=" << request.alter_version
-              << ", alter_version_hash=" << request.alter_version_hash;
+              << ", alter_version=" << request.alter_version;
 
     // Lock schema_change_lock util schema change info is stored in tablet header
     if (!StorageEngine::instance()->tablet_manager()->try_schema_change_lock(
@@ -1922,7 +1918,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
-        writer_context.version_hash = rs_reader->version_hash();
         writer_context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         writer_context.parent_mem_tracker = _mem_tracker;
 
@@ -2197,9 +2192,7 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
 OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
                                                        const TAlterTabletReqV2& request) {
     Version max_continuous_version = {-1, 0};
-    VersionHash max_continuous_version_hash = 0;
-    new_tablet->max_continuous_version_from_beginning(&max_continuous_version,
-                                                      &max_continuous_version_hash);
+    new_tablet->max_continuous_version_from_beginning(&max_continuous_version);
     LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;

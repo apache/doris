@@ -64,7 +64,6 @@ private:
     std::vector<std::string> _path_vec;
     int _idx;
     int _reserved_hours;
-    pthread_t _cleaner_id;
     std::string _error_log_dir;
     uint32_t _next_shard;
     uint32_t _error_path_next_shard;

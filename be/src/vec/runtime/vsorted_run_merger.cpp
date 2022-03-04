@@ -41,7 +41,7 @@ VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext *>& ordering_e
 }
 
 Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs, bool parallel) {
-    for (const auto &supplier : input_runs) {
+    for (const auto& supplier : input_runs) {
         _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
     }
 

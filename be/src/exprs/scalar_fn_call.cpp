@@ -187,21 +187,6 @@ Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol
         _fn.binary_type == TFunctionBinaryType::HIVE) {
         return UserFunctionCache::instance()->get_function_ptr(_fn.id, symbol, _fn.hdfs_location,
                                                                _fn.checksum, fn, &_cache_entry);
-    } else {
-#if 0
-        DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::IR);
-        LlvmCodeGen* codegen;
-        RETURN_IF_ERROR(state->GetCodegen(&codegen));
-        Function* ir_fn = codegen->module()->getFunction(symbol);
-        if (ir_fn == nullptr) {
-            std::stringstream ss;
-            ss << "Unable to locate function " << symbol
-                << " from LLVM module " << _fn.hdfs_location;
-            return Status::InternalError(ss.str());
-        }
-        codegen->AddFunctionToJit(ir_fn, fn);
-        return Status::OK()();
-#endif
     }
     return Status::OK();
 }

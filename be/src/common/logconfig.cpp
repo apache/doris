@@ -54,6 +54,10 @@ bool init_glog(const char* basename, bool install_signal_handler) {
         return true;
     }
 
+    if (getenv("DORIS_LOG_TO_STDERR") != nullptr) {
+        FLAGS_alsologtostderr = true;
+    }
+
     if (install_signal_handler) {
         google::InstallFailureSignalHandler();
     }

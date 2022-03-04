@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "codegen/doris_ir.h"
 #include "exec/exec_node.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -46,11 +45,11 @@ public:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 protected:
-    //Todo: In build process of hashtable, It's same as join node. 
-    //It's time to abstract out the same methods and provide them directly to others; 
+    //Todo: In build process of hashtable, It's same as join node.
+    //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();
     Status hash_table_build(RuntimeState* state);
-    Status process_build_block(Block& block);
+    Status process_build_block(Block& block, uint8_t offset);
     Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
     template <bool keep_matched>
@@ -82,6 +81,7 @@ protected:
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
 
+    std::vector<Block> _build_blocks;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     std::vector<MutableColumnPtr> _mutable_cols;
@@ -91,9 +91,9 @@ protected:
     RuntimeProfile::Counter* _probe_timer; // time to probe
 
     template <class HashTableContext>
-    friend class HashTableBuild;
+    friend struct HashTableBuild;
     template <class HashTableContext, bool is_intersected>
-    friend class HashTableProbe;
+    friend struct HashTableProbe;
 };
 
 template <bool keep_matched>
@@ -151,6 +151,7 @@ struct HashTableProbe {
               _left_table_data_types(operation_node->_left_table_data_types),
               _batch_size(batch_size),
               _probe_rows(probe_rows),
+              _build_blocks(operation_node->_build_blocks),
               _probe_block(operation_node->_probe_block),
               _probe_index(operation_node->_probe_index),
               _num_rows_returned(operation_node->_num_rows_returned),
@@ -184,9 +185,10 @@ struct HashTableProbe {
     }
 
     void add_result_columns(RowRefList& value, int& block_size) {
+        auto it = value.begin();
         for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
-            auto& column = *value.begin()->block->get_by_position(idx->first).column;
-            _mutable_cols[idx->second]->insert_from(column, value.begin()->row_num);
+            auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
+            _mutable_cols[idx->second]->insert_from(column, it->row_num);
         }
         block_size++;
     }
@@ -231,6 +233,7 @@ private:
     const DataTypes& _left_table_data_types;
     const int _batch_size;
     const size_t _probe_rows;
+    const std::vector<Block>& _build_blocks;
     const Block& _probe_block;
     int& _probe_index;
     int64_t& _num_rows_returned;

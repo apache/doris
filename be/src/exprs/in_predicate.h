@@ -40,11 +40,11 @@ public:
 
     Status prepare(RuntimeState* state, HybridSetBase* hset);
     Status open(RuntimeState* state, ExprContext* context,
-                FunctionContext::FunctionStateScope scope);
+                FunctionContext::FunctionStateScope scope) override;
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                           ExprContext* context);
+                           ExprContext* context) override;
 
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
+    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
 
     // this function add one item in hashset, not add to children.
     // if add to children, when List is long, copy is a expensive op.
@@ -62,7 +62,7 @@ protected:
     InPredicate(const TExprNode& node);
 
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
-    virtual std::string debug_string() const;
+    virtual std::string debug_string() const override;
 
 private:
     const bool _is_not_in;

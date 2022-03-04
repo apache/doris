@@ -184,6 +184,10 @@ under the License.
         10. send_batch_parallelism
             
             整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。 
+               
+        11. load_to_single_tablet
+         
+            布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，该参数只允许在对带有random分区的olap表导数的时候设置。
 
     6. data_source
 

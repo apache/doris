@@ -16,11 +16,11 @@
 // under the License.
 
 #include "beta_rowset_reader.h"
-
 #include <utility>
-
 #include "olap/delete_handler.h"
 #include "olap/generic_iterators.h"
+#include "vec/olap/vgeneric_iterators.h"
+
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
@@ -118,11 +118,20 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
-    if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-        final_iterator = new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
+    if (config::enable_storage_vectorization && read_context->is_vec) {
+        if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
+            final_iterator = vectorized::new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
+        } else {
+            final_iterator = vectorized::new_union_iterator(iterators, _parent_tracker);
+        }
     } else {
-        final_iterator = new_union_iterator(iterators, _parent_tracker);
+        if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
+            final_iterator = new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
+        } else {
+            final_iterator = new_union_iterator(iterators, _parent_tracker);
+        }
     }
+
     auto s = final_iterator->init(read_options);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
@@ -180,41 +189,53 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
 
 OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    bool is_first = true;
+    if (config::enable_storage_vectorization && _context->is_vec) {
+        auto s = _iterator->next_batch(block);
+        if (!s.ok()) {
+            if (s.is_end_of_file()) {
+                return OLAP_ERR_DATA_EOF;
+            } else {
+                LOG(WARNING) << "failed to read next block: " << s.to_string();
+                return OLAP_ERR_ROWSET_READ_FAILED;
+            }
+        }
+    } else {
+        bool is_first = true;
 
-    do {
-        // read next input block
-        {
-            _input_block->clear();
+        do {
+            // read next input block
             {
-                auto s = _iterator->next_batch(_input_block.get());
-                if (!s.ok()) {
-                    if (s.is_end_of_file()) {
-                        if (is_first) {
-                            return OLAP_ERR_DATA_EOF;
+                _input_block->clear();
+                {
+                    auto s = _iterator->next_batch(_input_block.get());
+                    if (!s.ok()) {
+                        if (s.is_end_of_file()) {
+                            if (is_first) {
+                                return OLAP_ERR_DATA_EOF;
+                            } else {
+                                break;
+                            }
                         } else {
-                            break;
+                            LOG(WARNING) << "failed to read next block: " << s.to_string();
+                            return OLAP_ERR_ROWSET_READ_FAILED;
                         }
-                    } else {
-                        LOG(WARNING) << "failed to read next block: " << s.to_string();
-                        return OLAP_ERR_ROWSET_READ_FAILED;
+                    } else if (_input_block->selected_size() == 0) {
+                        continue;
                     }
-                } else if (_input_block->selected_size() == 0) {
-                    continue;
                 }
             }
-        }
 
-        {
-            SCOPED_RAW_TIMER(&_stats->block_convert_ns);
-            auto s = _input_block->convert_to_vec_block(block);
-            if (UNLIKELY(!s.ok())) {
-                LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE;
+            {
+                SCOPED_RAW_TIMER(&_stats->block_convert_ns);
+                auto s = _input_block->convert_to_vec_block(block);
+                if (UNLIKELY(!s.ok())) {
+                    LOG(WARNING) << "failed to read next block: " << s.to_string();
+                    return OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE;
+                }
             }
-        }
-        is_first = false;
-    } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
+            is_first = false;
+        } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
+    }
 
     return OLAP_SUCCESS;
 }

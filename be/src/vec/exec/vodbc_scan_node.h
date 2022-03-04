@@ -27,6 +27,7 @@ public:
     VOdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VOdbcScanNode();
 
+    using OdbcScanNode::get_next;
     Status get_next(RuntimeState* state, Block* block, bool* eos);
 };
 } // namespace vectorized

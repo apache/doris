@@ -225,10 +225,6 @@ public class Util {
         return sb.toString();
     }
     
-    public static long generateVersionHash() {
-        return Math.abs(new Random().nextLong());
-    }
-    
     public static int generateSchemaHash() {
         return Math.abs(new Random().nextInt());
     }

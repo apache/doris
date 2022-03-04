@@ -368,15 +368,15 @@ public:
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL);
-    virtual Handle* lookup(const CacheKey& key);
-    virtual void release(Handle* handle);
-    virtual void erase(const CacheKey& key);
-    virtual void* value(Handle* handle);
+                           CachePriority priority = CachePriority::NORMAL) override;
+    virtual Handle* lookup(const CacheKey& key) override;
+    virtual void release(Handle* handle) override;
+    virtual void erase(const CacheKey& key) override;
+    virtual void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
-    virtual uint64_t new_id();
-    virtual int64_t prune();
-    virtual int64_t prune_if(CacheValuePredicate pred);
+    virtual uint64_t new_id() override;
+    virtual int64_t prune() override;
+    virtual int64_t prune_if(CacheValuePredicate pred) override;
 
 private:
     void update_cache_metrics() const;

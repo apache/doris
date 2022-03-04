@@ -68,8 +68,10 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 switch (v.GetType()) {
                     case rapidjson::Type::kStringType:
                         _backup_string.emplace_back(v.GetString(), v.GetStringLength());
-                        _data_string.emplace_back(_backup_string.back());
                         _string_nulls.push_back(false);
+                        // do not set _data_string here.
+                        // Because the address of the string stored in `_backup_string` may
+                        // change each time `emplace_back()` is called.
                         break;
                     case rapidjson::Type::kNumberType:
                         if (v.IsUint()) {
@@ -84,8 +86,10 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                             wbytes = sprintf(tmp_buf, "%f", v.GetDouble());
                         }
                         _backup_string.emplace_back(tmp_buf, wbytes);
-                        _data_string.emplace_back(_backup_string.back());
                         _string_nulls.push_back(false);
+                        // do not set _data_string here.
+                        // Because the address of the string stored in `_backup_string` may
+                        // change each time `emplace_back()` is called.
                         break;
                     case rapidjson::Type::kFalseType:
                         _data_string.emplace_back(true_value);
@@ -106,6 +110,11 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 }
                 ++i;
             }
+            // Must set _data_string at the end, so that we can
+            // save the real addr of string in `_backup_string` to `_data_string`.
+            for (auto& str : _backup_string) {
+                _data_string.emplace_back(str);
+            }
             break;
         }
         default:
@@ -119,6 +128,20 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
 ExplodeJsonArrayTableFunction::ExplodeJsonArrayTableFunction(ExplodeJsonArrayType type)
     : _type(type) {
     
+    switch (type) {
+        case ExplodeJsonArrayType::INT:
+            _fn_name = "explode_json_array_int";
+            break;
+        case ExplodeJsonArrayType::DOUBLE:
+            _fn_name = "explode_json_array_double";
+            break;
+        case ExplodeJsonArrayType::STRING:
+            _fn_name = "explode_json_array_string";
+            break;
+        default:
+            _fn_name = "unknown";
+            break;
+    }
 }
 
 ExplodeJsonArrayTableFunction::~ExplodeJsonArrayTableFunction() {
@@ -139,21 +162,17 @@ Status ExplodeJsonArrayTableFunction::process(TupleRow* tuple_row) {
 
     StringVal text = _expr_context->root()->get_child(0)->get_string_val(_expr_context, tuple_row);
     if (text.is_null || text.len == 0) {
-        // _set_null_output();
         _is_current_empty = true;
     } else {
         rapidjson::Document document;
         document.Parse((char*) text.ptr, text.len);
         if (UNLIKELY(document.HasParseError()) || !document.IsArray() || document.GetArray().Size() == 0) {
-            // _set_null_output();
             _is_current_empty = true;
         } else {
             _cur_size = _parsed_data.set_output(_type, document);
             _cur_offset = 0;
-            // _eos = _cur_size == 0;
         }
     }
-    // _is_current_empty = _eos;
     return Status::OK();
 }
 

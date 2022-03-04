@@ -29,6 +29,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+using namespace ut_type;
 
 TEST(TimestampFunctionsTest, day_of_week_test) {
     std::string func_name = "dayofweek";
@@ -478,6 +479,48 @@ TEST(TimestampFunctionsTest, date_test) {
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
 
+TEST(TimestampFunctionsTest, week_test) {
+    std::string func_name = "week";
+
+    InputTypeSet input_types = {TypeIndex::DateTime};
+
+    DataSet data_set = {
+            {{std::string("1989-03-21 06:00:00")}, 12},
+            {{std::string("")}, Null()},
+            {{std::string("9999-12-12 00:00:00")}, 50}};
+
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+
+    InputTypeSet new_input_types = {TypeIndex::Date};
+    DataSet new_data_set = {
+            {{std::string("1989-03-21")}, 12},
+            {{std::string("")}, Null()},
+            {{std::string("9999-12-12")}, 50}};
+
+    check_function<DataTypeInt32, true>(func_name, new_input_types, new_data_set);
+}
+
+TEST(TimestampFunctionsTest, yearweek_test) {
+    std::string func_name = "yearweek";
+
+    InputTypeSet input_types = {TypeIndex::DateTime};
+
+    DataSet data_set = {
+            {{std::string("1989-03-21 06:00:00")}, 198912},
+            {{std::string("")}, Null()},
+            {{std::string("9999-12-12 00:00:00")}, 999950}};
+
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+
+    InputTypeSet new_input_types = {TypeIndex::Date};
+    DataSet new_data_set = {
+            {{std::string("1989-03-21")}, 198912},
+            {{std::string("")}, Null()},
+            {{std::string("9999-12-12")}, 999950}};
+
+    check_function<DataTypeInt32, true>(func_name, new_input_types, new_data_set);
+}
+
 TEST(TimestampFunctionsTest, makedate_test) {
     std::string func_name = "makedate";
 
@@ -490,6 +533,21 @@ TEST(TimestampFunctionsTest, makedate_test) {
                         {{2021, -10}, Null()},
                         {{-1, 3}, Null()},
                         {{12345, 3}, Null()}};
+
+    check_function<DataTypeDate, true>(func_name, input_types, data_set);
+}
+
+TEST(TimestampFunctionsTest, convert_tz_test) {
+    std::string func_name = "convert_tz";
+
+    InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String, TypeIndex::String};
+
+    DataSet data_set = {
+            {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
+              STRING("America/Los_Angeles")},
+             str_to_data_time("2019-07-31 22:21:03", true)},
+            {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
+             str_to_data_time("2019-07-31 22:21:03", true)}};
 
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }

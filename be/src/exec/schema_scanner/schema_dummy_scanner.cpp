@@ -30,7 +30,7 @@ SchemaDummyScanner::SchemaDummyScanner()
 
 SchemaDummyScanner::~SchemaDummyScanner() {}
 
-Status SchemaDummyScanner::start() {
+Status SchemaDummyScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 

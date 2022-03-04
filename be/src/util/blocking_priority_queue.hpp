@@ -41,10 +41,11 @@ public:
               _total_get_wait_time(0),
               _total_put_wait_time(0) {}
 
-    // Get an element from the queue, waiting indefinitely for one to become available.
+    // Get an element from the queue, waiting indefinitely (or until timeout) for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
     // are no more elements available.
-    bool blocking_get(T* out) {
+    // -- timeout_ms: 0 means wait indefinitely
+    bool blocking_get(T* out, uint32_t timeout_ms = 0) {
         MonotonicStopWatch timer;
         std::unique_lock<std::mutex> unique_lock(_lock);
 
@@ -76,7 +77,14 @@ public:
             }
 
             timer.start();
-            _get_cv.wait(unique_lock);
+            if (timeout_ms != 0) {
+                auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+                if (_get_cv.wait_until(unique_lock, deadline) == std::cv_status::timeout) {
+                    return false;
+                }
+            } else {
+                _get_cv.wait(unique_lock);
+            }
             timer.stop();
         }
     }

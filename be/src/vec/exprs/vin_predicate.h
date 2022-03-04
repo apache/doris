@@ -18,23 +18,22 @@
 #pragma once
 
 #include "exprs/hybrid_set.h"
-
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
-class VInPredicate final: public VExpr {
+class VInPredicate final : public VExpr {
 public:
     VInPredicate(const TExprNode& node);
     ~VInPredicate() = default;
     virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id);
+                                  int* result_column_id) override;
     virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context);
+                                  VExprContext* context) override;
     virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope);
+                               FunctionContext::FunctionStateScope scope) override;
     virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+                       FunctionContext::FunctionStateScope scope) override;
     virtual VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VInPredicate(*this));
     }
@@ -46,6 +45,7 @@ private:
 
     const bool _is_not_in;
     bool _is_prepare;
+
 private:
     static const constexpr char* function_name = "in";
 };

@@ -51,13 +51,13 @@ public:
 
     int64_t bitmap_nums() { return _bitmap_column_reader->num_values(); }
 
-    const TypeInfo* type_info() { return _typeinfo; }
+    std::shared_ptr<const TypeInfo> type_info() { return _typeinfo; }
 
 private:
     friend class BitmapIndexIterator;
 
     FilePathDesc _path_desc;
-    const TypeInfo* _typeinfo;
+    std::shared_ptr<const TypeInfo> _typeinfo;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;

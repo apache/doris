@@ -11,8 +11,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/slice.h"
 #include "gen_cpp/Types_types.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -176,7 +176,8 @@ public:
     virtual Status link_file(const std::string& /*old_path*/, const std::string& /*new_path*/) = 0;
 
     // get space info for local and remote system
-    virtual Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) = 0;
+    virtual Status get_space_info(const std::string& path, int64_t* capacity,
+                                  int64_t* available) = 0;
 
     virtual bool is_remote_env() = 0;
 
@@ -198,9 +199,7 @@ private:
 };
 
 struct FilePathDesc {
-    FilePathDesc(const std::string& path) {
-        filepath = path;
-    }
+    FilePathDesc(const std::string& path) { filepath = path; }
     FilePathDesc() {}
     TStorageMedium::type storage_medium = TStorageMedium::HDD;
     std::string filepath;
@@ -268,6 +267,7 @@ public:
         }
         return path_desc;
     }
+
 private:
     TStorageMedium::type _storage_medium = TStorageMedium::HDD;
     std::stringstream _filepath_stream;
@@ -424,7 +424,7 @@ public:
     RandomRWFile() {}
     virtual ~RandomRWFile() {}
 
-    virtual Status read_at(uint64_t offset, const Slice* result) const = 0;
+    virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
 
     virtual Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const = 0;
 

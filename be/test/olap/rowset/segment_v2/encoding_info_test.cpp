@@ -37,7 +37,7 @@ public:
 TEST_F(EncodingInfoTest, normal) {
     auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_BIGINT);
     const EncodingInfo* encoding_info = nullptr;
-    auto status = EncodingInfo::get(type_info, PLAIN_ENCODING, &encoding_info);
+    auto status = EncodingInfo::get(type_info.get(), PLAIN_ENCODING, &encoding_info);
     ASSERT_TRUE(status.ok());
     ASSERT_NE(nullptr, encoding_info);
 }
@@ -45,7 +45,7 @@ TEST_F(EncodingInfoTest, normal) {
 TEST_F(EncodingInfoTest, no_encoding) {
     auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_BIGINT);
     const EncodingInfo* encoding_info = nullptr;
-    auto status = EncodingInfo::get(type_info, DICT_ENCODING, &encoding_info);
+    auto status = EncodingInfo::get(type_info.get(), DICT_ENCODING, &encoding_info);
     ASSERT_FALSE(status.ok());
 }
 

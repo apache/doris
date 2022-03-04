@@ -1469,25 +1469,43 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
 
             // NDV
             // ndv return string
-            addBuiltin(AggregateFunction.createBuiltin("ndv",
-                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
-                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
-                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    true, false, true));
+            addBuiltin(AggregateFunction.createBuiltin("ndv", Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            true, false, true));
 
-            //APPROX_COUNT_DISTINCT
-            //alias of ndv, compute approx count distinct use HyperLogLog
-            addBuiltin(AggregateFunction.createBuiltin("approx_count_distinct",
-                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
-                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
-                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    true, false, true));
+            // vectorized
+            addBuiltin(AggregateFunction.createBuiltin("ndv", Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            true, false, true, true));
+
+            // APPROX_COUNT_DISTINCT
+            // alias of ndv, compute approx count distinct use HyperLogLog
+            addBuiltin(AggregateFunction.createBuiltin("approx_count_distinct", Lists.newArrayList(t), Type.BIGINT,
+                            Type.VARCHAR,
+                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            true, false, true));
+
+            // vectorized
+            addBuiltin(AggregateFunction.createBuiltin("approx_count_distinct", Lists.newArrayList(t), Type.BIGINT,
+                            Type.VARCHAR,
+                            "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                            "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                            "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                            "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                            true, false, true, true));
 
             // BITMAP_UNION_INT
             addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION_INT,
@@ -1977,6 +1995,34 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, false, false));
 
+        //vec percentile and percentile_approx
+        addBuiltin(AggregateFunction.createBuiltin("percentile",
+                Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                prefix + "15percentile_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "17percentile_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKNS2_9DoubleValEPNS2_9StringValE",
+                prefix + "16percentile_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "20percentile_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                prefix + "19percentile_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false, true));
+
+        addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
+                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_PNS2_9StringValE",
+                prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false, true));
+
+        addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
+                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_SA_PNS2_9StringValE",
+                prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false, true)); 
+
         // Avg
         // TODO: switch to CHAR(sizeof(AvgIntermediateType) when that becomes available
         addBuiltin(AggregateFunction.createBuiltin("avg",
@@ -2073,23 +2119,39 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "20timestamp_avg_removeEPN9doris_udf15FunctionContextERKNS1_11DateTimeValEPNS1_9StringValE",
                 prefix + "22timestamp_avg_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, true, false, true));
+
         // Group_concat(string)
-        addBuiltin(AggregateFunction.createBuiltin("group_concat",
-                Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR, Type.VARCHAR, initNullString,
-                prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                stringValSerializeOrFinalize,
-                prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                false, false, false));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
+                        Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false));
         // Group_concat(string, string)
-        addBuiltin(AggregateFunction.createBuiltin("group_concat",
-                Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR), Type.VARCHAR, Type.VARCHAR,
-                initNullString,
-                prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
-                prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                stringValSerializeOrFinalize,
-                prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                false, false, false));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                        Type.VARCHAR, Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false));
+        // Group_concat(string) vectorized
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
+                        Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false, true));
+        // Group_concat(string, string) vectorized
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                        Type.VARCHAR, Type.VARCHAR, initNullString,
+                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
+                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                        stringValSerializeOrFinalize,
+                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
+                        false, false, true));
 
         // analytic functions
         // Rank

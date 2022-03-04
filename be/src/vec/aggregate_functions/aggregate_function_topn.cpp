@@ -19,36 +19,21 @@
 
 namespace doris::vectorized {
 
-template <template <typename DataHelper> typename Impl>
-struct currying_function_topn {
-    template <typename T>
-    using Function = AggregateFunctionTopN<AggregateFunctionTopNData, Impl<T>>;
-
-    AggregateFunctionPtr operator()(const std::string& name, const DataTypes& argument_types) {
-        AggregateFunctionPtr res = nullptr;
-        res.reset(new Function<StringDataImplTopN>(argument_types));
-
-        if (!res) {
-            LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
-                                        argument_types[0]->get_name(), name);
-        }
-
-        return res;
-    }
-};
-
 AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const Array& parameters,
                                                     const bool result_is_nullable) {
     if (argument_types.size() == 1) {
         return AggregateFunctionPtr(
-                new AggregateFunctionTopN<AggregateFunctionTopNData,
-                                          AggregateFunctionTopNImplMerge>(argument_types));
+                new AggregateFunctionTopN<AggregateFunctionTopNImplEmpty>(argument_types));
     } else if (argument_types.size() == 2) {
-        return currying_function_topn<AggregateFunctionTopNImplInt>()(name, argument_types);
+        return AggregateFunctionPtr(
+                new AggregateFunctionTopN<AggregateFunctionTopNImplInt<StringDataImplTopN>>(
+                        argument_types));
     } else if (argument_types.size() == 3) {
-        return currying_function_topn<AggregateFunctionTopNImplIntInt>()(name, argument_types);
+        return AggregateFunctionPtr(
+                new AggregateFunctionTopN<AggregateFunctionTopNImplIntInt<StringDataImplTopN>>(
+                        argument_types));
     }
 
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",

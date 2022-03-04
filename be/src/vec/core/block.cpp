@@ -44,6 +44,7 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -98,19 +99,22 @@ inline DataTypePtr create_data_type(const PColumnMeta& pcolumn_meta) {
         return std::make_shared<DataTypeDateTime>();
     }
     case PGenericType::DECIMAL32: {
-        return std::make_shared<DataTypeDecimal<Decimal32>>(pcolumn_meta.decimal_param().precision(),
-                                                            pcolumn_meta.decimal_param().scale());
+        return std::make_shared<DataTypeDecimal<Decimal32>>(
+                pcolumn_meta.decimal_param().precision(), pcolumn_meta.decimal_param().scale());
     }
     case PGenericType::DECIMAL64: {
-        return std::make_shared<DataTypeDecimal<Decimal64>>(pcolumn_meta.decimal_param().precision(),
-                                                            pcolumn_meta.decimal_param().scale());
+        return std::make_shared<DataTypeDecimal<Decimal64>>(
+                pcolumn_meta.decimal_param().precision(), pcolumn_meta.decimal_param().scale());
     }
     case PGenericType::DECIMAL128: {
-        return std::make_shared<DataTypeDecimal<Decimal128>>(pcolumn_meta.decimal_param().precision(),
-                                                             pcolumn_meta.decimal_param().scale());
+        return std::make_shared<DataTypeDecimal<Decimal128>>(
+                pcolumn_meta.decimal_param().precision(), pcolumn_meta.decimal_param().scale());
     }
     case PGenericType::BITMAP: {
         return std::make_shared<DataTypeBitMap>();
+    }
+    case PGenericType::HLL: {
+        return std::make_shared<DataTypeHLL>();
     }
     default: {
         LOG(FATAL) << fmt::format("Unknown data type: {}, data type name: {}", pcolumn_meta.type(),
@@ -132,14 +136,16 @@ Block::Block(const PBlock& pblock) {
     const char* buf = nullptr;
     std::string compression_scratch;
     if (pblock.compressed()) {
-        // Decompress 
+        // Decompress
         const char* compressed_data = pblock.column_values().c_str();
         size_t compressed_size = pblock.column_values().size();
         size_t uncompressed_size = 0;
-        bool success = snappy::GetUncompressedLength(compressed_data, compressed_size, &uncompressed_size);
+        bool success =
+                snappy::GetUncompressedLength(compressed_data, compressed_size, &uncompressed_size);
         DCHECK(success) << "snappy::GetUncompressedLength failed";
         compression_scratch.resize(uncompressed_size);
-        success = snappy::RawUncompress(compressed_data, compressed_size, compression_scratch.data());
+        success =
+                snappy::RawUncompress(compressed_data, compressed_size, compression_scratch.data());
         DCHECK(success) << "snappy::RawUncompress failed";
         buf = compression_scratch.data();
     } else {
@@ -150,14 +156,14 @@ Block::Block(const PBlock& pblock) {
         DataTypePtr type = create_data_type(pcol_meta);
         MutableColumnPtr data_column;
         if (pcol_meta.is_nullable()) {
-            data_column = ColumnNullable::create(std::move(type->create_column()), ColumnUInt8::create());
+            data_column = ColumnNullable::create(type->create_column(), ColumnUInt8::create());
             type = make_nullable(type);
         } else {
             data_column = type->create_column();
         }
         buf = type->deserialize(buf, data_column.get());
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
-    } 
+    }
     initialize_index_by_name();
 }
 
@@ -700,8 +706,8 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     return Status::OK();
 }
 
-Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
-                        size_t* compressed_bytes, std::string* allocated_buf) const {
+Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
+                        std::string* allocated_buf) const {
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
@@ -712,13 +718,12 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
     }
 
     // serialize data values
+    // when data type is HLL, content_uncompressed_size maybe larger than real size.
     allocated_buf->resize(content_uncompressed_size);
     char* buf = allocated_buf->data();
-    char* start_buf = buf;
     for (const auto& c : *this) {
         buf = c.type->serialize(*(c.column), buf);
     }
-    CHECK(content_uncompressed_size == (buf - start_buf)) << content_uncompressed_size << " vs. " << (buf - start_buf);
     *uncompressed_bytes = content_uncompressed_size;
 
     // compress
@@ -731,7 +736,8 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
 
         size_t compressed_size = 0;
         char* compressed_output = compression_scratch.data();
-        snappy::RawCompress(allocated_buf->data(), content_uncompressed_size, compressed_output, &compressed_size);
+        snappy::RawCompress(allocated_buf->data(), content_uncompressed_size, compressed_output,
+                            &compressed_size);
 
         if (LIKELY(compressed_size < content_uncompressed_size)) {
             compression_scratch.resize(compressed_size);
@@ -742,12 +748,12 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes,
             *compressed_bytes = content_uncompressed_size;
         }
 
-        VLOG_ROW << "uncompressed size: " << content_uncompressed_size << ", compressed size: " << compressed_size;
+        VLOG_ROW << "uncompressed size: " << content_uncompressed_size
+                 << ", compressed size: " << compressed_size;
     }
 
     return Status::OK();
 }
-
 
 void Block::serialize(RowBatch* output_batch, const RowDescriptor& row_desc) {
     auto num_rows = rows();
@@ -784,7 +790,8 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
 
         if (!slot_desc->type().is_string_type() && !slot_desc->type().is_date_type()) {
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), data_ref.data, data_ref.size);
-        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT) {
+        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT &&
+                   slot_desc->type() != TYPE_HLL) {
             memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), (const void*)(&data_ref),
                    sizeof(data_ref));
             // Copy the content of string
@@ -810,6 +817,13 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
             string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
             bitmap_value->write(string_slot->ptr);
             string_slot->len = size;
+        } else if (slot_desc->type() == TYPE_HLL) {
+            auto hll_value = (HyperLogLog*)(data_ref.data);
+            auto size = hll_value->max_serialized_size();
+            auto string_slot = dst->get_string_slot(slot_desc->tuple_offset());
+            string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
+            size_t actual_size = hll_value->serialize((uint8_t*)string_slot->ptr);
+            string_slot->len = actual_size;
         } else {
             VecDateTimeValue ts =
                     *reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data_ref.data);

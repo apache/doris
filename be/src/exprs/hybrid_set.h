@@ -99,9 +99,9 @@ public:
                  typename phmap::flat_hash_set<_iT>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() { return _begin.operator->(); }
-        virtual void next() { ++_begin; }
+        virtual bool has_next() const override { return !(_begin == _end); }
+        virtual const void* get_value() override { return _begin.operator->(); }
+        virtual void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<_iT>::iterator _begin;
@@ -162,13 +162,13 @@ public:
                  phmap::flat_hash_set<std::string>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() {
+        virtual bool has_next() const override { return !(_begin == _end); }
+        virtual const void* get_value() override {
             _value.ptr = const_cast<char*>(_begin->data());
             _value.len = _begin->length();
             return &_value;
         }
-        virtual void next() { ++_begin; }
+        virtual void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<std::string>::iterator _begin;

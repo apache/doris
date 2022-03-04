@@ -83,10 +83,10 @@ public class GroupByClauseTest {
                 GroupByClause.GroupingType.GROUPING_SETS);
         GroupingInfo groupingInfo = null;
         try {
-            groupingInfo = new GroupingInfo(analyzer, GroupByClause.GroupingType.GROUPING_SETS);
             groupByClause.genGroupingExprs();
-            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             groupByClause.analyze(analyzer);
+            groupingInfo = new GroupingInfo(analyzer, groupByClause);
+            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
         } catch (AnalysisException exception) {
             exception.printStackTrace();
             Assert.assertTrue(false);
@@ -124,10 +124,10 @@ public class GroupByClauseTest {
                         GroupByClause.GroupingType.ROLLUP);
         GroupingInfo groupingInfo = null;
         try {
-            groupingInfo = new GroupingInfo(analyzer, GroupByClause.GroupingType.ROLLUP);
             groupByClause.genGroupingExprs();
-            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             groupByClause.analyze(analyzer);
+            groupingInfo = new GroupingInfo(analyzer, groupByClause);
+            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
         } catch (AnalysisException execption) {
             Assert.assertTrue(false);
         }
@@ -160,10 +160,10 @@ public class GroupByClauseTest {
                 GroupByClause.GroupingType.CUBE);
         GroupingInfo groupingInfo = null;
         try {
-            groupingInfo = new GroupingInfo(analyzer, GroupByClause.GroupingType.CUBE);
             groupByClause.genGroupingExprs();
-            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             groupByClause.analyze(analyzer);
+            groupingInfo = new GroupingInfo(analyzer, groupByClause);
+            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
         } catch (AnalysisException exception) {
             Assert.assertTrue(false);
         }
@@ -264,11 +264,11 @@ public class GroupByClauseTest {
         }
         GroupingInfo groupingInfo = null;
         try {
-            groupingInfo = new GroupingInfo(analyzer, GroupByClause.GroupingType.CUBE);
-            groupingInfo.addGroupingSlots(slots, analyzer);
             groupByClause.genGroupingExprs();
-            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             groupByClause.analyze(analyzer);
+            groupingInfo = new GroupingInfo(analyzer, groupByClause);
+            groupingInfo.addGroupingSlots(slots, analyzer);
+            groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
         } catch (AnalysisException exception) {
             Assert.assertTrue(false);
         }

@@ -39,7 +39,7 @@ namespace doris {
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-SnapshotAction::SnapshotAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+SnapshotAction::SnapshotAction() {}
 
 void SnapshotAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -101,7 +101,8 @@ int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
 
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
     bool allow_incremental_clone; // not used
-    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path, &allow_incremental_clone);
+    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path,
+                                                     &allow_incremental_clone);
     if (res != OLAPStatus::OLAP_SUCCESS) {
         LOG(WARNING) << "make snapshot failed. status: " << res << ", signature: " << tablet_id;
         return -1L;

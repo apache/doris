@@ -147,6 +147,10 @@ CONF_Int32(num_threads_per_core, "3");
 CONF_mBool(compress_rowbatches, "true");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
+// if true, each disk will have a separate thread pool for scanner
+CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
+// the timeout of a work thread to wait the blocking priority queue to get a task
+CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
 // number of olap scanner thread pool size
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
@@ -204,7 +208,8 @@ CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");
 CONF_mInt32(snapshot_expire_time_sec, "172800");
-// 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
+// It is only a recommended value. When the disk space is insufficient,
+// the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
@@ -222,6 +227,8 @@ CONF_String(storage_page_cache_limit, "20%");
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
+
+CONF_Bool(enable_storage_vectorization, "false");
 
 // be policy
 // whether disable automatic compaction task
@@ -288,7 +295,10 @@ CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 CONF_mInt32(compaction_task_num_per_disk, "2");
+// compaction thread num for fast disk(typically .SSD), must be greater than 2.
+CONF_mInt32(compaction_task_num_per_fast_disk, "4");
 CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool { return config >= 2; });
+CONF_Validator(compaction_task_num_per_fast_disk, [](const int config) -> bool { return config >= 2; });
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -353,6 +363,7 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
+CONF_mBool(disable_stream_load_2pc, "true");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -399,9 +410,6 @@ CONF_Bool(enable_quadratic_probing, "false");
 
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
-
-// for partition
-CONF_Bool(enable_partitioned_aggregation, "true");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
@@ -542,8 +550,6 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
 CONF_Int32(tablet_map_shard_size, "1");
-
-CONF_String(plugin_path, "${DORIS_HOME}/plugin");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn

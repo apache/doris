@@ -25,8 +25,10 @@
 #include "util/encryption_util.h"
 #include "util/url_coding.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
+using namespace ut_type;
 
 TEST(function_string_test, function_string_substr_test) {
     std::string func_name = "substr";
@@ -440,15 +442,45 @@ TEST(function_string_test, function_instr_test) {
 
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
-    DataSet data_set = {{{std::string("abcdefg"), std::string("efg")}, 5},
-                        {{std::string("aa"), std::string("a")}, 1},
-                        {{std::string("我是"), std::string("是")}, 2},
-                        {{std::string("abcd"), std::string("e")}, 0},
-                        {{std::string("abcdef"), std::string("")}, 1},
-                        {{std::string(""), std::string("")}, 1},
-                        {{std::string("aaaab"), std::string("bb")}, 0}};
+    DataSet data_set = {
+            {{STRING("abcdefg"), STRING("efg")}, INT(5)}, {{STRING("aa"), STRING("a")}, INT(1)},
+            {{STRING("我是"), STRING("是")}, INT(2)},     {{STRING("abcd"), STRING("e")}, INT(0)},
+            {{STRING("abcdef"), STRING("")}, INT(1)},     {{STRING(""), STRING("")}, INT(1)},
+            {{STRING("aaaab"), STRING("bb")}, INT(0)}};
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_locate_test) {
+    std::string func_name = "locate";
+
+    {
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+
+        DataSet data_set = {{{STRING("efg"), STRING("abcdefg")}, INT(5)},
+                            {{STRING("a"), STRING("aa")}, INT(1)},
+                            {{STRING("是"), STRING("我是")}, INT(2)},
+                            {{STRING("e"), STRING("abcd")}, INT(0)},
+                            {{STRING(""), STRING("abcdef")}, INT(1)},
+                            {{STRING(""), STRING("")}, INT(1)},
+                            {{STRING("bb"), STRING("aaaab")}, INT(0)}};
+
+        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int32};
+
+        DataSet data_set = {{{STRING("bar"), STRING("foobarbar"), INT(5)}, INT(7)},
+                            {{STRING("xbar"), STRING("foobar"), INT(1)}, INT(0)},
+                            {{STRING(""), STRING("foobar"), INT(2)}, INT(2)},
+                            {{STRING("A"), STRING("大A写的A"), INT(0)}, INT(0)},
+                            {{STRING("A"), STRING("大A写的A"), INT(1)}, INT(2)},
+                            {{STRING("A"), STRING("大A写的A"), INT(2)}, INT(2)},
+                            {{STRING("A"), STRING("大A写的A"), INT(3)}, INT(5)}};
+
+        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    }
 }
 
 TEST(function_string_test, function_find_in_set_test) {
@@ -710,6 +742,25 @@ TEST(function_string_test, function_coalesce_test) {
                 {{Null(), Null(), std::string("uvw")}, {std::string("uvw")}}};
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }
+}
+
+TEST(function_string_test, function_str_to_date_test) {
+    std::string func_name = "str_to_date";
+    InputTypeSet input_types = {
+            TypeIndex::String,
+            TypeIndex::String,
+    };
+    DataSet data_set = {
+            {{Null(), std::string("%Y-%m-%d %H:%i:%s")}, {Null()}},
+            {{std::string("2014-12-21 12:34:56"), std::string("%Y-%m-%d %H:%i:%s")},
+             str_to_data_time("2014-12-21 12:34:56", false)},
+            {{std::string("2014-12-21 12:34%3A56"), std::string("%Y-%m-%d %H:%i%%3A%s")},
+             str_to_data_time("2014-12-21 12:34:56", false)},
+            {{std::string("11/09/2011"), std::string("%m/%d/%Y")},
+             str_to_data_time("2011-11-09", false)},
+            {{std::string("2020-09-01"), std::string("%Y-%m-%d %H:%i:%s")},
+             str_to_data_time("2020-09-01 00:00:00", false)}};
+    check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
 } // namespace doris::vectorized

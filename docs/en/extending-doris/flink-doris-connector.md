@@ -28,12 +28,14 @@ under the License.
 
 - The Flink Doris Connector can support operations (read, insert, modify, delete) data stored in Doris through Flink.
 
-  * `Doris` table can be mapped to `DataStream` or `Table`.
+Github: https://github.com/apache/incubator-doris-flink-connector
 
-  >**Note:**
-  >
-  >1. Modification and deletion are only supported on the Unique Key model
-  >2. The current deletion is to support Flink CDC to access data to achieve automatic deletion. If it is to delete other data access methods, you need to implement it yourself. For the data deletion usage of Flink CDC, please refer to the last section of this document
+* `Doris` table can be mapped to `DataStream` or `Table`.
+
+>**Note:**
+>
+>1. Modification and deletion are only supported on the Unique Key model
+>2. The current deletion is to support Flink CDC to access data to achieve automatic deletion. If it is to delete other data access methods, you need to implement it yourself. For the data deletion usage of Flink CDC, please refer to the last section of this document
 
 ## Version Compatibility
 
@@ -43,36 +45,17 @@ under the License.
 | 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
 | 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
 
-**For Flink 1.13.x version adaptation issues**
-
-```xml
-     <properties>
-         <scala.version>2.12</scala.version>
-         <flink.version>1.11.2</flink.version>
-         <libthrift.version>0.9.3</libthrift.version>
-         <arrow.version>0.15.1</arrow.version>
-         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-         <doris.home>${basedir}/../../</doris.home>
-         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
-     </properties>
-```
-
-Just change the `flink.version` here to be the same as your Flink cluster version, and edit again
-
 ## Build and Install
 
-Execute following command in dir `extension/flink-doris-connector/`:
-
-**Notice:**
-
-1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
-2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
+Execute following command in source dir:
 
 ```bash
-sh build.sh 1.11.6 2.12 # flink 1.11.6 scala 2.12
+sh build.sh --flink 1.11.6 --scala 2.12 # flink 1.11.6 scala 2.12
 ```
 
-After successful compilation, the file `doris-flink-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+> Note: If you check out the source code from tag, you can just run `sh build.sh --tag` without specifying the flink and scala versions. This is because the version in the tag source code is fixed. For example, `1.13.5-2.12-1.0.1` means flink version 1.13.5, scala version 2.12, and connector version 1.0.1.
+
+After successful compilation, the file `doris-flink-1.13.5-2.12-1.0.1-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 **Remarks:** 
 
@@ -99,7 +82,6 @@ Add Dependency
 **Remarks**
 
 `1.11.6 ` can be substitute with `1.12.7` or `1.13.5` base on flink version you are using 
-
 
 ## How to use
 

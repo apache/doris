@@ -123,7 +123,8 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition, RowRanges* row_ranges);
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
+                                      RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges);
@@ -159,7 +160,8 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions, std::vector<uint32_t>* page_indexes);
+    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions,
+                               std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
@@ -169,7 +171,7 @@ private:
     uint64_t _num_rows;
     FilePathDesc _path_desc;
 
-    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
+    std::shared_ptr<const TypeInfo> _type_info = nullptr; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
     const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
@@ -215,7 +217,7 @@ public:
         return next_batch(n, dst, &has_null);
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
@@ -225,7 +227,7 @@ public:
     // from MemPool
     virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
-    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) {
+    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
         return Status::NotSupported("not implement");
     }
 
@@ -240,24 +242,6 @@ public:
         return Status::OK();
     }
 
-#if 0
-    // Call this function every time before next_batch.
-    // This function will preload pages from disk into memory if necessary.
-    Status prepare_batch(size_t n);
-
-    // Fetch the next vector of values from the page into 'dst'.
-    // The output vector must have space for up to n cells.
-    //
-    // return the size of entries.
-    //
-    // In the case that the values are themselves references
-    // to other memory (eg Slices), the referred-to memory is
-    // allocated in the dst column vector's MemPool.
-    Status scan(size_t* n, ColumnBlock* dst, MemPool* pool);
-
-    // release next_batch related resource
-    Status finish_batch();
-#endif
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -277,7 +261,7 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -289,7 +273,7 @@ public:
 
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
 
-    ParsedPage* get_current_page() { return _page.get(); }
+    ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
 
@@ -304,8 +288,7 @@ private:
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
     //    If new seek is issued, the _page will be reset.
-    // 3. When _page is null, it means that this reader can not be read.
-    std::unique_ptr<ParsedPage> _page;
+    ParsedPage _page;
 
     // keep dict page decoder
     std::unique_ptr<PageDecoder> _dict_decoder;
@@ -320,16 +303,13 @@ private:
     // current value ordinal
     ordinal_t _current_ordinal = 0;
 
-    std::unique_ptr<uint32_t[]> _dict_start_offset_array;
-    std::unique_ptr<uint32_t[]> _dict_len_array;
+    std::unique_ptr<StringRef[]> _dict_word_info;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* reader,
-                                     FileColumnIterator* length_reader,
-                                     ColumnIterator* item_iterator,
-                                     ColumnIterator* null_iterator);
+    explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* length_reader,
+                                     ColumnIterator* item_iterator, ColumnIterator* null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 
@@ -354,15 +334,19 @@ public:
 
         RETURN_IF_ERROR(_length_iterator->seek_to_page_start());
         if (_length_iterator->get_current_ordinal() == ord) {
-            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(_length_iterator->get_current_page()->first_array_item_ordinal));
+            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(
+                    _length_iterator->get_current_page()->first_array_item_ordinal));
         } else {
-            ordinal_t start_offset_in_this_page = _length_iterator->get_current_page()->first_array_item_ordinal;
+            ordinal_t start_offset_in_this_page =
+                    _length_iterator->get_current_page()->first_array_item_ordinal;
             ColumnBlock ordinal_block(_length_batch.get(), nullptr);
             ordinal_t size_to_read = ord - start_offset_in_this_page;
             bool has_null = false;
             ordinal_t item_ordinal = start_offset_in_this_page;
             while (size_to_read > 0) {
-                size_t this_read = _length_batch->capacity() < size_to_read ? _length_batch->capacity() : size_to_read;
+                size_t this_read = _length_batch->capacity() < size_to_read
+                                           ? _length_batch->capacity()
+                                           : size_to_read;
                 ColumnBlockView ordinal_view(&ordinal_block);
                 RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
                 auto* ordinals = reinterpret_cast<ordinal_t*>(_length_batch->data());
@@ -392,7 +376,8 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfo* type_info, size_t schema_length)
+                               bool is_nullable, std::shared_ptr<const TypeInfo> type_info,
+                               size_t schema_length)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
@@ -415,24 +400,24 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
 private:
-    void insert_default_data(vectorized::MutableColumnPtr &dst, size_t n);
+    void insert_default_data(vectorized::MutableColumnPtr& dst, size_t n);
 
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    TypeInfo* _type_info;
+    std::shared_ptr<const TypeInfo> _type_info;
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;

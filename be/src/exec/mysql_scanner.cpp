@@ -41,7 +41,6 @@ MysqlScanner::~MysqlScanner() {
     if (_my_conn) {
         mysql_close(_my_conn);
         _my_conn = nullptr;
-        mysql_library_end();
     }
 }
 

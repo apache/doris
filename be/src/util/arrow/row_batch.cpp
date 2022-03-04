@@ -205,7 +205,7 @@ public:
     arrow::Status Visit(const arrow::StringType& type) override {
         arrow::StringBuilder builder(_pool);
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -258,7 +258,7 @@ public:
                 std::make_shared<arrow::Decimal128Type>(27, 9);
         arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -275,10 +275,10 @@ public:
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
     // process boolean
-    arrow::Status Visit(const arrow::BooleanType& type) {
+    arrow::Status Visit(const arrow::BooleanType& type) override {
         arrow::BooleanBuilder builder(_pool);
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -300,7 +300,7 @@ private:
         arrow::NumericBuilder<T> builder(_pool);
 
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -490,7 +490,12 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
         msg << "write record batch failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
-    record_batch_writer->Close();
+    a_st = record_batch_writer->Close();
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "Close failed, reason: " << a_st.ToString();
+        return Status::InternalError(msg.str());
+    }
     auto finish_res = sink->Finish();
     if (!finish_res.ok()) {
         std::stringstream msg;
@@ -499,7 +504,12 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     }
     *result = finish_res.ValueOrDie()->ToString();
     // close the sink
-    sink->Close();
+    a_st = sink->Close();
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "Close failed, reason: " << a_st.ToString();
+        return Status::InternalError(msg.str());
+    }
     return Status::OK();
 }
 

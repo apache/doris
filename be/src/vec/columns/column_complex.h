@@ -22,6 +22,7 @@
 
 #include <vector>
 
+#include "olap/hll.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
@@ -59,6 +60,23 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override {
         data.push_back(*reinterpret_cast<const T*>(pos));
+    }
+
+    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+        if constexpr (std::is_same_v<T, BitmapValue>) {
+            for (size_t i = 0; i < num; i++) {
+                uint32_t len = len_array[i];
+                uint32_t start_offset = start_offset_array[i];
+                BitmapValue* pvalue = &get_element(size() - 1);
+                if (len != 0) {
+                    BitmapValue value;
+                    value.deserialize(data_array + start_offset);
+                    *pvalue = std::move(value);
+                } else {
+                    *pvalue = std::move(*reinterpret_cast<BitmapValue*>(data_array + start_offset));   
+                }
+            }
+        }
     }
 
     void insert_default() override { data.push_back(T()); }
@@ -124,7 +142,7 @@ public:
         LOG(FATAL) << "get field not implemented";
     }
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) {
+    void insert_range_from(const IColumn& src, size_t start, size_t length) override {
         auto& col = static_cast<const Self&>(src);
         auto& src_data = col.get_data();
         auto st = src_data.begin() + start;
@@ -132,35 +150,42 @@ public:
         data.insert(data.end(), st, ed);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const int* indices_begin,
+                             const int* indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
-        data.reserve(size() + (indices_end - indices_begin));
-        for (auto x = indices_begin; x != indices_end; ++x) {
-            data.push_back(src_vec.get_element(*x));
+        auto new_size = indices_end - indices_begin;
+
+        for (int i = 0; i < new_size; ++i) {
+            auto offset = *(indices_begin + i);
+            if (offset == -1) {
+                data.emplace_back(T{});
+            } else {
+                data.emplace_back(src_vec.get_element(offset));
+            }
         }
     }
 
-    void pop_back(size_t n) { data.erase(data.end() - n, data.end()); }
+    void pop_back(size_t n) override { data.erase(data.end() - n, data.end()); }
     // it's impossable to use ComplexType as key , so we don't have to implemnt them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
-                                                      char const*& begin) const {
+                                                      char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not implemented";
     }
 
-    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) {
+    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
     }
 
-    void update_hash_with_value(size_t n, SipHash& hash) const {
+    void update_hash_with_value(size_t n, SipHash& hash) const override {
         // TODO add hash function
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int nan_direction_hint) const {
+                                int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
     }
 
-    void get_extremes(Field& min, Field& max) const {
+    void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not implemented";
     }
 
@@ -301,7 +326,8 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
 }
 
 template <typename T>
-void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size,
+                                     IColumn& column) const {
     size_t size = data.size();
     if (0 == size) return;
 
@@ -318,4 +344,20 @@ void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size,
 }
 
 using ColumnBitmap = ColumnComplexType<BitmapValue>;
+using ColumnHLL = ColumnComplexType<HyperLogLog>;
+
+template <typename T>
+struct is_complex : std::false_type {};
+
+template <>
+struct is_complex<BitmapValue> : std::true_type {};  
+//DataTypeBitMap::FieldType = BitmapValue
+
+template <>
+struct is_complex<HyperLogLog> : std::true_type {};  
+//DataTypeHLL::FieldType = HyperLogLog
+
+template <class T>
+constexpr bool is_complex_v = is_complex<T>::value;
+
 } // namespace doris::vectorized

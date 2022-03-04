@@ -41,7 +41,7 @@ public:
     CsvScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~CsvScanNode();
 
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
 
     // initialize _csv_scanner, and create _text_converter.
     virtual Status prepare(RuntimeState* state);

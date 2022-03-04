@@ -120,7 +120,7 @@ public:
         for (; it != _stream_factory->streams().end(); ++it) {
             StreamName stream_name = it->first;
             OutStream* out_stream = it->second;
-            std::vector<StorageByteBuffer*>* buffers;
+            std::vector<StorageByteBuffer*>* buffers = nullptr;
 
             if (out_stream->is_suppressed()) {
                 continue;
@@ -811,7 +811,6 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -899,8 +898,6 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
                                       &tablet_schema);
     create_column_writer(tablet_schema);
 
-
-
     RowCursor write_row;
     write_row.init(tablet_schema);
 
@@ -930,7 +927,6 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -949,7 +945,6 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
     set_tablet_schema_with_one_column("IntColumn", "INT", "REPLACE", 4, false, true,
                                       &tablet_schema);
     create_column_writer(tablet_schema);
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -977,7 +972,6 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -998,7 +992,6 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
     set_tablet_schema_with_one_column("IntColumn", "INT", "REPLACE", 4, false, true,
                                       &tablet_schema);
     create_column_writer(tablet_schema);
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1021,7 +1014,6 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
     // read data
 
     create_column_reader(tablet_schema);
-
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1050,7 +1042,6 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
     set_tablet_schema_with_one_column("IntColumn", "INT", "REPLACE", 4, true, true, &tablet_schema);
     create_column_writer(tablet_schema);
 
-
     RowCursor write_row;
     write_row.init(tablet_schema);
 
@@ -1077,7 +1068,6 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1101,8 +1091,6 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
     set_tablet_schema_with_one_column("LongColumnWithoutPresent", "BIGINT", "REPLACE", 8, false,
                                       true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1131,7 +1119,6 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1152,8 +1139,6 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
     set_tablet_schema_with_one_column("LongColumnWithPresent", "BIGINT", "REPLACE", 8, true, true,
                                       &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1182,7 +1167,6 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1205,8 +1189,6 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
     set_tablet_schema_with_one_column("FloatColumnWithoutPresent", "FLOAT", "REPLACE", 4, false,
                                       true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1235,7 +1217,6 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1254,12 +1235,9 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("FloatColumnWithPresent", "FLOAT", "REPLACE", 4, true, true,
                                       &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1288,7 +1266,6 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1308,12 +1285,9 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("FloatColumnWithPresent", "FLOAT", "REPLACE", 4, true, true,
                                       &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1345,7 +1319,6 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     // read data
 
     create_column_reader(tablet_schema);
-
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1378,12 +1351,9 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("FloatColumnWithPresent", "FLOAT", "REPLACE", 4, true, true,
                                       &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1412,7 +1382,6 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1428,12 +1397,9 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DoubleColumnWithoutPresent", "DOUBLE", "REPLACE", 8, false,
                                       true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1462,7 +1428,6 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1481,12 +1446,9 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DoubleColumnWithPresent", "DOUBLE", "REPLACE", 8, true, true,
                                       &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1515,7 +1477,6 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1536,12 +1497,9 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DatetimeColumnWithoutPresent", "DATETIME", "REPLACE", 8,
                                       false, true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1566,7 +1524,6 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1582,12 +1539,9 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DatetimeColumnWithoutPresent", "DATETIME", "REPLACE", 8,
                                       true, true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1617,7 +1571,6 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     // read data
 
     create_column_reader(tablet_schema);
-
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1674,7 +1627,6 @@ TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1699,12 +1651,9 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DateColumnWithoutoutPresent", "DATE", "REPLACE", 3, false,
                                       true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1729,7 +1678,6 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1744,12 +1692,9 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DateColumnWithoutoutPresent", "DATE", "REPLACE", 3, true,
                                       true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1782,7 +1727,6 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1805,12 +1749,9 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DecimalColumnWithoutoutPresent", "DECIMAL", "REPLACE", 12,
                                       false, true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1842,7 +1783,6 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     // read data
 
     create_column_reader(tablet_schema);
-
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1896,7 +1836,6 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1916,12 +1855,9 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
 
-
     set_tablet_schema_with_one_column("DecimalColumnWithPresent", "DECIMAL", "REPLACE", 12, true,
                                       true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1952,7 +1888,6 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
 
     create_column_reader(tablet_schema);
 
-
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -1973,8 +1908,6 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     set_tablet_schema_with_one_column("DecimalColumnWithPresent", "DECIMAL", "REPLACE", 12, true,
                                       true, &tablet_schema);
     create_column_writer(tablet_schema);
-
-
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2010,7 +1943,6 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     // read data
 
     create_column_reader(tablet_schema);
-
 
     RowCursor read_row;
     read_row.init(tablet_schema);

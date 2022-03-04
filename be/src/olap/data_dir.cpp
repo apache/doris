@@ -35,7 +35,6 @@
 #include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
-#include "olap/olap_snapshot_converter.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -59,7 +58,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
-static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
@@ -353,58 +351,9 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
             .string();
 }
 
-OLAPStatus DataDir::_clean_unfinished_converting_data() {
-    auto clean_unifinished_tablet_meta_func = [this](int64_t tablet_id, int32_t schema_hash,
-                                                     const std::string& value) -> bool {
-        TabletMetaManager::remove(this, tablet_id, schema_hash, HEADER_PREFIX);
-        LOG(INFO) << "successfully clean temp tablet meta for tablet=" << tablet_id << "."
-                  << schema_hash << "from data dir: " << _path_desc.filepath;
-        return true;
-    };
-    OLAPStatus clean_unfinished_meta_status = TabletMetaManager::traverse_headers(
-            _meta, clean_unifinished_tablet_meta_func, HEADER_PREFIX);
-    if (clean_unfinished_meta_status != OLAP_SUCCESS) {
-        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
-        LOG(WARNING) << "there is failure when clean temp tablet meta from data dir="
-                     << _path_desc.filepath;
-    } else {
-        LOG(INFO) << "successfully clean temp tablet meta from data dir=" << _path_desc.filepath;
-    }
-    auto clean_unifinished_rowset_meta_func = [this](TabletUid tablet_uid, RowsetId rowset_id,
-                                                     const std::string& value) -> bool {
-        RowsetMetaManager::remove(_meta, tablet_uid, rowset_id);
-        LOG(INFO) << "successfully clean temp rowset meta for rowset_id=" << rowset_id
-                  << " from data dir=" << _path_desc.filepath;
-        return true;
-    };
-    OLAPStatus clean_unfinished_rowset_meta_status =
-            RowsetMetaManager::traverse_rowset_metas(_meta, clean_unifinished_rowset_meta_func);
-    if (clean_unfinished_rowset_meta_status != OLAP_SUCCESS) {
-        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
-        LOG(FATAL) << "fail to clean temp rowset meta from data dir=" << _path_desc.filepath;
-    } else {
-        LOG(INFO) << "success to clean temp rowset meta from data dir=" << _path_desc.filepath;
-    }
-    return OLAP_SUCCESS;
-}
-
-bool DataDir::convert_old_data_success() {
-    return _convert_old_data_success;
-}
-
-OLAPStatus DataDir::set_convert_finished() {
-    OLAPStatus res = _meta->set_tablet_convert_finished();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "save convert flag failed after convert old tablet. dir="
-                   << _path_desc.filepath;
-        return res;
-    }
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
-    auto check_incompatible_old_func = [this](int64_t tablet_id, int32_t schema_hash,
-                                              const std::string& value) -> bool {
+    auto check_incompatible_old_func = [](int64_t tablet_id, int32_t schema_hash,
+                                          const std::string& value) -> bool {
         // if strict check incompatible old format, then log fatal
         if (config::storage_strict_check_incompatible_old_format) {
             LOG(FATAL)
@@ -528,14 +477,16 @@ OLAPStatus DataDir::load() {
     // 1. add committed rowset to txn map
     // 2. add visible rowset to tablet
     // ignore any errors when load tablet or rowset, because fe will repair them after report
+    int64_t invalid_rowset_counter = 0;
     for (auto rowset_meta : dir_rowset_metas) {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id(),
                                                              rowset_meta->tablet_schema_hash());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet == nullptr) {
-            LOG(WARNING) << "could not find tablet id: " << rowset_meta->tablet_id()
-                         << ", schema hash: " << rowset_meta->tablet_schema_hash()
-                         << ", for rowset: " << rowset_meta->rowset_id() << ", skip this rowset";
+            VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
+                        << ", schema hash: " << rowset_meta->tablet_schema_hash()
+                        << ", for rowset: " << rowset_meta->rowset_id() << ", skip this rowset";
+            ++invalid_rowset_counter;
             continue;
         }
         RowsetSharedPtr rowset;
@@ -583,8 +534,15 @@ OLAPStatus DataDir::load() {
                          << " schema hash: " << rowset_meta->tablet_schema_hash()
                          << " txn: " << rowset_meta->txn_id()
                          << " current valid tablet uid: " << tablet->tablet_uid();
+            ++invalid_rowset_counter;
         }
     }
+    // At startup, we only count these invalid rowset, but do not actually delete it.
+    // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
+    // which is cleaned up uniformly by the background cleanup thread.
+    LOG(INFO) << "finish to load tablets from " << _path_desc.filepath << ", total rowset meta: "
+              << dir_rowset_metas.size() << ", invalid rowset num: " << invalid_rowset_counter;
+
     return OLAP_SUCCESS;
 }
 
