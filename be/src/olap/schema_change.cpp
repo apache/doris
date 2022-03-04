@@ -831,7 +831,10 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
         goto MERGE_ERR;
     }
 
-    _make_heap(row_block_arr);
+    if (!_make_heap(row_block_arr)) {
+        // There is error log in _make_heap, so no need to more log.
+        goto MERGE_ERR;
+    }
 
     row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     while (_heap.size() > 0) {
