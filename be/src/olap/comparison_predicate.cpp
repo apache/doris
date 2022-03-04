@@ -146,7 +146,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 
-#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP)                                                 \
+#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP, IS_RANGE)                                       \
     template <class type>                                                                          \
     void CLASS<type>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const { \
         uint16_t new_size = 0;                                                                     \
@@ -162,6 +162,9 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                     auto* nested_col_ptr = vectorized::check_and_get_column<                       \
                             vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);          \
                     auto code = nested_col_ptr->find_code(_value);                                 \
+                    if (code < 0 && IS_RANGE) {                                                    \
+                        code = nested_col_ptr->find_bound_code(_value, 0 OP 1, 1 OP 1 );           \
+                    }                                                                              \
                     auto& data_array = nested_col_ptr->get_data();                                 \
                     for (uint16_t i = 0; i < *size; i++) {                                         \
                         uint16_t idx = sel[i];                                                     \
@@ -189,10 +192,12 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         } else if (column.is_column_dictionary()) {                                                \
             if constexpr (std::is_same_v<type, StringValue>) {                                     \
                 auto& dict_col =                                                                   \
-                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(        \
-                                column);                                                           \
+                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(column);\
                 auto& data_array = dict_col.get_data();                                            \
                 auto code = dict_col.find_code(_value);                                            \
+                if (code < 0 && IS_RANGE) {                                                        \
+                    code = dict_col.find_bound_code(_value, 0 OP 1, 1 OP 1);                       \
+                }                                                                                  \
                 for (uint16_t i = 0; i < *size; ++i) {                                             \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
@@ -218,12 +223,13 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         }                                                                                          \
     }
 
-COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==)
-COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, !=)
-COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, <)
-COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=)
+
+COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==, false)
+COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, !=, false)
+COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, <, true)
+COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=, true)
 
 #define COMPARISON_PRED_COLUMN_EVALUATE_VEC(CLASS, OP)                                         \
     template <class type>                                                                      \

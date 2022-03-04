@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <parallel_hashmap/phmap.h>
 
 #include "gutil/hash/string_hash.h"
@@ -157,6 +158,10 @@ public:
     const Container& get_data() const { return codes; }
 
     T find_code(const StringValue& value) const { return dict.find_code(value); }
+
+    T find_bound_code(const StringValue& value, bool lower, bool eq) const {
+        return dict.find_bound_code(value, lower, eq);
+    }
 
     phmap::flat_hash_set<T> find_codes(const phmap::flat_hash_set<StringValue>& values) const {
         return dict.find_codes(values);
@@ -307,6 +312,14 @@ public:
                 return it->second;
             }
             return -1;
+        }
+
+        inline T find_bound_code(const StringValue& value, bool lower, bool eq) const {
+            if (lower) {
+                return std::lower_bound(dict_data.begin(), dict_data.end(), value) - dict_data.begin() - eq;
+            } else {
+                return std::upper_bound(dict_data.begin(), dict_data.end(), value) - dict_data.begin() + eq;
+            }
         }
 
         inline phmap::flat_hash_set<T> find_codes(const phmap::flat_hash_set<StringValue>& values) const {

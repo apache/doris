@@ -859,10 +859,16 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
     for (auto column_predicate : _short_cir_eval_predicate) {
         auto column_id = column_predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
-        if (short_cir_column->is_column_dictionary() &&
-            column_predicate->is_range_comparison_predicate()) {
-            auto& dict_col = reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(
-                    *short_cir_column);
+        auto* col_ptr = short_cir_column.get();
+        if (short_cir_column->is_nullable()) {
+            auto nullable_col =
+                    reinterpret_cast<vectorized::ColumnNullable*>(short_cir_column.get());
+            col_ptr = nullable_col->get_nested_column_ptr().get();
+        }
+
+        if (col_ptr->is_column_dictionary() && column_predicate->is_range_comparison_predicate()) {
+            auto& dict_col =
+                    reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(*col_ptr);
             dict_col.convert_dict_codes();
         }
         column_predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
