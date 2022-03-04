@@ -153,6 +153,7 @@ Used to set maximal number of replication per tablet.
 ### enable_outfile_to_local
 
 Default：false
+
 Whether to allow the outfile function to export the results to the local disk.
 
 ### enable_access_file_without_broker
@@ -866,7 +867,7 @@ MasterOnly：true
 
 If capacity of disk reach the 'storage_flood_stage_usage_percent' and  'storage_flood_stage_left_capacity_bytes', the following operation will be rejected: 
 
-1. .load job
+1. load job
 2. restore job
 
 ### storage_high_watermark_usage_percent
@@ -918,27 +919,17 @@ Default：palo-dpp
 ### dpp_default_config_str
 
 Default：{
-           "hadoop_configs : '"
-             "mapred.job.priority=NORMAL;"
-            "mapred.job.map.capacity=50;"
-            "mapred.job.reduce.capacity=50;"
-            "mapred.hce.replace.streaming=false;"
-            "abaci.long.stored.job=true;"
-            "dce.shuffle.enable=false;"
-            "dfs.client.authserver.force_stop=true;"
-            "dfs.client.auth.method=0"
-            "'}
+            hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
+        }
 
 ### dpp_config_str
 
-Default：{palo-dpp : {"
-            + "hadoop_palo_path : '/dir',"
-                        + "hadoop_configs : '"
-                        + "fs.default.name=hdfs://host:port;"
-                                    + "mapred.job.tracker=host:port;"
-                                    + "hadoop.job.ugi=user,password"
-                                                + "'}"
-                                                + "}
+Default：{
+            palo-dpp : {
+                    hadoop_palo_path : '/dir',
+                    hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
+                }
+        }
 
 ### enable_deploy_manager
 
@@ -1643,6 +1634,7 @@ Cluster token used for internal authentication.
 ### cluster_name
 
 Default： Apache doris
+
 Cluster name will be shown as the title of web page
 
 ### mysql_service_io_threads_num
@@ -1916,19 +1908,20 @@ Maximal FE log files to be kept within an sys_log_roll_interval. default is 10, 
 
 Default：{}
 
-sys_log_verbose_modules：
-       Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
-       eg：
-            sys_log_verbose_modules = org.apache.doris.catalog
-            This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
+Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
+
+eg：
+    sys_log_verbose_modules = org.apache.doris.catalog
+    This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
 
 ### sys_log_roll_interval
 
 Default：DAY
 
 sys_log_roll_interval:
-           DAY:  log suffix is  yyyyMMdd
-          HOUR: log suffix is  yyyyMMddHH
+
+- DAY:  log suffix is  yyyyMMdd
+- HOUR: log suffix is  yyyyMMddHH
 
 ### sys_log_delete_age
 
