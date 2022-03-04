@@ -456,6 +456,17 @@ module.exports = [
             ],
           },
           {
+            title: "conditional function",
+            directoryPath: "conditional-functions/",
+            children: [
+              "case",
+              "coalesce",
+              "if",
+              "ifnull",
+              "nullif"
+            ],
+          },
+          {
             title: "json function",
             directoryPath: "json-functions/",
             children: [
