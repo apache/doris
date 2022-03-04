@@ -2025,35 +2025,20 @@ OLAPStatus SchemaChangeHandler::_parse_request(
         }
 
         // Newly added column go here
-        //if (new_column_schema.is_allow_null || new_column_schema.has_default_value) {
-        {
-            column_mapping->ref_column = -1;
-
-            if (i < base_tablet->num_short_key_columns()) {
-                *sc_directly = true;
-            }
-
-            if (OLAP_SUCCESS != (res = _init_column_mapping(column_mapping, new_column,
-                                                            new_column.default_value()))) {
-                return res;
-            }
-
-            VLOG_TRACE << "A column with default value will be added after schema changing. "
-                       << "column=" << column_name
-                       << ", default_value=" << new_column.default_value();
-            continue;
-        }
-
-        // XXX: Only when DROP COLUMN, you will enter here when you encounter a new Schema to an old Schema。
         column_mapping->ref_column = -1;
 
-        if (OLAP_SUCCESS != (res = _init_column_mapping(column_mapping, new_column, ""))) {
-            return res;
+        if (i < base_tablet->num_short_key_columns()) {
+            *sc_directly = true;
         }
 
-        VLOG_NOTICE << "A new schema delta is converted while dropping column. "
-                    << "Dropped column will be assigned as '0' for the older schema. "
-                    << "column=" << column_name;
+        if (OLAP_SUCCESS != (res = _init_column_mapping(column_mapping, new_column,
+                                                        new_column.default_value()))) {
+           return res;
+        }
+
+        VLOG_TRACE << "A column with default value will be added after schema changing. "
+                   << "column=" << column_name
+                   << ", default_value=" << new_column.default_value();
     }
 
     // Check if re-aggregation is needed.
