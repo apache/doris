@@ -228,13 +228,13 @@ void VSetOperationNode::hash_table_init() {
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
-    MutableBlock mutable_block(_left_table_data_types);
+    MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
 
     uint8_t index = 0;
     int64_t last_mem_used = 0;
     bool eos = false;
     while (!eos) {
-        block.clear();
+        block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));
@@ -254,7 +254,7 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
             // which is better.
             RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
             RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
-            mutable_block = MutableBlock(_left_table_data_types);
+            mutable_block = MutableBlock();
             ++index;
             last_mem_used = _mem_used;
         }
