@@ -31,14 +31,18 @@ message ZoneMap {
 }
 
 enum RowsetTypePB {
-    ALPHA_ROWSET = 0; // doris原有的列存格式
-    BETA_ROWSET  = 1; // 新列存
+    ALPHA_ROWSET = 0; // doris original column storage format
+    BETA_ROWSET  = 1; // new column storage format
 }
 
 enum RowsetStatePB {
-    PREPARED = 0; // 表示正在写入Rowset
-    COMMITTED = 1; // 表示rowset 写入完成，但是用户还不可见；这个状态下的rowset，BE不能自行判断是否删除，必须由FE的指令
-    VISIBLE = 2; // 表示rowset 已经对用户可见
+    // Rowset is being written
+    PREPARED = 0;
+    // Rowset writting is completed, but the user is not yet visible
+    // For rowset in this state, BE cannot determine whether to delete it by itself, it must be instructed by FE
+    COMMITTED = 1;
+    // Rowset is already visible to the user
+    VISIBLE = 2;
 }
 
 // indicate whether date between segments of a rowset is overlappinng
