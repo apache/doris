@@ -295,6 +295,23 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
+bool try_read_bool_text(T& x, ReadBuffer& buf) {
+    if (read_int_text_impl<T>(x, buf)) {
+        return x == 0 || x == 1;
+    }
+
+    StringParser::ParseResult result;
+    x = StringParser::string_to_bool(buf.position(), buf.count(), &result);
+    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
+        return false;
+    }
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    return true;
+}
+
+template <typename T>
 bool try_read_int_text(T& x, ReadBuffer& buf) {
     return read_int_text_impl<T>(x, buf);
 }
