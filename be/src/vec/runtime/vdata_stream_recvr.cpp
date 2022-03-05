@@ -20,7 +20,9 @@
 #include "gen_cpp/data.pb.h"
 #include "runtime/mem_tracker.h"
 #include "util/uid_util.h"
+
 #include "vec/core/block.h"
+#include "vec/core/materialize_block.h"
 #include "vec/core/sort_cursor.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vsorted_run_merger.h"
@@ -138,7 +140,6 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 }
 
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
-    std::unique_lock<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
@@ -155,7 +156,10 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
                     nblock->get_by_position(i).column->clone_resized(rows);
         }
     }
+    materialize_block_inplace(*nblock);
 
+
+    std::unique_lock<std::mutex> l(_lock);
     size_t block_size = nblock->bytes();
     _block_queue.emplace_back(block_size, nblock);
     _recvr->_mem_tracker->Consume(nblock->bytes());
