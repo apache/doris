@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_TABLET_MANAGER_H
 #define DORIS_BE_SRC_OLAP_TABLET_MANAGER_H
 
+#include <atomic>
 #include <list>
 #include <map>
 #include <mutex>
@@ -181,9 +182,7 @@ private:
                                             const bool is_schema_change_tablet,
                                             const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
-
-    void _build_tablet_stat();
-
+    
     void _add_tablet_to_partition(const Tablet& tablet);
 
     void _remove_tablet_from_partition(const Tablet& tablet);
@@ -210,7 +209,6 @@ private:
         std::unique_ptr<RWMutex> lock;
         tablet_map_t tablet_map;
         std::set<int64_t> tablets_under_clone;
-        std::set<int64_t> tablets_under_restore;
     };
 
     // trace the memory use by meta of tablet
@@ -228,12 +226,8 @@ private:
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     std::vector<TabletSharedPtr> _shutdown_tablets;
 
-    std::mutex _tablet_stat_mutex;
-    // cache to save tablets' statistics, such as data-size and row-count
-    // TODO(cmy): for now, this is a naive implementation
-    std::map<int64_t, TTabletStat> _tablet_stat_cache;
-    // last update time of tablet stat cache
-    int64_t _last_update_stat_ms;
+    std::mutex _tablet_stat_cache_mutex;
+    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache = std::make_shared<std::vector<TTabletStat>>();
 
     tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 
