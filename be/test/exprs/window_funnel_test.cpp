@@ -37,6 +37,12 @@ TEST_F(WindowFunnelTest, testMax4SortedNoMerge) {
     for (int i = -1; i < NUM_CONDS + 4; i++) {
         StringVal stringVal1;
         BigIntVal window(i);
+        StringVal mode("default");
+        std::vector<doris_udf::AnyVal*> constant_args;
+        constant_args.emplace_back(&window);
+        constant_args.emplace_back(&mode);
+        context->impl()->set_constant_args(std::move(constant_args));
+
         AggregateFunctions::window_funnel_init(context, &stringVal1);
 
         DateTimeVal timestamp;
@@ -44,25 +50,25 @@ TEST_F(WindowFunnelTest, testMax4SortedNoMerge) {
         time_value.set_time(2020, 2, 28, 0, 0, 1, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 2, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds1[NUM_CONDS] = {false, true, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds1, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 3, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds2[NUM_CONDS] = {false, false, true, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds2, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 4, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds3[NUM_CONDS] = {false, false, false, true};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds3, &stringVal1);
 
         IntVal v = AggregateFunctions::window_funnel_finalize(context, stringVal1);
@@ -80,6 +86,12 @@ TEST_F(WindowFunnelTest, testMax4SortedMerge) {
     for (int i = -1; i < NUM_CONDS + 4; i++) {
         StringVal stringVal1;
         BigIntVal window(i);
+        StringVal mode("default");
+        std::vector<doris_udf::AnyVal*> constant_args;
+        constant_args.emplace_back(&window);
+        constant_args.emplace_back(&mode);
+        context->impl()->set_constant_args(std::move(constant_args));
+
         AggregateFunctions::window_funnel_init(context, &stringVal1);
 
         DateTimeVal timestamp;
@@ -88,25 +100,25 @@ TEST_F(WindowFunnelTest, testMax4SortedMerge) {
         time_value.to_datetime_val(&timestamp);
 
         BooleanVal conds[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 2, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds1[NUM_CONDS] = {false, true, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds1, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 3, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds2[NUM_CONDS] = {false, false, true, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds2, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 4, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds3[NUM_CONDS] = {false, false, false, true};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds3, &stringVal1);
 
         StringVal s = AggregateFunctions::window_funnel_serialize(context, stringVal1);
@@ -129,6 +141,12 @@ TEST_F(WindowFunnelTest, testMax4ReverseSortedNoMerge) {
     for (int i = -1; i < NUM_CONDS + 4; i++) {
         StringVal stringVal1;
         BigIntVal window(i);
+        StringVal mode("default");
+        std::vector<doris_udf::AnyVal*> constant_args;
+        constant_args.emplace_back(&window);
+        constant_args.emplace_back(&mode);
+        context->impl()->set_constant_args(std::move(constant_args));
+
         AggregateFunctions::window_funnel_init(context, &stringVal1);
 
         DateTimeVal timestamp;
@@ -137,25 +155,25 @@ TEST_F(WindowFunnelTest, testMax4ReverseSortedNoMerge) {
         time_value.to_datetime_val(&timestamp);
 
         BooleanVal conds[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 2, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds1[NUM_CONDS] = {false, true, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds1, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 1, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds2[NUM_CONDS] = {false, false, true, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds2, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 0, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds3[NUM_CONDS] = {false, false, false, true};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds3, &stringVal1);
 
         IntVal v = AggregateFunctions::window_funnel_finalize(context, stringVal1);
@@ -173,6 +191,12 @@ TEST_F(WindowFunnelTest, testMax4ReverseSortedMerge) {
     for (int i = -1; i < NUM_CONDS + 4; i++) {
         StringVal stringVal1;
         BigIntVal window(i);
+        StringVal mode("default");
+        std::vector<doris_udf::AnyVal*> constant_args;
+        constant_args.emplace_back(&window);
+        constant_args.emplace_back(&mode);
+        context->impl()->set_constant_args(std::move(constant_args));
+
         AggregateFunctions::window_funnel_init(context, &stringVal1);
 
         DateTimeVal timestamp;
@@ -181,25 +205,25 @@ TEST_F(WindowFunnelTest, testMax4ReverseSortedMerge) {
         time_value.to_datetime_val(&timestamp);
 
         BooleanVal conds[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 2, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds1[NUM_CONDS] = {false, true, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds1, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 1, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds2[NUM_CONDS] = {false, false, true, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds2, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 0, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds3[NUM_CONDS] = {false, false, false, true};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds3, &stringVal1);
 
         StringVal s = AggregateFunctions::window_funnel_serialize(context, stringVal1);
@@ -222,6 +246,12 @@ TEST_F(WindowFunnelTest, testMax4DuplicateSortedNoMerge) {
     for (int i = -1; i < NUM_CONDS + 4; i++) {
         StringVal stringVal1;
         BigIntVal window(i);
+        StringVal mode("default");
+        std::vector<doris_udf::AnyVal*> constant_args;
+        constant_args.emplace_back(&window);
+        constant_args.emplace_back(&mode);
+        context->impl()->set_constant_args(std::move(constant_args));
+
         AggregateFunctions::window_funnel_init(context, &stringVal1);
 
         DateTimeVal timestamp;
@@ -230,25 +260,25 @@ TEST_F(WindowFunnelTest, testMax4DuplicateSortedNoMerge) {
         time_value.to_datetime_val(&timestamp);
 
         BooleanVal conds[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 1, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds1[NUM_CONDS] = {false, true, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds1, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 2, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds2[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds2, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 3, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds3[NUM_CONDS] = {false, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds3, &stringVal1);
 
         IntVal v = AggregateFunctions::window_funnel_finalize(context, stringVal1);
@@ -266,6 +296,12 @@ TEST_F(WindowFunnelTest, testMax4DuplicateSortedMerge) {
     for (int i = -1; i < NUM_CONDS + 4; i++) {
         StringVal stringVal1;
         BigIntVal window(i);
+        StringVal mode("default");
+        std::vector<doris_udf::AnyVal*> constant_args;
+        constant_args.emplace_back(&window);
+        constant_args.emplace_back(&mode);
+        context->impl()->set_constant_args(std::move(constant_args));
+
         AggregateFunctions::window_funnel_init(context, &stringVal1);
 
         DateTimeVal timestamp;
@@ -274,25 +310,25 @@ TEST_F(WindowFunnelTest, testMax4DuplicateSortedMerge) {
         time_value.to_datetime_val(&timestamp);
 
         BooleanVal conds[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 1, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds1[NUM_CONDS] = {false, true, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds1, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 2, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds2[NUM_CONDS] = {true, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds2, &stringVal1);
 
         time_value.set_time(2020, 2, 28, 0, 0, 3, 0);
         time_value.to_datetime_val(&timestamp);
         BooleanVal conds3[NUM_CONDS] = {false, false, false, false};
-        AggregateFunctions::window_funnel_update(context, window, timestamp, NUM_CONDS,
+        AggregateFunctions::window_funnel_update(context, window, mode, timestamp, NUM_CONDS,
                                           conds3, &stringVal1);
 
         StringVal s = AggregateFunctions::window_funnel_serialize(context, stringVal1);
@@ -313,6 +349,12 @@ TEST_F(WindowFunnelTest, testNoMatchedEvent) {
 
     StringVal stringVal1;
     BigIntVal window(0);
+    StringVal mode("default");
+    std::vector<doris_udf::AnyVal*> constant_args;
+    constant_args.emplace_back(&window);
+    constant_args.emplace_back(&mode);
+    context->impl()->set_constant_args(std::move(constant_args));
+
     AggregateFunctions::window_funnel_init(context, &stringVal1);
 
     DateTimeVal timestamp;
@@ -321,7 +363,7 @@ TEST_F(WindowFunnelTest, testNoMatchedEvent) {
     time_value.to_datetime_val(&timestamp);
 
     BooleanVal conds[4] = {false, false, false, false};
-    AggregateFunctions::window_funnel_update(context, window, timestamp, 4,
+    AggregateFunctions::window_funnel_update(context, window, mode, timestamp, 4,
                                       conds, &stringVal1);
 
     IntVal v = AggregateFunctions::window_funnel_finalize(context, stringVal1);
@@ -334,6 +376,13 @@ TEST_F(WindowFunnelTest, testNoEvent) {
     doris_udf::FunctionContext* context = futil->get_fn_ctx();
 
     StringVal stringVal1;
+    BigIntVal window(0);
+    StringVal mode("default");
+    std::vector<doris_udf::AnyVal*> constant_args;
+    constant_args.emplace_back(&window);
+    constant_args.emplace_back(&mode);
+    context->impl()->set_constant_args(std::move(constant_args));
+
     AggregateFunctions::window_funnel_init(context, &stringVal1);
 
     IntVal v = AggregateFunctions::window_funnel_finalize(context, stringVal1);
@@ -343,6 +392,32 @@ TEST_F(WindowFunnelTest, testNoEvent) {
     AggregateFunctions::window_funnel_init(context, &stringVal2);
 
     v = AggregateFunctions::window_funnel_finalize(context, stringVal2);
+    ASSERT_EQ(v.val, 0);
+
+    delete futil;
+}
+
+TEST_F(WindowFunnelTest, testInputNull) {
+    FunctionUtils* futil = new FunctionUtils();
+    doris_udf::FunctionContext* context = futil->get_fn_ctx();
+
+    BigIntVal window(0);
+    StringVal mode("default");
+    std::vector<doris_udf::AnyVal*> constant_args;
+    constant_args.emplace_back(&window);
+    constant_args.emplace_back(&mode);
+    context->impl()->set_constant_args(std::move(constant_args));
+
+    StringVal stringVal1;
+    AggregateFunctions::window_funnel_init(context, &stringVal1);
+
+    DateTimeVal timestamp = DateTimeVal::null();
+    BooleanVal conds[4] = {false, false, false, false};
+    AggregateFunctions::window_funnel_update(context, window, mode, timestamp, 4,
+                                      conds, &stringVal1);
+
+
+    IntVal v = AggregateFunctions::window_funnel_finalize(context, stringVal1);
     ASSERT_EQ(v.val, 0);
 
     delete futil;

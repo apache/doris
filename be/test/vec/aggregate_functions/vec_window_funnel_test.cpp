@@ -41,6 +41,7 @@ public:
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         DataTypes data_types = {
                 std::make_shared<DataTypeInt64>(),
+                std::make_shared<DataTypeString>(),
                 std::make_shared<DataTypeDateTime>(),
                 std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>(),
@@ -88,6 +89,11 @@ TEST_F(WindowFunnelTest, testEmpty) {
 
 TEST_F(WindowFunnelTest, testSerialize) {
     const int NUM_CONDS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        column_mode->insert("mode");
+    }
+
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
@@ -126,7 +132,8 @@ TEST_F(WindowFunnelTest, testSerialize) {
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
-    const IColumn* column[6] = { column_window.get(), column_timestamp.get(),
+    const IColumn* column[7] = { column_window.get(), column_mode.get(),
+                                 column_timestamp.get(),
                                  column_event1.get(), column_event2.get(),
                                  column_event3.get(), column_event4.get() };
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -159,6 +166,10 @@ TEST_F(WindowFunnelTest, testSerialize) {
 
 TEST_F(WindowFunnelTest, testMax4SortedNoMerge) {
     const int NUM_CONDS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        column_mode->insert("mode");
+    }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
@@ -198,7 +209,8 @@ TEST_F(WindowFunnelTest, testMax4SortedNoMerge) {
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
-        const IColumn* column[6] = { column_window.get(), column_timestamp.get(),
+        const IColumn* column[7] = { column_window.get(), column_mode.get(),
+                                     column_timestamp.get(),
                                      column_event1.get(), column_event2.get(),
                                      column_event3.get(), column_event4.get() };
         for (int i = 0; i < NUM_CONDS; i++) {
@@ -214,6 +226,10 @@ TEST_F(WindowFunnelTest, testMax4SortedNoMerge) {
 
 TEST_F(WindowFunnelTest, testMax4SortedMerge) {
     const int NUM_CONDS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        column_mode->insert("mode");
+    }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
@@ -253,7 +269,8 @@ TEST_F(WindowFunnelTest, testMax4SortedMerge) {
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
-        const IColumn* column[6] = { column_window.get(), column_timestamp.get(),
+        const IColumn* column[7] = { column_window.get(), column_mode.get(),
+                                     column_timestamp.get(),
                                      column_event1.get(), column_event2.get(),
                                      column_event3.get(), column_event4.get() };
         for (int i = 0; i < NUM_CONDS; i++) {
@@ -275,6 +292,10 @@ TEST_F(WindowFunnelTest, testMax4SortedMerge) {
 
 TEST_F(WindowFunnelTest, testMax4ReverseSortedNoMerge) {
     const int NUM_CONDS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        column_mode->insert("mode");
+    }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
@@ -314,7 +335,8 @@ TEST_F(WindowFunnelTest, testMax4ReverseSortedNoMerge) {
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
-        const IColumn* column[6] = { column_window.get(), column_timestamp.get(),
+        const IColumn* column[7] = { column_window.get(), column_mode.get(),
+                                     column_timestamp.get(),
                                      column_event1.get(), column_event2.get(),
                                      column_event3.get(), column_event4.get() };
         for (int i = 0; i < NUM_CONDS; i++) {
@@ -331,6 +353,10 @@ TEST_F(WindowFunnelTest, testMax4ReverseSortedNoMerge) {
 
 TEST_F(WindowFunnelTest, testMax4ReverseSortedMerge) {
     const int NUM_CONDS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        column_mode->insert("mode");
+    }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
@@ -370,7 +396,8 @@ TEST_F(WindowFunnelTest, testMax4ReverseSortedMerge) {
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
-        const IColumn* column[6] = { column_window.get(), column_timestamp.get(),
+        const IColumn* column[7] = { column_window.get(), column_mode.get(),
+                                     column_timestamp.get(),
                                      column_event1.get(), column_event2.get(),
                                      column_event3.get(), column_event4.get() };
         for (int i = 0; i < NUM_CONDS; i++) {
