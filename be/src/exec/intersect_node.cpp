@@ -52,7 +52,9 @@ Status IntersectNode::open(RuntimeState* state) {
     bool eos = false;
 
     for (int i = 1; i < _children.size(); ++i) {
-        if (i > 1) { refresh_hash_table<true>(i); }
+        if (i > 1) {
+            RETURN_IF_ERROR(refresh_hash_table<true>(i));
+        }
 
         _valid_element_in_hash_tbl = 0;
         // probe
@@ -66,17 +68,12 @@ Status IntersectNode::open(RuntimeState* state) {
             RETURN_IF_ERROR(child(i)->get_next(state, _probe_batch.get(), &eos));
             RETURN_IF_LIMIT_EXCEEDED(state, " Intersect , while probing the hash table.");
             for (int j = 0; j < _probe_batch->num_rows(); ++j) {
-                VLOG_ROW << "probe row: "
-                         << get_row_output_string(_probe_batch->get_row(j), child(i)->row_desc());
                 _hash_tbl_iterator = _hash_tbl->find(_probe_batch->get_row(j));
                 if (_hash_tbl_iterator != _hash_tbl->end()) {
                     if (!_hash_tbl_iterator.matched()) {
                         _valid_element_in_hash_tbl++;
                         _hash_tbl_iterator.set_matched();
                     }
-                    VLOG_ROW << "probe matched: "
-                             << get_row_output_string(_hash_tbl_iterator.get_row(),
-                                                      child(0)->row_desc());
                 }
             }
             _probe_batch->reset();
@@ -100,9 +97,6 @@ Status IntersectNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* e
             out_batch->resize_and_allocate_tuple_buffer(state, &tuple_buf_size, &tuple_buf));
     memset(tuple_buf, 0, tuple_buf_size);
     while (_hash_tbl_iterator.has_next()) {
-        VLOG_ROW << "find row: "
-                 << get_row_output_string(_hash_tbl_iterator.get_row(), child(0)->row_desc())
-                 << " matched: " << _hash_tbl_iterator.matched();
         if (_hash_tbl_iterator.matched()) {
             create_output_row(_hash_tbl_iterator.get_row(), out_batch, tuple_buf);
             tuple_buf += _tuple_desc->byte_size();

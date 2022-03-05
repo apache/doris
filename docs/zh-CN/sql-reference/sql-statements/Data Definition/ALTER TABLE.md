@@ -369,9 +369,9 @@ under the License.
 
         ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
 
-    13. 将表的分桶方式由 Random Distribution 改为 Hash Distribution
+    13. 将表的分桶方式由 Hash Distribution 改为 Random Distribution
 
-        ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+        ALTER TABLE example_db.my_table set ("distribution_type" = "random");
     
     14. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");

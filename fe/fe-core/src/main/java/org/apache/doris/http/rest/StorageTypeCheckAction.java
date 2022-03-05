@@ -34,7 +34,7 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Strings;
 
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
 
 import java.util.List;
 import java.util.Map;

@@ -40,8 +40,8 @@ import org.apache.doris.load.routineload.KafkaTaskInfo;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
-import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.load.routineload.RoutineLoadStatistic;
+import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
@@ -52,14 +52,14 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
@@ -67,12 +67,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import mockit.Injectable;
+import mockit.Mocked;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
-
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class GlobalTransactionMgrTest {
 
@@ -463,6 +462,7 @@ public class GlobalTransactionMgrTest {
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
+        slaveTransMgr.replayUpsertTransactionState(transactionState);
         Set<Long> errorReplicaIds = Sets.newHashSet();
         errorReplicaIds.add(CatalogTestUtil.testReplicaId1);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, errorReplicaIds);

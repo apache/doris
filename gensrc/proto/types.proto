@@ -215,3 +215,11 @@ message PHandShakeResponse {
     optional string hello = 2;
 }
 
+enum PPlanFragmentCancelReason {
+    // 0 is reserved
+    LIMIT_REACH = 1;
+    USER_CANCEL = 2;
+    INTERNAL_ERROR = 3;
+    TIMEOUT = 4;
+    CALL_RPC_ERROR = 5;
+}

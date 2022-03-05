@@ -1450,7 +1450,7 @@ public class SelectStmt extends QueryStmt {
                      * ORDER BY `b` DESC
                      * ```
                      * Aliases information of groupBy and orderBy clauses is recorded in `QueryStmt.aliasSMap`.
-                     * The select clause has it's own alias info in `SelectListItem.alias`.
+                     * The select clause has its own alias info in `SelectListItem.alias`.
                      *
                      * Aliases expr in the `group by` and `order by` clauses are not analyzed, i.e. `Expr.isAnalyzed=false`
                      * Subsequent constant folding will analyze the unanalyzed Expr before collecting the constant
@@ -1471,7 +1471,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (orderByElements != null) {
-            for (OrderByElement orderByElem : orderByElements) {
+            for (OrderByElement orderByElem : orderByElementsAfterAnalyzed) {
                 // same as above
                 if (containAlias(orderByElem.getExpr())) {
                     continue;
@@ -1548,7 +1548,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (orderByElements != null) {
-            for (OrderByElement orderByElem : orderByElements) {
+            for (OrderByElement orderByElem : orderByElementsAfterAnalyzed) {
                 Expr expr = orderByElem.getExpr();
                 if (expr.getId() == null) {
                     orderByElem.setExpr(expr);
@@ -1556,6 +1556,7 @@ public class SelectStmt extends QueryStmt {
                     orderByElem.setExpr(rewrittenExprMap.get(expr.getId().toString()));
                 }
             }
+            orderByElements = (ArrayList<OrderByElement>) orderByElementsAfterAnalyzed;
         }
     }
 

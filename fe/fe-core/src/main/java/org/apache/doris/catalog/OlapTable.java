@@ -1477,17 +1477,13 @@ public class OlapTable extends Table {
         return keysNum;
     }
 
-    public boolean convertRandomDistributionToHashDistribution() {
+    public boolean convertHashDistributionToRandomDistribution() {
         boolean hasChanged = false;
-        List<Column> baseSchema = getBaseSchema();
-        if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
-            defaultDistributionInfo = ((RandomDistributionInfo) defaultDistributionInfo).toHashDistributionInfo(baseSchema);
+        if (defaultDistributionInfo.getType() == DistributionInfoType.HASH) {
+            defaultDistributionInfo = ((HashDistributionInfo) defaultDistributionInfo).toRandomDistributionInfo();
             hasChanged = true;
-        }
-        
-        for (Partition partition : idToPartition.values()) {
-            if (partition.convertRandomDistributionToHashDistribution(baseSchema)) {
-                hasChanged = true;
+            for (Partition partition : idToPartition.values()) {
+                partition.convertHashDistributionToRandomDistribution();
             }
         }
         return hasChanged;

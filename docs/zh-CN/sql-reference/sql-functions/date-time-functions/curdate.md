@@ -1,11 +1,11 @@
 ---
 {
-    "title": "curdate",
+    "title": "curdate,current_date",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# curdate
+# curdate,current_date
 ## description
 ### Syntax
 
@@ -52,4 +52,4 @@ mysql> SELECT CURDATE() + 0;
 
 ## keyword
 
-    CURDATE
+    CURDATE,CURRENT_DATE

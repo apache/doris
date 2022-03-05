@@ -54,6 +54,9 @@ import java.util.stream.LongStream;
  */
 public class Tablet extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
+    // if current version count of replica is more than QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
+    // then the replica would not be considered as queryable.
+    private static final int QUERYABLE_TIMES_OF_MIN_VERSION_COUNT = 3;
 
     public enum TabletStatus {
         HEALTHY,
@@ -68,7 +71,7 @@ public class Tablet extends MetaObject implements Writable {
         COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
         COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
-        UNRECOVERABLE,   // non of replicas are healthy
+        UNRECOVERABLE,   // none of replicas are healthy
         REPLICA_COMPACTION_TOO_SLOW // one replica's version count is much more than other replicas;
     }
 
@@ -210,7 +213,8 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public void getQueryableReplicas(List<Replica> allQuerableReplica, long visibleVersion, int schemaHash) {
+    public List<Replica> getQueryableReplicas(long visibleVersion, int schemaHash) {
+        List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -226,10 +230,25 @@ public class Tablet extends MetaObject implements Writable {
                 // replica.getSchemaHash() == -1 is for compatibility
                 if (replica.checkVersionCatchUp(visibleVersion, false)
                         && (replica.getSchemaHash() == -1 || replica.getSchemaHash() == schemaHash)) {
-                    allQuerableReplica.add(replica);
+                    allQueryableReplica.add(replica);
                 }
             }
         }
+
+        if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
+            long minVersionCount = Long.MAX_VALUE;
+            for (Replica replica : allQueryableReplica) {
+                if (replica.getVersionCount() != -1 && replica.getVersionCount() < minVersionCount) {
+                    minVersionCount = replica.getVersionCount();
+                }
+            }
+            final long finalMinVersionCount = minVersionCount;
+            return allQueryableReplica.stream().filter(replica -> replica.getVersionCount() == -1 ||
+                            replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow ||
+                            replica.getVersionCount() < finalMinVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT)
+                    .collect(Collectors.toList());
+        }
+        return allQueryableReplica;
     }
 
     public Replica getReplicaById(long replicaId) {
@@ -406,7 +425,8 @@ public class Tablet extends MetaObject implements Writable {
         ArrayList<Long> versions = new ArrayList<>();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendId());
-            if (backend == null || !backend.isAlive() || !replica.isAlive() || !hosts.add(backend.getHost())) {
+            if (backend == null || !backend.isAlive() || !replica.isAlive() || !hosts.add(backend.getHost())
+                    || replica.tooSlow()) {
                 // this replica is not alive,
                 // or if this replica is on same host with another replica, we also treat it as 'dead',
                 // so that Tablet Scheduler will create a new replica on different host.

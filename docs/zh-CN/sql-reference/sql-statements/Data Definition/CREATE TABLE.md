@@ -292,7 +292,7 @@ under the License.
             `DISTRIBUTED BY RANDOM [BUCKETS num]`
         说明：
             使用随机数进行分桶。  
-    建议:建议使用Hash分桶方式
+    建议: 当没有合适的key做哈希分桶使得表的数据均匀分布的时候，建议使用RANDOM分桶方式。
 
 7. PROPERTIES
     1) 如果 ENGINE 类型为 olap
