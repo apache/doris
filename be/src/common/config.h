@@ -460,9 +460,6 @@ CONF_mInt64(write_buffer_size, "209715200");
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
 CONF_Int32(load_process_max_memory_limit_percent, "80");         // 80%
 
-// update interval of tablet stat cache
-CONF_mInt32(tablet_stat_cache_update_interval_second, "300");
-
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 
