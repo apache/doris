@@ -117,7 +117,7 @@ struct TOlapTableSink {
     4: required i64 table_id
     5: required i32 tuple_id
     6: required i32 num_replicas
-    7: required bool need_gen_rollup
+    7: required bool need_gen_rollup    // Deprecated, not used since alter job v2
     8: optional string db_name
     9: optional string table_name
     10: required Descriptors.TOlapTableSchemaParam schema
