@@ -18,6 +18,7 @@
 #include "olap/tablet_meta_manager.h"
 
 #include <boost/algorithm/string/trim.hpp>
+#include <fmt/format.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -85,26 +86,19 @@ OLAPStatus TabletMetaManager::get_json_meta(DataDir* store, TTabletId tablet_id,
 // 2. save to local meta store
 OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
                                    TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
-    std::stringstream key_stream;
-    key_stream << header_prefix << tablet_id << "_" << schema_hash;
-    std::string key = key_stream.str();
+    std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     std::string value;
     tablet_meta->serialize(&value);
     OlapMeta* meta = store->get_meta();
-    LOG(INFO) << "save tablet meta"
-              << ", key:" << key << ", meta length:" << value.length();
+    VLOG_NOTICE << "save tablet meta" << ", key:" << key << ", meta length:" << value.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
                                    const std::string& meta_binary, const string& header_prefix) {
-    std::stringstream key_stream;
-    key_stream << header_prefix << tablet_id << "_" << schema_hash;
-    std::string key = key_stream.str();
-    VLOG_NOTICE << "save tablet meta to meta store: key = " << key;
+    std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     OlapMeta* meta = store->get_meta();
-
-    VLOG_NOTICE << "save tablet meta, key:" << key << " meta_size=" << meta_binary.length();
+    VLOG_NOTICE << "save tablet meta " << ", key:" << key << " meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
@@ -113,11 +107,8 @@ OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaH
 // 2. remove from load meta store using term if term > 0
 OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
                                      const string& header_prefix) {
-    std::stringstream key_stream;
-    key_stream << header_prefix << tablet_id << "_" << schema_hash;
-    std::string key = key_stream.str();
+    std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     OlapMeta* meta = store->get_meta();
-    VLOG_DEBUG << "start to remove tablet_meta, key:" << key;
     OLAPStatus res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
     VLOG_NOTICE << "remove tablet_meta, key:" << key << ", res:" << res;
     return res;

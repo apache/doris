@@ -2166,3 +2166,13 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否为 Master FE 节点独有的配置项：true
 
 数据大小阈值，用来判断副本的数据量是否太大
+
+### skip_compaction_slower_replica
+
+默认值：true
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为true，则在选择可查询副本时，将跳过 compaction 较慢的副本
