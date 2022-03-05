@@ -320,7 +320,7 @@ public class StatisticsJob {
      * - min, max, ndv: These three full indicators are collected by a sub-task.
      * - max_col_lens, avg_col_lens: Two sampling indicators were collected by a sub-task.
      * <p>
-     * If the size of the table is greater than the maximum number of Be scans for a single BE,
+     * If the table row-count is greater than the maximum number of Be scans for a single BE,
      * we'll divide subtasks by partition. relevant values(3700000000L&600000000L) are derived from test.
      *
      *
@@ -353,8 +353,8 @@ public class StatisticsJob {
                         rowCountGranularity, rowCountCategory, Collections.singletonList(StatsType.ROW_COUNT));
                 this.taskList.add(metaTask);
             } else {
-                // 如果表 size > 单个 be 最大扫描量 * be 个数，按照 partition 进行分割子任务
                 if (rowCount > backendIds.size() * 3700000000L) {
+                    // divide subtasks by partition
                     for (Long partitionId : partitionIds) {
                         StatsCategoryDesc rowCountCategory = this.getTblStatsCategoryDesc(tableId);
                         StatsGranularityDesc rowCountGranularity = this.getPartitionStatsGranularityDesc(tableId, partitionId);
@@ -369,51 +369,52 @@ public class StatisticsJob {
                             rowCountGranularity, rowCountCategory, Collections.singletonList(StatsType.ROW_COUNT));
                     this.taskList.add(sqlTask);
                 }
+            }
 
-                // generate [min,max,ndv] task
-                if (rowCount > backendIds.size() * 600000000L) {
-                    for (String columnName : columnNameList) {
-                        for (Long partitionId : partitionIds) {
-                            StatsCategoryDesc columnCategory = this.getColStatsCategoryDesc(this.dbId, tableId, columnName);
-                            StatsGranularityDesc columnGranularity = this.getPartitionStatsGranularityDesc(tableId, partitionId);
-                            List<StatsType> statsTypes = Arrays.asList(StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
-                            SQLStatisticsTask sqlTask = new SQLStatisticsTask(this.id, columnGranularity, columnCategory, statsTypes);
-                            this.taskList.add(sqlTask);
-                        }
-                    }
-                } else {
-                    for (String columnName : columnNameList) {
+            // generate [min,max,ndv] task
+            if (rowCount > backendIds.size() * 600000000L) {
+                for (String columnName : columnNameList) {
+                    // divide subtasks by partition
+                    for (Long partitionId : partitionIds) {
                         StatsCategoryDesc columnCategory = this.getColStatsCategoryDesc(this.dbId, tableId, columnName);
-                        StatsGranularityDesc columnGranularity = this.getTblStatsGranularityDesc(tableId);
+                        StatsGranularityDesc columnGranularity = this.getPartitionStatsGranularityDesc(tableId, partitionId);
                         List<StatsType> statsTypes = Arrays.asList(StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
                         SQLStatisticsTask sqlTask = new SQLStatisticsTask(this.id, columnGranularity, columnCategory, statsTypes);
                         this.taskList.add(sqlTask);
                     }
                 }
-
-                // generate num_nulls task
+            } else {
                 for (String columnName : columnNameList) {
                     StatsCategoryDesc columnCategory = this.getColStatsCategoryDesc(this.dbId, tableId, columnName);
                     StatsGranularityDesc columnGranularity = this.getTblStatsGranularityDesc(tableId);
-                    SQLStatisticsTask sqlTask = new SQLStatisticsTask(this.id,
-                            columnGranularity, columnCategory, Collections.singletonList(StatsType.NUM_NULLS));
+                    List<StatsType> statsTypes = Arrays.asList(StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
+                    SQLStatisticsTask sqlTask = new SQLStatisticsTask(this.id, columnGranularity, columnCategory, statsTypes);
                     this.taskList.add(sqlTask);
                 }
+            }
 
-                // generate [max_col_lens, avg_col_lens] task
-                for (String columnName : columnNameList) {
-                    StatsCategoryDesc columnCategory = this.getColStatsCategoryDesc(this.dbId, tableId, columnName);
-                    StatsGranularityDesc columnGranularity = this.getTblStatsGranularityDesc(tableId);
-                    List<StatsType> statsTypes = Arrays.asList(StatsType.MAX_SIZE, StatsType.AVG_SIZE);
-                    Column column = tbl.getColumn(columnName);
-                    Type colType = column.getType();
-                    if (colType.isStringType()) {
-                        SQLStatisticsTask sampleSqlTask = new SampleSQLStatisticsTask(this.id, columnGranularity, columnCategory, statsTypes);
-                        this.taskList.add(sampleSqlTask);
-                    } else {
-                        MetaStatisticsTask metaTask = new MetaStatisticsTask(this.id, columnGranularity, columnCategory, statsTypes);
-                        this.taskList.add(metaTask);
-                    }
+            // generate num_nulls task
+            for (String columnName : columnNameList) {
+                StatsCategoryDesc columnCategory = this.getColStatsCategoryDesc(this.dbId, tableId, columnName);
+                StatsGranularityDesc columnGranularity = this.getTblStatsGranularityDesc(tableId);
+                SQLStatisticsTask sqlTask = new SQLStatisticsTask(this.id,
+                        columnGranularity, columnCategory, Collections.singletonList(StatsType.NUM_NULLS));
+                this.taskList.add(sqlTask);
+            }
+
+            // generate [max_col_lens, avg_col_lens] task
+            for (String columnName : columnNameList) {
+                StatsCategoryDesc columnCategory = this.getColStatsCategoryDesc(this.dbId, tableId, columnName);
+                StatsGranularityDesc columnGranularity = this.getTblStatsGranularityDesc(tableId);
+                List<StatsType> statsTypes = Arrays.asList(StatsType.MAX_SIZE, StatsType.AVG_SIZE);
+                Column column = tbl.getColumn(columnName);
+                Type colType = column.getType();
+                if (colType.isStringType()) {
+                    SQLStatisticsTask sampleSqlTask = new SampleSQLStatisticsTask(this.id, columnGranularity, columnCategory, statsTypes);
+                    this.taskList.add(sampleSqlTask);
+                } else {
+                    MetaStatisticsTask metaTask = new MetaStatisticsTask(this.id, columnGranularity, columnCategory, statsTypes);
+                    this.taskList.add(metaTask);
                 }
             }
         }
@@ -455,10 +456,12 @@ public class StatisticsJob {
     }
 
     @NotNull
-    private StatsGranularityDesc getTabletStatsGranularityDesc(long tableId) {
+    private StatsGranularityDesc getTabletStatsGranularityDesc(long tableId, long partitionId, long tabletId) {
         StatsGranularityDesc statsGranularityDesc = new StatsGranularityDesc();
         statsGranularityDesc.setTableId(tableId);
-        statsGranularityDesc.setGranularity(StatsGranularityDesc.StatsGranularity.PARTITION);
+        statsGranularityDesc.setPartitionId(partitionId);
+        statsGranularityDesc.setTabletId(tabletId);
+        statsGranularityDesc.setGranularity(StatsGranularityDesc.StatsGranularity.TABLET);
         return statsGranularityDesc;
     }
 }
