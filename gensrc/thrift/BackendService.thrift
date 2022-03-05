@@ -33,10 +33,12 @@ struct TTabletStat {
     1: required i64 tablet_id
     2: optional i64 data_size
     3: optional i64 row_num
+    4: optional i64 version_count
 }
 
 struct TTabletStatResult {
     1: required map<i64, TTabletStat> tablets_stats
+    2: optional list<TTabletStat> tablet_stat_list
 }
 
 struct TKafkaLoadInfo {

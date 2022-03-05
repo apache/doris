@@ -999,7 +999,7 @@ public class Config extends ConfigBase {
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
-    @ConfField public static int tablet_stat_update_interval_second = 300;  // 5 min
+    @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
 
     /**
      * if set to false, auth check will be disable, in case some goes wrong with the new privilege system.
@@ -1637,4 +1637,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
+
+    /**
+     * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
+     * Default is true.
+     */
+    @ConfField(mutable = true)
+    public static boolean skip_compaction_slower_replica = true;
 }
