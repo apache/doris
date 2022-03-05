@@ -28,6 +28,8 @@ import org.apache.doris.thrift.TResourceLimit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,8 +38,6 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
-
-import org.json.JSONObject;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -1008,7 +1008,7 @@ public class SessionVariable implements Serializable, Writable {
 
     private void readFromJson(DataInput in) throws IOException {
         String json = Text.readString(in);
-        JSONObject root = new JSONObject(json);
+        JSONObject root = (JSONObject) JSONValue.parse(json);
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
                 VarAttr attr = field.getAnnotation(VarAttr.class);
@@ -1016,28 +1016,28 @@ public class SessionVariable implements Serializable, Writable {
                     continue;
                 }
 
-                if (!root.has(attr.name())) {
+                if (!root.containsKey(attr.name())) {
                     continue;
                 }
 
                 switch (field.getType().getSimpleName()) {
                     case "boolean":
-                        field.set(this, root.getBoolean(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "int":
-                        field.set(this, root.getInt(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "long":
-                        field.set(this, root.getLong(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "float":
-                        field.set(this, root.getFloat(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "double":
-                        field.set(this, root.getDouble(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "String":
-                        field.set(this, root.getString(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     default:
                         // Unsupported type variable.

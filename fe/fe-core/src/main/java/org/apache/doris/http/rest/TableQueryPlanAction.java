@@ -59,8 +59,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.codehaus.jackson.map.ObjectMapper;
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -107,17 +107,14 @@ public class TableQueryPlanAction extends RestBaseAction {
                     || Strings.isNullOrEmpty(tableName)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "{database}/{table} must be selected");
             }
-            String sql;
             if (Strings.isNullOrEmpty(postContent)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
-            JSONObject jsonObject;
-            try {
-                jsonObject = new JSONObject(postContent);
-            } catch (JSONException e) {
+            JSONObject jsonObject = (JSONObject) JSONValue.parse(postContent);
+            if (jsonObject == null) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "malformed json [ " + postContent + " ]");
             }
-            sql = jsonObject.optString("sql");
+            String sql = (String) jsonObject.get("sql");
             if (Strings.isNullOrEmpty(sql)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
