@@ -4750,10 +4750,6 @@ function_call_expr ::=
       RESULT = new FunctionCallExpr(fn_name, params);
     }
   :}
-  | function_name:fn_name LPAREN function_params:left_params RPAREN LPAREN function_params:params RPAREN
-  {:
-    RESULT = new FunctionCallExpr(fn_name, params, left_params);
-  :}
   ;
 
 array_expr ::=

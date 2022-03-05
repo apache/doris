@@ -2277,8 +2277,7 @@ struct WindowFunnelState {
         window = 0;
     }
 
-    void add(DateTimeValue& timestamp, int event_idx, int event_num, int64_t win) {
-        window = win;
+    void add(DateTimeValue& timestamp, int event_idx, int event_num) {
         max_event_level = event_num;
         if (sorted && events.size() > 0) {
             if (events.back().first == timestamp) {
@@ -2398,7 +2397,7 @@ struct WindowFunnelState {
             buf += sizeof(int);
             DateTimeValue time_value;
             time_value.from_date_int64(timestamp);
-            add(time_value, event_idx, max_event_level, window);
+            add(time_value, event_idx, max_event_level);
         }
     }
 };
@@ -2406,16 +2405,22 @@ struct WindowFunnelState {
 void AggregateFunctions::window_funnel_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(WindowFunnelState);
-    dst->ptr = (uint8_t*)new WindowFunnelState();
+    WindowFunnelState* state = new WindowFunnelState();
+    dst->ptr = (uint8_t*)state;
+    // constant args at index 0 and 1
+    DCHECK(ctx->is_arg_constant(0));
+    BigIntVal* window = reinterpret_cast<BigIntVal*>(ctx->get_constant_arg(0));
+    state->window = window->val;
+    // handle mode in the future
 }
 
 void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
-                                             const DateTimeVal& timestamp, int num_cond,
-                                             const BooleanVal* conds, StringVal* dst) {
+                                             const StringVal& mode, const DateTimeVal& timestamp,
+                                             int num_cond, const BooleanVal* conds, StringVal* dst) {
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(WindowFunnelState), dst->len);
 
-    if (window.is_null || timestamp.is_null) {
+    if (timestamp.is_null) {
         return;
     }
 
@@ -2426,7 +2431,7 @@ void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigInt
         }
         if (conds[i].val) {
             DateTimeValue time_value = DateTimeValue::from_datetime_val(timestamp);
-            state->add(time_value, i, num_cond, window.val);
+            state->add(time_value, i, num_cond);
         }
     }
 }

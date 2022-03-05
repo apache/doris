@@ -1244,12 +1244,12 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
 
         // windowFunnel
         addBuiltin(AggregateFunction.createBuiltin("window_funnel",
-                Lists.newArrayList(Type.BIGINT, Type.DATETIME, Type.BOOLEAN),
+                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),
                 Type.INT,
                 Type.VARCHAR,
                 true,
                 prefix + "18window_funnel_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPNS1_9StringValE",
+                prefix + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9StringValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPS7_",
                 prefix + "19window_funnel_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 prefix + "23window_funnel_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 "",
@@ -1257,18 +1257,19 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 prefix + "22window_funnel_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 true, false, true));
 
+        // Vectorization does not need symbol any more, we should clean it in the future.
         addBuiltin(AggregateFunction.createBuiltin("window_funnel",
-                Lists.newArrayList(Type.BIGINT, Type.DATETIME, Type.BOOLEAN),
+                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),
                 Type.INT,
                 Type.VARCHAR,
                 true,
-                prefix + "18window_funnel_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                prefix + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPNS1_9StringValE",
-                prefix + "19window_funnel_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                prefix + "23window_funnel_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 "",
                 "",
-                prefix + "22window_funnel_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "",
+                "",
+                "",
+                "",
+                "",
                 true, false, true, true));
 
         for (Type t : Type.getSupportedTypes()) {

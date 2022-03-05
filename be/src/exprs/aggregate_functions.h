@@ -352,8 +352,8 @@ public:
     // windowFunnel
     static void window_funnel_init(FunctionContext* ctx, StringVal* dst);
     static void window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
-                             const DateTimeVal& timestamp, int num_cond,
-                             const BooleanVal* conds, StringVal* dst);
+                             const StringVal& mode, const DateTimeVal& timestamp,
+                             int num_cond, const BooleanVal* conds, StringVal* dst);
     static void window_funnel_merge(FunctionContext* ctx, const StringVal& src,
                             StringVal* dst);
     static StringVal window_funnel_serialize(FunctionContext* ctx, const StringVal& src);
