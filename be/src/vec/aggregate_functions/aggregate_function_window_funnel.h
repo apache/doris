@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Refer to AggregateFunctionWindowFunnel.h in https://github.com/ClickHouse/ClickHouse.git
+
 #pragma once
 
 #include "common/logging.h"
@@ -41,8 +43,7 @@ struct WindowFunnelState {
         sorted = true;
         max_event_level = 0;
         window = 0;
-        std::vector<std::pair<VecDateTimeValue, int>> tmp;
-        events.swap(tmp);
+        events.shrink_to_fit();
     }
 
     void add(const VecDateTimeValue& timestamp, int event_idx, int event_num, int64_t win) {

@@ -2265,6 +2265,7 @@ void AggregateFunctions::offset_fn_update(FunctionContext* ctx, const T& src, co
     *dst = src;
 }
 
+// Refer to AggregateFunctionWindowFunnel.h in https://github.com/ClickHouse/ClickHouse.git
 struct WindowFunnelState {
     std::vector<std::pair<DateTimeValue, int>> events;
     int max_event_level;
