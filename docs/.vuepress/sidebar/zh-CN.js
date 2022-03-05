@@ -20,12 +20,14 @@ module.exports = [
   {
     title: "下载",
     directoryPath: "downloads/",
+    initialOpenGroupIndex: -1,
     children: ["downloads"],
     sidebarDepth: 1,
   },
   {
     title: "编译与部署",
     directoryPath: "installing/",
+    initialOpenGroupIndex: -1,
     children: [
       "compilation",
       "compilation-with-ldb-toolchain",
@@ -37,6 +39,7 @@ module.exports = [
   {
     title: "开始使用",
     directoryPath: "getting-started/",
+    initialOpenGroupIndex: -1,
     children: [
       "basic-usage",
       "advance-usage",
@@ -48,10 +51,12 @@ module.exports = [
   {
     title: "操作手册",
     directoryPath: "administrator-guide/",
+    initialOpenGroupIndex: -1,
     children: [
       {
         title: "数据导入",
         directoryPath: "load-data/",
+        initialOpenGroupIndex: -1,
         children: [
           "load-manual",
           "batch-delete-manual",
@@ -71,6 +76,7 @@ module.exports = [
       {
         title: "表结构变更",
         directoryPath: "alter-table/",
+        initialOpenGroupIndex: -1,
         children: [
           "alter-table-bitmap-index",
           "alter-table-replace-table",
@@ -84,14 +90,17 @@ module.exports = [
       {
         title: "HTTP API",
         directoryPath: "http-actions/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "FE",
             directoryPath: "fe/",
+            initialOpenGroupIndex: -1,
             children: [
               {
                 title: "MANAGER",
                 directoryPath: "manager/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "cluster-action",
                   "node-action",
@@ -155,6 +164,7 @@ module.exports = [
       {
         title: "运维操作",
         directoryPath: "operation/",
+        initialOpenGroupIndex: -1,
         children: [
           "doris-error-code",
           "be-olap-error-code",
@@ -168,6 +178,7 @@ module.exports = [
           {
             title: "监控项",
             directoryPath: "monitor-metrics/",
+            initialOpenGroupIndex: -1,
             children: [
               "be-metrics",
               "fe-metrics",
@@ -179,6 +190,7 @@ module.exports = [
       {
         title: "配置文件",
         directoryPath: "config/",
+        initialOpenGroupIndex: -1,
         children: [
           "be_config",
           "fe_config",
@@ -189,6 +201,7 @@ module.exports = [
       {
         title: "拦截规则",
         directoryPath: "block-rule/",
+        initialOpenGroupIndex: -1,
         children: [
           "sql-block",
         ],
@@ -223,6 +236,7 @@ module.exports = [
   {
     title: "性能测试及示例",
     directoryPath: "benchmark/",
+    initialOpenGroupIndex: -1,
     children: [
       "star-schema-benchmark",
       "systemd",
@@ -232,6 +246,7 @@ module.exports = [
   {
     title: "扩展功能",
     directoryPath: "extending-doris/",
+    initialOpenGroupIndex: -1,
     children: [
       "audit-plugin",
       "doris-on-es",
@@ -246,6 +261,7 @@ module.exports = [
       {
         title: "Seatunnel",
         directoryPath: "seatunnel/",
+        initialOpenGroupIndex: -1,
         children: [
           "spark-sink",
           "flink-sink",
@@ -254,6 +270,7 @@ module.exports = [
       {
         title: "UDF",
         directoryPath: "udf/",
+        initialOpenGroupIndex: -1,
         children: [
           "contribute-udf",
           "native-user-defined-function",
@@ -265,6 +282,7 @@ module.exports = [
   {
     title: "设计文档",
     directoryPath: "internal/",
+    initialOpenGroupIndex: -1,
     children: [
       "doris_storage_optimization",
       "grouping_sets_design",
@@ -275,14 +293,17 @@ module.exports = [
   {
     title: "SQL 手册",
     directoryPath: "sql-reference/",
+    initialOpenGroupIndex: -1,
     children: [
       {
         title: "SQL 函数",
         directoryPath: "sql-functions/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "日期函数",
             directoryPath: "date-time-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "convert_tz",
               "curdate",
@@ -324,6 +345,7 @@ module.exports = [
           {
             title: "地理位置函数",
             directoryPath: "spatial-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "st_astext",
               "st_circle",
@@ -340,6 +362,7 @@ module.exports = [
           {
             title: "字符串函数",
             directoryPath: "string-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "append_trailing_char_if_absent",
               "ascii",
@@ -374,6 +397,7 @@ module.exports = [
               {
                 title: "模糊匹配",
                 directoryPath: "like/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "like",
                   "not_like",
@@ -382,6 +406,7 @@ module.exports = [
               {
                 title: "正则匹配",
                 directoryPath: "regexp/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "regexp",
                   "regexp_extract",
@@ -394,6 +419,7 @@ module.exports = [
           {
             title: "聚合函数",
             directoryPath: "aggregate-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "approx_count_distinct",
               "avg",
@@ -416,6 +442,7 @@ module.exports = [
           {
             title: "bitmap函数",
             directoryPath: "bitmap-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "bitmap_and",
               "bitmap_contains",
@@ -449,6 +476,7 @@ module.exports = [
           {
             title: "bitwise函数",
             directoryPath: "bitwise-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "bitand",
               "bitor",
@@ -459,6 +487,7 @@ module.exports = [
           {
             title: "json 函数",
             directoryPath: "json-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "get_json_double",
               "get_json_int",
@@ -471,11 +500,13 @@ module.exports = [
           {
             title: "Hash函数",
             directoryPath: "hash-functions/",
+            initialOpenGroupIndex: -1,
             children: ["murmur_hash3_32"],
           },
           {
             title: "数学函数",
             directoryPath: "math-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "conv",
               "pmod"
@@ -484,6 +515,7 @@ module.exports = [
           {
             title: "加密和信息摘要函数",
             directoryPath: "encrypt-digest-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "aes",
               "md5",
@@ -496,6 +528,7 @@ module.exports = [
           {
             title: "table functions",
             directoryPath: "table-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "explode-bitmap",
               "explode-split",
@@ -510,10 +543,12 @@ module.exports = [
       {
         title: "语法帮助",
         directoryPath: "sql-statements/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "用户账户管理",
             directoryPath: "Account Management/",
+            initialOpenGroupIndex: -1,
             children: [
               "CREATE ROLE",
               "CREATE USER",
@@ -530,6 +565,7 @@ module.exports = [
           {
             title: "集群管理",
             directoryPath: "Administration/",
+            initialOpenGroupIndex: -1,
             children: [
               "ADMIN CANCEL REPAIR",
               "ADMIN CLEAN TRASH",
@@ -569,6 +605,7 @@ module.exports = [
           {
             title: "DDL",
             directoryPath: "Data Definition/",
+            initialOpenGroupIndex: -1,
             children: [
               "ALTER DATABASE",
               "ALTER TABLE",
@@ -610,6 +647,7 @@ module.exports = [
           {
             title: "DML",
             directoryPath: "Data Manipulation/",
+            initialOpenGroupIndex: -1,
             children: [
               "BEGIN",
               "BROKER LOAD",
@@ -664,6 +702,7 @@ module.exports = [
           {
             title: "数据类型",
             directoryPath: "Data Types/",
+            initialOpenGroupIndex: -1,
             children: [
               "BIGINT",
               "BITMAP",
@@ -686,6 +725,7 @@ module.exports = [
           {
             title: "辅助命令",
             directoryPath: "Utility/",
+            initialOpenGroupIndex: -1,
             children: ["DESCRIBE"],
           },
         ],
@@ -695,6 +735,7 @@ module.exports = [
   {
     title: "Doris用户",
     directoryPath: "case-user/",
+    initialOpenGroupIndex: -1,
     children: [
       "case-user",
     ],
@@ -702,6 +743,7 @@ module.exports = [
   {
     title: "开发者手册",
     directoryPath: "developer-guide/",
+    initialOpenGroupIndex: -1,
     children: [
       "debug-tool",
       "benchmark-tool",
@@ -720,6 +762,7 @@ module.exports = [
   {
     title: "FAQ 常见问题",
     directoryPath: "faq/",
+    initialOpenGroupIndex: -1,
     children: [
       "faq",
       "error"
@@ -728,6 +771,7 @@ module.exports = [
   {
     title: "Apache 社区",
     directoryPath: "community/",
+    initialOpenGroupIndex: -1,
     children: [
       "team",
       "gitter",
@@ -736,6 +780,7 @@ module.exports = [
       {
           title: "贡献指南",
           directoryPath: "how-to-contribute/",
+          initialOpenGroupIndex: -1,
           children: [
               "how-to-contribute",
               "committer-guide",
@@ -746,6 +791,7 @@ module.exports = [
       {
           title: "版本发布与校验",
           directoryPath: "release-and-verify/",
+          initialOpenGroupIndex: -1,
           children: [
               "release-prepare",
               "release-doris-core",

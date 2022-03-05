@@ -20,12 +20,14 @@ module.exports = [
   {
     title: "Downloads",
     directoryPath: "downloads/",
+    initialOpenGroupIndex: -1,
     children: ["downloads"],
     sidebarDepth: 1,
   },
   {
     title: "Compilation and Deployment",
     directoryPath: "installing/",
+    initialOpenGroupIndex: -1,
     children: [
       "compilation",
       "compilation-with-ldb-toolchain",
@@ -37,6 +39,7 @@ module.exports = [
   {
     title: "Getting Started",
     directoryPath: "getting-started/",
+    initialOpenGroupIndex: -1,
     children: [
       "basic-usage",
       "advance-usage",
@@ -49,10 +52,12 @@ module.exports = [
   {
     title: "Administrator Guide",
     directoryPath: "administrator-guide/",
+    initialOpenGroupIndex: -1,
     children: [
       {
         title: "Load Data",
         directoryPath: "load-data/",
+        initialOpenGroupIndex: -1,
         children: [
           "load-manual",
           "batch-delete-manual",
@@ -72,6 +77,7 @@ module.exports = [
       {
         title: "Schema Change",
         directoryPath: "alter-table/",
+        initialOpenGroupIndex: -1,
         children: [
           "alter-table-bitmap-index",
           "alter-table-replace-table",
@@ -85,14 +91,17 @@ module.exports = [
       {
         title: "HTTP API",
         directoryPath: "http-actions/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "FE",
             directoryPath: "fe/",
+            initialOpenGroupIndex: -1,
             children: [
               {
                 title: "MANAGER",
                 directoryPath: "manager/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "cluster-action",
                   "node-action",
@@ -156,6 +165,7 @@ module.exports = [
       {
         title: "Maintainence Operation",
         directoryPath: "operation/",
+        initialOpenGroupIndex: -1,
         children: [
           "doris-error-code",
           "be-olap-error-code",
@@ -169,6 +179,7 @@ module.exports = [
           {
             title: "Metrics",
             directoryPath: "monitor-metrics/",
+            initialOpenGroupIndex: -1,
             children: [
               "be-metrics",
               "fe-metrics",
@@ -180,6 +191,7 @@ module.exports = [
       {
         title: "Configuration",
         directoryPath: "config/",
+        initialOpenGroupIndex: -1,
         children: [
           "be_config",
           "fe_config",
@@ -190,6 +202,7 @@ module.exports = [
       {
         title: "Block Rule",
         directoryPath: "block-rule/",
+        initialOpenGroupIndex: -1,
         children: [
           "sql-block",
         ],
@@ -222,6 +235,7 @@ module.exports = [
   {
     title: "Benchmark & Sample",
     directoryPath: "benchmark/",
+    initialOpenGroupIndex: -1,
     children: [
       "star-schema-benchmark",
       "systemd",
@@ -231,6 +245,7 @@ module.exports = [
   {
     title: "Extending Ability",
     directoryPath: "extending-doris/",
+    initialOpenGroupIndex: -1,
     children: [
       "audit-plugin",
       "doris-on-es",
@@ -245,6 +260,7 @@ module.exports = [
       {
         title: "Seatunnel",
         directoryPath: "seatunnel/",
+        initialOpenGroupIndex: -1,
         children: [
           "spark-sink",
           "flink-sink",
@@ -253,6 +269,7 @@ module.exports = [
       {
         title: "UDF",
         directoryPath: "udf/",
+        initialOpenGroupIndex: -1,
         children: [
           "contribute-udf",
           "native-user-defined-function",
@@ -264,6 +281,7 @@ module.exports = [
   {
     title: "Design Documents",
     directoryPath: "internal/",
+    initialOpenGroupIndex: -1,
     children: [
       "doris_storage_optimization",
       "grouping_sets_design",
@@ -273,14 +291,17 @@ module.exports = [
   {
     title: "SQL Manual",
     directoryPath: "sql-reference/",
+    initialOpenGroupIndex: -1,
     children: [
       {
         title: "SQL Functions",
         directoryPath: "sql-functions/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "Date Time Functions",
             directoryPath: "date-time-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "convert_tz",
               "curdate",
@@ -322,6 +343,7 @@ module.exports = [
           {
             title: "Sptial Functions",
             directoryPath: "spatial-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "st_astext",
               "st_circle",
@@ -338,6 +360,7 @@ module.exports = [
           {
             title: "String Functions",
             directoryPath: "string-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "append_trailing_char_if_absent",
               "ascii",
@@ -372,6 +395,7 @@ module.exports = [
               {
                 title: "fuzzy match",
                 directoryPath: "like/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "like",
                   "not_like",
@@ -380,6 +404,7 @@ module.exports = [
               {
                 title: "regular match",
                 directoryPath: "regexp/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "regexp",
                   "regexp_extract",
@@ -392,6 +417,7 @@ module.exports = [
           {
             title: "Aggregate Functions",
             directoryPath: "aggregate-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "approx_count_distinct",
               "avg",
@@ -414,6 +440,7 @@ module.exports = [
           {
             title: "bitmap functions",
             directoryPath: "bitmap-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "bitmap_and",
               "bitmap_contains",
@@ -447,6 +474,7 @@ module.exports = [
           {
             title: "bitwise function",
             directoryPath: "bitwise-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "bitand",
               "bitor",
@@ -457,6 +485,7 @@ module.exports = [
           {
             title: "json function",
             directoryPath: "json-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "get_json_double",
               "get_json_int",
@@ -469,6 +498,7 @@ module.exports = [
           {
             title: "Encryption and Digest Functions",
             directoryPath: "encrypt-digest-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "aes",
               "md5",
@@ -481,11 +511,13 @@ module.exports = [
           {
             title: "Hash Functions",
             directoryPath: "hash-functions/",
+            initialOpenGroupIndex: -1,
             children: ["murmur_hash3_32"],
           },
           {
             title: "Math Functions",
             directoryPath: "math-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "conv",
               "pmod"
@@ -494,6 +526,7 @@ module.exports = [
           {
             title: "table functions",
             directoryPath: "table-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "explode-bitmap",
               "explode-split",
@@ -508,10 +541,12 @@ module.exports = [
       {
         title: "SQL Statements",
         directoryPath: "sql-statements/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "Account Management",
             directoryPath: "Account Management/",
+            initialOpenGroupIndex: -1,
             children: [
               "CREATE ROLE",
               "CREATE USER",
@@ -528,6 +563,7 @@ module.exports = [
           {
             title: "Administration",
             directoryPath: "Administration/",
+            initialOpenGroupIndex: -1,
             children: [
               "ADMIN CANCEL REPAIR",
               "ADMIN CLEAN TRASH",
@@ -567,6 +603,7 @@ module.exports = [
           {
             title: "Data Definition",
             directoryPath: "Data Definition/",
+            initialOpenGroupIndex: -1,
             children: [
               "ALTER DATABASE",
               "ALTER TABLE",
@@ -606,6 +643,7 @@ module.exports = [
           {
             title: "Data Manipulation",
             directoryPath: "Data Manipulation/",
+            initialOpenGroupIndex: -1,
             children: [
               "BEGIN",
               "BROKER LOAD",
@@ -663,6 +701,7 @@ module.exports = [
           {
             title: "Data Types",
             directoryPath: "Data Types/",
+            initialOpenGroupIndex: -1,
             children: [
               "BIGINT",
               "BITMAP",
@@ -684,6 +723,7 @@ module.exports = [
           {
             title: "Utility",
             directoryPath: "Utility/",
+            initialOpenGroupIndex: -1,
             children: ["util_stmt"],
           },
         ],
@@ -693,6 +733,7 @@ module.exports = [
   {
     title: "Doris User",
     directoryPath: "case-user/",
+    initialOpenGroupIndex: -1,
     children: [
       "case-user",
     ],
@@ -700,6 +741,7 @@ module.exports = [
   {
     title: "Developer Guide",
     directoryPath: "developer-guide/",
+    initialOpenGroupIndex: -1,
     children: [
       "debug-tool",
       "docker-dev",
@@ -717,6 +759,7 @@ module.exports = [
   {
     title: "FAQ",
     directoryPath: "faq/",
+    initialOpenGroupIndex: -1,
     children: [
       "faq",
       "error"
@@ -725,6 +768,7 @@ module.exports = [
   {
     title: "Apache Community",
     directoryPath: "community/",
+    initialOpenGroupIndex: -1,
     children: [
       "team",
       "gitter",
@@ -733,6 +777,7 @@ module.exports = [
       {
           title: "How to Contribute",
           directoryPath: "how-to-contribute/",
+          initialOpenGroupIndex: -1,
           children: [
               "how-to-contribute",
               "committer-guide",
@@ -743,6 +788,7 @@ module.exports = [
       {
           title: "Release Process & Verification",
           directoryPath: "release-and-verify/",
+          initialOpenGroupIndex: -1,
           children: [
               "release-prepare",
               "release-doris-core",
