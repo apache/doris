@@ -2144,3 +2144,13 @@ Dynamically configured: true
 Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
+
+### skip_compaction_slower_replica
+
+Default: true
+
+Dynamically configured: true
+
+Only for Master FE: false
+
+If set to true, the compaction slower replica will be skipped when select get queryable replicas
