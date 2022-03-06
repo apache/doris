@@ -52,18 +52,20 @@ Doris Connectors 目前包含：
 
 因为 Flink Connector 针对不同 Flink 版本（如 1.11, 1.12, 1.13）发布不同的 Release。因此我们需要针对每一个版本单独进行处理。
 
-下面我们以 Flink 版本 1.13.5，scala 版本 2.12 为例说明：
+下面我们以 Flink 版本 1.14.3，scala 版本 2.12 为例说明：
 
 先替换 pom.xml 中的 flink.version 和 scala.version：
 
 ```
 cd flink-doris-connector/
-sed -i 's/\${env.flink.version}/1.13.5/g' pom.xml
+sed -i 's/\${env.flink.version}/1.14.3/g' pom.xml
+sed -i 's/\${env.flink.minor.version}/1.14/g' pom.xml
 sed -i 's/\${env.scala.version}/2.12/g' pom.xml
 
 Mac:
 
 sed -i '' 's/\${env.flink.version}/1.13.5/g' pom.xml
+sed -i '' 's/\${env.flink.minor.version}/1.14/g' pom.xml
 sed -i '' 's/\${env.scala.version}/2.12/g' pom.xml
 ```
 
@@ -71,7 +73,7 @@ sed -i '' 's/\${env.scala.version}/2.12/g' pom.xml
 
 ```
 git add . -u
-git commit -m "prepare for 1.13.5-2.12-1.0.0"
+git commit -m "prepare for 1.14.3_2.12-1.0.0"
 ```
 
 执行以下命令开始生成 release tag：
@@ -86,9 +88,9 @@ mvn release:prepare -DpushChanges=false
 
 在执行 `release:prepare` 命令后，会要求提供以下三个信息：
 
-1. Doris Flink Connector 的版本信息：我们默认就可以，可以直接回车或者输入自己想要的版本。版本格式为 `{flink.version}-{scala.version}-{connector.version}`，如 `1.13.5-2.12-1.0.0`。
-2. Doris Flink Connector 的 release tag：release 过程会在本地生成一个 tag。我们使用默认的 tag 名称即可，如 `1.13.5-2.12-1.0.0`。
-3. Doris Flink Connector 下一个版本的版本号：这个版本号只是用于生成本地分支时使用，无实际意义。我们按规则填写一个即可，比如当前要发布的版本是：`1.13.5-2.12-1.0.0`，那么下一个版本号填写 `1.13.5-2.12-1.0.1` 即可。
+1. Doris Flink Connector 的版本信息：我们默认就可以，可以直接回车或者输入自己想要的版本。版本格式为 `{connector.version}`，如 `1.0.0`。
+2. Doris Flink Connector 的 release tag：release 过程会在本地生成一个 tag。我们使用默认的 tag 名称即可，如 `1.14_2.12-1.0.0`。
+3. Doris Flink Connector 下一个版本的版本号：这个版本号只是用于生成本地分支时使用，无实际意义。我们按规则填写一个即可，比如当前要发布的版本是：`1.0.0`，那么下一个版本号填写 `1.0.1-SNAPSHOT` 即可。
 
 `mvn release:prepare` 可能会要求输入 GPG passphrase。如果出现 `gpg: no valid OpenPGP data found` 错误，则可以执行 `export GPG_TTY=$(tty)` 后在尝试。
 
@@ -124,23 +126,23 @@ mvn release:perform
 svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 ```
 
-打包 tag 源码，并生成签名文件和sha256校验文件。这里我们以 `1.13.5-2.12-1.0.0` 为例。其他 tag 操作相同
+打包 tag 源码，并生成签名文件和sha256校验文件。这里我们以 `1.14_2.12-1.0.0` 为例。其他 tag 操作相同
 
 ```
-git archive --format=tar 1.13.5-2.12-1.0.0 --prefix=apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src/ | gzip > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
-gpg -u xxx@apache.org --armor --output apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.asc  --detach-sign apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
-sha512sum apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
+git archive --format=tar 1.14_2.12-1.0.0 --prefix=apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src/ | gzip > apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
+gpg -u xxx@apache.org --armor --output apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.asc  --detach-sign apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
+sha512sum apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
 
 Mac:
-shasum -a 512 apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
+shasum -a 512 apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
 ```
 
 最终得到三个文件：
 
 ```
-apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
-apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.asc
-apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
+apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
+apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.asc
+apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
 ```
 
 将这三个文件移动到 svn 目录下：
@@ -160,15 +162,9 @@ doris/flink-connector/1.0.0/
 |____KEYS
 |____flink-connector
 | |____1.0.0
-| | |____apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz
-| | |____apache-doris-flink-connector-1.11.6-2.12-1.0.0-incubating-src.tar.gz.sha512
-| | |____apache-doris-flink-connector-1.11.6-2.12-1.0.0-incubating-src.tar.gz.asc
-| | |____apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.asc
-| | |____apache-doris-flink-connector-1.12.7-2.12-1.0.0-incubating-src.tar.gz
-| | |____apache-doris-flink-connector-1.12.7-2.12-1.0.0-incubating-src.tar.gz.asc
-| | |____apache-doris-flink-connector-1.12.7-2.12-1.0.0-incubating-src.tar.gz.sha512
-| | |____apache-doris-flink-connector-1.11.6-2.12-1.0.0-incubating-src.tar.gz
-| | |____apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating-src.tar.gz.sha512
+| | |____apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
+| | |____apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
+| | |____apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.asc
 ```
 
 其中 0.15 是 Doris 主代码的目录，而 `flink-connector/1.0.0` 下就是本次发布的内容了。
@@ -183,11 +179,8 @@ doris/flink-connector/1.0.0/
 Hi All,
 
 This is a call for vote to release Flink Connectors v1.0.0 for Apache Doris(Incubating).
-There are 3 outputs for different Flink version:
 
-- apache-doris-flink-connector-1.11.6-2.12-1.0.0-incubating
-- apache-doris-flink-connector-1.12.7-2.12-1.0.0-incubating
-- apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating
+- apache-doris-flink-connector-1.14_2.12-1.0.0-incubating
 
 The release node:
 xxxxx
@@ -199,9 +192,7 @@ Maven 2 staging repository:
 https://repository.apache.org/content/repositories/orgapachedoris-1002/org/apache/doris/doris-flink-connector/
 
 Git tag for the release:
-https://github.com/apache/incubator-doris-flink-connector/tree/1.11.6-2.12-1.0.0
-https://github.com/apache/incubator-doris-flink-connector/tree/1.12.7-2.12-1.0.0
-https://github.com/apache/incubator-doris-flink-connector/tree/1.13.5-2.12-1.0.0
+https://github.com/apache/incubator-doris-flink-connector/tree/1.14_2.12-1.0.0
 
 Keys to verify the Release Candidate:
 https://downloads.apache.org/incubator/doris/KEYS
@@ -224,11 +215,8 @@ dev 邮件组通过后，再发送邮件到 general@incubator 邮件组进行 IP
 Hi All,
 
 This is a call for vote to release Flink Connectors v1.0.0 for Apache Doris(Incubating).
-There are 3 outputs for different Flink version:
 
-- apache-doris-flink-connector-1.11.6-2.12-1.0.0-incubating
-- apache-doris-flink-connector-1.12.7-2.12-1.0.0-incubating
-- apache-doris-flink-connector-1.13.5-2.12-1.0.0-incubating
+- apache-doris-flink-connector-1.14_2.12-1.0.0-incubating
 
 The release node:
 xxxxx
@@ -240,9 +228,7 @@ Maven 2 staging repository:
 https://repository.apache.org/content/repositories/orgapachedoris-1002/org/apache/doris/doris-flink-connector/
 
 Git tag for the release:
-https://github.com/apache/incubator-doris-flink-connector/tree/1.11.6-2.12-1.0.0
-https://github.com/apache/incubator-doris-flink-connector/tree/1.12.7-2.12-1.0.0
-https://github.com/apache/incubator-doris-flink-connector/tree/1.13.5-2.12-1.0.0
+https://github.com/apache/incubator-doris-flink-connector/tree/1.14_2.12-1.0.0
 
 Keys to verify the Release Candidate:
 https://downloads.apache.org/incubator/doris/KEYS
