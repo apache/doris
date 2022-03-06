@@ -461,8 +461,8 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     }
 
     if (out.size() > 0) {
-        (*_error_log_file) << out.data() << std::endl;
-        export_load_error(out.data());
+        (*_error_log_file) << fmt::to_string(out) << std::endl;
+        export_load_error(fmt::to_string(out));
     }
     return Status::OK();
 }
