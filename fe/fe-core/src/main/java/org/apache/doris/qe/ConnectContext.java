@@ -134,6 +134,16 @@ public class ConnectContext {
     // The FE ip current connected
     private String currentConnectedFEIp = "";
 
+    private InsertResult insertResult;
+
+    public void setInsertResult(InsertResult insertResult) {
+        this.insertResult = insertResult;
+    }
+
+    public InsertResult getInsertResult() {
+        return insertResult;
+    }
+
     public static ConnectContext get() {
         return threadLocalInfo.get();
     }
@@ -544,4 +554,5 @@ public class ConnectContext {
     public String getQueryIdentifier() {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
+
 }
