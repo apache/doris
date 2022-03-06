@@ -25,11 +25,11 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 public class ShowLastInsertStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TxnId", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("TransactionId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("Label", ScalarType.createVarchar(128)))
                     .addColumn(new Column("Database", ScalarType.createVarchar(128)))
                     .addColumn(new Column("Table", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("TxnStatus", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("TransactionStatus", ScalarType.createVarchar(64)))
                     .addColumn(new Column("LoadedRows", ScalarType.createVarchar(128)))
                     .addColumn(new Column("FilteredRows", ScalarType.createVarchar(128)))
                     .build();
