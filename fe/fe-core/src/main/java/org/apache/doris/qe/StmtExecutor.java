@@ -1378,9 +1378,10 @@ public class StmtExecutor implements ProfileWriter {
 
         // set insert result in connection context,
         // so that user can use `show insert result` to get info of the last insert operation.
-        InsertResult insertResult = new InsertResult(txnId, label, insertStmt.getDb(), insertStmt.getTbl(),
+        context.setOrUpdateInsertResult(txnId, label, insertStmt.getDb(), insertStmt.getTbl(),
                 txnStatus, loadedRows, filteredRows);
-        context.setInsertResult(insertResult);
+        // update it, so that user can get loaded rows in fe.audit.log
+        context.updateReturnRows((int) loadedRows);
     }
 
     private void handleUnsupportedStmt() {

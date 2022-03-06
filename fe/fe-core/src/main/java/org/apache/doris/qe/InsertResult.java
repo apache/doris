@@ -45,6 +45,12 @@ public class InsertResult {
         this.filteredRows = filteredRows;
     }
 
+    public void updateResult(TransactionStatus txnStatus, long loadedRows, int filteredRows) {
+        this.txnStatus = txnStatus;
+        this.loadedRows += loadedRows;
+        this.filteredRows += filteredRows;
+    }
+
     public List<String> toRow() {
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(txnId));
@@ -56,4 +62,5 @@ public class InsertResult {
         row.add(String.valueOf(filteredRows));
         return row;
     }
+
 }
