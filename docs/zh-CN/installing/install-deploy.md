@@ -223,15 +223,15 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
     BE 节点需要先在 FE 中添加，才可加入集群。可以使用 mysql-client([下载MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) 连接到 FE：
 
-    `./mysql-client -h host -P port -uroot`
+    `./mysql-client -h fe_host -P query_port -uroot`
 
-    其中 host 为 FE 所在节点 ip；port 为 fe/conf/fe.conf 中的 query_port；默认使用 root 账户，无密码登录。
+    其中 fe_host 为 FE 所在节点 ip；query_port 在 fe/conf/fe.conf 中的；默认使用 root 账户，无密码登录。
 
     登录后，执行以下命令来添加每一个 BE：
 
-    `ALTER SYSTEM ADD BACKEND "host:port";`
+    `ALTER SYSTEM ADD BACKEND "be_host:heartbeat-service_port";`
 
-      	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
+    其中 be_host 为 BE 所在节点 ip；heartbeat_service_port 在 be/conf/be.conf 中。
 
 * 启动 BE
 
@@ -255,7 +255,7 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
  * 启动 Broker
 
-    `bin/start_broker.sh --daemon` 启动 Broker。
+    `bin/start_broker.sh --daemon`
 
 * 添加 Broker
 
@@ -263,9 +263,9 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
     使用 mysql-client 连接启动的 FE，执行以下命令：
 
-    `ALTER SYSTEM ADD BROKER broker_name "host1:port1","host2:port2",...;`
+    `ALTER SYSTEM ADD BROKER broker_name "broker_host1:broker_ipc_port1","broker_host2:broker_ipc_port2",...;`
 
-    其中 host 为 Broker 所在节点 ip；port 为 Broker 配置文件中的 broker\_ipc\_port。
+    其中 broker_host 为 Broker 所在节点 ip；broker_ipc_port 在 Broker 配置文件中的conf/apache_hdfs_broker.conf。
 
 * 查看 Broker 状态
 
@@ -301,19 +301,19 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 
 添加 Follower 或 Observer。使用 mysql-client 连接到已启动的 FE，并执行：
 
-`ALTER SYSTEM ADD FOLLOWER "host:port";`
+`ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port";`
 
 或
 
-`ALTER SYSTEM ADD OBSERVER "host:port";`
+`ALTER SYSTEM ADD OBSERVER "observer_host:edit_log_port";`
 
-其中 host 为 Follower 或 Observer 所在节点 ip，port 为其配置文件 fe.conf 中的 edit\_log\_port。
+其中 follower\_host和observer\_host 为 Follower 或 Observer 所在节点 ip，edit\_log\_port 在其配置文件 fe.conf 中。
 
 配置及启动 Follower 或 Observer。Follower 和 Observer 的配置同 Leader 的配置。第一次启动时，需执行以下命令：
 
-`./bin/start_fe.sh --helper host:port --daemon`
+`./bin/start_fe.sh --helper leader_fe_host:edit_log_port --daemon`
 
-其中 host 为 Leader 所在节点 ip, port 为 Leader 的配置文件 fe.conf 中的 edit_log_port。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
+其中 leader\_fe\_host 为 Leader 所在节点 ip, edit\_log\_port 在 Leader 的配置文件 fe.conf 中。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
 
 查看 Follower 或 Observer 运行状态。使用 mysql-client 连接到任一已启动的 FE，并执行：SHOW PROC '/frontends'; 可以查看当前已加入集群的 FE 及其对应角色。
 
