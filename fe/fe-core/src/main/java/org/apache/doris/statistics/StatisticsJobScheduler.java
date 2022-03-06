@@ -24,6 +24,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.statistics.StatisticsJob.JobState;
@@ -49,7 +50,7 @@ import java.util.Set;
 public class StatisticsJobScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsJobScheduler.class);
 
-    public Queue<StatisticsJob> pendingJobQueue = Queues.newLinkedBlockingQueue();
+    public Queue<StatisticsJob> pendingJobQueue = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
 
     public StatisticsJobScheduler() {
         super("Statistics job scheduler", 0);
@@ -57,7 +58,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        StatisticsJob pendingJob = pendingJobQueue.peek();
+        StatisticsJob pendingJob = pendingJobQueue.poll();
         // step0: check job state again
         if (pendingJob != null && pendingJob.getJobState() == JobState.PENDING) {
             List<StatisticsTask> taskList = null;
@@ -66,12 +67,14 @@ public class StatisticsJobScheduler extends MasterDaemon {
                 taskList = this.divide(pendingJob);
                 pendingJob.setTaskList(taskList);
             } catch (DdlException e) {
+                pendingJob.setJobState(JobState.FAILED);
                 LOG.warn("Failed to schedule the statistical job(id="
                         + pendingJob.getId() + "). " + e.getMessage());
             }
             if (taskList != null) {
                 // step2: submit
                 Catalog.getCurrentCatalog().getStatisticsTaskScheduler().addTasks(taskList);
+                pendingJob.setJobState(JobState.SCHEDULING);
             }
         }
     }

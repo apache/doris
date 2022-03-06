@@ -60,14 +60,14 @@ public class StatisticsJobManager {
 
         // step1: get statistical db&tbl to be analyzed
         long dbId = statisticsJob.getDbId();
-        Set<Long> tableIdList = statisticsJob.relatedTableId();
+        Set<Long> tableIds = statisticsJob.relatedTableId();
 
         // step2: check restrict
-        this.checkRestrict(dbId, tableIdList);
+        this.checkRestrict(dbId, tableIds);
 
         // step3: check permission
         UserIdentity userInfo = analyzeStmt.getUserInfo();
-        this.checkPermission(dbId, tableIdList, userInfo);
+        this.checkPermission(dbId, tableIds, userInfo);
 
         // step4: create it
         this.createStatisticsJob(statisticsJob);
