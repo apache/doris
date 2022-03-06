@@ -479,7 +479,6 @@ public class OlapScanNode extends ScanNode {
     private void addScanRangeLocations(Partition partition,
                                        MaterializedIndex index,
                                        List<Tablet> tablets) throws UserException {
-        int logNum = 0;
         int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
         String schemaHashStr = String.valueOf(schemaHash);
         long visibleVersion = partition.getVisibleVersion();
@@ -493,9 +492,7 @@ public class OlapScanNode extends ScanNode {
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
-            LOG.debug("{} tabletId={}", (logNum++), tabletId);
             TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
-
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
             paloRange.setSchemaHash(schemaHashStr);
@@ -504,8 +501,7 @@ public class OlapScanNode extends ScanNode {
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
-            List<Replica> replicas = Lists.newArrayList();
-            tablet.getQueryableReplicas(replicas, visibleVersion, schemaHash);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, schemaHash);
             if (replicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet {}. visible version {}",
                         tabletId, visibleVersion);

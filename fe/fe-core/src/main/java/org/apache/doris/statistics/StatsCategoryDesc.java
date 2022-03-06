@@ -29,7 +29,7 @@ public class StatsCategoryDesc {
     private String columnName;
 
     public StatsCategory getCategory() {
-        return this.category;
+        return category;
     }
 
     public void setCategory(StatsCategory category) {
@@ -37,7 +37,7 @@ public class StatsCategoryDesc {
     }
 
     public long getDbId() {
-        return this.dbId;
+        return dbId;
     }
 
     public void setDbId(long dbId) {
@@ -45,7 +45,7 @@ public class StatsCategoryDesc {
     }
 
     public long getTableId() {
-        return this.tableId;
+        return tableId;
     }
 
     public void setTableId(long tableId) {
@@ -53,7 +53,7 @@ public class StatsCategoryDesc {
     }
 
     public String getColumnName() {
-        return this.columnName;
+        return columnName;
     }
 
     public void setColumnName(String columnName) {

@@ -30,7 +30,7 @@ public class StatsGranularityDesc {
     private long tabletId;
 
     public StatsGranularity getGranularity() {
-        return this.granularity;
+        return granularity;
     }
 
     public void setGranularity(StatsGranularity granularity) {
@@ -38,7 +38,7 @@ public class StatsGranularityDesc {
     }
 
     public long getTableId() {
-        return this.tableId;
+        return tableId;
     }
 
     public void setTableId(long tableId) {
@@ -46,7 +46,7 @@ public class StatsGranularityDesc {
     }
 
     public long getPartitionId() {
-        return this.partitionId;
+        return partitionId;
     }
 
     public void setPartitionId(long partitionId) {
@@ -54,7 +54,7 @@ public class StatsGranularityDesc {
     }
 
     public long getTabletId() {
-        return this.tabletId;
+        return tabletId;
     }
 
     public void setTabletId(long tabletId) {
