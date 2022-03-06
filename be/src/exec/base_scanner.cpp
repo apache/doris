@@ -209,7 +209,7 @@ Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
                                            "column({}) value is incorrect while strict mode is {}, "
                                            "src value is {}",
                                            slot_desc->col_name(), _strict_mode, raw_string);
-                            return error_msg.data();
+                            return fmt::to_string(error_msg);
                         },
                         &_scanner_eof));
                 _counter->num_rows_filtered++;
@@ -227,7 +227,7 @@ Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
                                     error_msg,
                                     "column({}) values is null while columns is not nullable",
                                     slot_desc->col_name());
-                            return error_msg.data();
+                            return fmt::to_string(error_msg);
                         },
                         &_scanner_eof));
                 _counter->num_rows_filtered++;

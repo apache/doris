@@ -235,7 +235,7 @@ struct TExtCloseResult {
   1: required Status.TStatus status
 }
 
-// 这个data source可以认为是palo统一的外部data source的入口
+// This data source can be considered as the entry of palo's unified external data source
 service TExtDataSourceService {
     // 1. palo be call this api to send index, type, shard id to es
     // 2. es will open a search context and prepare data, will return a context id
