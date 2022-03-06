@@ -23,6 +23,8 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
+// Save the result of last insert operation.
+// So that user can view it by executing SHOW LAST INSERT.
 public class InsertResult {
     public long txnId;
     public String label;
