@@ -1400,8 +1400,6 @@ public class Catalog {
         partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
         icebergTableCreationRecordMgr.start();
-        // Enable statistics collection task
-        statisticsJobScheduler.start();
     }
 
     // start threads that should running on all FE

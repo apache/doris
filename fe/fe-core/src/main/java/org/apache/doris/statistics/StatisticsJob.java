@@ -75,11 +75,6 @@ public class StatisticsJob {
 
     private int progress = 0;
     private JobState jobState = JobState.PENDING;
-    ;
-
-    public StatisticsJob() {
-        this.id = Catalog.getCurrentCatalog().getNextId();
-    }
 
     public StatisticsJob(Long dbId, List<Long> tableIdList, Map<Long, List<String>> tableIdToColumnName) {
         this.dbId = dbId;
