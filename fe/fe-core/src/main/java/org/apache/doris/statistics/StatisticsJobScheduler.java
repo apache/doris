@@ -50,6 +50,12 @@ import java.util.Set;
 public class StatisticsJobScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsJobScheduler.class);
 
+    /**
+     * Different statistics need to be collected for the jobs submitted by users.
+     * if all statistics be collected at the same time, the cluster may be overburdened
+     * and normal query services may be affected. Therefore, we put the jobs into the queue
+     * and schedule them one by one, and finally divide each job to several subtasks and execute them.
+     */
     public Queue<StatisticsJob> pendingJobQueue = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
 
     public StatisticsJobScheduler() {
