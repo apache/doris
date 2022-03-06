@@ -112,11 +112,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         if (!_vpartition->find_tablet(&block_row, &partition, &dist_hash)) {
             RETURN_IF_ERROR(state->append_error_msg_to_file([]() -> std::string { return ""; },
                     [&]() -> std::string {
-                        fmt::memory_buffer buf;
-                        fmt::format_to(buf, "no partition for this tuple. tuple=[]");
-                        return buf.data();
-                    },
-                    &stop_processing));
+                    fmt::memory_buffer buf;
+                    fmt::format_to(buf, "no partition for this tuple. tuple=[]");
+                    return fmt::to_string(buf);
+                    }, &stop_processing));
             _number_filtered_rows++;
             if (stop_processing) {
                 return Status::EndOfFile("Encountered unqualified data, stop processing");
@@ -151,10 +150,9 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
     const auto num_rows = block->rows();
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
-        filter_bitmap->Set(row, true);
-        return state->append_error_msg_to_file(
-                []() -> std::string { return ""; },
-                [&error_msg]() -> std::string { return error_msg.data(); }, stop_processing);
+         filter_bitmap->Set(row, true);
+         return state->append_error_msg_to_file([]() -> std::string { return ""; },
+                 [&error_msg]() -> std::string { return fmt::to_string(error_msg); }, stop_processing);
     };
 
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {

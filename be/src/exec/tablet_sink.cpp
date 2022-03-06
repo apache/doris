@@ -891,7 +891,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
                         fmt::memory_buffer buf;
                         fmt::format_to(buf, "no partition for this tuple. tuple={}",
                                        Tuple::to_string(tuple, *_output_tuple_desc));
-                        return buf.data();
+                        return fmt::to_string(buf);
                     },
                     &stop_processing));
             _number_filtered_rows++;
@@ -1065,7 +1065,7 @@ Status OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch,
                                 fmt::memory_buffer buf;
                                 fmt::format_to(buf, "null value for not null column, column={}",
                                                slot_desc->col_name());
-                                return buf.data();
+                                return fmt::to_string(buf);
                             },
                             &stop_processing));
                     _number_filtered_rows++;
@@ -1200,7 +1200,7 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
             filter_bitmap->Set(row_no, true);
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
-                    [&]() -> std::string { return error_msg.data(); }, stop_processing));
+                    [&]() -> std::string { return fmt::to_string(error_msg); }, stop_processing));
         }
     }
     return Status::OK();
