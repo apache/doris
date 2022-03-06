@@ -152,7 +152,7 @@ At this point, DROP must remove the BE that added errors and re-use the correct 
 
 FE is the same.
 
-BROKER does not currently have, nor does it need, priority\ networks. Broker's services are bound to 0.0.0 by default. Simply execute the correct accessible BROKER IP when ADD BROKER is used.
+BROKER does not currently have, nor does it need, priority\_networks. Broker's services are bound to 0.0.0 by default. Simply execute the correct accessible BROKER IP when ADD BROKER is used.
 
 #### Table Name Case Sensitivity Setting
 
@@ -224,15 +224,15 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
 	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:
 
-	`./mysql-client -h host -P port -uroot`
+	`./mysql-client -h fe_host -P query_port -uroot`
 
-	The host is the node IP where FE is located; the port is the query_port in fe/conf/fe.conf; the root account is used by default and no password is used to login.
+	The fe_host is the node IP where FE is located; the query_port in fe/conf/fe.conf; the root account is used by default and no password is used to login.
 
 	After login, execute the following commands to add each BE:
 
-	`ALTER SYSTEM ADD BACKEND "host:port";`
+	`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port";`
 
-	The host is the node IP where BE is located; the port is heartbeat_service_port in be/conf/be.conf.
+	The be_host is the node IP where BE is located; the heartbeat_service_port in be/conf/be.conf.
 
 * Start BE
 
@@ -256,7 +256,7 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 * Start Broker
 
-	`bin/start_broker.sh --daemon ` start Broker
+	`bin/start_broker.sh --daemon`
 
 * Add Broker
 
@@ -264,9 +264,9 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 	Use mysql-client to connect the FE started, and execute the following commands:
 
-	`ALTER SYSTEM ADD BROKER broker_name "host1:port1","host2:port2",...;`
+	`ALTER SYSTEM ADD BROKER broker_name "broker_host1:broker_ipc_port1","broker_host2:broker_ipc_port2",...;`
 
-	The host is Broker's node ip; the port is broker port in the Broker configuration file.
+	The broker\_host is Broker's node ip; the broker_ipc_port is in the Broker configuration file.
 
 * View Broker status
 
@@ -288,7 +288,7 @@ Users can login to Master FE through MySQL client. By:
 
 To view the current FE node situation.
 
-You can also view the FE node through the front-end page connection: ``http://fe_hostname: fe_http_port/frontend`` or ```http://fe_hostname: fe_http_port/system? Path=//frontends```.
+You can also view the FE node through the front-end page connection: ``http://fe_hostname:fe_http_port/frontend`` or ```http://fe_hostname:fe_http_port/system?Path=//frontends```.
 
 All of the above methods require Doris's root user rights.
 
@@ -302,21 +302,25 @@ The first FE to start automatically becomes Leader. On this basis, several Follo
 
 Add Follower or Observer. Connect to the started FE using mysql-client and execute:
 
-`ALTER SYSTEM ADD FOLLOWER "host:port";`
+`ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port";`
 
 or
 
-`ALTER SYSTEM ADD OBSERVER "host:port";`
+`ALTER SYSTEM ADD OBSERVER "observer_host:edit_log_port";`
 
-The host is the node IP of Follower or Observer, and the port is edit\_log\_port in its configuration file fe.conf.
+The follower\_host and observer\_host is the node IP of Follower or Observer, and the edit\_log\_port in its configuration file fe.conf.
 
 Configure and start Follower or Observer. Follower and Observer are configured with Leader. The following commands need to be executed at the first startup:
 
-`./bin/start_fe.sh --helper host:port --daemon`
+`bin/start_fe.sh --helper host:edit_log_port --daemon`
 
-The host is the node IP of Leader, and the port is edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
+The host is the node IP of Leader, and the edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
 
-View the status of Follower or Observer. Connect to any booted FE using mysql-client and execute: SHOW PROC'/frontends'; you can view the FE currently joined the cluster and its corresponding roles.
+View the status of Follower or Observer. Connect to any booted FE using mysql-client and execute: 
+
+```SHOW PROC '/frontends';```
+
+You can view the FE currently joined the cluster and its corresponding roles.
 
 > Notes for FE expansion:
 > 
@@ -343,7 +347,7 @@ Users can login to Leader FE through mysql-client. By:
 
 To see the current BE node situation.
 
-You can also view the BE node through the front-end page connection: ``http://fe_hostname: fe_http_port/backend`` or ``http://fe_hostname: fe_http_port/system? Path=//backends``.
+You can also view the BE node through the front-end page connection: ``http://fe_hostname:fe_http_port/backend`` or ``http://fe_hostname:fe_http_port/system?Path=//backends``.
 
 All of the above methods require Doris's root user rights.
 
