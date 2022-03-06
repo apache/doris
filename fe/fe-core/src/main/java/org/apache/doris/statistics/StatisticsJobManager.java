@@ -61,7 +61,7 @@ public class StatisticsJobManager {
         // step1: get statistical db&tbl to be analyzed
         long dbId = statisticsJob.getDbId();
         Set<Long> tableIdList = statisticsJob.relatedTableId();
-        //
+
         // step2: check restrict
         this.checkRestrict(dbId, tableIdList);
 
