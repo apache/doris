@@ -58,21 +58,21 @@ public class StatisticsJobScheduler extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        StatisticsJob pendingJob = pendingJobQueue.poll();
+        StatisticsJob pendingJob = pendingJobQueue.peek();
         // step0: check job state again
         if (pendingJob != null && pendingJob.getJobState() == JobState.PENDING) {
             List<StatisticsTask> taskList = null;
             try {
                 // step1: divide statistics job to task
                 taskList = this.divide(pendingJob);
-                pendingJob.setTaskList(taskList);
             } catch (DdlException e) {
+                pendingJobQueue.remove();
                 pendingJob.setJobState(JobState.FAILED);
                 LOG.warn("Failed to schedule the statistical job(id="
                         + pendingJob.getId() + "). " + e.getMessage());
             }
             if (taskList != null) {
-                // step2: submit
+                // step2: submit tasks
                 Catalog.getCurrentCatalog().getStatisticsTaskScheduler().addTasks(taskList);
                 pendingJob.setJobState(JobState.SCHEDULING);
             }
