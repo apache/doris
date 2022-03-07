@@ -1000,7 +1000,7 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     case "int":
-                        field.set(this, root.get(attr.name()));
+                        field.set(this, (Integer)((Long)root.get(attr.name())).intValue());
                         break;
                     case "long":
                         field.set(this, root.get(attr.name()));
