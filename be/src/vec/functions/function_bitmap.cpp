@@ -186,7 +186,7 @@ public:
 
         res.reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if(null_map[i]) {
+            if (null_map[i]) {
                 res.push_back(0);
                 continue;
             }
