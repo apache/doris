@@ -62,6 +62,8 @@ using std::set;
 using std::string;
 using std::vector;
 using strings::Substitute;
+using ReadLock = std::shared_lock<std::shared_mutex>;
+using WriteLock = std::unique_lock<std::shared_mutex>;
 
 namespace doris {
 
@@ -80,9 +82,6 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
-    for (auto& tablets_shard : _tablets_shards) {
-        tablets_shard.lock = std::unique_ptr<RWMutex>(new RWMutex());
-    }
     REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
 }
@@ -128,25 +127,26 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
         }
     }
 
-    existed_tablet->obtain_header_rdlock();
-    const RowsetSharedPtr old_rowset = existed_tablet->rowset_with_max_version();
-    const RowsetSharedPtr new_rowset = tablet->rowset_with_max_version();
-
-    // If new tablet is empty, it is a newly created schema change tablet.
-    // the old tablet is dropped before add tablet. it should not exist old tablet
-    if (new_rowset == nullptr) {
-        existed_tablet->release_header_lock();
-        // it seems useless to call unlock and return here.
-        // it could prevent error when log level is changed in the future.
-        LOG(FATAL) << "new tablet is empty and old tablet exists. it should not happen."
-                   << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
-        return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
+    int64_t old_time, new_time;
+    int32_t old_version, new_version;
+    {
+        ReadLock rdlock(existed_tablet->get_header_lock());
+        const RowsetSharedPtr old_rowset = existed_tablet->rowset_with_max_version();
+        const RowsetSharedPtr new_rowset = tablet->rowset_with_max_version();
+        // If new tablet is empty, it is a newly created schema change tablet.
+        // the old tablet is dropped before add tablet. it should not exist old tablet
+        if (new_rowset == nullptr) {
+            // it seems useless to call unlock and return here.
+            // it could prevent error when log level is changed in the future.
+            LOG(FATAL) << "new tablet is empty and old tablet exists. it should not happen."
+                       << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
+            return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
+        }
+        old_time = old_rowset == nullptr ? -1 : old_rowset->creation_time();
+        new_time = new_rowset->creation_time();
+        old_version = old_rowset == nullptr ? -1 : old_rowset->end_version();
+        new_version = new_rowset->end_version();
     }
-    int64_t old_time = old_rowset == nullptr ? -1 : old_rowset->creation_time();
-    int64_t new_time = new_rowset->creation_time();
-    int32_t old_version = old_rowset == nullptr ? -1 : old_rowset->end_version();
-    int32_t new_version = new_rowset->end_version();
-    existed_tablet->release_header_lock();
 
     // In restore process, we replace all origin files in tablet dir with
     // the downloaded snapshot files. Then we try to reload tablet header.
@@ -212,7 +212,7 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
 }
 
 bool TabletManager::check_tablet_id_exist(TTabletId tablet_id) {
-    ReadLock rlock(_get_tablets_shard_lock(tablet_id));
+    ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
     return _check_tablet_id_exist_unlocked(tablet_id);
 }
 
@@ -231,7 +231,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
               << ", schema_hash=" << schema_hash;
 
-    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
+    WriteLock wrlock(_get_tablets_shard_lock(tablet_id));
     TRACE("got tablets shard lock");
     // Make create_tablet operation to be idempotent:
     // 1. Return true if tablet with same tablet_id and schema_hash exist;
@@ -457,7 +457,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 
 OLAPStatus TabletManager::drop_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                       bool keep_files) {
-    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
+    WriteLock wrdlock(_get_tablets_shard_lock(tablet_id));
     return _drop_tablet_unlocked(tablet_id, schema_hash, keep_files);
 }
 
@@ -499,7 +499,7 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         if (local_tmp_vector[i].empty()) {
             continue;
         }
-        WriteLock wlock(_tablets_shards[i].lock.get());
+        WriteLock wrdlock(_tablets_shards[i].lock);
         for (size_t idx : local_tmp_vector[i]) {
             const TabletInfo& tablet_info = tablet_info_vec[idx];
             TTabletId tablet_id = tablet_info.tablet_id;
@@ -532,7 +532,7 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
 
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                           bool include_deleted, string* err) {
-    ReadLock rlock(_get_tablets_shard_lock(tablet_id));
+    ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
     return _get_tablet_unlocked(tablet_id, schema_hash, include_deleted, err);
 }
 
@@ -541,7 +541,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
     TabletSharedPtr tablet;
     tablet = _get_tablet_unlocked(tablet_id, schema_hash);
     if (tablet == nullptr && include_deleted) {
-        ReadLock rlock(&_shutdown_tablets_lock);
+        ReadLock rdlock(_shutdown_tablets_lock);
         for (auto& deleted_tablet : _shutdown_tablets) {
             CHECK(deleted_tablet != nullptr) << "deleted tablet is nullptr";
             if (deleted_tablet->tablet_id() == tablet_id &&
@@ -572,7 +572,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
 
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                           TabletUid tablet_uid, bool include_deleted, string* err) {
-    ReadLock rlock(_get_tablets_shard_lock(tablet_id));
+    ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
     TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id, schema_hash, include_deleted, err);
     if (tablet != nullptr && tablet->tablet_uid() == tablet_uid) {
         return tablet;
@@ -635,7 +635,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
     double tablet_scan_frequency = 0.0;
     TabletSharedPtr best_tablet;
     for (const auto& tablets_shard : _tablets_shards) {
-        ReadLock rlock(tablets_shard.lock.get());
+        ReadLock rdlock(tablets_shard.lock);
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
                 if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
@@ -766,7 +766,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         LOG(INFO) << "fail to load tablet because it is to be deleted. tablet_id=" << tablet_id
                   << " schema_hash=" << schema_hash << ", path=" << data_dir->path();
         {
-            WriteLock shutdown_tablets_wlock(&_shutdown_tablets_lock);
+            WriteLock shutdown_tablets_wrdlock(_shutdown_tablets_lock);
             _shutdown_tablets.push_back(tablet);
         }
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
@@ -783,7 +783,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
     RETURN_NOT_OK_LOG(tablet->init(),
                       strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
 
-    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
+    WriteLock wrdlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, schema_hash, tablet, update_meta, force),
                       strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
@@ -835,8 +835,7 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
 
 void TabletManager::release_schema_change_lock(TTabletId tablet_id) {
     VLOG_NOTICE << "release_schema_change_lock begin. tablet_id=" << tablet_id;
-    ReadLock rlock(_get_tablets_shard_lock(tablet_id));
-
+    ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map_t::iterator it = tablet_map.find(tablet_id);
     if (it == tablet_map.end()) {
@@ -882,7 +881,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
     HistogramStat tablet_version_num_hist;
     auto local_cache = std::make_shared<std::vector<TTabletStat>>();
     for (const auto& tablets_shard : _tablets_shards) {
-        ReadLock rlock(tablets_shard.lock.get());
+        ReadLock rdlock(tablets_shard.lock);
         for (const auto& item : tablets_shard.tablet_map) {
             if (item.second.table_arr.empty()) {
                 continue;
@@ -934,7 +933,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
         for (auto& tablets_shard : _tablets_shards) {
             tablet_map_t& tablet_map = tablets_shard.tablet_map;
             {
-                ReadLock rlock(tablets_shard.lock.get());
+                ReadLock rdlock(tablets_shard.lock);
                 for (auto& item : tablet_map) {
                     // try to clean empty item
                     if (item.second.table_arr.empty()) {
@@ -952,7 +951,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
             all_tablets.clear();
 
             if (!tablets_to_clean.empty()) {
-                WriteLock wlock(tablets_shard.lock.get());
+                WriteLock wrlock(tablets_shard.lock);
                 // clean empty tablet id item
                 for (const auto& tablet_id_to_clean : tablets_to_clean) {
                     auto& item = tablet_map[tablet_id_to_clean];
@@ -979,7 +978,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
         clean_num = 0;
         // should get write lock here, because it will remove tablet from shut_down_tablets
         // and get tablet will access shut_down_tablets
-        WriteLock wlock(&_shutdown_tablets_lock);
+        WriteLock wrlock(_shutdown_tablets_lock);
         auto it = _shutdown_tablets.begin();
         while (it != _shutdown_tablets.end()) {
             // check if the meta has the tablet info and its state is shutdown
@@ -1057,13 +1056,13 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
 void TabletManager::register_clone_tablet(int64_t tablet_id) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    WriteLock wlock(shard.lock.get());
+    WriteLock wrdlock(shard.lock);
     shard.tablets_under_clone.insert(tablet_id);
 }
 
 void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    WriteLock wlock(shard.lock.get());
+    WriteLock wrdlock(shard.lock);
     shard.tablets_under_clone.erase(tablet_id);
 }
 
@@ -1073,7 +1072,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     // acquire the read lock, so that there is no creating tablet or load tablet from meta tasks
     // create tablet and load tablet task should check whether the dir exists
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    ReadLock rlock(shard.lock.get());
+    ReadLock rdlock(shard.lock);
 
     // check if meta already exists
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
@@ -1105,7 +1104,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
 bool TabletManager::try_schema_change_lock(TTabletId tablet_id) {
     bool res = false;
     VLOG_NOTICE << "try_schema_change_lock begin. tablet_id=" << tablet_id;
-    ReadLock rlock(_get_tablets_shard_lock(tablet_id));
+    ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map_t::iterator it = tablet_map.find(tablet_id);
     if (it == tablet_map.end()) {
@@ -1122,7 +1121,7 @@ void TabletManager::update_root_path_info(std::map<string, DataDirInfo>* path_ma
     DCHECK(tablet_count != 0);
     *tablet_count = 0;
     for (const auto& tablets_shard : _tablets_shards) {
-        ReadLock rlock(tablets_shard.lock.get());
+        ReadLock rdlock(tablets_shard.lock);
         for (const auto& entry : tablets_shard.tablet_map) {
             const TableInstances& instance = entry.second;
             for (auto& tablet : instance.table_arr) {
@@ -1142,7 +1141,7 @@ void TabletManager::update_root_path_info(std::map<string, DataDirInfo>* path_ma
 
 void TabletManager::get_partition_related_tablets(int64_t partition_id,
                                                   std::set<TabletInfo>* tablet_infos) {
-    ReadLock rlock(&_partition_tablet_map_lock);
+    ReadLock rdlock(_partition_tablet_map_lock);
     if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
         *tablet_infos = _partition_tablet_map[partition_id];
     }
@@ -1152,7 +1151,7 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
     std::vector<TabletSharedPtr> related_tablets;
     {
         for (const auto& tablets_shard : _tablets_shards) {
-            ReadLock rlock(tablets_shard.lock.get());
+            ReadLock rdlock(tablets_shard.lock);
             for (const auto& tablet_map : tablets_shard.tablet_map) {
                 for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
                     if (tablet_ptr->tablet_state() != TABLET_RUNNING) {
@@ -1320,7 +1319,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
         it = candidate_tablets.erase(it);
         if (!keep_files) {
             // drop tablet will update tablet meta, should lock
-            WriteLock wrlock(tablet->get_header_lock_ptr());
+            WriteLock wrdlock(tablet->get_header_lock());
             LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
                       << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
                       << ", tablet_path=" << dropped_tablet->tablet_path_desc().filepath;
@@ -1332,7 +1331,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
             tablet->set_tablet_state(TABLET_SHUTDOWN);
             tablet->save_meta();
             {
-                WriteLock wlock(&_shutdown_tablets_lock);
+                WriteLock wrdlock(_shutdown_tablets_lock);
                 _shutdown_tablets.push_back(tablet);
             }
         }
@@ -1366,12 +1365,12 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
 }
 
 void TabletManager::_add_tablet_to_partition(const Tablet& tablet) {
-    WriteLock wlock(&_partition_tablet_map_lock);
+    WriteLock wrdlock(_partition_tablet_map_lock);
     _partition_tablet_map[tablet.partition_id()].insert(tablet.get_tablet_info());
 }
 
 void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
-    WriteLock wlock(&_partition_tablet_map_lock);
+    WriteLock wrdlock(_partition_tablet_map_lock);
     _partition_tablet_map[tablet.partition_id()].erase(tablet.get_tablet_info());
     if (_partition_tablet_map[tablet.partition_id()].empty()) {
         _partition_tablet_map.erase(tablet.partition_id());
@@ -1381,7 +1380,7 @@ void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
 void TabletManager::obtain_specific_quantity_tablets(vector<TabletInfo>& tablets_info,
                                                      int64_t num) {
     for (const auto& tablets_shard : _tablets_shards) {
-        ReadLock rlock(tablets_shard.lock.get());
+        ReadLock rdlock(tablets_shard.lock);
         for (const auto& item : tablets_shard.tablet_map) {
             for (TabletSharedPtr tablet : item.second.table_arr) {
                 if (tablets_info.size() >= num) {
@@ -1399,8 +1398,8 @@ void TabletManager::obtain_specific_quantity_tablets(vector<TabletInfo>& tablets
     }
 }
 
-RWMutex* TabletManager::_get_tablets_shard_lock(TTabletId tabletId) {
-    return _get_tablets_shard(tabletId).lock.get();
+std::shared_mutex& TabletManager::_get_tablets_shard_lock(TTabletId tabletId) {
+    return _get_tablets_shard(tabletId).lock;
 }
 
 TabletManager::tablet_map_t& TabletManager::_get_tablet_map(TTabletId tabletId) {
@@ -1420,7 +1419,7 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         // When drop tablet, '_partition_tablet_map_lock' is locked in 'tablet_shard_lock'.
         // To avoid locking 'tablet_shard_lock' in '_partition_tablet_map_lock', we lock and
         // copy _partition_tablet_map here.
-        ReadLock rlock(&_partition_tablet_map_lock);
+        ReadLock rdlock(_partition_tablet_map_lock);
         partition_tablet_map = _partition_tablet_map;
     }
     std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = partition_tablet_map.begin();

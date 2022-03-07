@@ -23,6 +23,8 @@
 #include "util/trace.h"
 
 using std::vector;
+using ReadLock = std::shared_lock<std::shared_mutex>;
+using WriteLock = std::unique_lock<std::shared_mutex>;
 
 namespace doris {
 
@@ -133,7 +135,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     int64_t current_max_version;
     {
-        ReadLock rdlock(_tablet->get_header_lock_ptr());
+        ReadLock rdlock(_tablet->get_header_lock());
         current_max_version = _tablet->rowset_with_max_version()->end_version();
     }
 
@@ -186,7 +188,7 @@ void Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
 
-    WriteLock wrlock(_tablet->get_header_lock_ptr());
+    WriteLock wrlock(_tablet->get_header_lock());
     _tablet->modify_rowsets(output_rowsets, _input_rowsets);
     _tablet->save_meta();
 }

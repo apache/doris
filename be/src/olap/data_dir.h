@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 
 #include "common/status.h"
@@ -195,7 +196,7 @@ private:
     std::set<std::string> _all_check_paths;
     std::set<std::string> _all_tablet_schemahash_paths;
 
-    RWMutex _pending_path_mutex;
+    mutable std::shared_mutex _pending_path_mutex;
     std::set<std::string> _pending_path_ids;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;

@@ -20,6 +20,7 @@
 #include "olap/tuple_reader.h"
 #include "olap/row.h"
 
+using ReadLock = std::shared_lock<std::shared_mutex>;
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
@@ -60,7 +61,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     reader_params.version = Version(0, _version);
 
     {
-        ReadLock rdlock(tablet->get_header_lock_ptr());
+        ReadLock rdlock(tablet->get_header_lock());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
         if (message == nullptr) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;

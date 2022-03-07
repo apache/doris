@@ -58,6 +58,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
+using ReadLock = std::shared_lock<std::shared_mutex>;
+using WriteLock = std::unique_lock<std::shared_mutex>;
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
@@ -547,12 +549,12 @@ OLAPStatus DataDir::load() {
 }
 
 void DataDir::add_pending_ids(const std::string& id) {
-    WriteLock wr_lock(&_pending_path_mutex);
+    WriteLock wr_lock(_pending_path_mutex);
     _pending_path_ids.insert(id);
 }
 
 void DataDir::remove_pending_ids(const std::string& id) {
-    WriteLock wr_lock(&_pending_path_mutex);
+    WriteLock wr_lock(_pending_path_mutex);
     _pending_path_ids.erase(id);
 }
 
@@ -719,7 +721,7 @@ void DataDir::_process_garbage_path(const std::string& path) {
 }
 
 bool DataDir::_check_pending_ids(const std::string& id) {
-    ReadLock rd_lock(&_pending_path_mutex);
+    ReadLock rd_lock(_pending_path_mutex);
     return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
