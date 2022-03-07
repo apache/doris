@@ -53,8 +53,6 @@ export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 #####################################################
 
 # libevent
-# the last release version of libevent is 2.1.8, which was released on 26 Jan 2017, that is too old.
-# so we use the master version of libevent, which is downloaded on 22 Jun 2018, with commit 24236aed01798303745470e6c498bf606e88724a
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
 LIBEVENT_SOURCE=libevent-release-2.1.12-stable
@@ -229,13 +227,13 @@ S2_NAME=s2geometry-0.9.0.tar.gz
 S2_SOURCE=s2geometry-0.9.0
 S2_MD5SUM="293552c7646193b8b4a01556808fe155"
 
-# BITSHUFFLE
+# bitshuffle
 BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
 BITSHUFFLE_NAME=bitshuffle-0.3.5.tar.gz
 BITSHUFFLE_SOURCE=bitshuffle-0.3.5
 BITSHUFFLE_MD5SUM="2648ec7ccd0b896595c6636d926fc867"
 
-# CROARINGBITMAP
+# croaringbitmap
 CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/v0.3.4.tar.gz"
 CROARINGBITMAP_NAME=CRoaring-0.3.4.tar.gz
 CROARINGBITMAP_SOURCE=CRoaring-0.3.4
@@ -265,7 +263,7 @@ JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
 JEMALLOC_SOURCE="jemalloc-5.2.1"
 JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
 
-# CCTZ
+# cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
 CCTZ_NAME="cctz-2.3.tar.gz"
 CCTZ_SOURCE="cctz-2.3"
