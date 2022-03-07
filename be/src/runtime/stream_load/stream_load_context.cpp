@@ -34,6 +34,10 @@ std::string StreamLoadContext::to_json() const {
     writer.Key("Label");
     writer.String(label.c_str());
 
+    writer.Key("TwoPhaseCommit");
+    std::string need_two_phase_commit = two_phase_commit ? "true" : "false";
+    writer.String(need_two_phase_commit.c_str());
+
     // status
     writer.Key("Status");
     switch (status.code()) {
@@ -288,7 +292,8 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
 
 std::string StreamLoadContext::brief(bool detail) const {
     std::stringstream ss;
-    ss << "id=" << id << ", job_id=" << job_id << ", txn_id=" << txn_id << ", label=" << label;
+    ss << "id=" << id << ", job_id=" << job_id << ", txn_id=" << txn_id << ", label=" << label
+       << ", elapse(s)=" << (UnixMillis() - start_millis) / 1000;
     if (detail) {
         switch (load_src_type) {
         case TLoadSourceType::KAFKA:

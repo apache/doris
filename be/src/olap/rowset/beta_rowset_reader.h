@@ -40,12 +40,11 @@ public:
     // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
     // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
+    OLAPStatus next_block(vectorized::Block* block) override;
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
     Version version() override { return _rowset->version(); }
-
-    VersionHash version_hash() override { return _rowset->version_hash(); }
 
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
@@ -54,9 +53,10 @@ public:
         return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
     }
 
-    RowsetReaderType type() const override { return RowsetReaderType::BETA; }
+    RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
 private:
+    std::unique_ptr<Schema> _schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 

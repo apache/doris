@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import org.apache.commons.codec.digest.DigestUtils;
@@ -57,13 +56,8 @@ public class MetaObject implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            this.signature = in.readLong();
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= 6) {
-            this.lastCheckTime = in.readLong();
-        }
+        this.signature = in.readLong();
+        this.lastCheckTime = in.readLong();
     }
 
 }

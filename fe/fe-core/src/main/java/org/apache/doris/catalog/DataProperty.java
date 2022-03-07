@@ -43,7 +43,13 @@ public class DataProperty implements Writable {
     }
 
     public DataProperty(TStorageMedium medium) {
-        this(medium, MAX_COOLDOWN_TIME_MS);
+        this.storageMedium = medium;
+        if (medium == TStorageMedium.SSD) {
+            long currentTimeMs = System.currentTimeMillis();
+            this.cooldownTimeMs = currentTimeMs + Config.storage_cooldown_second * 1000L;
+        } else {
+            this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+        }
     }
 
     public DataProperty(TStorageMedium medium, long cooldown) {

@@ -24,7 +24,6 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
@@ -386,6 +385,15 @@ public class Column implements Writable {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
+        if (type.isNumericType() && other.type.isStringType()) {
+            Integer lSize = type.getColumnStringRepSize();
+            Integer rSize = other.type.getColumnStringRepSize();
+            if (rSize < lSize) {
+                throw new DdlException("Can not change from wider type " + type.toSql() +
+                                        " to narrower type " + other.type.toSql());
+            }
+        }
+
         if (this.aggregationType != other.aggregationType) {
             throw new DdlException("Can not change aggregation type");
         }
@@ -593,48 +601,23 @@ public class Column implements Writable {
         boolean notNull = in.readBoolean();
         if (notNull) {
             aggregationType = AggregateType.valueOf(Text.readString(in));
-
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-                isAggregationTypeImplicit = in.readBoolean();
-            } else {
-                isAggregationTypeImplicit = false;
-            }
+            isAggregationTypeImplicit = in.readBoolean();
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            isKey = in.readBoolean();
-        } else {
-            isKey = (aggregationType == null);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            isAllowNull = in.readBoolean();
-        } else {
-            isAllowNull = false;
-        }
-
+        isKey = in.readBoolean();
+        isAllowNull = in.readBoolean();
         notNull = in.readBoolean();
         if (notNull) {
             defaultValue = Text.readString(in);
         }
         stats = ColumnStats.read(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
+        comment = Text.readString(in);
     }
 
     public static Column read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
-            Column column = new Column();
-            column.readFields(in);
-            return column;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, Column.class);
-        }
+
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Column.class);
     }
 
     // Gen a signature string of this column, contains:

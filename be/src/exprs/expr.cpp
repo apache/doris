@@ -38,6 +38,7 @@
 #include "exprs/is_null_predicate.h"
 #include "exprs/literal.h"
 #include "exprs/null_literal.h"
+#include "exprs/rpc_fn_call.h"
 #include "exprs/scalar_fn_call.h"
 #include "exprs/slot_ref.h"
 #include "exprs/tuple_is_null_predicate.h"
@@ -357,6 +358,8 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new IfNullExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "coalesce") {
             *expr = pool->add(new CoalesceExpr(texpr_node));
+        } else if (texpr_node.fn.binary_type == TFunctionBinaryType::RPC) {
+            *expr = pool->add(new RPCFnCall(texpr_node));
         } else {
             *expr = pool->add(new ScalarFnCall(texpr_node));
         }
@@ -401,22 +404,6 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
         *expr = pool->add(new InfoFunc(texpr_node));
         return Status::OK();
     }
-#if 0
-    case TExprNodeType::FUNCTION_CALL: {
-        if (!texpr_node.__isset.fn_call_expr) {
-            return Status::InternalError("Udf call not set in thrift node");
-        }
-
-        if (texpr_node.fn_call_expr.fn.binary_type == TFunctionBinaryType::HIVE) {
-            DCHECK(false);  //temp add, can't get here
-            //*expr = pool->Add(new HiveUdfCall(texpr_node));
-        } else {
-            *expr = pool->add(new NativeUdfExpr(texpr_node));
-        }
-
-        return Status::OK();
-    }
-#endif
 
     default:
         std::stringstream os;
@@ -560,16 +547,6 @@ void Expr::close(RuntimeState* state, ExprContext* context,
     for (int i = 0; i < _children.size(); ++i) {
         _children[i]->close(state, context, scope);
     }
-    // TODO(zc)
-#if 0
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        // This is the final, non-cloned context to close. Clean up the whole Expr.
-        if (cache_entry_ != nullptr) {
-            LibCache::instance()->DecrementUseCount(cache_entry_);
-            cache_entry_ = nullptr;
-        }
-    }
-#endif
 }
 
 Status Expr::clone_if_not_exists(const std::vector<ExprContext*>& ctxs, RuntimeState* state,

@@ -34,8 +34,8 @@ under the License.
 ```
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
     (column_definition1[, column_definition2, ...]
-    [, index_definition1[, ndex_definition12,]])
-    [ENGINE = [olap|mysql|broker|hive]]
+    [, index_definition1[, index_definition2, ...]])
+    [ENGINE = [olap|mysql|broker|hive|iceberg]]
     [key_desc]
     [COMMENT "table comment"];
     [partition_desc]
@@ -114,7 +114,7 @@ under the License.
         当前仅支持BITMAP索引， BITMAP索引仅支持应用于单列
 
 3. ENGINE 类型
-    默认为 olap。可选 mysql, broker, hive
+    默认为 olap。可选 mysql, broker, hive, iceberg
     1) 如果是 mysql，则需要在 properties 提供以下信息：
 
 ```
@@ -165,6 +165,22 @@ under the License.
     
     ```
     其中 database 是 hive 表对应的库名字，table 是 hive 表的名字，hive.metastore.uris 是 hive metastore 服务地址。
+
+    4）如果是 iceberg，则需要在 properties 中提供以下信息：
+    ```
+        PROPERTIES (
+            "iceberg.database" = "iceberg_db_name",
+            "iceberg.table" = "iceberg_table_name",
+            "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+            "iceberg.catalog.type" = "HIVE_CATALOG"
+            )
+
+    ```
+    其中 database 是 Iceberg 对应的库名；  
+    table 是 Iceberg 中对应的表名；
+    hive.metastore.uris 是 hive metastore 服务地址；  
+    catalog.type 默认为 HIVE_CATALOG。当前仅支持 HIVE_CATALOG，后续会支持更多 Iceberg catalog 类型。
+
 
 4. key_desc
     语法：
@@ -270,9 +286,13 @@ under the License.
         语法：
             `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
         说明：
-            使用指定的 key 列进行哈希分桶。默认分区数为10
-
-    建议:建议使用Hash分桶方式
+            使用指定的 key 列进行哈希分桶。
+        2) Random 分桶
+        语法：
+            `DISTRIBUTED BY RANDOM [BUCKETS num]`
+        说明：
+            使用随机数进行分桶。  
+    建议: 当没有合适的key做哈希分桶使得表的数据均匀分布的时候，建议使用RANDOM分桶方式。
 
 7. PROPERTIES
     1) 如果 ENGINE 类型为 olap
@@ -826,6 +846,19 @@ under the License.
     "dynamic_partition.buckets" = "32",
     "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
+```
+
+17. 创建一个 Iceberg 外表
+
+```
+    CREATE TABLE example_db.t_iceberg 
+    ENGINE=ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    );
 ```
 
 ## keyword

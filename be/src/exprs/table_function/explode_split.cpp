@@ -24,6 +24,7 @@
 namespace doris {
 
 ExplodeSplitTableFunction::ExplodeSplitTableFunction() {
+    _fn_name = "explode_split";
 }
 
 ExplodeSplitTableFunction::~ExplodeSplitTableFunction() {
@@ -40,7 +41,7 @@ Status ExplodeSplitTableFunction::open() {
     // check if the delimiter argument(the 2nd arg) is constant.
     // if yes, cache it
     if (fn_ctx->is_arg_constant(1)) {
-        _is_delimiter_constant = true; 
+        _is_delimiter_constant = true;
         StringVal* delimiter = reinterpret_cast<StringVal*>(fn_ctx->get_constant_arg(1));
         _const_delimter = StringPiece((char*) delimiter->ptr, delimiter->len);
     }
@@ -65,7 +66,7 @@ Status ExplodeSplitTableFunction::process(TupleRow* tuple_row) {
             StringVal delimiter = _expr_context->root()->get_child(1)->get_string_val(_expr_context, tuple_row);
             _backup = strings::Split(StringPiece((char*) text.ptr, text.len), StringPiece((char*) delimiter.ptr, delimiter.len));
         }
-        for (const std::string str : _backup) {
+        for (const std::string & str : _backup) {
             _data.emplace_back(str);
         }
         _cur_size = _backup.size();

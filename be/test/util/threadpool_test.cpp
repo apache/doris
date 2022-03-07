@@ -372,7 +372,7 @@ TEST_F(ThreadPoolTest, TestSlowDestructor) {
 class ThreadPoolTestTokenTypes : public ThreadPoolTest,
                                  public testing::WithParamInterface<ThreadPool::ExecutionMode> {};
 
-INSTANTIATE_TEST_CASE_P(Tokens, ThreadPoolTestTokenTypes,
+INSTANTIATE_TEST_SUITE_P(Tokens, ThreadPoolTestTokenTypes,
                         ::testing::Values(ThreadPool::ExecutionMode::SERIAL,
                                           ThreadPool::ExecutionMode::CONCURRENT));
 

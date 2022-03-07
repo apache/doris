@@ -23,12 +23,10 @@
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
-                                       TVersion version, TVersionHash version_hash,
-                                       uint32_t* checksum)
+                                       TVersion version, uint32_t* checksum)
         : _tablet_id(tablet_id),
           _schema_hash(schema_hash),
           _version(version),
-          _version_hash(version_hash),
           _checksum(checksum) {}
 
 OLAPStatus EngineChecksumTask::execute() {
@@ -56,7 +54,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     TupleReader reader;
-    ReaderParams reader_params;
+    TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = READER_CHECKSUM;
     reader_params.version = Version(0, _version);

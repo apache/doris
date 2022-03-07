@@ -26,7 +26,7 @@ include "Partitions.thrift"
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
   MYSQL_SCAN_NODE,
-  CSV_SCAN_NODE,
+  CSV_SCAN_NODE, // deprecated
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
   MERGE_JOIN_NODE,
@@ -39,7 +39,7 @@ enum TPlanNodeType {
   CROSS_JOIN_NODE,
   META_SCAN_NODE,
   ANALYTIC_EVAL_NODE,
-  OLAP_REWRITE_NODE,
+  OLAP_REWRITE_NODE, // deprecated
   KUDU_SCAN_NODE, // Deprecated
   BROKER_SCAN_NODE,
   EMPTY_SET_NODE, 
@@ -157,8 +157,8 @@ struct TBrokerRangeDesc {
 }
 
 struct TBrokerScanRangeParams {
-    1: required byte column_separator;
-    2: required byte line_delimiter;
+    1: required i8 column_separator;
+    2: required i8 line_delimiter;
 
     // We construct one line in file to a tuple. And each field of line 
     // correspond to a slot in this tuple. 
@@ -390,6 +390,10 @@ struct THashJoinNode {
   // If true, this join node can (but may choose not to) generate slot filters
   // after constructing the build side that can be applied to the probe side.
   4: optional bool add_probe_filters
+
+  // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
+  // equi-join predicate, only use in vec exec engine
+  5: optional Exprs.TExpr vother_join_conjunct	
 }
 
 struct TMergeJoinNode {
@@ -700,6 +704,7 @@ enum TRuntimeFilterType {
   IN = 1
   BLOOM = 2
   MIN_MAX = 4
+  IN_OR_BLOOM = 8
 }
 
 // Specification of a runtime filter.
@@ -780,6 +785,7 @@ struct TPlanNode {
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
 
+  // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct
 
   41: optional TTableFunctionNode table_function_node

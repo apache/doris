@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
@@ -236,16 +235,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             return true;
         }
 
-        if (txnStatusChangeReason != null && txnStatusChangeReason == TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
-            // Because the max_filter_ratio of routine load task is always 1.
-            // Therefore, under normal circumstances, routine load task will not return the error "too many filtered rows".
-            // If no data is imported, the error "all partitions have no load data" may only be returned.
-            // In this case, the status of the transaction is ABORTED,
-            // but we still need to update the offset to skip these error lines.
-            Preconditions.checkState(txnState.getTransactionStatus() == TransactionStatus.ABORTED, txnState.getTransactionStatus());
-            return true;
-        }
-
         // Running here, the status of the transaction should be ABORTED,
         // and it is caused by other errors. In this case, we should not update the offset.
         LOG.debug("no need to update the progress of kafka routine load. txn status: {}, " +
@@ -290,7 +279,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // If user does not specify kafka partition,
         // We will fetch partition from kafka server periodically
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
-            if (customKafkaPartitions == null && !customKafkaPartitions.isEmpty()) {
+            if (customKafkaPartitions != null && !customKafkaPartitions.isEmpty()) {
                 return;
             }
             updateKafkaPartitions();
@@ -546,14 +535,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             customKafkaPartitions.add(in.readInt());
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_51) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String propertyKey = Text.readString(in);
-                String propertyValue = Text.readString(in);
-                if (propertyKey.startsWith("property.")) {
-                    this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
-                }
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            String propertyKey = Text.readString(in);
+            String propertyValue = Text.readString(in);
+            if (propertyKey.startsWith("property.")) {
+                this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
             }
         }
     }
@@ -694,5 +681,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
         Gson gson = new Gson();
         return gson.toJson(partitionIdToOffsetLag);
+    }
+
+    @Override
+    public double getMaxFilterRatio() {
+        // for kafka routine load, the max filter ratio is always 1, because it use max error num instead of this.
+        return 1.0;
     }
 }

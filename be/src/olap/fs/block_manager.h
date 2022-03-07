@@ -31,7 +31,7 @@ namespace doris {
 class BlockId;
 class Env;
 class MemTracker;
-class Slice;
+struct Slice;
 
 namespace fs {
 
@@ -171,12 +171,8 @@ public:
 // used to specify directories based on block type (e.g. to prefer bloom block
 // placement into SSD-backed directories).
 struct CreateBlockOptions {
-    CreateBlockOptions(const FilePathDesc& new_path_desc) {
-        path_desc = new_path_desc;
-    }
-    CreateBlockOptions(const std::string& path) {
-        path_desc.filepath = path;
-    }
+    CreateBlockOptions(const FilePathDesc& new_path_desc) { path_desc = new_path_desc; }
+    CreateBlockOptions(const std::string& path) { path_desc.filepath = path; }
     // const std::string tablet_id;
     FilePathDesc path_desc;
 };
@@ -236,7 +232,8 @@ public:
     // may fail.
     //
     // Does not modify 'block' on error.
-    virtual Status open_block(const FilePathDesc& path_desc, std::unique_ptr<ReadableBlock>* block) = 0;
+    virtual Status open_block(const FilePathDesc& path_desc,
+                              std::unique_ptr<ReadableBlock>* block) = 0;
 
     // Retrieves the IDs of all blocks under management by this block manager.
     // These include ReadableBlocks as well as WritableBlocks.
@@ -249,7 +246,8 @@ public:
 
     virtual Status delete_block(const FilePathDesc& path_desc, bool is_dir = false) = 0;
 
-    virtual Status link_file(const FilePathDesc& src_path_desc, const FilePathDesc& dest_path_desc) = 0;
+    virtual Status link_file(const FilePathDesc& src_path_desc,
+                             const FilePathDesc& dest_path_desc) = 0;
 
     static const std::string block_manager_preflush_control;
 };

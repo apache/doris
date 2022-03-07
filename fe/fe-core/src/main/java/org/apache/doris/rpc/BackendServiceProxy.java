@@ -117,7 +117,7 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
-            TNetworkAddress address, TUniqueId finstId, InternalService.PPlanFragmentCancelReason cancelReason)
+            TNetworkAddress address, TUniqueId finstId, Types.PPlanFragmentCancelReason cancelReason)
             throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()

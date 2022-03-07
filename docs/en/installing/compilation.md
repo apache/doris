@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -35,19 +35,19 @@ This document focuses on how to code Doris through source code.
 
 1. Download Docker Mirror
 
-    `$ docker pull apache/incubator-doris:build-env-latest`
+    `$ docker pull apache/incubator-doris:build-env-ldb-toolchain-latest`
 
     Check mirror download completed:
 
     ```
     $ docker images
-    REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-latest   49f68cecbc1a        4 days ago          3.76GB
+    REPOSITORY               TAG                              IMAGE ID            CREATED             SIZE
+    apache/incubator-doris   build-env-ldb-toolchain-latest   49f68cecbc1a        4 days ago          3.76GB
     ```
 
 > Note1: For different versions of Doris, you need to download the corresponding mirror version. From Apache Doris 0.15 version, the docker image will keep same version number with Doris. For example, you can use  `apache/incubator-doris:build-env-for-0.15.0` to compile Apache Doris 0.15.0.
 >
-> Node2: `apache/incubator-doris:build-env-latest` is for compiling trunk code, and will be updated along with trunk code. View the update time in `docker/README.md`
+> Node2: `apache/incubator-doris:build-env-ldb-toolchain-latest` is for compiling trunk code, and will be updated along with trunk code. View the update time in `docker/README.md`
 
 | image version | commit id | release version |
 |---|---|---|
@@ -56,7 +56,8 @@ This document focuses on how to code Doris through source code.
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x |
 | apache/incubator-doris:build-env-for-0.15.0 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.0          |
-| apache/incubator-doris:build-env-latest | trunk | trunk |
+| apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/incubator-doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
+| apache/incubator-doris:build-env-ldb-toolchain-latest | trunk | trunk |
 
 **note**:
 
@@ -67,15 +68,15 @@ This document focuses on how to code Doris through source code.
 > 3. From docker image of build-env-1.3.1, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
 >
 >   Switch to JDK 8:
->   
+>
 >   ```
 >   $ alternatives --set java java-1.8.0-openjdk.x86_64
 >   $ alternatives --set javac java-1.8.0-openjdk.x86_64
 >   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
 >   ```
->   
+>
 >   Switch to JDK 11:
->   
+>
 >   ```
 >   $ alternatives --set java java-11-openjdk.x86_64
 >   $ alternatives --set javac java-11-openjdk.x86_64
@@ -84,14 +85,14 @@ This document focuses on how to code Doris through source code.
 
 2. Running Mirror
 
-    `$ docker run -it apache/incubator-doris:build-env-latest`
+    `$ docker run -it apache/incubator-doris:build-env-ldb-toolchain-latest`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
      At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-latest
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
     ```
 
 3. Download source code
@@ -117,7 +118,7 @@ This document focuses on how to code Doris through source code.
      > `sh build.sh --clean --be --fe --ui`
      >
      > This is because from build-env-for-0.15.0, we upgraded thrift (0.9 -> 0.13), you need to use the --clean command to force the use of the new version of thrift to generate code files, otherwise incompatible code will appear.
-    
+
     After compilation, the output file is in the `output/` directory.
 
 ### Self-compiling Development Environment Mirror
@@ -133,30 +134,30 @@ You can try to compile Doris directly in your own Linux environment.
     * Before commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
        `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+ Bison 3.0+`
-    
+
        If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
-    
+
        `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python autopoint pkg-config`
-    
+
        If you are using CentOS you can use the following command to install the dependencies
-    
+
        `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
-    
+
     * After commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
        `GCC 10+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+ Bison 3.0+`
-    
+
        If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
-    
+
        ```
        sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python
        sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
        sudo apt update
-       sudo apt install gcc-10 g++-10 
+       sudo apt install gcc-10 g++-10
        sudo apt-get install autoconf automake libtool autopoint
        ```
         If you are using CentOS you can use the following command to install the dependencies
-    
+
        ```
        sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
        sudo yum install centos-release-scl
@@ -173,8 +174,10 @@ You can try to compile Doris directly in your own Linux environment.
        enabled=1
        ```
        After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
+       > nit: you can find the jdk install directory by using command `alternatives --list`
+
        Doris 0.14.0 will use gcc7 env to compile.
-    
+
 2. Compile Doris
 
     ```

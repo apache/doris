@@ -22,10 +22,10 @@
 #include <mutex>
 
 #include "exec/file_reader.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/message_body_sink.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
@@ -40,9 +40,7 @@ public:
               _max_buffered_bytes(max_buffered_bytes),
               _min_chunk_size(min_chunk_size),
               _total_length(total_length),
-              _use_proto(use_proto),
-              _finished(false),
-              _cancelled(false) {}
+              _use_proto(use_proto) {}
     virtual ~StreamLoadPipe() {}
 
     Status open() override { return Status::OK(); }
@@ -148,7 +146,7 @@ public:
         return Status::OK();
     }
 
-    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
+    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override {
         return Status::InternalError("Not implemented");
     }
 
@@ -270,9 +268,6 @@ private:
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
 
-    bool _finished;
-    bool _cancelled;
-    std::string _cancelled_reason = "";
 
     ByteBufferPtr _write_buf;
 };

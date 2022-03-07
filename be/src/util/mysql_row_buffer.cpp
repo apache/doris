@@ -29,12 +29,16 @@
 
 namespace doris {
 
+static uint8_t NEXT_TWO_BYTE = 252;
+static uint8_t NEXT_THREE_BYTE = 253;
+static uint8_t NEXT_EIGHT_BYTE = 254;
+
 // the first byte:
 // <= 250: length
 // = 251: nullptr
 // = 252: the next two byte is length
 // = 253: the next three byte is length
-// = 254: the next eighth byte is length
+// = 254: the next eight byte is length
 static char* pack_vlen(char* packet, uint64_t length) {
     if (length < 251ULL) {
         int1store(packet, length);
@@ -43,18 +47,18 @@ static char* pack_vlen(char* packet, uint64_t length) {
 
     /* 251 is reserved for nullptr */
     if (length < 65536ULL) {
-        *packet++ = 252;
+        *packet++ = NEXT_TWO_BYTE;
         int2store(packet, length);
         return packet + 2;
     }
 
     if (length < 16777216ULL) {
-        *packet++ = 253;
+        *packet++ = NEXT_THREE_BYTE;
         int3store(packet, length);
         return packet + 3;
     }
 
-    *packet++ = 254;
+    *packet++ = NEXT_EIGHT_BYTE;
     int8store(packet, length);
     return packet + 8;
 }
@@ -73,7 +77,7 @@ MysqlRowBuffer::~MysqlRowBuffer() {
 
 void MysqlRowBuffer::open_dynamic_mode() {
     if (!_dynamic_mode) {
-        *_pos++ = 254;
+        *_pos++ = NEXT_EIGHT_BYTE;
         // write length when dynamic mode close
         _len_pos = _pos;
         _pos = _pos + 8;

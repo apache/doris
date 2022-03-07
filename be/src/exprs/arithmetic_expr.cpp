@@ -113,7 +113,7 @@ FloatVal ModExpr::get_float_val(ExprContext* context, TupleRow* row) {
         return FloatVal::null();
     }
     FloatVal v2 = _children[1]->get_float_val(context, row);
-    if (v2.is_null) {
+    if (v2.is_null || v2.val == 0) {
         return FloatVal::null();
     }
     return FloatVal(fmod(v1.val, v2.val));
@@ -125,7 +125,7 @@ DoubleVal ModExpr::get_double_val(ExprContext* context, TupleRow* row) {
         return DoubleVal::null();
     }
     DoubleVal v2 = _children[1]->get_double_val(context, row);
-    if (v2.is_null) {
+    if (v2.is_null || v2.val == 0) {
         return DoubleVal::null();
     }
     return DoubleVal(fmod(v1.val, v2.val));

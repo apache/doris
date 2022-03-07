@@ -264,7 +264,7 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 如果使用 mysql jdbc connector 来连接Doris，可以使用 jdbc 的自动重试机制:
 
 ```
-jdbc:mysql://[host:port],[host:port].../[database][?propertyName1][=propertyValue1][&propertyName2][=propertyValue2]...
+jdbc:mysql://[host1][:port1],[host2][:port2][,[host3][:port3]]...[/[database]][?propertyName1=propertyValue1[&propertyName2=propertyValue2]...]
 ```
 
 **第三种**

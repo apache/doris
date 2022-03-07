@@ -54,19 +54,19 @@ TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& 
 
 TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate)
         : _field(binary_predicate.col.name), _match_none(false) {
-        if (binary_predicate.col.type.type == PrimitiveType::TYPE_BOOLEAN) {
-            int val = atoi(binary_predicate.value.to_string().c_str());
-            if (val == 1) {
-                _term = std::string("true");
-            } else if (val == 0){
-                _term = std::string("false");
-            } else {
-                // keep semantic consistent with mysql
-                _match_none = true;
-            }
+    if (binary_predicate.col.type.type == PrimitiveType::TYPE_BOOLEAN) {
+        int val = atoi(binary_predicate.value.to_string().c_str());
+        if (val == 1) {
+            _term = std::string("true");
+        } else if (val == 0) {
+            _term = std::string("false");
         } else {
-            _term = binary_predicate.value.to_string();
+            // keep semantic consistent with mysql
+            _match_none = true;
         }
+    } else {
+        _term = binary_predicate.value.to_string();
+    }
 }
 
 void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -82,7 +82,6 @@ void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* 
         // this would only appear `bool` column's predicate (a = 2)
         query->AddMember("match_none", term_node, allocator);
     }
-
 }
 
 RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate)
@@ -381,66 +380,62 @@ Status BooleanQueryBuilder::check_es_query(const ExtFunction& extFunction) {
 
 void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates,
                                    std::vector<bool>* result) {
-    int conjunct_size = espredicates.size();
-    result->reserve(conjunct_size);
     for (auto espredicate : espredicates) {
-        bool flag = true;
-        for (auto predicate : espredicate->get_predicate_list()) {
-            switch (predicate->node_type) {
-            case TExprNodeType::BINARY_PRED: {
-                ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
-                TExprOpcode::type op = binary_predicate->op;
-                if (op != TExprOpcode::EQ && op != TExprOpcode::NE && op != TExprOpcode::LT &&
-                    op != TExprOpcode::LE && op != TExprOpcode::GT && op != TExprOpcode::GE) {
-                    flag = false;
-                }
-                break;
-            }
-            case TExprNodeType::COMPOUND_PRED: {
-                ExtCompPredicates* compound_predicates = (ExtCompPredicates*)predicate;
-                if (compound_predicates->op == TExprOpcode::COMPOUND_AND) {
-                    std::vector<bool> list;
-                    validate(compound_predicates->conjuncts, &list);
-                    for (int i = list.size() - 1; i >= 0; i--) {
-                        if (!list[i]) {
-                            flag = false;
-                            break;
-                        }
-                    }
-                } else {
-                    // reserved for compound_not
-                    flag = false;
-                }
-                break;
-            }
-            case TExprNodeType::LIKE_PRED:
-            case TExprNodeType::IS_NULL_PRED:
-            case TExprNodeType::IN_PRED: {
-                break;
-            }
-            case TExprNodeType::FUNCTION_CALL: {
-                ExtFunction* function_predicate = (ExtFunction*)predicate;
-                if ("esquery" == function_predicate->func_name) {
-                    Status st = check_es_query(*function_predicate);
-                    if (!st.ok()) {
-                        flag = false;
-                    }
-                } else {
-                    flag = false;
-                }
-                break;
-            }
-            default: {
-                flag = false;
-                break;
-            }
-            }
-            if (!flag) {
-                break;
-            }
-        }
-        result->push_back(flag);
+        result->push_back(validate(espredicate));
     }
+}
+
+bool BooleanQueryBuilder::validate(const EsPredicate* espredicate) {
+    for (auto predicate : espredicate->get_predicate_list()) {
+        switch (predicate->node_type) {
+        case TExprNodeType::BINARY_PRED: {
+            ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
+            TExprOpcode::type op = binary_predicate->op;
+            if (op != TExprOpcode::EQ && op != TExprOpcode::NE && op != TExprOpcode::LT &&
+                op != TExprOpcode::LE && op != TExprOpcode::GT && op != TExprOpcode::GE) {
+                return false;
+            }
+            break;
+        }
+        case TExprNodeType::COMPOUND_PRED: {
+            ExtCompPredicates* compound_predicates = (ExtCompPredicates*)predicate;
+            if (compound_predicates->op != TExprOpcode::COMPOUND_AND) {
+                // reserved for compound_not
+                return false;
+            }
+            std::vector<bool> list;
+            validate(compound_predicates->conjuncts, &list);
+            for (int i = list.size() - 1; i >= 0; i--) {
+                if (!list[i]) {
+                    return false;
+                }
+            }
+            break;
+        }
+        case TExprNodeType::LIKE_PRED:
+        case TExprNodeType::IS_NULL_PRED:
+        case TExprNodeType::IN_PRED: {
+            break;
+        }
+        case TExprNodeType::FUNCTION_CALL: {
+            ExtFunction* function_predicate = (ExtFunction*)predicate;
+            if ("esquery" != function_predicate->func_name) {
+                return false;
+            }
+            Status st = check_es_query(*function_predicate);
+            if (!st.ok()) {
+                return false;
+            }
+            break;
+        }
+        default: {
+            return false;
+            break;
+        }
+        }
+    }
+
+    return true;
 }
 
 void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates,

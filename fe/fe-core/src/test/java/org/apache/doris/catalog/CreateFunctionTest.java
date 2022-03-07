@@ -120,7 +120,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
 
         // create alias function
-        createFuncStr = "create alias function db1.id_masking(int) with parameter(id) as concat(left(id,3),'****',right(id,4));";
+        createFuncStr = "create alias function db1.id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 

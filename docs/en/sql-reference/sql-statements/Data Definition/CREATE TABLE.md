@@ -35,7 +35,7 @@ Syntax:
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
     (column_definition1[, column_definition2, ...]
     [, index_definition1[, ndex_definition12,]])
-    [ENGINE = [olap|mysql|broker|hive]]
+    [ENGINE = [olap|mysql|broker|hive|iceberg]]
     [key_desc]
     [COMMENT "table comment"]
     [partition_desc]
@@ -106,7 +106,7 @@ Syntax:
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type
-    Default is olap. Options are: olap, mysql, broker, hive
+    Default is olap. Options are: olap, mysql, broker, hive, iceberg
     1) For mysql, properties should include:
 
         ```
@@ -156,6 +156,21 @@ Syntax:
         )
         ```
         "database" is the name of the database corresponding to the hive table, "table" is the name of the hive table, and "hive.metastore.uris" is the hive metastore service address.
+
+    4) For iceberg, properties should include:
+        ```
+        PROPERTIES (
+            "iceberg.database" = "iceberg_db_name",
+            "iceberg.table" = "iceberg_table_name",
+            "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+            "iceberg.catalog.type" = "HIVE_CATALOG"
+            )
+
+        ```
+        database is the name of the database corresponding to Iceberg.  
+        table is the name of the table corresponding to Iceberg.
+        hive.metastore.uris is the address of the hive metastore service.  
+        catalog.type defaults to HIVE_CATALOG. Currently, only HIVE_CATALOG is supported, more Iceberg catalog types will be supported later.
         
 4. key_desc
     Syntax:
@@ -255,7 +270,14 @@ Syntax:
        Syntax:
         `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
        Explain:
-        The default buckets is 10.
+         Hash bucketing using the specified key column.
+    2) Random
+       Syntax:
+        `DISTRIBUTED BY RANDOM [BUCKETS num]`
+       Explain:
+         Use random numbers for bucketing.
+    Suggestion: It is recommended to use random bucketing when there is no suitable key for hash bucketing to make the data of the table evenly distributed.   
+
 7. PROPERTIES
     1) If ENGINE type is olap. User can specify storage medium, cooldown time and replication   number:
 
@@ -786,6 +808,19 @@ Syntax:
     "dynamic_partition.buckets" = "32",
     "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
+```
+
+17. Create an Iceberg external table
+
+```
+    CREATE TABLE example_db.t_iceberg 
+    ENGINE=ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    );
 ```
 
 ## keyword

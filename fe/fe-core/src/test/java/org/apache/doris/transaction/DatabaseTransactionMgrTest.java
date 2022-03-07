@@ -71,7 +71,7 @@ public class DatabaseTransactionMgrTest {
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_83);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
@@ -218,10 +218,11 @@ public class DatabaseTransactionMgrTest {
         assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(6)));
         assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(7)));
         assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(8)));
-        assertEquals("", txnInfo.get(9));
-        assertEquals("0", txnInfo.get(10));
-        assertEquals("-1", txnInfo.get(11));
-        assertEquals(String.valueOf(Config.stream_load_default_timeout_second * 1000), txnInfo.get(12));
+        assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(9)));
+        assertEquals("", txnInfo.get(10));
+        assertEquals("0", txnInfo.get(11));
+        assertEquals("-1", txnInfo.get(12));
+        assertEquals(String.valueOf(Config.stream_load_default_timeout_second * 1000), txnInfo.get(13));
     }
 
     @Test
@@ -254,10 +255,9 @@ public class DatabaseTransactionMgrTest {
         List<List<Comparable>> partitionTransInfos = masterDbTransMgr.getPartitionTransInfo(txnId, CatalogTestUtil.testTableId1);
         assertEquals(1, partitionTransInfos.size());
         List<Comparable> partitionTransInfo = partitionTransInfos.get(0);
-        assertEquals(3, partitionTransInfo.size());
+        assertEquals(2, partitionTransInfo.size());
         assertEquals(3L, partitionTransInfo.get(0));
         assertEquals(13L, partitionTransInfo.get(1));
-        assertEquals(123123123L, partitionTransInfo.get(2));
     }
 
     @Test

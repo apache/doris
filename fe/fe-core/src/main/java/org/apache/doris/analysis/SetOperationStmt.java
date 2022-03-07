@@ -460,6 +460,7 @@ public class SetOperationStmt extends QueryStmt {
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(tupleDesc);
             slotDesc.setLabel(getColLabels().get(i));
             slotDesc.setType(expr.getType());
+            slotDesc.setIsNullable(expr.isNullable());
             // TODO(zc)
             // slotDesc.setStats(columnStats.get(i));
             SlotRef outputSlotRef = new SlotRef(slotDesc);
@@ -484,7 +485,9 @@ public class SetOperationStmt extends QueryStmt {
                 Expr resultExpr = op.getQueryStmt().getResultExprs().get(i);
                 slotDesc.addSourceExpr(resultExpr);
                 SlotRef slotRef = resultExpr.unwrapSlotRef(false);
-                if (slotRef == null || slotRef.getDesc().getIsNullable()
+                if (slotRef == null) {
+                    isNullable |= resultExpr.isNullable();
+                } else if (slotRef.getDesc().getIsNullable()
                         || analyzer.isOuterJoined(slotRef.getDesc().getParent().getId())) isNullable = true;
                 if (op.hasAnalyticExprs()) continue;
                 slotRef = resultExpr.unwrapSlotRef(true);
@@ -540,7 +543,7 @@ public class SetOperationStmt extends QueryStmt {
             op.getQueryStmt().collectExprs(exprMap);
         }
         if (orderByElements != null) {
-            for (OrderByElement orderByElement : orderByElements) {
+            for (OrderByElement orderByElement : orderByElementsAfterAnalyzed) {
                 Expr expr = orderByElement.getExpr();
                 // see SelectStmt.collectExprs comments
                 if (containAlias(expr)) {
@@ -558,7 +561,7 @@ public class SetOperationStmt extends QueryStmt {
             op.getQueryStmt().putBackExprs(rewrittenExprMap);
         }
         if (orderByElements != null) {
-            for (OrderByElement orderByElement : orderByElements) {
+            for (OrderByElement orderByElement : orderByElementsAfterAnalyzed) {
                 Expr expr = orderByElement.getExpr();
                 if (expr.getId() == null) {
                     orderByElement.setExpr(expr);
@@ -566,6 +569,7 @@ public class SetOperationStmt extends QueryStmt {
                     orderByElement.setExpr(rewrittenExprMap.get(expr.getId().toString()));
                 }
             }
+            orderByElements = (ArrayList<OrderByElement>) orderByElementsAfterAnalyzed;
         }
     }
 

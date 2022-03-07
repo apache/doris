@@ -1,0 +1,124 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+FROM centos:7 AS builder
+
+# install dependencies
+RUN yum makecache && yum -y update && yum -y groupinstall 'Development Tools' && \
+    yum install -y byacc automake java-11-openjdk-devel java-1.8.0-openjdk-devel libtool bison binutils-devel zip \
+    unzip ncurses-devel curl git wget python2 glibc-static java-1.8.0-openjdk-devel ccache \
+    libstdc++-static which psl libpsl-devel centos-release-scl && \
+    yum install -y devtoolset-10 devtoolset-10-gcc devtoolset-10-libubsan-devel devtoolset-10-liblsan-devel \
+    devtoolset-10-libasan-devel
+
+# build cmake
+ARG CMAKE_VERSION=3.22.1
+ARG CMAKE_BASE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
+RUN wget ${CMAKE_BASE_URL}/cmake-${CMAKE_VERSION}-Linux-x86_64.sh -q -O /tmp/cmake-install.sh && \
+    chmod u+x /tmp/cmake-install.sh && \
+    /tmp/cmake-install.sh --skip-license --prefix=/usr --exclude-subdir && \
+    rm /tmp/cmake-install.sh
+
+# build  ninja
+ARG NINJA_VER=1.10.2
+ARG NINJA_BASE_URL=https://github.com/ninja-build/ninja/releases/download/v${NINJA_VER}
+RUN wget -q ${NINJA_BASE_URL}/ninja-linux.zip -O /tmp/ninja-linux.zip && \
+    unzip /tmp/ninja-linux.zip -d /usr/bin/ && \
+    rm /tmp/ninja-linux.zip
+
+# install maven 3.6.3
+ARG MAVEN_VERSION=3.6.3
+ARG MAVEN_BASE_URL=https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries
+RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
+    wget -q -O /tmp/apache-maven.tar.gz ${MAVEN_BASE_URL}/apache-maven-${MAVEN_VERSION}-bin.tar.gz && \
+    tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \
+    rm -f /tmp/apache-maven.tar.gz && \
+    ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
+
+# build flex
+ARG FLEX_VERSION=2.6.4
+RUN wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz \
+    -q -O /tmp/flex-$FLEX_VERSION.tar.gz \
+    && cd /tmp/ \
+    && tar -xf flex-$FLEX_VERSION.tar.gz \
+    && cd flex-$FLEX_VERSION \
+    && ./configure --enable-shared=NO \
+    && make \
+    && make install \
+    && rm /tmp/flex-$FLEX_VERSION.tar.gz \
+    && rm -rf /tmp/flex-$FLEX_VERSION
+
+# install nodejs
+ARG NODEJS_VERSION=14.16.0
+RUN wget https://nodejs.org/dist/v$NODEJS_VERSION/node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    -q -O /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    && cd /tmp/ && tar -xf node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    && cp -r node-v$NODEJS_VERSION-linux-x64/* /usr/local/ \
+    && rm /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz && rm -rf node-v$NODEJS_VERSION-linux-x64
+
+
+ENV BASH_ENV=/opt/rh/devtoolset-10/enable  \
+    ENV=/opt/rh/devtoolset-10/enable  \
+    PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable"
+
+# there is a repo which is included all of thirdparty
+ENV REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+ENV DEFAULT_DIR=/var/local
+ENV JAVA_HOME="/usr/lib/jvm/java-11"
+
+# clone lastest source code, download and build third party
+COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
+RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
+    && rm -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/src \
+    && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
+    && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
+    && mkdir -p ${DEFAULT_DIR}/thirdparty \
+    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
+    && rm -rf ${DEFAULT_DIR}/incubator-doris
+
+RUN alternatives --set java java-11-openjdk.x86_64 && alternatives --set javac java-11-openjdk.x86_64
+
+# build clang 11
+RUN wget -P ${DEFAULT_DIR}  https://github.com/llvm/llvm-project/releases/download/llvmorg-11.0.0/llvm-project-11.0.0.tar.xz \
+    && tar Jxf ${DEFAULT_DIR}/llvm-project-11.0.0.tar.xz -C ${DEFAULT_DIR} \
+    && echo "source /opt/rh/devtoolset-10/enable" > ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cd ${DEFAULT_DIR}/llvm-project-11.0.0" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "mkdir build" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cd build" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_PROJECTS=\"clang;libcxx;libcxxabi\" -G \"Unix Makefiles\" ../llvm " >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "make -j $(nproc)" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "make install" >> ${DEFAULT_DIR}/build_clang.sh \
+    && echo "rm -rf ${DEFAULT_DIR}/llvm-project-11.0.0*" >> ${DEFAULT_DIR}/build_clang.sh \
+    && chmod +x ${DEFAULT_DIR}/build_clang.sh \
+    && ${DEFAULT_DIR}/build_clang.sh
+
+FROM scratch
+
+COPY --from=builder / /
+ENV JAVA_HOME="/usr/lib/jvm/java-11" \
+    MAVEN_HOME="/usr/share/maven" \
+    BASH_ENV="/opt/rh/devtoolset-10/enable" \
+    ENV="/opt/rh/devtoolset-10/enable"  \
+    PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable" \
+    REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
+    DEFAULT_DIR="/var/local" \
+    PATH="/var/local/thirdparty/installed/bin:$PATH" \
+    DORIS_THIRDPARTY="/var/local/thirdparty"
+WORKDIR /root
+
+CMD ["/bin/bash"]
+

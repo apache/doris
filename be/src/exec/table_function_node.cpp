@@ -81,7 +81,9 @@ Status TableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
 
 Status TableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    
+
+    _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
+ 
     RETURN_IF_ERROR(Expr::prepare(_fn_ctxs, state, _row_descriptor, expr_mem_tracker()));
     for (auto fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
@@ -105,6 +107,7 @@ Status TableFunctionNode::open(RuntimeState* state) {
 
 Status TableFunctionNode::_process_next_child_row() {
     if (_cur_child_offset == _cur_child_batch->num_rows()) {
+        _cur_child_batch->reset();
         _child_batch_exhausted = true;
         return Status::OK();
     }
@@ -196,7 +199,6 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
     uint8_t* tuple_buffer = nullptr;
     Tuple* tuple_ptr = nullptr;
     Tuple* pre_tuple_ptr = nullptr;
-    int row_idx = 0;
 
     while (true) {
         RETURN_IF_CANCELLED(state);
@@ -206,15 +208,20 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
             _cur_child_batch.reset(new RowBatch(child_rowdesc, state->batch_size(), mem_tracker().get()));
         }
         if (_child_batch_exhausted) {
+            if (_child_eos) {
+                // current child batch is exhausted, and no more batch from child node
+                break; 
+            }
             // current child batch is exhausted, get next batch from child
-            RETURN_IF_ERROR(_children[0]->get_next(state, _cur_child_batch.get(), eos));
-            if (*eos) {
+            RETURN_IF_ERROR(_children[0]->get_next(state, _cur_child_batch.get(), &_child_eos));
+            if (_cur_child_batch->num_rows() == 0) {
+                // no more batch from child node
                 break;
             }
+
             _cur_child_offset = 0;
             RETURN_IF_ERROR(_process_next_child_row());
             if (_child_batch_exhausted) {
-                _cur_child_batch->reset();
                 continue;
             }
         }
@@ -252,19 +259,20 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
             pre_tuple_ptr = tuple_ptr;
             // The tuples order in parent row batch should be
             //      child1, child2, tf1, tf2, ...
-            TupleRow* parent_tuple_row = row_batch->get_row(row_idx++);
+            TupleRow* parent_tuple_row = row_batch->get_row(row_batch->add_row());
             // 1. copy child tuples
             int tuple_idx = 0;
             for (int i = 0; i < _child_tuple_desc_size; tuple_idx++, i++) {
                 TupleDescriptor* child_tuple_desc = child_rowdesc.tuple_descriptors()[tuple_idx];
                 TupleDescriptor* parent_tuple_desc = parent_rowdesc.tuple_descriptors()[tuple_idx];
 
+                Tuple* child_tuple = _cur_child_tuple_row->get_tuple(child_rowdesc.get_tuple_idx(child_tuple_desc->id()));
                 for (int j = 0; j < _child_slot_sizes[i]; ++j) {
                     SlotDescriptor* child_slot_desc = child_tuple_desc->slots()[j];
                     SlotDescriptor* parent_slot_desc = parent_tuple_desc->slots()[j];
 
-                    if (_output_slot_ids[parent_slot_desc->id()]) {
-                        Tuple* child_tuple = _cur_child_tuple_row->get_tuple(child_rowdesc.get_tuple_idx(child_tuple_desc->id()));
+                    if (_output_slot_ids[parent_slot_desc->id()] && !child_tuple->is_null(child_slot_desc->null_indicator_offset())) {
+                        // only write child slot if it is selected and not null.
                         void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
                         RawValue::write(child_tuple->get_slot(child_slot_desc->tuple_offset()), dest_slot, parent_slot_desc->type(), row_batch->tuple_data_pool());
                         tuple_ptr->set_not_null(parent_slot_desc->null_indicator_offset());
@@ -276,12 +284,11 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                 tuple_ptr = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple_ptr) + parent_tuple_desc->byte_size());
             }
 
-            // 2. copy funtion result
+            // 2. copy function result
             for (int i = 0; tuple_idx < _parent_tuple_desc_size; tuple_idx++, i++) {
                 TupleDescriptor* parent_tuple_desc = parent_rowdesc.tuple_descriptors()[tuple_idx];
                 SlotDescriptor* parent_slot_desc = parent_tuple_desc->slots()[0];
                 void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
-                // if (_fn_values[i] != nullptr && _output_slot_ids[parent_slot_desc->id()]) {
                 if (_fn_values[i] != nullptr) {
                     RawValue::write(_fn_values[i], dest_slot, parent_slot_desc->type(), row_batch->tuple_data_pool());
                     tuple_ptr->set_not_null(parent_slot_desc->null_indicator_offset());
@@ -289,7 +296,6 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                     tuple_ptr->set_null(parent_slot_desc->null_indicator_offset());
                 }
                 parent_tuple_row->set_tuple(tuple_idx, tuple_ptr);
-
                 tuple_ptr = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple_ptr) + parent_tuple_desc->byte_size());
             }
 
@@ -299,6 +305,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                 ++_num_rows_returned;
             } else {
                 tuple_ptr = pre_tuple_ptr;
+                ++_num_rows_filtered;
             }
 
             // Forward after write success.
@@ -308,21 +315,23 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
             _fns[_fn_num - 1]->forward(&tmp);
 
             if (row_batch->at_capacity()) {
-                *eos = false;
                 break;
             }
-        }
+        } // end while true
 
         if (row_batch->at_capacity()) {
             break;
         } 
-    }
+    } // end while cur_eos
+
     if (reached_limit()) {
         int num_rows_over = _num_rows_returned - _limit;
         row_batch->set_num_rows(row_batch->num_rows() - num_rows_over);
         _num_rows_returned -= num_rows_over;
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         *eos = true;
+    } else {
+        *eos = row_batch->num_rows() == 0;
     }
 
     return Status::OK();
@@ -334,6 +343,9 @@ Status TableFunctionNode::close(RuntimeState* state) {
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     Expr::close(_fn_ctxs, state);
+
+    COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
+
     return ExecNode::close(state);
 }
 

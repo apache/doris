@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -18,16 +17,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
 <project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>18</version>
+        <version>23</version>
     </parent>
-
     <groupId>org.apache.doris</groupId>
     <artifactId>fe-plugins</artifactId>
     <packaging>pom</packaging>
@@ -42,16 +39,15 @@ under the License.
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:git@github.com:apache/incubator-doris.git</connection>
-        <developerConnection>scm:git:git@github.com:apache/incubator-doris.git</developerConnection>
-        <url>scm:git:git@github.com:apache/incubator-doris.git</url>
+        <connection>scm:git:https://git@github.com/apache/incubator-doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/incubator-doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/incubator-doris.git</url>
         <tag>HEAD</tag>
     </scm>
     <issueManagement>
         <system>GitHub</system>
         <url>https://github.com/apache/incubator-doris/issues</url>
     </issueManagement>
-
     <mailingLists>
         <mailingList>
             <name>Dev Mailing List</name>
@@ -59,7 +55,6 @@ under the License.
             <subscribe>dev-subscribe@doris.apache.org</subscribe>
             <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
         </mailingList>
-
         <mailingList>
             <name>Commits Mailing List</name>
             <post>commits@doris.apache.org</post>
@@ -71,11 +66,10 @@ under the License.
         <module>auditdemo</module>
         <module>auditloader</module>
     </modules>
-
     <properties>
-        <doris.home>${env.DORIS_HOME}</doris.home>
         <log4j2.version>2.17.1</log4j2.version>
-        <doris.version>>0.15-SNAPSHOT</doris.version>
+        <doris.version>0.15-SNAPSHOT</doris.version>
+        <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -86,14 +80,12 @@ under the License.
                     <name>env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
-
             <repositories>
                 <repository>
                     <id>custom-nexus</id>
                     <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </repository>
             </repositories>
-
             <pluginRepositories>
                 <pluginRepository>
                     <id>custom-nexus</id>
@@ -102,44 +94,26 @@ under the License.
             </pluginRepositories>
         </profile>
     </profiles>
-
     <dependencyManagement>
         <dependencies>
-            <dependency>
-                <groupId>org.apache.doris</groupId>
-                <artifactId>fe</artifactId>
-                <version>0.15-SNAPSHOT</version>
-                <scope>system</scope>
-                <systemPath>${doris.home}/fe/fe-core/target/palo-fe.jar</systemPath>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.doris</groupId>
-                <artifactId>fe-common</artifactId>
-                <scope>system</scope>
-                <systemPath>${doris.home}/fe/fe-common/target/doris-fe-common.jar</systemPath>
-            </dependency>
-
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-api</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
-
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
-
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-slf4j-impl -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-slf4j-impl</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
-
             <!-- https://mvnrepository.com/artifact/log4j/log4j -->
             <dependency>
                 <groupId>log4j</groupId>
@@ -148,7 +122,6 @@ under the License.
             </dependency>
         </dependencies>
     </dependencyManagement>
-
     <build>
         <plugins>
             <plugin>
@@ -162,5 +135,4 @@ under the License.
             </plugin>
         </plugins>
     </build>
-
 </project>

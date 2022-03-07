@@ -231,7 +231,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
 
 OLAPStatus DeleteHandler::init(const TabletSchema& schema,
                                const DelPredicateArray& delete_conditions, int64_t version,
-                               const Reader* reader) {
+                               const TabletReader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
 

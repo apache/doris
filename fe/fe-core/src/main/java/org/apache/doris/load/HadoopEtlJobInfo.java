@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 
@@ -92,12 +91,9 @@ public class HadoopEtlJobInfo extends EtlJobInfo {
         cluster = Text.readString(in);
         etlJobId = Text.readString(in);
         etlOutputDir = Text.readString(in);
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= 7) {
-            if (in.readBoolean()) {
-                dppConfig = new DppConfig();
-                dppConfig.readFields(in);
-            }
+        if (in.readBoolean()) {
+            dppConfig = new DppConfig();
+            dppConfig.readFields(in);
         }
     }
     

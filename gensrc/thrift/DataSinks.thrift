@@ -27,15 +27,13 @@ include "PlanNodes.thrift"
 enum TDataSinkType {
     DATA_STREAM_SINK,
     RESULT_SINK,
-    DATA_SPLIT_SINK,
+    DATA_SPLIT_SINK, // deprecated
     MYSQL_TABLE_SINK,
     EXPORT_SINK,
     OLAP_TABLE_SINK,
     MEMORY_SCRATCH_SINK,
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
-    VRESULT_SINK,
-    VDATA_STREAM_SINK,
 }
 
 enum TResultSinkType {
@@ -143,6 +141,7 @@ struct TOlapTableSink {
     13: required Descriptors.TPaloNodesInfo nodes_info
     14: optional i64 load_channel_timeout_s // the timeout of load channels in second
     15: optional i32 send_batch_parallelism
+    16: optional bool load_to_single_tablet
 }
 
 struct TDataSink {

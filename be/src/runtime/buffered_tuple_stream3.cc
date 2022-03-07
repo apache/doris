@@ -19,7 +19,6 @@
 
 #include "runtime/buffered_tuple_stream3.inline.h"
 #include "runtime/bufferpool/reservation_tracker.h"
-//#include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
@@ -893,7 +892,7 @@ bool BufferedTupleStream3::AddRowSlow(TupleRow* row, Status* status) noexcept {
 }
 
 uint8_t* BufferedTupleStream3::AddRowCustomBeginSlow(int64_t size, Status* status) noexcept {
-    bool got_reservation;
+    bool got_reservation = false;
     *status = AdvanceWritePage(size, &got_reservation);
     if (!status->ok() || !got_reservation) {
         return nullptr;

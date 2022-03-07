@@ -30,7 +30,7 @@ under the License.
 
     This statement is used to delete index from table
     grammer:
-        DROP INDEX index_name ON [db_name.]table_name;
+        DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
 
 ## keyword
 

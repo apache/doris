@@ -18,11 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.SetUserPropertyVar;
-import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ResourceGroup;
 import org.apache.doris.catalog.ResourceType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -33,7 +31,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -276,8 +273,9 @@ public class UserProperty implements Writable {
                     throw new DdlException(key + " is not number");
                 }
 
-                if (limit <= 0) {
-                    throw new DdlException(key + " is not valid");
+                // -1 means unlimited
+                if (limit <= 0 && limit != -1) {
+                    throw new DdlException(key + " is not valid. Should not larger than 0 or equal to -1");
                 }
 
                 cpuResourceLimit = limit;
@@ -465,7 +463,7 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(clusterPrefix + DppConfig.getPriorityKey(),
                     String.valueOf(dppConfig.getPriority())));
         }
-        
+
         // get resolved ips if user has domain
         Map<String, Set<String>> resolvedIPs = whiteList.getResolvedIPs();
         List<String> ips = Lists.newArrayList();
@@ -522,86 +520,31 @@ public class UserProperty implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
-            // consume the flag of empty user name
-            in.readBoolean();
-        }
-        
-        // user name
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
-        } else {
-            qualifiedUser = Text.readString(in);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
-            int passwordLen = in.readInt();
-            byte[] password = new byte[passwordLen];
-            in.readFully(password);
-
-            // boolean isAdmin
-            in.readBoolean();
-
-            if (Catalog.getCurrentCatalogJournalVersion() >= 1) {
-                // boolean isSuperuser
-                in.readBoolean();
-            }
-        }
+        qualifiedUser = Text.readString(in);
 
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
             long maxConn = in.readLong();
             this.commonProperties.setMaxConn(maxConn);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
-            Map<String, AccessPrivilege> dbPrivMap = Maps.newHashMap();
-            int numPriv = in.readInt();
-            for (int i = 0; i < numPriv; ++i) {
-                String dbName = null;
-                if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-                    dbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
-                } else {
-                    dbName = Text.readString(in);
-                }
-                AccessPrivilege ap = AccessPrivilege.valueOf(Text.readString(in));
-                dbPrivMap.put(dbName, ap);
-            }
-        }
-
         // user resource
         resource = UserResource.readIn(in);
 
         // load cluster
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_12) {
-            if (in.readBoolean()) {
-                defaultLoadCluster = Text.readString(in);
-            }
+        if (in.readBoolean()) {
+            defaultLoadCluster = Text.readString(in);
+        }
 
-            int clusterNum = in.readInt();
-            for (int i = 0; i < clusterNum; ++i) {
-                String cluster = Text.readString(in);
-                DppConfig dppConfig = new DppConfig();
-                dppConfig.readFields(in);
-                clusterToDppConfig.put(cluster, dppConfig);
-            }
+        int clusterNum = in.readInt();
+        for (int i = 0; i < clusterNum; ++i) {
+            String cluster = Text.readString(in);
+            DppConfig dppConfig = new DppConfig();
+            dppConfig.readFields(in);
+            clusterToDppConfig.put(cluster, dppConfig);
         }
 
         // whiteList
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_21) {
-            whiteList.readFields(in);
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_69) {
-                whiteList.convertOldDomainPrivMap(qualifiedUser);
-            }
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-                if (in.readBoolean()) {
-                    // consume cluster name
-                    Text.readString(in);
-                }
-            }
-        }
+        whiteList.readFields(in);
 
         // common properties
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {

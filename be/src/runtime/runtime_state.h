@@ -287,9 +287,11 @@ public:
 
     const std::string get_error_log_file_path() const { return _error_log_file_path; }
 
+    // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
-    void append_error_msg_to_file(const std::string& line, const std::string& error_msg,
-                                  bool is_summary = false);
+    // If we need to stop the processing, set stop_processing to true
+    Status append_error_msg_to_file(std::function<std::string()> line, std::function<std::string()> error_msg,
+                                    bool* stop_processing, bool is_summary = false);
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
 
@@ -365,6 +367,12 @@ public:
     }
 
     std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
+
+    const std::vector<TErrorTabletInfo>& error_tablet_infos() const {
+        return _error_tablet_infos;
+    }
+
+    std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
     /// Helper to call QueryState::StartSpilling().
     Status StartSpilling(MemTracker* mem_tracker);
@@ -504,7 +512,9 @@ private:
     std::string _error_log_file_path;
     std::ofstream* _error_log_file = nullptr; // error file path, absolute path
     std::unique_ptr<LoadErrorHub> _error_hub;
+    std::mutex _create_error_hub_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
+    std::vector<TErrorTabletInfo> _error_tablet_infos;
 
     //TODO chenhao , remove this to QueryState
     /// Pool of buffer reservations used to distribute initial reservations to operators
@@ -527,6 +537,10 @@ private:
     AtomicInt32 _initial_reservation_refcnt;
 
     QueryFragmentsCtx* _query_ctx;
+
+    // true if max_filter_ratio is 0
+    bool _load_zero_tolerance = false;
+
     // prohibit copies
     RuntimeState(const RuntimeState&);
 };

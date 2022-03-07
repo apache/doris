@@ -282,13 +282,13 @@ public class PartitionCacheTest {
         PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
 
         Partition part12 = new Partition(20200112, "p20200112", baseIndex, distInfo);
-        part12.setVisibleVersion(1,1578762000000L,1);     //2020-01-12 1:00:00
+        part12.setVisibleVersionAndTime(1,1578762000000L);     //2020-01-12 1:00:00
         Partition part13 = new Partition(20200113, "p20200113", baseIndex, distInfo);
-        part13.setVisibleVersion(1,1578848400000L,1);     //2020-01-13 1:00:00
+        part13.setVisibleVersionAndTime(1,1578848400000L);     //2020-01-13 1:00:00
         Partition part14 = new Partition(20200114, "p20200114", baseIndex, distInfo);
-        part14.setVisibleVersion(1,1578934800000L,1);     //2020-01-14 1:00:00
+        part14.setVisibleVersionAndTime(1,1578934800000L);     //2020-01-14 1:00:00
         Partition part15 = new Partition(20200115, "p20200115", baseIndex, distInfo);
-        part15.setVisibleVersion(2,1579053661000L,2);     //2020-01-15 10:01:01
+        part15.setVisibleVersionAndTime(2,1579053661000L);     //2020-01-15 10:01:01
 
         OlapTable table = new OlapTable(10000L, "order", columns,KeysType.DUP_KEYS, partInfo, distInfo);
 
@@ -329,13 +329,13 @@ public class PartitionCacheTest {
         PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column2));
 
         Partition part12 = new Partition(20200112, "p20200112", baseIndex, distInfo);
-        part12.setVisibleVersion(1,1578762000000L,1);     //2020-01-12 1:00:00
+        part12.setVisibleVersionAndTime(1,1578762000000L);     //2020-01-12 1:00:00
         Partition part13 = new Partition(20200113, "p20200113", baseIndex, distInfo);
-        part13.setVisibleVersion(1,1578848400000L,1);     //2020-01-13 1:00:00
+        part13.setVisibleVersionAndTime(1,1578848400000L);     //2020-01-13 1:00:00
         Partition part14 = new Partition(20200114, "p20200114", baseIndex, distInfo);
-        part14.setVisibleVersion(1,1578934800000L,1);     //2020-01-14 1:00:00
+        part14.setVisibleVersionAndTime(1,1578934800000L);     //2020-01-14 1:00:00
         Partition part15 = new Partition(20200115, "p20200115", baseIndex, distInfo);
-        part15.setVisibleVersion(2,1579021200000L,2);     //2020-01-15 1:00:00
+        part15.setVisibleVersionAndTime(2,1579021200000L);     //2020-01-15 1:00:00
 
         OlapTable table = new OlapTable(20000L, "userprofile", columns,KeysType.AGG_KEYS, partInfo, distInfo);
         
@@ -379,13 +379,13 @@ public class PartitionCacheTest {
         RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
 
         Partition part12 = new Partition(20200112, "p20200112", baseIndex, distInfo);
-        part12.setVisibleVersion(1,1578762000000L,1);     //2020-01-12 1:00:00
+        part12.setVisibleVersionAndTime(1,1578762000000L);     //2020-01-12 1:00:00
         Partition part13 = new Partition(20200113, "p20200113", baseIndex, distInfo);
-        part13.setVisibleVersion(1,1578848400000L,1);     //2020-01-13 1:00:00
+        part13.setVisibleVersionAndTime(1,1578848400000L);     //2020-01-13 1:00:00
         Partition part14 = new Partition(20200114, "p20200114", baseIndex, distInfo);
-        part14.setVisibleVersion(1,1578934800000L,1);     //2020-01-14 1:00:00
+        part14.setVisibleVersionAndTime(1,1578934800000L);     //2020-01-14 1:00:00
         Partition part15 = new Partition(20200115, "p20200115", baseIndex, distInfo);
-        part15.setVisibleVersion(2,1579053661000L,2);     //2020-01-15 10:01:01
+        part15.setVisibleVersionAndTime(2,1579053661000L);     //2020-01-15 10:01:01
 
         OlapTable table = new OlapTable(30000L, "appevent", columns,KeysType.DUP_KEYS, partInfo, distInfo);
         
@@ -1096,6 +1096,27 @@ public class PartitionCacheTest {
                 "`testDb`.`view4`.`count(`userid`)` AS `count(``userid``)` FROM `testDb`.`view4`|select " +
                 "eventdate, COUNT(userid) FROM view2 WHERE eventdate>=\"2020-01-12\" and " +
                 "eventdate<=\"2020-01-14\" GROUP BY eventdate|select eventdate, userid FROM appevent");
+    }
+
+    @Test
+    public void testCacheLocalViewMultiOperand() {
+        Catalog.getCurrentSystemInfo();
+        StatementBase parseStmt = parseSql(
+                "SELECT COUNT(userid)\n" +
+                        "FROM (\n" +
+                        "    (SELECT userid FROM userprofile\n" +
+                        "    INTERSECT\n" +
+                        "    SELECT userid FROM userprofile)\n" +
+                        "    UNION\n" +
+                        "    SELECT userid FROM userprofile\n" +
+                        ") as tmp"
+        );
+        ArrayList<Long> selectedPartitionIds
+                = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
+        List<ScanNode> scanNodes = Lists.newArrayList(createProfileScanNode(selectedPartitionIds));
+        CacheAnalyzer ca = new CacheAnalyzer(context,parseStmt, scanNodes);
+        ca.checkCacheMode(0);
+        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
     }
 }
 

@@ -72,6 +72,11 @@ private:
     int _parent_tuple_desc_size = -1;
     int _child_tuple_desc_size = -1;
     std::vector<int> _child_slot_sizes;
+    // indicate if child node reach the end
+    bool _child_eos = false;
+
+    RuntimeProfile::Counter* _num_rows_filtered_counter = nullptr;
+    uint64_t _num_rows_filtered = 0;
 };
 
 }; // namespace doris

@@ -206,11 +206,12 @@ struct StringFindOp {
 template <class BloomFilterAdaptor>
 struct FixedStringFindOp : public StringFindOp<BloomFilterAdaptor> {
     ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
-                                        const void* data) const {
-        const auto* value = reinterpret_cast<const StringValue*>(data);
-        auto end_ptr = value->ptr + value->len - 1;
-        while (end_ptr > value->ptr && *end_ptr == '\0') --end_ptr;
-        return bloom_filter.test_bytes(value->ptr, end_ptr - value->ptr + 1);
+                                        const void* input_data) const {
+        const auto* value = reinterpret_cast<const StringValue*>(input_data);
+        int64_t size = value->len;
+        char* data = value->ptr;
+        while (size > 0 && data[size - 1] == '\0') size--;
+        return bloom_filter.test_bytes(value->ptr, size);
     }
 };
 
@@ -301,7 +302,7 @@ public:
 
     ~BloomFilterFunc() = default;
 
-    void insert(const void* data) {
+    void insert(const void* data) override {
         DCHECK(this->_bloom_filter != nullptr);
         dummy.insert(*this->_bloom_filter, data);
     }
@@ -328,6 +329,7 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new BloomFilterPredicate(*this));
     }
+    using Predicate::prepare;
     Status prepare(RuntimeState* state, IBloomFilterFuncBase* bloomfilterfunc);
 
     std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() { return _filter; }

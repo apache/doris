@@ -182,7 +182,8 @@ enum TTaskType {
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
     ALTER,
     INSTALL_PLUGIN,
-    UNINSTALL_PLUGIN
+    UNINSTALL_PLUGIN,
+    COMPACTION
 }
 
 enum TStmtType {
@@ -253,7 +254,7 @@ enum TFunctionType {
 }
 
 enum TFunctionBinaryType {
-  // Palo builtin. We can either run this interpreted or via codegen
+  // Doris builtin. We can either run this interpreted or via codegen
   // depending on the query option.
   BUILTIN,
 
@@ -265,6 +266,9 @@ enum TFunctionBinaryType {
 
   // Native-interface, precompiled to IR; loaded from *.ll
   IR,
+
+  // call udfs by rpc service
+  RPC,
 }
 
 // Represents a fully qualified function name.
@@ -353,7 +357,9 @@ enum TTableType {
     KUDU_TABLE, // Deprecated
     BROKER_TABLE,
     ES_TABLE,
-    ODBC_TABLE
+    ODBC_TABLE,
+    HIVE_TABLE,
+    ICEBERG_TABLE
 }
 
 enum TOdbcTableType {
@@ -406,6 +412,11 @@ enum TFileType {
 struct TTabletCommitInfo {
     1: required i64 tabletId
     2: required i64 backendId
+}
+
+struct TErrorTabletInfo {
+    1: optional i64 tabletId
+    2: optional string msg
 }
 
 enum TLoadType {

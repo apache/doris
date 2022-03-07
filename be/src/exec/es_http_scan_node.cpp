@@ -68,6 +68,9 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "EsHttpScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
+    _scanner_profile.reset(new RuntimeProfile("EsHttpScanNode"));
+    runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
+
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
@@ -92,14 +95,20 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
 // build predicate
 Status EsHttpScanNode::build_conjuncts_list() {
     Status status = Status::OK();
+    _conjunct_to_predicate.resize(_conjunct_ctxs.size());
+
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         EsPredicate* predicate = _pool->add(new EsPredicate(_conjunct_ctxs[i], _tuple_desc, _pool));
         predicate->set_field_context(_fields_context);
         status = predicate->build_disjuncts_list();
         if (status.ok()) {
-            _predicates.push_back(predicate);
+            _conjunct_to_predicate[i] = _predicate_to_conjunct.size();
             _predicate_to_conjunct.push_back(i);
+
+            _predicates.push_back(predicate);
         } else {
+            _conjunct_to_predicate[i] = -1;
+
             VLOG_CRITICAL << status.get_error_msg();
             status = predicate->get_es_query_status();
             if (!status.ok()) {
@@ -133,6 +142,7 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     // remove those predicates which ES cannot support
     std::vector<bool> list;
     BooleanQueryBuilder::validate(_predicates, &list);
+
     DCHECK(list.size() == _predicate_to_conjunct.size());
     for (int i = list.size() - 1; i >= 0; i--) {
         if (!list[i]) {
@@ -147,6 +157,12 @@ Status EsHttpScanNode::open(RuntimeState* state) {
         _conjunct_ctxs[conjunct_index]->close(_runtime_state);
         _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
     }
+
+    auto checker = [&](int index) {
+        return _conjunct_to_predicate[index] != -1 && list[_conjunct_to_predicate[index]];
+    };
+    std::string vconjunct_information = _peel_pushed_vconjunct(checker);
+    _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
 
     RETURN_IF_ERROR(start_scanners());
 
@@ -437,10 +453,17 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
             properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
     // start scanner to scan
-    std::unique_ptr<EsHttpScanner> scanner(
-            new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
-                              scanner_expr_ctxs, &counter, doc_value_mode));
-    status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
+    if (!_vectorized) {
+        std::unique_ptr<EsHttpScanner> scanner(
+                new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
+                                  scanner_expr_ctxs, &counter, doc_value_mode));
+        status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
+    } else {
+        std::unique_ptr<vectorized::VEsHttpScanner> scanner(new vectorized::VEsHttpScanner(
+                _runtime_state, runtime_profile(), _tuple_id, properties, scanner_expr_ctxs,
+                &counter, doc_value_mode));
+        status = scanner_scan(std::move(scanner));
+    }
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx
                      << "] process failed. status=" << status.get_error_msg();

@@ -26,7 +26,6 @@
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "http/http_client.h"
-#include "olap/olap_snapshot_converter.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/snapshot_manager.h"
@@ -456,7 +455,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(GET_LENGTH_TIMEOUT * 1000);
             RETURN_IF_ERROR(client->head());
-            file_size = client->get_content_length();
+            RETURN_IF_ERROR(client->get_content_length(&file_size));
             return Status::OK();
         };
         RETURN_IF_ERROR(

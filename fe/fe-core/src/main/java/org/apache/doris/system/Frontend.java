@@ -17,8 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.FrontendNodeType;
@@ -142,11 +140,7 @@ public class Frontend implements Writable {
         }
         host = Text.readString(in);
         editLogPort = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_41) {
-            nodeName = Text.readString(in);
-        } else {
-            nodeName = Catalog.genFeNodeName(host, editLogPort, true /* old style */);
-        }
+        nodeName = Text.readString(in);
     }
     
     public static Frontend read(DataInput in) throws IOException {

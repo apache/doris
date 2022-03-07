@@ -48,7 +48,7 @@ class TExprNode;
 ///    - Allow more functions to be nullptr in UDA test harness
 class ScalarFnCall : public Expr {
 public:
-    virtual std::string debug_string() const;
+    virtual std::string debug_string() const override;
     virtual ~ScalarFnCall();
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new ScalarFnCall(*this));
@@ -63,26 +63,27 @@ protected:
     friend class Expr;
 
     ScalarFnCall(const TExprNode& node);
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc, ExprContext* context);
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc,
+                           ExprContext* context) override;
     virtual Status open(RuntimeState* state, ExprContext* context,
-                        FunctionContext::FunctionStateScope scope);
+                        FunctionContext::FunctionStateScope scope) override;
     virtual void close(RuntimeState* state, ExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+                       FunctionContext::FunctionStateScope scope) override;
 
-    virtual bool is_constant() const;
+    virtual bool is_constant() const override;
 
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
-    virtual CollectionVal get_array_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
+    virtual CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
 
 private:
     /// If this function has var args, children()[_vararg_start_idx] is the first vararg

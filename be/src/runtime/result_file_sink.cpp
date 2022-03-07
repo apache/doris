@@ -70,6 +70,10 @@ ResultFileSink::~ResultFileSink() {
     }
 }
 
+Status ResultFileSink::init(const TDataSink& tsink) {
+    return Status::OK();
+}
+
 Status ResultFileSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(Expr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_expr_ctxs));
@@ -148,7 +152,7 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
     if (_is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer->get_written_rows());
+            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
             _sender->close(final_status);
         }
         state->exec_env()->result_mgr()->cancel_at_time(
@@ -156,9 +160,9 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
                 state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
-            RETURN_IF_ERROR(serialize_batch(_output_batch, _current_pb_batch, _channels.size()));
+            RETURN_IF_ERROR(serialize_batch(_output_batch, _cur_pb_batch, _channels.size()));
             for (auto channel : _channels) {
-                RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
+                RETURN_IF_ERROR(channel->send_batch(_cur_pb_batch));
             }
         }
         Status final_st = Status::OK();

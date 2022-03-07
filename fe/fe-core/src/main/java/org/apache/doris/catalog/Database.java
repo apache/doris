@@ -31,7 +31,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.persist.CreateTableInfo;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -95,6 +94,8 @@ public class Database extends MetaObject implements Writable {
 
     private volatile long replicaQuotaSize;
 
+    private volatile boolean isDropped;
+
     public enum DbState {
         NORMAL, LINK, MOVE
     }
@@ -126,6 +127,14 @@ public class Database extends MetaObject implements Writable {
         this.dbEncryptKey = new DatabaseEncryptKey();
     }
 
+    public void markDropped() {
+        isDropped = true;
+    }
+
+    public void unmarkDropped() {
+        isDropped = false;
+    }
+
     public void readLock() {
         this.rwLock.readLock().lock();
     }
@@ -155,6 +164,26 @@ public class Database extends MetaObject implements Writable {
         return this.rwLock.writeLock().isHeldByCurrentThread();
     }
 
+    public boolean writeLockIfExist() {
+        if (!isDropped) {
+            this.rwLock.writeLock().lock();
+            return true;
+        }
+        return false;
+    }
+
+    public <E extends Exception> void writeLockOrException(E e) throws E {
+        writeLock();
+        if (isDropped) {
+            writeUnlock();
+            throw e;
+        }
+    }
+
+    public void writeLockOrDdlException() throws DdlException {
+        writeLockOrException(new DdlException("unknown db, dbName=" + fullQualifiedName));
+    }
+
     public long getId() {
         return id;
     }
@@ -172,26 +201,16 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
-    public void setDataQuotaWithLock(long newQuota) {
+    public void setDataQuota(long newQuota) {
         Preconditions.checkArgument(newQuota >= 0L);
         LOG.info("database[{}] set quota from {} to {}", fullQualifiedName, dataQuotaBytes, newQuota);
-        writeLock();
-        try {
-            this.dataQuotaBytes = newQuota;
-        } finally {
-            writeUnlock();
-        }
+        this.dataQuotaBytes = newQuota;
     }
 
-    public void setReplicaQuotaWithLock(long newQuota) {
+    public void setReplicaQuota(long newQuota) {
         Preconditions.checkArgument(newQuota >= 0L);
         LOG.info("database[{}] set replica quota from {} to {}", fullQualifiedName, replicaQuotaSize, newQuota);
-        writeLock();
-        try {
-            this.replicaQuotaSize = newQuota;
-        } finally {
-            writeUnlock();
-        }
+        this.replicaQuotaSize = newQuota;
     }
 
     public long getDataQuota() {
@@ -200,6 +219,14 @@ public class Database extends MetaObject implements Writable {
 
     public long getReplicaQuota() {
         return replicaQuotaSize;
+    }
+
+    public DatabaseProperty getDbProperties() {
+        return dbProperties;
+    }
+
+    public void setDbProperties(DatabaseProperty dbProperties) {
+        this.dbProperties = dbProperties;
     }
 
     public long getUsedDataQuotaWithLock() {
@@ -298,12 +325,12 @@ public class Database extends MetaObject implements Writable {
     }
 
     // return pair <success?, table exist?>
-    public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
+    public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
         // some caller of this method may need to know this message
         boolean isTableExist = false;
-        writeLock();
+        writeLockOrDdlException();
         try {
             String tableName = table.getName();
             if (Catalog.isStoredTableNamesLowerCase()) {
@@ -345,16 +372,8 @@ public class Database extends MetaObject implements Writable {
             nameToTable.put(table.getName(), table);
             lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
         }
+        table.unmarkDropped();
         return result;
-    }
-
-    public void dropTableWithLock(String tableName) {
-        writeLock();
-        try {
-            dropTable(tableName);
-        } finally {
-            writeUnlock();
-        }
     }
 
     public void dropTable(String tableName) {
@@ -366,6 +385,7 @@ public class Database extends MetaObject implements Writable {
             this.nameToTable.remove(tableName);
             this.idToTable.remove(table.getId());
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            table.markDropped();
         }
     }
 
@@ -486,6 +506,7 @@ public class Database extends MetaObject implements Writable {
     public Table getTableOrMetaException(long tableId) throws MetaNotFoundException {
         return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
     }
+
     @SuppressWarnings("unchecked")
     public <T extends Table> T getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
         Table table = getTableOrMetaException(tableName);
@@ -619,11 +640,7 @@ public class Database extends MetaObject implements Writable {
         super.readFields(in);
 
         id = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            fullQualifiedName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
-        } else {
-            fullQualifiedName = Text.readString(in);
-        }
+        fullQualifiedName = Text.readString(in);
         // read groups
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
@@ -636,26 +653,20 @@ public class Database extends MetaObject implements Writable {
 
         // read quota
         dataQuotaBytes = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        } else {
-            clusterName = Text.readString(in);
-            dbState = DbState.valueOf(Text.readString(in));
-            attachDbName = Text.readString(in);
-        }
+        clusterName = Text.readString(in);
+        dbState = DbState.valueOf(Text.readString(in));
+        attachDbName = Text.readString(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_47) {
-            int numEntries = in.readInt();
-            for (int i = 0; i < numEntries; ++i) {
-                String name = Text.readString(in);
-                ImmutableList.Builder<Function> builder = ImmutableList.builder();
-                int numFunctions = in.readInt();
-                for (int j = 0; j < numFunctions; ++j) {
-                    builder.add(Function.read(in));
-                }
-
-                name2Function.put(name, builder.build());
+        int numEntries = in.readInt();
+        for (int i = 0; i < numEntries; ++i) {
+            String name = Text.readString(in);
+            ImmutableList.Builder<Function> builder = ImmutableList.builder();
+            int numFunctions = in.readInt();
+            for (int j = 0; j < numFunctions; ++j) {
+                builder.add(Function.read(in));
             }
+
+            name2Function.put(name, builder.build());
         }
 
         // read encryptKeys
@@ -663,11 +674,7 @@ public class Database extends MetaObject implements Writable {
             dbEncryptKey = DatabaseEncryptKey.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
-            replicaQuotaSize = in.readLong();
-        } else {
-            replicaQuotaSize = Config.default_db_replica_quota_size;
-        }
+        replicaQuotaSize = in.readLong();
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);

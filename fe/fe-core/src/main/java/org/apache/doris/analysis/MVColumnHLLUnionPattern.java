@@ -28,6 +28,9 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
             return false;
         }
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
+        if (fnExpr.isDistinct()) {
+            return false;
+        }
         String fnNameString = fnExpr.getFnName().getFunction();
         if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)){
             return false;

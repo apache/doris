@@ -24,7 +24,9 @@ namespace doris {
 
 inline bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
     if (_num_filled_buckets > _num_buckets_till_resize) {
-        resize_buckets(_num_buckets * 2);
+        if (!resize_buckets(_num_buckets * 2).ok()) {
+            return false;
+        }
     }
     if (_current_used == _current_capacity) {
         grow_node_array();

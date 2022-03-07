@@ -38,7 +38,9 @@ import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import mockit.Mocked;
 
@@ -104,6 +106,18 @@ public class CreateTableStmtTest {
     }
 
     @Test
+    public void testCreateTableWithRandomDistribution() throws UserException {
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+                new RandomDistributionDesc(6), null, null, "");
+        stmt.analyze(analyzer);
+        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("table1", stmt.getTableName());
+        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.toSql().contains("DISTRIBUTED BY RANDOM\nBUCKETS 6"));
+    }
+
+    @Test
     public void testCreateTableWithRollup() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "table1", null));
@@ -119,7 +133,7 @@ public class CreateTableStmtTest {
     }
     
     @Test
-    public void testDefaultDbNormal() throws UserException, AnalysisException {
+    public void testDefaultDbNormal() throws UserException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
@@ -172,7 +186,6 @@ public class CreateTableStmtTest {
 
     @Test
     public void testBmpHllKey() throws Exception {
-
         ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
         cols.add(bitmap);
         colsName.add("col3");
@@ -245,5 +258,22 @@ public class CreateTableStmtTest {
         expectedEx.expectMessage(String.format("Aggregate type %s is not compatible with primitive type %s",
                 hll.toString(), hll.getTypeDef().getType().toSql()));
         stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testCreateIcebergTable() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.database", "doris");
+        properties.put("iceberg.table", "test");
+        properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
+                "\n" +
+                ") ENGINE = iceberg\n" +
+                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
+                "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
+                "\"iceberg.table\"  =  \"test\")", stmt.toString());
     }
 }

@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
 #define DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
 
+#include <array>
 #include <mutex>
 #include <queue>
 #include <sstream>

@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminShowConfigStmt;
-import org.apache.doris.analysis.AdminShowDataSkewStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.DescribeStmt;
@@ -37,6 +36,7 @@ import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
+import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
@@ -72,6 +72,7 @@ import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
+import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
@@ -137,9 +138,11 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -162,6 +165,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -314,8 +318,8 @@ public class ShowExecutor {
             handleShowQueryProfile();
         } else if (stmt instanceof ShowLoadProfileStmt) {
             handleShowLoadProfile();
-        } else if (stmt instanceof AdminShowDataSkewStmt) {
-            handleAdminShowDataSkew();
+        } else if (stmt instanceof ShowDataSkewStmt) {
+            handleShowDataSkew();
         } else if (stmt instanceof ShowSyncJobStmt) {
             handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
@@ -324,6 +328,8 @@ public class ShowExecutor {
             handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
+        } else if (stmt instanceof ShowTableCreationStmt) {
+            handleShowTableCreation();
         } else {
             handleEmtpy();
         }
@@ -760,9 +766,15 @@ public class ShowExecutor {
     private void handleShowCreateDb() throws AnalysisException {
         ShowCreateDbStmt showStmt = (ShowCreateDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        ctx.getCatalog().getDbOrAnalysisException(showStmt.getDb());
+        Database db = ctx.getCatalog().getDbOrAnalysisException(showStmt.getDb());
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
+        if (db.getDbProperties().getProperties().size() > 0) {
+            sb.append("\nPROPERTIES (\n");
+            sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
+            sb.append("\n)");
+        }
+
         rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getDb()), sb.toString()));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -1122,7 +1134,7 @@ public class ShowExecutor {
                                                         "SHOW LOAD WARNING",
                                                         ConnectContext.get().getQualifiedUser(),
                                                         ConnectContext.get().getRemoteIP(),
-                                                        tblName);
+                                                        db.getFullName() + ": " + tblName);
                 }
             }
         }
@@ -1197,10 +1209,15 @@ public class ShowExecutor {
         // if job exists
         List<RoutineLoadJob> routineLoadJobList;
         try {
+            PatternMatcher matcher = null;
+            if (showRoutineLoadStmt.getPattern() != null) {
+                matcher = PatternMatcher.createMysqlPattern(showRoutineLoadStmt.getPattern(),
+                        CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
+            }
             routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager()
                     .getJob(showRoutineLoadStmt.getDbFullName(),
                             showRoutineLoadStmt.getName(),
-                            showRoutineLoadStmt.isIncludeHistory());
+                            showRoutineLoadStmt.isIncludeHistory(), matcher);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
             throw new AnalysisException(e.getMessage());
@@ -1279,7 +1296,7 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                tableName);
+                                                dbFullName + ": " + tableName);
         }
 
         // get routine load task info
@@ -1845,16 +1862,21 @@ public class ShowExecutor {
         ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
         Database db = ctx.getCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
-        Long txnId = showStmt.getTxnId();
-        String label = showStmt.getLabel();
+        TransactionStatus status = showStmt.getStatus();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        if (!label.isEmpty()) {
-            txnId = transactionMgr.getTransactionId(db.getId(), label);
-            if (txnId == null) {
-                throw new AnalysisException("transaction with label " + label + " does not exist");
+        if (status != TransactionStatus.UNKNOWN) {
+            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+        } else {
+            Long txnId = showStmt.getTxnId();
+            String label = showStmt.getLabel();
+            if (!label.isEmpty()) {
+                txnId = transactionMgr.getTransactionId(db.getId(), label);
+                if (txnId == null) {
+                    throw new AnalysisException("transaction with label " + label + " does not exist");
+                }
             }
+            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
         }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
     }
 
     private void handleShowPlugins() throws AnalysisException {
@@ -1972,7 +1994,7 @@ public class ShowExecutor {
         if (showCreateRoutineLoadStmt.isIncludeHistory()) {
             List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
             try {
-                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true);
+                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true, null);
             } catch (MetaNotFoundException e) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
                         .add("error_msg", "Routine load cannot be found by this name")
@@ -2015,8 +2037,8 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
-    private void handleAdminShowDataSkew() throws AnalysisException {
-        AdminShowDataSkewStmt showStmt = (AdminShowDataSkewStmt) stmt;
+    private void handleShowDataSkew() throws AnalysisException {
+        ShowDataSkewStmt showStmt = (ShowDataSkewStmt) stmt;
         try {
             List<List<String>> results = MetadataViewer.getDataSkew(showStmt);
             resultSet = new ShowResultSet(showStmt.getMetaData(), results);
@@ -2046,6 +2068,44 @@ public class ShowExecutor {
         List<SqlBlockRule> sqlBlockRules = Catalog.getCurrentCatalog().getSqlBlockRuleMgr().getSqlBlockRule(showStmt);
         sqlBlockRules.forEach(rule -> rows.add(rule.getShowInfo()));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowTableCreation() throws AnalysisException {
+        ShowTableCreationStmt showStmt = (ShowTableCreationStmt) stmt;
+        String dbName = showStmt.getDbName();
+        Database db = ctx.getCatalog().getDbOrAnalysisException(dbName);
+
+        List<IcebergTableCreationRecord> records =
+                ctx.getCatalog().getIcebergTableCreationRecordMgr().getTableCreationRecordByDbId(db.getId());
+
+        List<List<Comparable>> rowSet = Lists.newArrayList();
+        for (IcebergTableCreationRecord record : records) {
+            List<Comparable> row = record.getTableCreationRecord();
+            // like predicate
+            if (Strings.isNullOrEmpty(showStmt.getWild()) || showStmt.like(record.getTable())) {
+                rowSet.add(row);
+            }
+        }
+
+        // sort function rows by fourth column (Create Time) asc
+        ListComparator<List<Comparable>> comparator = null;
+        OrderByPair orderByPair = new OrderByPair(3, false);
+        comparator = new ListComparator<>(orderByPair);
+        Collections.sort(rowSet, comparator);
+        List<List<String>> resultRowSet = Lists.newArrayList();
+
+        Set<String> keyNameSet = new HashSet<>();
+        for (List<Comparable> row : rowSet) {
+            List<String> resultRow = Lists.newArrayList();
+            for (Comparable column : row) {
+                resultRow.add(column.toString());
+            }
+            resultRowSet.add(resultRow);
+            keyNameSet.add(resultRow.get(0));
+        }
+
+        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
 }

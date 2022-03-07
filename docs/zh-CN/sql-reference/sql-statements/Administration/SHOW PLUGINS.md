@@ -42,4 +42,4 @@ under the License.
         SHOW PLUGINS;
         
 ## keyword
-    SHOW PLUGINS
+    SHOW, PLUGIN, PLUGINS

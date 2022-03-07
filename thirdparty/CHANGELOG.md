@@ -2,6 +2,15 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220211
+
+- Added: simdjson 1.0.2
+
+## v20211229
+
+- Modified: OpenSSL with --with-rand-seed=devrandom
+- Modified: brpc 1.0.0-rc02 -> 1.0.0
+
 ## v20211220
 
 - Modified: OpenSSL 1.0.2k -> 1.1.1m

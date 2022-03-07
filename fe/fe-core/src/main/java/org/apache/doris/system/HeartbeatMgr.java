@@ -25,8 +25,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -53,7 +51,6 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Map;
@@ -299,65 +296,11 @@ public class HeartbeatMgr extends MasterDaemon {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
             }
-            if (Config.enable_fe_heartbeat_by_thrift) {
-                return getHeartbeatResponseByThrift();
-            } else {
-                return getHeartbeatResponseByHttp();
-            }
+
+            return getHeartbeatResponse();
         }
 
-        private HeartbeatResponse getHeartbeatResponseByHttp() {
-            String url = "http://" + fe.getHost() + ":" + Config.http_port
-                    + "/api/bootstrap?cluster_id=" + clusterId + "&token=" + token;
-            try {
-                String result = Util.getResultForUrl(url, null, 2000, 2000);
-                /*
-                 * Old return:
-                 * {"replayedJournalId":191224,"queryPort":9131,"rpcPort":9121,"status":"OK","msg":"Success"}
-                 * {"replayedJournalId":0,"queryPort":0,"rpcPort":0,"status":"FAILED","msg":"not ready"}
-                 *
-                 * New return:
-                 * {"msg":"success","code":0,"data":{"queryPort":9333,"rpcPort":9222,"replayedJournalId":197},"count":0}
-                 * {"msg":"not ready","code":1,"data":null,"count":0}
-                 */
-                JSONObject root = new JSONObject(result);
-                if (root.has("status")) {
-                    // old return
-                    String status = root.getString("status");
-                    if (!"OK".equals(status)) {
-                        return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
-                    } else {
-                        long replayedJournalId = root.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
-                        int queryPort = root.getInt(BootstrapFinishAction.QUERY_PORT);
-                        int rpcPort = root.getInt(BootstrapFinishAction.RPC_PORT);
-                        String version = root.getString(BootstrapFinishAction.VERSION);
-                        return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis(), version == null ? "unknown" : version);
-                    }
-                } else if (root.has("code")) {
-                    // new return
-                    int code = root.getInt("code");
-                    if (code != 0) {
-                        return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
-                    } else {
-                        JSONObject dataObj = root.getJSONObject("data");
-                        long replayedJournalId = dataObj.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
-                        int queryPort = dataObj.getInt(BootstrapFinishAction.QUERY_PORT);
-                        int rpcPort = dataObj.getInt(BootstrapFinishAction.RPC_PORT);
-                        String version = dataObj.getString(BootstrapFinishAction.VERSION);
-                        return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis(), version);
-                    }
-                } else {
-                    throw new Exception("invalid return value: " + result);
-                }
-            } catch (Exception e) {
-                return new FrontendHbResponse(fe.getNodeName(),
-                        Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
-            }
-        }
-
-        private HeartbeatResponse getHeartbeatResponseByThrift() {
+        private HeartbeatResponse getHeartbeatResponse() {
             FrontendService.Client client = null;
             TNetworkAddress addr = new TNetworkAddress(fe.getHost(), Config.rpc_port);
             boolean ok = false;

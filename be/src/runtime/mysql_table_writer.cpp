@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/mysql_table_writer.h"
+
 #include <mysql/mysql.h>
 
-#define __DorisMysql MYSQL
 #include <sstream>
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "runtime/mysql_table_writer.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "util/types.h"

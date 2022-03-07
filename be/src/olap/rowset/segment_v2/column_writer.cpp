@@ -226,7 +226,7 @@ Status ScalarColumnWriter::init() {
     PageBuilder* page_builder = nullptr;
 
     RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
+            EncodingInfo::get(get_field()->type_info().get(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
@@ -444,11 +444,11 @@ Status ScalarColumnWriter::finish_current_page() {
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;
-    if (is_nullable() && _null_bitmap_builder->has_null()) {
-        nullmap = _null_bitmap_builder->finish();
-        body.push_back(nullmap.slice());
-    }
     if (_null_bitmap_builder != nullptr) {
+        if (is_nullable() && _null_bitmap_builder->has_null()) {
+            nullmap = _null_bitmap_builder->finish();
+            body.push_back(nullmap.slice());
+        }
         _null_bitmap_builder->reset();
     }
 

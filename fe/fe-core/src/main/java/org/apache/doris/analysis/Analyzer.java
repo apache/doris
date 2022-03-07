@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -49,7 +50,7 @@ import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteLikePredicateRule;
-import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
+import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -81,6 +82,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Repository of analysis state for single select block.
@@ -219,6 +221,8 @@ public class Analyzer {
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
 
+        private final Set<TupleId> outerJoinedMaterializedTupleIds = Sets.newHashSet();
+
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
         public final Map<ExprId, TableRef> fullOuterJoinedConjuncts = Maps.newHashMap();
@@ -304,7 +308,7 @@ public class Analyzer {
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
-            rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
+            rules.add(RewriteDateLiteralRule.INSTANCE);
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             rules.add(RewriteLikePredicateRule.INSTANCE);
@@ -583,7 +587,17 @@ public class Analyzer {
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
+            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream().filter(
+                    partition -> partition.getState() == PartitionState.RESTORE
+            ).collect(Collectors.toList()).isEmpty();
+
+            if(!isNotRestoring){
+                // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
+                // support query that partitions is not restoring.
+            } else {
+                // if doing restore with table, throw exception here
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
+            }
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.
@@ -705,7 +719,8 @@ public class Analyzer {
 
     /**
      * Register a virtual column, and it is not a real column exist in table,
-     * so it does not need to resolve.
+     * so it does not need to resolve. now virtual slot: only use in grouping set to generate grouping id,
+     * so it should always is not nullable
      */
     public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
             throws AnalysisException {
@@ -720,7 +735,7 @@ public class Analyzer {
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
         result.setColumn(col);
-        result.setIsNullable(true);
+        result.setIsNullable(col.isAllowNull());
         slotRefMap.put(key, result);
         return result;
     }
@@ -791,6 +806,7 @@ public class Analyzer {
         // result.setLabel(srcSlotDesc.getLabel());
         result.setStats(srcSlotDesc.getStats());
         result.setType(srcSlotDesc.getType());
+        result.setIsNullable(srcSlotDesc.getIsNullable());
         // result.setItemTupleDesc(srcSlotDesc.getItemTupleDesc());
         return result;
     }
@@ -835,6 +851,7 @@ public class Analyzer {
 
     /**
      * Register tids as being outer-joined by Join clause represented by rhsRef.
+     * All tuple of outer join should be null in slot desc
      */
     public void registerOuterJoinedTids(List<TupleId> tids, TableRef rhsRef) {
         for (TupleId tid: tids) {
@@ -843,6 +860,27 @@ public class Analyzer {
         if (LOG.isDebugEnabled()) {
             LOG.debug("registerOuterJoinedTids: " +
                     globalState.outerJoinedTupleIds.toString());
+        }
+    }
+
+    public void registerOuterJoinedMaterilizeTids(List<TupleId> tids) {
+        globalState.outerJoinedMaterializedTupleIds.addAll(tids);
+    }
+
+    /**
+     * All tuple of outer join tuple should be null in slot desc
+     */
+    public void changeAllOuterJoinTupleToNull() {
+        for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                slotDescriptor.setIsNullable(true);
+            }
+        }
+
+        for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
+            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
+                slotDescriptor.setIsNullable(true);
+            }
         }
     }
 
@@ -1757,6 +1795,8 @@ public class Analyzer {
         return schemaTable;
     }
 
+    // TODO: `globalState.context` could be null, refactor return value type to
+    // `Optional<ConnectContext>`.
     public ConnectContext getContext() {
         return globalState.context;
     }
@@ -1802,6 +1842,15 @@ public class Analyzer {
             return false;
         }
         return globalState.context.getSessionVariable().isEnableInferPredicate();
+    }
+
+    // Use V2 version as default implementation.
+    public boolean partitionPruneV2Enabled() {
+        if (globalState.context == null) {
+            return true;
+        } else {
+            return globalState.context.getSessionVariable().getPartitionPruneAlgorithmVersion() == 2;
+        }
     }
 
     // The cost based join reorder is turned on

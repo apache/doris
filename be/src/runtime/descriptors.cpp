@@ -24,6 +24,9 @@
 #include "common/object_pool.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/descriptors.pb.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
 using boost::algorithm::join;
@@ -80,6 +83,22 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_is_materialized(_is_materialized);
 }
 
+vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+    auto data_column = type().get_data_type_ptr()->create_column();
+    if (is_nullable()) {
+        return doris::vectorized::ColumnNullable::create(std::move(data_column),
+                                                         doris::vectorized::ColumnUInt8::create());
+    }
+    return data_column;
+}
+
+vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
+    if (is_nullable()) {
+        return std::make_shared<vectorized::DataTypeNullable>(type().get_data_type_ptr());
+    }
+    return type().get_data_type_ptr();
+}
+
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
     out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
@@ -90,7 +109,6 @@ std::string SlotDescriptor::debug_string() const {
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
         : _name(tdesc.tableName),
           _database(tdesc.dbName),
-          _id(tdesc.id),
           _num_cols(tdesc.numCols),
           _num_clustering_cols(tdesc.numClusteringCols) {}
 
@@ -126,6 +144,28 @@ BrokerTableDescriptor::~BrokerTableDescriptor() {}
 std::string BrokerTableDescriptor::debug_string() const {
     std::stringstream out;
     out << "BrokerTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
+HiveTableDescriptor::HiveTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+HiveTableDescriptor::~HiveTableDescriptor() {}
+
+std::string HiveTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "HiveTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
+IcebergTableDescriptor::IcebergTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+IcebergTableDescriptor::~IcebergTableDescriptor() {}
+
+std::string IcebergTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "IcebergTable(" << TableDescriptor::debug_string() << ")";
     return out.str();
 }
 
@@ -351,7 +391,7 @@ int RowDescriptor::get_row_size() const {
 }
 
 int RowDescriptor::get_tuple_idx(TupleId id) const {
-    DCHECK_LT(id, _tuple_idx_map.size()) << "RowDescriptor: " << debug_string();
+    CHECK_LT(id, _tuple_idx_map.size()) << "RowDescriptor: " << debug_string();
     return _tuple_idx_map[id];
 }
 
@@ -378,7 +418,7 @@ void RowDescriptor::to_thrift(std::vector<TTupleId>* row_tuple_ids) {
 }
 
 void RowDescriptor::to_protobuf(
-        google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) {
+        google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) const {
     row_tuple_ids->Clear();
     for (auto desc : _tuple_desc_map) {
         row_tuple_ids->Add(desc->id());
@@ -504,6 +544,12 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::ES_TABLE:
             desc = pool->add(new EsTableDescriptor(tdesc));
+            break;
+        case TTableType::HIVE_TABLE:
+            desc = pool->add(new HiveTableDescriptor(tdesc));
+            break;
+        case TTableType::ICEBERG_TABLE:
+            desc = pool->add(new IcebergTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

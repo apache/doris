@@ -28,9 +28,9 @@ under the License.
 
 该插件用于logstash输出数据到Doris，使用 HTTP 协议与 Doris FE Http接口交互，并通过 Doris 的 stream load 的方式进行数据导入.
 
-[了解Doris Stream Load ](http://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html)
+[了解Doris Stream Load ](http://doris.apache.org/zh-CN/administrator-guide/load-data/stream-load-manual.html)
 
-[了解更多关于Doris](http://doris.apache.org/master/zh-CN/)
+[了解更多关于Doris](http://doris.apache.org/zh-CN/)
 
 
 ## 安装和编译

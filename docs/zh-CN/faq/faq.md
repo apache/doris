@@ -30,28 +30,11 @@ under the License.
 
 ### Q1. 使用 Stream Load 访问 FE 的公网地址导入数据，被重定向到内网 IP？
 
-
 当 stream load 的连接目标为FE的http端口时，FE仅会随机选择一台BE节点做http 307 redirect 操作，因此用户的请求实际是发送给FE指派的某一个BE的。而redirect返回的是BE的ip，也即内网IP。所以如果你是通过FE的公网IP发送的请求，很有可能因为redirect到内网地址而无法连接。
 
 通常的做法，一种是确保自己能够访问内网IP地址，或者是给所有BE上层假设一个负载均衡，然后直接将 stream load 请求发送到负载均衡器上，由负载均衡将请求透传到BE节点。
 
-### Q2. 查询报错：Failed to get scan range, no queryable replica found in tablet: xxxx
-
-这种情况是因为对应的 tablet 没有找到可以查询的副本，通常原因可能是 BE 宕机、副本缺失等。可以先通过 `show tablet tablet_id` 语句，然后执行后面的 `show proc` 语句，查看这个 tablet 对应的副本信息，检查副本是否完整。同时还可以通过 `show proc "/cluster_balance"` 信息来查询集群内副本调度和修复的进度。
-
-关于数据副本管理相关的命令，可以参阅 [数据副本管理](../administrator-guide/operation/tablet-repair-and-balance.md)。
-
-### Q3. FE启动失败，fe.log中一直滚动 "wait catalog to be ready. FE type UNKNOWN"
-
-这种问题通常有两个原因：
-
-1. 本次FE启动时获取到的本机IP和上次启动不一致，通常是因为没有正确设置 `priority_network` 而导致 FE 启动时匹配到了错误的 IP 地址。需修改 `priority_network` 后重启 FE。
-
-2. 集群内多数 Follower FE 节点未启动。比如有 3 个 Follower，只启动了一个。此时需要将另外至少一个 FE 也启动，FE 可选举组方能选举出 Master 已提供服务。
-
-如果以上情况都不能解决，可以按照 Doris 官网文档中的[元数据运维文档](../administrator-guide/operation/metadata-operation.md)进行恢复：
-
-### Q4. 通过 DECOMMISSION 下线BE节点时，为什么总会有部分tablet残留？
+### Q2. 通过 DECOMMISSION 下线BE节点时，为什么总会有部分tablet残留？
 
 在下线过程中，通过 show backends 查看下线节点的 tabletNum ，会观察到 tabletNum 数量在减少，说明数据分片正在从这个节点迁移走。当数量减到0时，系统会自动删除这个节点。但某些情况下，tabletNum 下降到一定数值后就不变化。这通常可能有以下两种原因：
 
@@ -62,7 +45,7 @@ under the License.
 对于以上情况，可以先通过 show proc "/statistic" 查看集群是否还有 unhealthy 的分片，如果为0，则可以直接通过 drop backend 语句删除这个 BE 。否则，还需要具体查看不健康分片的副本情况。
 
 
-### Q5. priorty_network 应该如何设置？
+### Q3. priorty_network 应该如何设置？
 
 priorty_network 是 FE、BE 都有的配置参数。这个参数主要用于帮助系统选择正确的网卡 IP 作为自己的 IP 。建议任何情况下，都显式的设置这个参数，以防止后续机器增加新网卡导致IP选择不正确的问题。
 
@@ -70,7 +53,7 @@ priorty_network 的值是 CIDR 格式表示的。分为两部分，第一部分�
 
 之所以使用 CIDR 格式而不是直接指定一个具体 IP，是为了保证所有节点都可以使用统一的配置值。比如有两个节点：10.168.10.1 和 10.168.10.2，则我们可以使用 10.168.10.0/24 来作为 priorty_network 的值。
 
-### Q6. FE的Master、Follower、Observer都是什么？
+### Q4. FE的Master、Follower、Observer都是什么？
 
 首先明确一点，FE 只有两种角色：Follower 和 Observer。而 Master 只是一组 Follower 节点中选择出来的一个 FE。Master 可以看成是一种特殊的 Follower。所以当我们被问及一个集群有多少 FE，都是什么角色时，正确的回答当时应该是所有 FE 节点的个数，以及 Follower 角色的个数和 Observer 角色的个数。
 
@@ -82,39 +65,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 通常情况下，可以部署 1 Follower + 2 Observer 或者 3 Follower + N Observer。前者运维简单，几乎不会出现 Follower 之间的一致性协议导致这种复杂错误情况（百度内部集群大多使用这种方式）。后者可以保证元数据写的高可用，如果是高并发查询场景，可以适当增加 Observer。
 
-### Q7. tablet writer write failed, tablet_id=27306172, txn_id=28573520, err=-235 or -215 or -238
-
-这个错误通常发生在数据导入操作中。新版错误码为 -235，老版本错误码可能是 -215。这个错误的含义是，对应tablet的数据版本超过了最大限制（默认500，由 BE 参数 `max_tablet_version_num` 控制），后续写入将被拒绝。比如问题中这个错误，即表示 27306172 这个tablet的数据版本超过了限制。
-
-这个错误通常是因为导入的频率过高，大于后台数据的compaction速度，导致版本堆积并最终超过了限制。此时，我们可以先通过show tablet 27306172 语句，然后执行结果中的 show proc 语句，查看tablet各个副本的情况。结果中的 versionCount即表示版本数量。如果发现某个副本的版本数量过多，则需要降低导入频率或停止导入，并观察版本数是否有下降。如果停止导入后，版本数依然没有下降，则需要去对应的BE节点查看be.INFO日志，搜索tablet id以及 compaction关键词，检查compaction是否正常运行。关于compaction调优相关，可以参阅 ApacheDoris 公众号文章：Doris 最佳实践-Compaction调优(3)
-
--238 错误通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多（默认是 200，由 BE 参数 `max_segment_num_per_rowset` 控制）。此时建议减少一批次导入的数据量，或者适当提高 BE 配置参数值来解决。
-
-### Q8. tablet 110309738 has few replicas: 1, alive backends: [10003]
-
-这个错误可能发生在查询或者导入操作中。通常意味着对应tablet的副本出现了异常。
-
-此时，可以先通过 show backends 命令检查BE节点是否有宕机，如 isAlive 字段为false，或者 LastStartTime 是最近的某个时间（表示最近重启过）。如果BE有宕机，则需要去BE对应的节点，查看be.out日志。如果BE是因为异常原因宕机，通常be.out中会打印异常堆栈，帮助排查问题。如果be.out中没有错误堆栈。则可以通过linux命令dmesg -T 检查是否是因为OOM导致进程被系统kill掉。
-
-如果没有BE节点宕机，则需要通过show tablet 110309738 语句，然后执行结果中的 show proc 语句，查看tablet各个副本的情况，进一步排查。
-
-### Q9. disk xxxxx on backend xxx exceed limit usage
-
-通常出现在导入、Alter等操作中。这个错误意味着对应BE的对应磁盘的使用量超过了阈值（默认95%）此时可以先通过 show backends 命令，其中MaxDiskUsedPct展示的是对应BE上，使用率最高的那块磁盘的使用率，如果超过95%，则会报这个错误。
-
-此时需要前往对应BE节点，查看数据目录下的使用量情况。其中trash目录和snapshot目录可以手动清理以释放空间。如果是data目录占用较大，则需要考虑删除部分数据以释放空间了。具体可以参阅[磁盘空间管理](../administrator-guide/operation/disk-capacity.md)。
-
-### Q10. invalid cluster id: xxxx
-
-这个错误可能会在show backends 或 show frontends 命令的结果中出现。通常出现在某个FE或BE节点的错误信息列中。这个错误的含义是，Master FE向这个节点发送心跳信息后，该节点发现心跳信息中携带的 cluster id和本地存储的 cluster id不同，所以拒绝回应心跳。
-
-Doris的 Master FE 节点会主动发送心跳给各个FE或BE节点，并且在心跳信息中会携带一个cluster_id。cluster_id是在一个集群初始化时，由Master FE生成的唯一集群标识。当FE或BE第一次收到心跳信息后，则会将cluster_id以文件的形式保存在本地。FE的该文件在元数据目录的image/目录下，BE则在所有数据目录下都有一个cluster_id文件。之后，每次节点收到心跳后，都会用本地cluster_id的内容和心跳中的内容作比对，如果不一致，则拒绝响应心跳。
-
-该机制是一个节点认证机制，以防止接收到集群外的节点发送来的错误的心跳信息。
-
-如果需要恢复这个错误。首先要先确认所有节点是否都是正确的集群中的节点。之后，对于FE节点，可以尝试修改元数据目录下的 image/VERSION 文件中的 cluster_id 值后重启FE。对于BE节点，则可以删除所有数据目录下的 cluster_id 文件后重启 BE。
-
-### Q11. Doris 是否支持修改列名？
+### Q5. Doris 是否支持修改列名？
 
 不支持修改列名。
 
@@ -124,7 +75,7 @@ Doris支持修改数据库名、表名、分区名、物化视图（Rollup）名
 
 我们不排除后续通过一些兼容手段来支持轻量化的列名修改操作。
 
-### Q12. Unique Key模型的表是否支持创建物化视图？
+### Q6. Unique Key模型的表是否支持创建物化视图？
 
 不支持。
 
@@ -132,7 +83,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
 但遗憾的是，Unique Key模型的表是无法建立物化视图的。原因在于，物化视图的本质，是通过预计算来将数据“预先算好”，这样在查询时直接返回已经计算好的数据，来加速查询。在物化视图中，“预计算”的数据通常是一些聚合指标，比如求和、求count。这时，如果数据发生变更，如udpate或delete，因为预计算的数据已经丢失了明细信息，因此无法同步的进行更新。比如一个求和值5，可能是 1+4，也可能是2+3。因为明细信息的丢失，我们无法区分这个求和值是如何计算出来的，因此也就无法满足更新的需求。
 
-### Q13. show backends/frontends 查看到的信息不完整
+### Q7. show backends/frontends 查看到的信息不完整
 
 在执行如` show backends/frontends` 等某些语句后，结果中可能会发现有部分列内容不全。比如show backends结果中看不到磁盘容量信息等。
 
@@ -140,23 +91,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
 当然，用户也可以在执行这些语句前，先执行 `set forward_to_master=true;` 这个会话变量设置为true后，后续执行的一些信息查看类语句会自动转发到Master FE获取结果。这样，不论用户连接的是哪个FE，都可以获取到完整结果了。
 
-### Q14. 通过Java程序调用stream load导入数据，在一批次数据量较大时，可能会报错Broken Pipe
-
-除了Broken Pipe外，还可能出现一些其他的奇怪的错误。
-
-这个情况通常出现在开启httpv2后。因为httpv2是使用spring boot实现的http 服务，并且使用tomcat作为默认内置容器。但是jetty对307转发的处理似乎有些问题，所以后面将内置容器修改为了jetty。此外，在java程序中的 apache http client的版本需要使用4.5.13以后的版本。之前的版本，对转发的处理也存在一些问题。
-
-所以这个问题可以有两种解决方式：
-
-1. 关闭httpv2
-
-    在fe.conf中添加 enable_http_server_v2=false后重启FE。但是这样无法再使用新版UI界面，并且之后的一些基于httpv2的新接口也无法使用。（正常的导入查询不受影响）。
-
-2. 升级
-
-    可以升级到 Doris 0.15 及之后的版本，已修复这个问题。
-
-### Q15. 节点新增加了新的磁盘，为什么数据没有均衡到新的磁盘上？
+### Q8. 节点新增加了新的磁盘，为什么数据没有均衡到新的磁盘上？
 
 当前Doris的均衡策略是以节点为单位的。也就是说，是按照节点整体的负载指标（分片数量和总磁盘利用率）来判断集群负载。并且将数据分片从高负载节点迁移到低负载节点。如果每个节点都增加了一块磁盘，则从节点整体角度看，负载并没有改变，所以无法触发均衡逻辑。
 
@@ -182,7 +117,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
     Doris提供了[HTTP API](../administrator-guide/http-actions/tablet-migration-action.md)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
 
-### Q16. 如何正确阅读 FE/BE 日志?
+### Q9. 如何正确阅读 FE/BE 日志?
 
 很多情况下我们需要通过日志来排查问题。这里说明一下FE/BE日志的格式和查看方式。
 
@@ -230,7 +165,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
     通常情况下我们主要查看be.INFO日志。特殊情况下，如BE宕机，则需要查看be.out。
 
-### Q17. FE/BE 节点挂了应该如何排查原因?
+### Q10. FE/BE 节点挂了应该如何排查原因?
 
 1. BE
 
@@ -260,7 +195,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
     FE 是 java 进程，健壮程度要由于 C/C++ 程序。通常FE 挂掉的原因可能是 OOM（Out-of-Memory）或者是元数据写入失败。这些错误通常在 fe.log 或者 fe.out 中有错误堆栈。需要根据错误堆栈信息进一步排查。
 
-### Q18. 关于数据目录SSD和HDD的配置。
+### Q11. 关于数据目录SSD和HDD的配置。
 
 Doris支持一个BE节点配置多个存储路径。通常情况下，每块盘配置一个存储路径即可。同时，Doris支持指定路径的存储介质属性，如SSD或HDD。SSD代表高速存储设备，HDD代表低速存储设备。
 
@@ -270,54 +205,93 @@ Doris支持一个BE节点配置多个存储路径。通常情况下，每块盘�
 
 换句话说，".HDD" 和 ".SSD" 只是用于标识存储目录“相对”的“低速”和“高速”之分，而并不是标识实际的存储介质类型。所以如果BE节点上的存储路径没有介质区别，则无需填写后缀。
 
-### Q19. `Lost connection to MySQL server at 'reading initial communication packet', system error: 0`
+### Q12. Unique Key 模型查询结果不一致
 
-如果使用 MySQL 客户端连接 Doris 时出现如下问题，这通常是因为编译 FE 时使用的 jdk 版本和运行 FE 时使用的 jdk 版本不同导致的。
-注意使用 docker 编译镜像编译时，默认的 JDK 版本是 openjdk 11，可以通过命令切换到 openjdk 8（详见编译文档）。
+某些情况下，当用户使用相同的 SQL 查询一个 Unique Key 模型的表时，可能会出现多次查询结果不一致的现象。并且查询结果总在 2-3 种之间变化。
 
-### Q20. -214 错误
+这可能是因为，在同一批导入数据中，出现了 key 相同但 value 不同的数据，这会导致，不同副本间，因数据覆盖的先后顺序不确定而产生的结果不一致的问题。
 
-在执行导入、查询等操作时，可能会遇到如下错误：
+比如表定义为 k1, v1。一批次导入数据如下：
 
 ```
-failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0fa7579928c85a0, res=-214, backend=192.168.100.10
+1, "abc"
+1, "def"
 ```
 
--214 错误意味着对应 tablet 的数据版本缺失。比如如上错误，表示 tablet 63416 在 192.168.100.10 这个 BE 上的副本的数据版本有缺失。（可能还有其他类似错误码，都可以用如下方式进行排查和修复）。
+那么可能副本1 的结果是 `1, "abc"`，而副本2 的结果是 `1, "def"`。从而导致查询结果不一致。
 
-通常情况下，如果你的数据是多副本的，那么系统会自动修复这些有问题的副本。可以通过以下步骤进行排查：
+为了确保不同副本之间的数据先后顺序唯一，可以参考 [Sequence Column](../administrator-guide/load-data/sequence-column-manual.md) 功能。
 
-首先通过 `show tablet 63416` 语句并执行结果中的 `show proc xxx` 语句来查看对应 tablet 的各个副本情况。通常我们需要关心 `Version` 这一列的数据。
+### Q13. 多个FE，在使用Nginx实现web UI负载均衡时，无法登录
 
-正常情况下，一个 tablet 的多个副本的 Version 应该是相同的。并且和对应分区的 VisibleVersion 版本相同。
+Doris 可以部署多个FE，在访问Web UI的时候，如果使用Nginx进行负载均衡，因为Session问题会出现不停的提示要重新登录，这个问题其实是Session共享的问题，Nginx提供了集中Session共享的解决方案，这里我们使用的是nginx中的ip_hash技术，ip_hash能够将某个ip的请求定向到同一台后端，这样一来这个ip下的某个客户端和某个后端就能建立起稳固的session，ip_hash是在upstream配置中定义的：
 
-你可以通过 `show partitions from tblx` 来查看对应的分区版本（tablet 对应的分区可以在 `show tablet` 语句中获取。）
+```
+upstream  doris.com {
+   server    172.22.197.238:8030 weight=3;
+   server    172.22.197.239:8030 weight=4;
+   server    172.22.197.240:8030 weight=4;
+   ip_hash;
+}
+```
+完整的Nginx示例配置如下:
 
-同时，你也可以访问 `show proc` 语句中的 CompactionStatus 列中的 URL（在浏览器打开即可）来查看更具体的版本信息，来检查具体丢失的是哪些版本。
+```
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
 
-如果长时间没有自动修复，则需要通过 `show proc "/cluster_balance"` 语句，查看当前系统正在执行的 tablet 修复和调度任务。可能是因为有大量的 tablet 在等待被调度，导致修复时间较长。可以关注 `pending_tablets` 和 `running_tablets` 中的记录。
+# Load dynamic modules. See /usr/share/doc/nginx/README.dynamic.
+include /usr/share/nginx/modules/*.conf;
 
-更进一步的，可以通过 `admin repair` 语句来指定优先修复某个表或分区，具体可以参阅 `help admin repair`;
+events {
+    worker_connections 1024;
+}
 
-如果依然无法修复，那么在多副本的情况下，我们使用 `admin set replica status` 命令强制将有问题的副本下线。具体可参阅 `help admin set replica status` 中将副本状态置为 bad 的示例。（置为 bad 后，副本将不会再被访问。并且会后续自动修复。但在操作前，应先确保其他副本是正常的）
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
 
-### Q21. Not connected to 192.168.100.1:8060 yet, server_id=384
+    access_log  /var/log/nginx/access.log  main;
 
-在导入或者查询时，我们可能遇到这个错误。如果你去对应的 BE 日志中查看，也可能会找到类似错误。
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 2048;
 
-这是一个 RPC 错误，通常由两种可能：1. 对应的 BE 节点宕机。2. rpc 拥塞或其他错误。
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
 
-如果是 BE 节点宕机，则需要查看具体的宕机原因。这里只讨论 rpc 拥塞的问题。
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    include /etc/nginx/conf.d/*.conf;
+    #include /etc/nginx/custom/*.conf;
+    upstream  doris.com {
+      server    172.22.197.238:8030 weight=3;
+      server    172.22.197.239:8030 weight=4;
+      server    172.22.197.240:8030 weight=4;
+      ip_hash;
+    }
 
-一种情况是 OVERCROWDED，即表示 rpc 源端有大量未发送的数据超过了阈值。BE 有两个参数与之相关：
+    server {
+        listen       80;
+        server_name  gaia-pro-bigdata-fe02;
+        if ($request_uri ~ _load) {
+           return 307 http://$host$request_uri ;
+        }
 
-1. `brpc_socket_max_unwritten_bytes`：默认 1GB，如果未发送数据超过这个值，则会报错。可以适当修改这个值以避免 OVERCROWDED 错误。（但这个治标不治本，本质上还是有拥塞发生）。
-2. `tablet_writer_ignore_eovercrowded`：默认为 false。如果设为true，则 Doris 会忽略导入过程中出现的 OVERCROWDED 错误。这个参数主要为了避免导入失败，以提高导入的稳定性。
-
-第二种是 rpc 的包大小超过 max_body_size。如果查询中带有超大 String 类型，或者 bitmap 类型时，可能出现这个问题。可以通过修改以下 BE 参数规避：
-
-1. `brpc_max_body_size`：默认 3GB.
-
-
-
-
+        location / {
+            proxy_pass http://doris.com;
+            proxy_redirect default;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+ }
+```

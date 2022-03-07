@@ -32,6 +32,8 @@ namespace doris {
 class FreePool;
 class MemPool;
 class RuntimeState;
+struct ColumnPtrWrapper;
+class PFunctionContext;
 
 // This class actually implements the interface of FunctionContext. This is split to
 // hide the details from the external header.
@@ -66,6 +68,8 @@ public:
     doris_udf::FunctionContext* clone(MemPool* pool);
 
     void set_constant_args(const std::vector<doris_udf::AnyVal*>& constant_args);
+
+    void set_constant_cols(const std::vector<doris::ColumnPtrWrapper*>& cols);
 
     uint8_t* varargs_buffer() { return _varargs_buffer; }
 
@@ -103,6 +107,9 @@ public:
     std::string& string_result() { return _string_result; }
 
     const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; }
+
+    void serialize(PFunctionContext* pcontext) const;
+    void derialize(const PFunctionContext& pcontext);
 
 private:
     friend class doris_udf::FunctionContext;
@@ -168,6 +175,8 @@ private:
     // indicates that the corresponding argument is non-constant. Otherwise contains the
     // value of the argument.
     std::vector<doris_udf::AnyVal*> _constant_args;
+
+    std::vector<doris::ColumnPtrWrapper*> _constant_cols;
 
     // Used by ScalarFnCall to store the arguments when running without codegen. Allows us
     // to pass AnyVal* arguments to the scalar function directly, rather than codegening a

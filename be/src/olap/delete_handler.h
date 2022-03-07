@@ -26,14 +26,13 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_define.h"
-#include "olap/tablet_schema.h"
 
 namespace doris {
 
 typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> DelPredicateArray;
 class Conditions;
 class RowCursor;
-class Reader;
+class TabletReader;
 
 class DeleteConditionHandler {
 public:
@@ -102,7 +101,7 @@ public:
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: input parameters are not valid
     //     * OLAP_ERR_MALLOC_ERROR: alloc memory failed
     OLAPStatus init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
-                    int64_t version, const doris::Reader* = nullptr);
+                    int64_t version, const doris::TabletReader* = nullptr);
 
     // Check whether a row should be deleted.
     //

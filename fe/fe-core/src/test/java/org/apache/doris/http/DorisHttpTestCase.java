@@ -102,10 +102,7 @@ abstract public class DorisHttpTestCase {
     private static long tabletId = 400L;
 
     public static long testStartVersion = 12;
-    public static long testStartVersionHash = 12312;
     public static int testSchemaHash = 93423942;
-    public static long testPartitionCurrentVersionHash = 12312;
-    public static long testPartitionNextVersionHash = 123123123;
 
     public static int HTTP_PORT;
 
@@ -124,12 +121,12 @@ abstract public class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new Tablet(tabletId);
@@ -146,9 +143,8 @@ abstract public class DorisHttpTestCase {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(2);
         Partition partition = new Partition(testPartitionId, "testPartition", baseIndex, distributionInfo);
-        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersion(testStartVersion);
         partition.setNextVersion(testStartVersion + 1);
-        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();

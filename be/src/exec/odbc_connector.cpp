@@ -27,16 +27,16 @@
 #include "runtime/primitive_type.h"
 #include "util/types.h"
 
-#define ODBC_DISPOSE(h, ht, x, op)                                        \
-    {                                                                     \
-        auto rc = x;                                                      \
-        if (rc != SQL_SUCCESS && rc != SQL_SUCCESS_WITH_INFO) {           \
-            return error_status(op, handle_diagnostic_record(h, ht, rc)); \
-        }                                                                 \
-        if (rc == SQL_ERROR) {                                            \
-            auto err_msg = std::string("Error in") + std::string(op);     \
-            return Status::InternalError(err_msg.c_str());                \
-        }                                                                 \
+#define ODBC_DISPOSE(h, ht, x, op)                                                        \
+    {                                                                                     \
+        auto rc = x;                                                                      \
+        if (rc != SQL_SUCCESS && rc != SQL_SUCCESS_WITH_INFO) {                           \
+            return error_status(fmt::to_string(op), handle_diagnostic_record(h, ht, rc)); \
+        }                                                                                 \
+        if (rc == SQL_ERROR) {                                                            \
+            auto err_msg = std::string("Error in") + fmt::to_string(op);                  \
+            return Status::InternalError(err_msg.c_str());                                \
+        }                                                                                 \
     }
 
 static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
@@ -59,7 +59,6 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
           _output_expr_ctxs(param.output_expr_ctxs),
           _is_open(false),
           _field_num(0),
-          _row_count(0),
           _env(nullptr),
           _dbc(nullptr),
           _stmt(nullptr) {}
@@ -293,7 +292,7 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                     fmt::memory_buffer err_out;
                     fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
                                    _output_expr_ctxs[j]->root()->type().type);
-                    return Status::InternalError(err_out.data());
+                    return Status::InternalError(fmt::to_string(err_out));
                 }
                 }
             }

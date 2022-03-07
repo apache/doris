@@ -30,12 +30,13 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/runtime_state.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/md5.h"
 #include "util/proto_util.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+#include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
 
@@ -101,15 +102,9 @@ void PInternalServiceImpl<T>::exec_plan_fragment(google::protobuf::RpcController
                                                  PExecPlanFragmentResult* response,
                                                  google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
     auto st = Status::OK();
-    if (request->has_request()) {
-        bool compact = request->has_compact() ? request->compact() : false;
-        st = _exec_plan_fragment(request->request(), compact);
-    } else {
-        // TODO(yangzhengguo) this is just for compatible with old version, this should be removed in the release 0.15
-        st = _exec_plan_fragment(cntl->request_attachment().to_string(), false);
-    }
+    bool compact = request->has_compact() ? request->compact() : false;
+    st = _exec_plan_fragment(request->request(), compact);
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
     }
@@ -136,8 +131,7 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
             SCOPED_RAW_TIMER(&execution_time_ns);
             brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
             attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request,
-                                                               response->mutable_tablet_vec());
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -175,8 +169,6 @@ Status PInternalServiceImpl<T>::_exec_plan_fragment(const std::string& ser_reque
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
     }
-    // LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
-    //  << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
     return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
 }
 
@@ -422,7 +414,10 @@ Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_reque
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    return FoldConstantExecutor().fold_constant_expr(t_request, response);
+    if (!t_request.__isset.vec_exec || !t_request.vec_exec)
+        return FoldConstantExecutor().fold_constant_expr(t_request, response);
+
+    return FoldConstantExecutor().fold_constant_vexpr(t_request, response);
 }
 
 template <typename T>
@@ -432,7 +427,20 @@ void PInternalServiceImpl<T>::transmit_block(google::protobuf::RpcController* cn
                                              google::protobuf::Closure* done) {
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " node=" << request->node_id();
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
+    // The response is accessed when done->Run is called in transmit_block(),
+    // give response a default value to avoid null pointers in high concurrency.
+    Status st;
+    st.to_protobuf(response->mutable_status());
+    st = _exec_env->vstream_mgr()->transmit_block(request, &done);
+    if (!st.ok()) {
+        LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
+                     << ", fragment_instance_id=" << print_id(request->finst_id())
+                     << ", node=" << request->node_id();
+    }
     if (done != nullptr) {
+        st.to_protobuf(response->mutable_status());
         done->Run();
     }
 }
@@ -472,21 +480,21 @@ void PInternalServiceImpl<T>::reset_rpc_channel(google::protobuf::RpcController*
     brpc::ClosureGuard closure_guard(done);
     response->mutable_status()->set_status_code(0);
     if (request->all()) {
-        int size = ExecEnv::GetInstance()->brpc_stub_cache()->size();
+        int size = ExecEnv::GetInstance()->brpc_internal_client_cache()->size();
         if (size > 0) {
             std::vector<std::string> endpoints;
-            ExecEnv::GetInstance()->brpc_stub_cache()->get_all(&endpoints);
-            ExecEnv::GetInstance()->brpc_stub_cache()->clear();
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_all(&endpoints);
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->clear();
             *response->mutable_channels() = {endpoints.begin(), endpoints.end()};
         }
     } else {
         for (const std::string& endpoint : request->endpoints()) {
-            if (!ExecEnv::GetInstance()->brpc_stub_cache()->exist(endpoint)) {
+            if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->exist(endpoint)) {
                 response->mutable_status()->add_error_msgs(endpoint + ": not found.");
                 continue;
             }
 
-            if (ExecEnv::GetInstance()->brpc_stub_cache()->erase(endpoint)) {
+            if (ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(endpoint)) {
                 response->add_channels(endpoint);
             } else {
                 response->mutable_status()->add_error_msgs(endpoint + ": reset failed.");

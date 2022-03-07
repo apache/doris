@@ -32,8 +32,9 @@ import com.google.common.collect.Maps;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONArray;
-import org.json.JSONObject;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.util.List;
 import java.util.Map;
@@ -295,12 +296,12 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         List<String> hostnames = Lists.newArrayList();
-        JSONObject componentsObj = new JSONObject(componentsJson);
-        JSONArray componentsArray = componentsObj.getJSONArray(KEY_HOST_COMPONENTS);
+        JSONObject componentsObj = (JSONObject) JSONValue.parse(componentsJson);
+        JSONArray componentsArray = (JSONArray) componentsObj.get(KEY_HOST_COMPONENTS);
         for (Object component : componentsArray) {
             JSONObject componentObj = (JSONObject) component;
             try {
-                JSONObject roleObj = componentObj.getJSONObject(KEY_HOST_ROLES);
+                JSONObject roleObj = (JSONObject) componentObj.get(KEY_HOST_ROLES);
                 String hostname = (String) roleObj.get(KEY_HOST_NAME);
                 hostnames.add(hostname);
             } catch (Exception e) {
@@ -314,13 +315,13 @@ public class AmbariDeployManager extends DeployManager {
     private String getPropertyFromBlueprint(String configNodeName, String propName) {
         Preconditions.checkNotNull(blueprintJson);
         String resProp = null;
-        JSONObject root = new JSONObject(blueprintJson);
-        JSONArray confArray = root.getJSONArray("configurations");
+        JSONObject root = (JSONObject) JSONValue.parse(blueprintJson);
+        JSONArray confArray = (JSONArray) root.get("configurations");
         for (Object object : confArray) {
             JSONObject jobj = (JSONObject) object;
             try {
-                JSONObject comNameObj = jobj.getJSONObject(configNodeName);
-                JSONObject propObj = comNameObj.getJSONObject("properties");
+                JSONObject comNameObj = (JSONObject) jobj.get(configNodeName);
+                JSONObject propObj = (JSONObject) comNameObj.get("properties");
                 resProp = (String) propObj.get(propName);
             } catch (Exception e) {
                 // nothing

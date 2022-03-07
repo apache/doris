@@ -33,17 +33,14 @@ add_library(Exprs
   cast_functions.cpp
   compound_predicate.cpp
   conditional_functions.cpp
-  conditional_functions_ir.cpp
   decimalv2_operators.cpp
   time_operators.cpp
   es_functions.cpp
   hash_functions.cpp
   literal.cpp
   expr.cpp
-  expr_ir.cpp
   expr_context.cpp
   in_predicate.cpp
-  new_in_predicate.cpp
   bloomfilter_predicate.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc
@@ -54,6 +51,7 @@ add_library(Exprs
   math_functions.cpp
   null_literal.cpp  
   scalar_fn_call.cpp
+  rpc_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp
   array_functions.cpp
@@ -71,7 +69,6 @@ add_library(Exprs
   hll_function.cpp
   grouping_sets_functions.cpp
   topn_function.cpp
-
   table_function/explode_split.cpp
   table_function/explode_bitmap.cpp
   table_function/explode_json_array.cpp

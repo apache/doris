@@ -366,15 +366,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             if (!table.getName().equals(tableName)) {
                 continue;
             }
-
-            db.createTable(table);
-
-            iterator.remove();
-            idToRecycleTime.remove(table.getId());
-
-            // log
-            RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), -1L);
-            Catalog.getCurrentCatalog().getEditLog().logRecoverTable(recoverInfo);
+            table.writeLock();
+            try {
+                db.createTable(table);
+                iterator.remove();
+                idToRecycleTime.remove(table.getId());
+                // log
+                RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), -1L);
+                Catalog.getCurrentCatalog().getEditLog().logRecoverTable(recoverInfo);
+            } finally {
+                table.writeUnlock();
+            }
             LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
             return true;
         }
@@ -391,13 +393,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             if (tableInfo.getTable().getId() != tableId) {
                 continue;
             }
-
             Preconditions.checkState(tableInfo.getDbId() == db.getId());
-
-            db.createTable(tableInfo.getTable());
-            iterator.remove();
-            idToRecycleTime.remove(tableInfo.getTable().getId());
-            LOG.info("replay recover table[{}]", tableId);
+            Table table = tableInfo.getTable();
+            table.writeLock();
+            try {
+                db.createTable(tableInfo.getTable());
+                iterator.remove();
+                idToRecycleTime.remove(tableInfo.getTable().getId());
+                LOG.info("replay recover table[{}]", tableId);
+            } finally {
+                table.writeUnlock();
+            }
             break;
         }
     }
@@ -809,12 +815,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             tableId = in.readLong();
             partition = Partition.read(in);
             range = RangeUtils.readRange(in);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
-                listPartitionItem = ListPartitionItem.read(in);
-            } else {
-                listPartitionItem = ListPartitionItem.DUMMY_ITEM;
-            }
-
+            listPartitionItem = ListPartitionItem.read(in);
             dataProperty = DataProperty.read(in);
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
                 short replicationNum = in.readShort();
@@ -822,9 +823,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             } else {
                 replicaAlloc = ReplicaAllocation.read(in);
             }
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-                isInMemory = in.readBoolean();
-            }
+            isInMemory = in.readBoolean();
         }
     }
     

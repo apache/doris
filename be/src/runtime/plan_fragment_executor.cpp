@@ -36,11 +36,14 @@
 #include "runtime/row_batch.h"
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
+#include "util/logging.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
-#include "util/logging.h"
+#include "vec/core/block.h"
+#include "vec/exec/vexchange_node.h"
+#include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
 
@@ -55,12 +58,12 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _closed(false),
           _is_report_success(true),
           _is_report_on_cancel(true),
-          _collect_query_statistics_with_every_batch(false) {}
+          _collect_query_statistics_with_every_batch(false),
+          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
+          _cancel_msg("") {}
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
-    // if (_prepared) {
     close();
-    // }
     // at this point, the report thread should have been stopped
     DCHECK(!_report_thread_active);
 }
@@ -70,10 +73,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
-    TAG(LOG(INFO)).log("PlanFragmentExecutor::prepare")
-                  .query_id(_query_id).instance_id(params.fragment_instance_id)
-                  .tag("backend_num", std::to_string(request.backend_num))
-                  .tag("pthread_id", std::to_string((uintptr_t) pthread_self()));
+    TAG(LOG(INFO))
+            .log("PlanFragmentExecutor::prepare")
+            .query_id(_query_id)
+            .instance_id(params.fragment_instance_id)
+            .tag("backend_num", std::to_string(request.backend_num))
+            .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
@@ -111,11 +116,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     }
 
     if (bytes_limit > _exec_env->process_mem_tracker()->limit()) {
-        LOG(WARNING) << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
-                     << " exceeds process memory limit of "
-                     << PrettyPrinter::print(_exec_env->process_mem_tracker()->limit(),
-                                             TUnit::BYTES)
-                     << ". Using process memory limit instead";
+        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+                    << " exceeds process memory limit of "
+                    << PrettyPrinter::print(_exec_env->process_mem_tracker()->limit(), TUnit::BYTES)
+                    << ". Using process memory limit instead";
         bytes_limit = _exec_env->process_mem_tracker()->limit();
     }
     // NOTE: this MemTracker only for olap
@@ -159,6 +163,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);
         if (_runtime_state->enable_vectorized_exec()) {
+            static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
         } else {
             static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
         }
@@ -193,7 +198,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
-
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
@@ -214,6 +218,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size(),
                                   _runtime_state->instance_mem_tracker().get()));
+    _block.reset(new doris::vectorized::Block());
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
@@ -227,9 +232,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->fragment_mem_tracker()->limit();
-    TAG(LOG(INFO)).log("PlanFragmentExecutor::open, using query memory limit: " + PrettyPrinter::print(mem_limit, TUnit::BYTES))
-                  .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id())
-                  .tag("mem_limit", std::to_string(mem_limit));
+    TAG(LOG(INFO))
+            .log("PlanFragmentExecutor::open, using query memory limit: " +
+                 PrettyPrinter::print(mem_limit, TUnit::BYTES))
+            .query_id(_query_id)
+            .instance_id(_runtime_state->fragment_instance_id())
+            .tag("mem_limit", std::to_string(mem_limit));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -244,6 +252,7 @@ Status PlanFragmentExecutor::open() {
     }
     Status status = Status::OK();
     if (_runtime_state->enable_vectorized_exec()) {
+        status = open_vectorized_internal();
     } else {
         status = open_internal();
     }
@@ -254,9 +263,98 @@ Status PlanFragmentExecutor::open() {
         // only retrieve the log.
         _runtime_state->log_error(status.get_error_msg());
     }
+    if (status.is_cancelled()) {
+        if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
+            status = Status::RuntimeError(_cancel_msg);
+        }
+    }
 
     update_status(status);
     return status;
+}
+
+Status PlanFragmentExecutor::open_vectorized_internal() {
+    {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        SCOPED_TIMER(profile()->total_time_counter());
+        RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
+    }
+    if (_sink == nullptr) {
+        return Status::OK();
+    }
+    {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        RETURN_IF_ERROR(_sink->open(runtime_state()));
+    }
+
+    while (true) {
+        doris::vectorized::Block* block;
+
+        {
+            SCOPED_CPU_TIMER(_fragment_cpu_timer);
+            RETURN_IF_ERROR(get_vectorized_internal(&block));
+        }
+
+        if (block == NULL) {
+            break;
+        }
+
+        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        // Collect this plan and sub plan statistics, and send to parent plan.
+        if (_collect_query_statistics_with_every_batch) {
+            _collect_query_statistics();
+        }
+
+        auto st = _sink->send(runtime_state(), block);
+        if (st.is_end_of_file()) {
+            break;
+        }
+        RETURN_IF_ERROR(st);
+    }
+
+    {
+        SCOPED_TIMER(profile()->total_time_counter());
+        _collect_query_statistics();
+        Status status;
+        {
+            std::lock_guard<std::mutex> l(_status_lock);
+            status = _status;
+        }
+        status = _sink->close(runtime_state(), status);
+        RETURN_IF_ERROR(status);
+    }
+    // Setting to NULL ensures that the d'tor won't double-close the sink.
+    _sink.reset(nullptr);
+    _done = true;
+
+    stop_report_thread();
+    send_report(true);
+
+    return Status::OK();
+}
+
+Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block** block) {
+    if (_done) {
+        *block = nullptr;
+        return Status::OK();
+    }
+
+    while (!_done) {
+        _block->clear_column_data(_plan->row_desc().num_materialized_slots());
+        SCOPED_TIMER(profile()->total_time_counter());
+        RETURN_IF_ERROR(_plan->get_next(_runtime_state.get(), _block.get(), &_done));
+
+        if (_block->rows() > 0) {
+            COUNTER_UPDATE(_rows_produced_counter, _block->rows());
+            *block = _block.get();
+            break;
+        }
+
+        *block = nullptr;
+    }
+
+    return Status::OK();
 }
 
 Status PlanFragmentExecutor::open_internal() {
@@ -303,7 +401,11 @@ Status PlanFragmentExecutor::open_internal() {
         if (_collect_query_statistics_with_every_batch) {
             _collect_query_statistics();
         }
-        RETURN_IF_ERROR(_sink->send(runtime_state(), batch));
+        const Status& st = _sink->send(runtime_state(), batch);
+        if (st.is_end_of_file()) {
+            break;
+        }
+        RETURN_IF_ERROR(st);
     }
 
     // Close the sink *before* stopping the report thread. Close may
@@ -350,7 +452,8 @@ void PlanFragmentExecutor::_collect_query_statistics() {
 
 void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
-    NodeStatistics* node_statistics = _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
+    NodeStatistics* node_statistics =
+            _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
     node_statistics->add_peak_memory(_mem_tracker->peak_consumption());
 }
 
@@ -363,7 +466,6 @@ void PlanFragmentExecutor::report_profile() {
     std::unique_lock<std::mutex> l(_report_thread_lock);
     // tell Open() that we started
     _report_thread_started_cv.notify_one();
-
 
     // Jitter the reporting time of remote fragments by a random amount between
     // 0 and the report_interval.  This way, the coordinator doesn't get all the
@@ -458,8 +560,10 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
     update_status(status);
 
     if (_done) {
-        TAG(LOG(INFO)).log("PlanFragmentExecutor::get_next finished")
-                      .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id());
+        TAG(LOG(INFO))
+                .log("PlanFragmentExecutor::get_next finished")
+                .query_id(_query_id)
+                .instance_id(_runtime_state->fragment_instance_id());
         // Query is done, return the thread token
         stop_report_thread();
         send_report(true);
@@ -516,13 +620,25 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
     send_report(true);
 }
 
-void PlanFragmentExecutor::cancel() {
-    TAG(LOG(INFO)).log("PlanFragmentExecutor::cancel")
-                  .query_id(_query_id).instance_id(_runtime_state->fragment_instance_id());
+void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
+    TAG(LOG(INFO))
+            .log("PlanFragmentExecutor::cancel")
+            .query_id(_query_id)
+            .instance_id(_runtime_state->fragment_instance_id());
     DCHECK(_prepared);
+    _cancel_reason = reason;
+    _cancel_msg = msg;
     _runtime_state->set_is_cancelled(true);
-    _runtime_state->exec_env()->stream_mgr()->cancel(_runtime_state->fragment_instance_id());
-    _runtime_state->exec_env()->result_mgr()->cancel(_runtime_state->fragment_instance_id());
+
+    // must close stream_mgr to avoid dead lock in Exchange Node
+    auto env = _runtime_state->exec_env();
+    auto id = _runtime_state->fragment_instance_id();
+    if (_runtime_state->enable_vectorized_exec()) {
+        env->vstream_mgr()->cancel(id);
+    } else {
+        env->stream_mgr()->cancel(id);
+        env->result_mgr()->cancel(id);
+    }
 }
 
 void PlanFragmentExecutor::set_abort() {

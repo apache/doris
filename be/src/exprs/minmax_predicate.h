@@ -34,6 +34,7 @@ public:
     virtual Status assign(void* min_data, void* max_data) = 0;
     // merge from other minmax_func
     virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
+    virtual ~MinMaxFuncBase() = default;
 };
 
 template <class T>
@@ -113,4 +114,4 @@ private:
     bool _empty = true;
 };
 
-}
+} // namespace doris

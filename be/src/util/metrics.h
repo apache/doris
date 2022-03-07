@@ -32,8 +32,8 @@
 
 #include "common/config.h"
 #include "util/core_local.h"
-#include "util/spinlock.h"
 #include "util/histogram.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -70,8 +70,7 @@ public:
     Metric() {}
     virtual ~Metric() {}
     virtual std::string to_string() const = 0;
-    virtual std::string to_prometheus(const std::string& display_name,
-                                      const Labels& entity_labels,
+    virtual std::string to_prometheus(const std::string& display_name, const Labels& entity_labels,
                                       const Labels& metric_labels) const;
     virtual rj::Value to_json_value(rj::Document::AllocatorType& allocator) const = 0;
 
@@ -94,7 +93,9 @@ public:
 
     void set_value(const T& value) { _value.store(value); }
 
-    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override { return rj::Value(value()); }
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
+        return rj::Value(value());
+    }
 
 protected:
     std::atomic<T> _value;
@@ -123,7 +124,9 @@ public:
         _value = value;
     }
 
-    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override { return rj::Value(value()); }
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
+        return rj::Value(value());
+    }
 
 protected:
     // We use spinlock instead of std::atomic is because atomic don't support
@@ -159,7 +162,9 @@ public:
 
     void increment(const T& delta) { __sync_fetch_and_add(_value.access(), delta); }
 
-    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override { return rj::Value(value()); }
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
+        return rj::Value(value());
+    }
 
 protected:
     CoreLocalValue<T> _value;
@@ -188,8 +193,7 @@ public:
     double average() const;
     double standard_deviation() const;
     std::string to_string() const override;
-    std::string to_prometheus(const std::string& display_name,
-                              const Labels& entity_labels,
+    std::string to_prometheus(const std::string& display_name, const Labels& entity_labels,
                               const Labels& metric_labels) const override;
     rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override;
 
@@ -363,8 +367,8 @@ public:
 
 private:
     friend class MetricRegistry;
-    friend class MetricEntityHash;
-    friend class MetricEntityEqualTo;
+    friend struct MetricEntityHash;
+    friend struct MetricEntityEqualTo;
 
     MetricEntityType _type;
     std::string _name;

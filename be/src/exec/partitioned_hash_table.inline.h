@@ -249,8 +249,7 @@ inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::InsertDuplicat
     return AppendNextNode(bucket);
 }
 
-inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(HtData& htdata,
-                                                               TupleRow* row) const {
+inline TupleRow* PartitionedHashTable::GetRow(HtData& htdata, TupleRow* row) const {
     if (stores_tuples()) {
         return reinterpret_cast<TupleRow*>(&htdata.tuple);
     } else {
@@ -260,8 +259,7 @@ inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(HtData& htdata,
     }
 }
 
-inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(Bucket* bucket,
-                                                               TupleRow* row) const {
+inline TupleRow* PartitionedHashTable::GetRow(Bucket* bucket, TupleRow* row) const {
     DCHECK(bucket != nullptr);
     if (UNLIKELY(stores_duplicates() && bucket->hasDuplicates)) {
         DuplicateNode* duplicate = bucket->bucketData.duplicates;
@@ -272,7 +270,7 @@ inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(Bucket* bucket,
     }
 }
 
-inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::Iterator::GetRow() const {
+inline TupleRow* PartitionedHashTable::Iterator::GetRow() const {
     DCHECK(!AtEnd());
     DCHECK(table_ != nullptr);
     DCHECK(scratch_row_ != nullptr);
@@ -285,7 +283,7 @@ inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::Iterator::GetRow() const
     }
 }
 
-inline Tuple* IR_ALWAYS_INLINE PartitionedHashTable::Iterator::GetTuple() const {
+inline Tuple* PartitionedHashTable::Iterator::GetTuple() const {
     DCHECK(!AtEnd());
     DCHECK(table_->stores_tuples());
     Bucket* bucket = &table_->buckets_[bucket_idx_];

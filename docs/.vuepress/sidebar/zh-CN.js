@@ -20,14 +20,17 @@ module.exports = [
   {
     title: "下载",
     directoryPath: "downloads/",
+    initialOpenGroupIndex: -1,
     children: ["downloads"],
     sidebarDepth: 1,
   },
   {
     title: "编译与部署",
     directoryPath: "installing/",
+    initialOpenGroupIndex: -1,
     children: [
       "compilation",
+      "compilation-with-ldb-toolchain",
       "compilation-arm",
       "install-deploy",
       "upgrade",
@@ -36,6 +39,7 @@ module.exports = [
   {
     title: "开始使用",
     directoryPath: "getting-started/",
+    initialOpenGroupIndex: -1,
     children: [
       "basic-usage",
       "advance-usage",
@@ -47,10 +51,12 @@ module.exports = [
   {
     title: "操作手册",
     directoryPath: "administrator-guide/",
+    initialOpenGroupIndex: -1,
     children: [
       {
         title: "数据导入",
         directoryPath: "load-data/",
+        initialOpenGroupIndex: -1,
         children: [
           "load-manual",
           "batch-delete-manual",
@@ -70,6 +76,7 @@ module.exports = [
       {
         title: "表结构变更",
         directoryPath: "alter-table/",
+        initialOpenGroupIndex: -1,
         children: [
           "alter-table-bitmap-index",
           "alter-table-replace-table",
@@ -83,56 +90,59 @@ module.exports = [
       {
         title: "HTTP API",
         directoryPath: "http-actions/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "FE",
             directoryPath: "fe/",
+            initialOpenGroupIndex: -1,
             children: [
-                {
-                  title: "MANAGER",
-                  directoryPath: "manager/",
-                  children: [
-                    "cluster-action",
-                    "node-action",
-                    "query-profile-action",
-                  ],
-                },
-                "backends-action",
-                "bootstrap-action",
-                "cancel-load-action",
-                "check-decommission-action",
-                "check-storage-type-action",
-                "config-action",
-                "connection-action",
-                "get-ddl-stmt-action",
-                "get-load-info-action",
-                "get-load-state",
-                "get-log-file-action",
-                "get-small-file",
-                "ha-action",
-                "hardware-info-action",
-                "health-action",
-                "log-action",
-                "logout-action",
-                "meta-action",
-                "meta-info-action",
-                "meta-replay-state-action",
-                "profile-action",
-                "query-detail-action",
-                "query-profile-action",
-                "row-count-action",
-                "session-action",
-                "set-config-action",
-                "show-data-action",
-                "show-meta-info-action",
-                "show-proc-action",
-                "show-runtime-info-action",
-                "statement-execution-action",
-                "system-action",
-                "table-query-plan-action",
-                "table-row-count-action",
-                "table-schema-action",
-                "upload-action",
+              {
+                title: "MANAGER",
+                directoryPath: "manager/",
+                initialOpenGroupIndex: -1,
+                children: [
+                  "cluster-action",
+                  "node-action",
+                  "query-profile-action",
+                ],
+              },
+              "backends-action",
+              "bootstrap-action",
+              "cancel-load-action",
+              "check-decommission-action",
+              "check-storage-type-action",
+              "config-action",
+              "connection-action",
+              "get-ddl-stmt-action",
+              "get-load-info-action",
+              "get-load-state",
+              "get-log-file-action",
+              "get-small-file",
+              "ha-action",
+              "hardware-info-action",
+              "health-action",
+              "log-action",
+              "logout-action",
+              "meta-action",
+              "meta-info-action",
+              "meta-replay-state-action",
+              "profile-action",
+              "query-detail-action",
+              "query-profile-action",
+              "row-count-action",
+              "session-action",
+              "set-config-action",
+              "show-data-action",
+              "show-meta-info-action",
+              "show-proc-action",
+              "show-runtime-info-action",
+              "statement-execution-action",
+              "system-action",
+              "table-query-plan-action",
+              "table-row-count-action",
+              "table-schema-action",
+              "upload-action",
             ],
           },
           "cancel-label",
@@ -154,6 +164,7 @@ module.exports = [
       {
         title: "运维操作",
         directoryPath: "operation/",
+        initialOpenGroupIndex: -1,
         children: [
           "doris-error-code",
           "be-olap-error-code",
@@ -167,6 +178,7 @@ module.exports = [
           {
             title: "监控项",
             directoryPath: "monitor-metrics/",
+            initialOpenGroupIndex: -1,
             children: [
               "be-metrics",
               "fe-metrics",
@@ -178,6 +190,7 @@ module.exports = [
       {
         title: "配置文件",
         directoryPath: "config/",
+        initialOpenGroupIndex: -1,
         children: [
           "be_config",
           "fe_config",
@@ -188,6 +201,7 @@ module.exports = [
       {
         title: "拦截规则",
         directoryPath: "block-rule/",
+        initialOpenGroupIndex: -1,
         children: [
           "sql-block",
         ],
@@ -200,6 +214,7 @@ module.exports = [
       "bucket-shuffle-join",
       "dynamic-partition",
       "export-manual",
+      "export_with_mysql_dump",
       "outfile",
       "partition_cache",
       "privilege",
@@ -221,6 +236,7 @@ module.exports = [
   {
     title: "性能测试及示例",
     directoryPath: "benchmark/",
+    initialOpenGroupIndex: -1,
     children: [
       "star-schema-benchmark",
       "systemd",
@@ -230,23 +246,35 @@ module.exports = [
   {
     title: "扩展功能",
     directoryPath: "extending-doris/",
+    initialOpenGroupIndex: -1,
     children: [
       "audit-plugin",
       "doris-on-es",
       "logstash",
       "odbc-of-doris",
       "hive-of-doris",
+      "iceberg-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
       "datax",
-      "seatunnel",
+      {
+        title: "Seatunnel",
+        directoryPath: "seatunnel/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "spark-sink",
+          "flink-sink",
+        ],
+      },
       {
         title: "UDF",
         directoryPath: "udf/",
+        initialOpenGroupIndex: -1,
         children: [
           "contribute-udf",
-          "user-defined-function",
+          "native-user-defined-function",
+          "remote-user-defined-function",
         ],
       },
     ],
@@ -254,6 +282,7 @@ module.exports = [
   {
     title: "设计文档",
     directoryPath: "internal/",
+    initialOpenGroupIndex: -1,
     children: [
       "doris_storage_optimization",
       "grouping_sets_design",
@@ -264,14 +293,17 @@ module.exports = [
   {
     title: "SQL 手册",
     directoryPath: "sql-reference/",
+    initialOpenGroupIndex: -1,
     children: [
       {
         title: "SQL 函数",
         directoryPath: "sql-functions/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "日期函数",
             directoryPath: "date-time-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "convert_tz",
               "curdate",
@@ -304,6 +336,7 @@ module.exports = [
               "unix_timestamp",
               "utc_timestamp",
               "week",
+              "weekday",
               "weekofyear",
               "year",
               "yearweek",
@@ -312,6 +345,7 @@ module.exports = [
           {
             title: "地理位置函数",
             directoryPath: "spatial-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "st_astext",
               "st_circle",
@@ -328,19 +362,17 @@ module.exports = [
           {
             title: "字符串函数",
             directoryPath: "string-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "append_trailing_char_if_absent",
               "ascii",
               "bit_length",
               "char_length",
+              "coalesce",
               "concat",
               "concat_ws",
               "ends_with",
               "find_in_set",
-              "get_json_double",
-              "get_json_int",
-              "get_json_string",
-              "group_concat",
               "hex",
               "instr",
               "lcase",
@@ -361,10 +393,12 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              "substring",
               "unhex",
               {
                 title: "模糊匹配",
                 directoryPath: "like/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "like",
                   "not_like",
@@ -373,6 +407,7 @@ module.exports = [
               {
                 title: "正则匹配",
                 directoryPath: "regexp/",
+                initialOpenGroupIndex: -1,
                 children: [
                   "regexp",
                   "regexp_extract",
@@ -385,11 +420,13 @@ module.exports = [
           {
             title: "聚合函数",
             directoryPath: "aggregate-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "approx_count_distinct",
               "avg",
               "bitmap_union",
               "count",
+              "group_concat",
               "hll_union_agg",
               "max",
               "min",
@@ -406,6 +443,7 @@ module.exports = [
           {
             title: "bitmap函数",
             directoryPath: "bitmap-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "bitmap_and",
               "bitmap_contains",
@@ -437,13 +475,48 @@ module.exports = [
             ],
           },
           {
+            title: "bitwise函数",
+            directoryPath: "bitwise-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "bitand",
+              "bitor",
+              "bitxor",
+              "bitnot"
+            ],
+          },
+          {
+            title: "json 函数",
+            directoryPath: "json-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "get_json_double",
+              "get_json_int",
+              "get_json_string",
+              "json_array",
+              "json_object",
+              "json_quote",
+            ],
+          },
+          {
             title: "Hash函数",
             directoryPath: "hash-functions/",
+            initialOpenGroupIndex: -1,
             children: ["murmur_hash3_32"],
+          },
+          {
+            title: "数学函数",
+            directoryPath: "math-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "conv",
+              "pmod"
+            ],
           },
           {
             title: "加密和信息摘要函数",
             directoryPath: "encrypt-digest-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "aes",
               "md5",
@@ -456,6 +529,7 @@ module.exports = [
           {
             title: "table functions",
             directoryPath: "table-functions/",
+            initialOpenGroupIndex: -1,
             children: [
               "explode-bitmap",
               "explode-split",
@@ -470,10 +544,12 @@ module.exports = [
       {
         title: "语法帮助",
         directoryPath: "sql-statements/",
+        initialOpenGroupIndex: -1,
         children: [
           {
             title: "用户账户管理",
             directoryPath: "Account Management/",
+            initialOpenGroupIndex: -1,
             children: [
               "CREATE ROLE",
               "CREATE USER",
@@ -490,17 +566,18 @@ module.exports = [
           {
             title: "集群管理",
             directoryPath: "Administration/",
+            initialOpenGroupIndex: -1,
             children: [
               "ADMIN CANCEL REPAIR",
               "ADMIN CLEAN TRASH",
               "ADMIN CHECK TABLET",
+              "ADMIN COMPACT",
               "ADMIN REPAIR",
               "ADMIN SET CONFIG",
               "ADMIN SET REPLICA STATUS",
               "ADMIN SHOW CONFIG",
               "ADMIN SHOW REPLICA DISTRIBUTION",
               "ADMIN SHOW REPLICA STATUS",
-              "ADMIN-SHOW-DATA-SKEW",
               "ALTER CLUSTER",
               "ALTER SYSTEM",
               "CANCEL DECOMMISSION",
@@ -529,6 +606,7 @@ module.exports = [
           {
             title: "DDL",
             directoryPath: "Data Definition/",
+            initialOpenGroupIndex: -1,
             children: [
               "ALTER DATABASE",
               "ALTER TABLE",
@@ -556,6 +634,8 @@ module.exports = [
               "DROP VIEW",
               "HLL",
               "RECOVER",
+              "REFRESH DATABASE",
+              "REFRESH TABLE",
               "RESTORE",
               "SHOW ENCRYPTKEYS",
               "SHOW RESOURCES",
@@ -568,6 +648,7 @@ module.exports = [
           {
             title: "DML",
             directoryPath: "Data Manipulation/",
+            initialOpenGroupIndex: -1,
             children: [
               "BEGIN",
               "BROKER LOAD",
@@ -590,6 +671,7 @@ module.exports = [
               "SHOW CREATE FUNCTION",
               "SHOW CREATE ROUTINE LOAD",
               "SHOW DATA",
+              "SHOW DATA SKEW",
               "SHOW DATABASES",
               "SHOW DELETE",
               "SHOW DYNAMIC PARTITION TABLES",
@@ -604,6 +686,7 @@ module.exports = [
               "SHOW SNAPSHOT",
               "SHOW SYNC JOB",
               "SHOW TABLES",
+              "SHOW TABLE CREATION",
               "SHOW TABLET",
               "SHOW TRANSACTION",
               "SPARK LOAD",
@@ -619,6 +702,7 @@ module.exports = [
           {
             title: "数据类型",
             directoryPath: "Data Types/",
+            initialOpenGroupIndex: -1,
             children: [
               "BIGINT",
               "BITMAP",
@@ -641,6 +725,7 @@ module.exports = [
           {
             title: "辅助命令",
             directoryPath: "Utility/",
+            initialOpenGroupIndex: -1,
             children: ["DESCRIBE"],
           },
         ],
@@ -650,48 +735,72 @@ module.exports = [
   {
     title: "Doris用户",
     directoryPath: "case-user/",
+    initialOpenGroupIndex: -1,
     children: [
-        "case-user",
+      "case-user",
     ],
   },
   {
     title: "开发者手册",
     directoryPath: "developer-guide/",
+    initialOpenGroupIndex: -1,
     children: [
-        "debug-tool",
-        "benchmark-tool",
-        "docker-dev",
-        "fe-eclipse-dev",
-        "fe-idea-dev",
-        "be-vscode-dev",
-        "java-format-code",
-        "cpp-format-code",
-        "How-to-Share-blogs",
-        "minidump",
-        "bitmap-hll-file-format",
+      "debug-tool",
+      "benchmark-tool",
+      "docker-dev",
+      "fe-eclipse-dev",
+      "fe-idea-dev",
+      "be-vscode-dev",
+      "java-format-code",
+      "cpp-format-code",
+      "How-to-Share-blogs",
+      "minidump",
+      "bitmap-hll-file-format",
+      "regression-testing",
     ],
   },
   {
     title: "FAQ 常见问题",
     directoryPath: "faq/",
+    initialOpenGroupIndex: -1,
     children: [
-        "faq"
+      "faq",
+      "error"
     ],
   },
   {
     title: "Apache 社区",
     directoryPath: "community/",
+    initialOpenGroupIndex: -1,
     children: [
-      "members",
+      "team",
       "gitter",
       "subscribe-mail-list",
       "feedback",
-      "how-to-contribute",
-      "committer-guide",
-      "commit-format-specification",
-      "pull-request",
-      "release-process",
-      "verify-apache-release",
+      {
+          title: "贡献指南",
+          directoryPath: "how-to-contribute/",
+          initialOpenGroupIndex: -1,
+          children: [
+              "how-to-contribute",
+              "committer-guide",
+              "commit-format-specification",
+              "pull-request",
+          ],
+      },
+      {
+          title: "版本发布与校验",
+          directoryPath: "release-and-verify/",
+          initialOpenGroupIndex: -1,
+          children: [
+              "release-prepare",
+              "release-doris-core",
+              "release-doris-connectors",
+              "release-complete",
+              "release-verify",
+          ],
+      },
+      "security",
     ],
   },
 ];

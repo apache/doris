@@ -29,10 +29,10 @@ namespace doris {
 
 CollectIterator::~CollectIterator() = default;
 
-void CollectIterator::init(Reader* reader) {
+void CollectIterator::init(TabletReader* reader) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
-    // multiple data to aggregate for performance in user fetch
+    // multiple data to aggregate for better performance
     if (_reader->_reader_type == READER_QUERY &&
         (_reader->_aggregation || _reader->_tablet->keys_type() == KeysType::DUP_KEYS)) {
         _merge = false;
@@ -184,9 +184,9 @@ OLAPStatus CollectIterator::next(const RowCursor** row, bool* delete_flag) {
     }
 }
 
-CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader)
+CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
         : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {
-    if (LIKELY(rs_reader->type() == RowsetReader::BETA)) {
+    if (LIKELY(rs_reader->type() == RowsetTypePB::BETA_ROWSET)) {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v2;
     } else {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v1;

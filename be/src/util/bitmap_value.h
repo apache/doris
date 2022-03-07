@@ -1567,7 +1567,7 @@ public:
         return true;
     }
 
-    doris_udf::BigIntVal minimum() {
+    doris_udf::BigIntVal minimum() const {
         switch (_type) {
         case SINGLE:
             return doris_udf::BigIntVal(_sv);
@@ -1612,7 +1612,7 @@ public:
         return ss.str();
     }
 
-    doris_udf::BigIntVal maximum() {
+    doris_udf::BigIntVal maximum() const {
         switch (_type) {
         case SINGLE:
             return doris_udf::BigIntVal(_sv);
@@ -1692,6 +1692,12 @@ public:
         return count;
     }
 
+    void clear() {
+        _type = EMPTY;
+        _bitmap.clear();
+        _sv = 0;
+    }
+
     // Implement an iterator for convenience
     friend class BitmapValueIterator;
     typedef BitmapValueIterator b_iterator;
@@ -1730,35 +1736,28 @@ private:
 //  BitmapValueIterator end = bitmap_value.end();
 //  for (; iter != end(); ++iter) {
 //      uint64_t v = *iter;
-//      ... do something with "v" ... 
+//      ... do something with "v" ...
 //  }
 class BitmapValueIterator {
 public:
-    BitmapValueIterator()
-       : _bitmap(BitmapValue()) {
-    }
-
-    BitmapValueIterator(const BitmapValue& bitmap, bool end = false)
-        : _bitmap(bitmap), _end(end) {
-
+    BitmapValueIterator(const BitmapValue& bitmap, bool end = false) : _bitmap(bitmap), _end(end) {
         switch (_bitmap._type) {
-            case BitmapValue::BitmapDataType::EMPTY:
-                _end = true;
-                break;
-            case BitmapValue::BitmapDataType::SINGLE:
-                _sv = _bitmap._sv;
-                break;
-            case BitmapValue::BitmapDataType::BITMAP:
-                _iter = new detail::Roaring64MapSetBitForwardIterator(_bitmap._bitmap, _end);
-                break;
-            default:
-                CHECK(false) << _bitmap._type;
+        case BitmapValue::BitmapDataType::EMPTY:
+            _end = true;
+            break;
+        case BitmapValue::BitmapDataType::SINGLE:
+            _sv = _bitmap._sv;
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            _iter = new detail::Roaring64MapSetBitForwardIterator(_bitmap._bitmap, _end);
+            break;
+        default:
+            CHECK(false) << _bitmap._type;
         }
     }
 
     BitmapValueIterator(const BitmapValueIterator& other)
-        : _bitmap(other._bitmap), _iter(other._iter), _sv(other._sv), _end(other._end) {
-    }
+            : _bitmap(other._bitmap), _iter(other._iter), _sv(other._sv), _end(other._end) {}
 
     ~BitmapValueIterator() {
         if (_iter != nullptr) {
@@ -1770,12 +1769,12 @@ public:
     uint64_t operator*() const {
         CHECK(!_end) << "should not get value of end iterator";
         switch (_bitmap._type) {
-            case BitmapValue::BitmapDataType::SINGLE:
-                return _sv;
-            case BitmapValue::BitmapDataType::BITMAP:
-                return *(*_iter);
-            default:
-                CHECK(false) << _bitmap._type;
+        case BitmapValue::BitmapDataType::SINGLE:
+            return _sv;
+        case BitmapValue::BitmapDataType::BITMAP:
+            return *(*_iter);
+        default:
+            CHECK(false) << _bitmap._type;
         }
         return 0;
     }
@@ -1783,14 +1782,14 @@ public:
     BitmapValueIterator& operator++() { // ++i, must returned inc. value
         CHECK(!_end) << "should not forward when iterator ends";
         switch (_bitmap._type) {
-            case BitmapValue::BitmapDataType::SINGLE:
-                _end = true;
-                break;
-            case BitmapValue::BitmapDataType::BITMAP:
-                ++(*_iter);
-                break;
-            default:
-                CHECK(false) << _bitmap._type;
+        case BitmapValue::BitmapDataType::SINGLE:
+            _end = true;
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            ++(*_iter);
+            break;
+        default:
+            CHECK(false) << _bitmap._type;
         }
         return *this;
     }
@@ -1799,14 +1798,14 @@ public:
         CHECK(!_end) << "should not forward when iterator ends";
         BitmapValueIterator orig(*this);
         switch (_bitmap._type) {
-            case BitmapValue::BitmapDataType::SINGLE:
-                _end = true;
-                break;
-            case BitmapValue::BitmapDataType::BITMAP:
-                ++(*_iter);
-                break;
-            default:
-                CHECK(false) << _bitmap._type;
+        case BitmapValue::BitmapDataType::SINGLE:
+            _end = true;
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            ++(*_iter);
+            break;
+        default:
+            CHECK(false) << _bitmap._type;
         }
         return orig;
     }
@@ -1815,21 +1814,19 @@ public:
         if (_end && other._end) return true;
 
         switch (_bitmap._type) {
-            case BitmapValue::BitmapDataType::EMPTY:
-                return other._bitmap._type == BitmapValue::BitmapDataType::EMPTY;
-            case BitmapValue::BitmapDataType::SINGLE:
-                return _sv == other._sv;
-            case BitmapValue::BitmapDataType::BITMAP:
-                return *_iter == *(other._iter);
-            default:
-                CHECK(false) << _bitmap._type;
+        case BitmapValue::BitmapDataType::EMPTY:
+            return other._bitmap._type == BitmapValue::BitmapDataType::EMPTY;
+        case BitmapValue::BitmapDataType::SINGLE:
+            return _sv == other._sv;
+        case BitmapValue::BitmapDataType::BITMAP:
+            return *_iter == *(other._iter);
+        default:
+            CHECK(false) << _bitmap._type;
         }
         return false;
     }
 
-    bool operator!=(const BitmapValueIterator& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const BitmapValueIterator& other) const { return !(*this == other); }
 
 private:
     const BitmapValue& _bitmap;

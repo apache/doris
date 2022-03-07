@@ -28,47 +28,36 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector 可以支持通过 Flink 读写 Doris 中存储的数据。
+Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。
+
+代码库地址：https://github.com/apache/incubator-doris-flink-connector
 
 * 可以将`Doris`表映射为`DataStream`或者`Table`。
+
+>**注意：**
+>
+>1. 修改和删除只支持在Unique Key模型上
+>2. 目前的删除是支持Flink CDC的方式接入数据实现自动删除，如果是其他数据接入的方式删除需要自己实现。Flink CDC的数据删除使用方式参照本文档最后一节
 
 ## 版本兼容
 
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 1.11.x  , 1.12.x | 0.13+  | 8    | 2.12  |
-| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
-
-**针对Flink 1.13.x版本适配问题**
-
-```xml
-    <properties>
-        <scala.version>2.12</scala.version>
-        <flink.version>1.11.2</flink.version>
-        <libthrift.version>0.9.3</libthrift.version>
-        <arrow.version>0.15.1</arrow.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.home>${basedir}/../../</doris.home>
-        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
-    </properties>
-```
-
-只需要将这里的 `flink.version` 改成和你 Flink 集群版本一致，重新编译即可。
+| 1.11.6-2.12-xx | 1.11.x | 0.13+  | 8    | 2.12  |
+| 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
+| 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
 
 ## 编译与安装
 
-在 `extension/flink-doris-connector/` 源码目录下执行：
-
-**注意**
-
-1. 这里如果你没有整体编译过 doris 源码，需要首先编译一次 Doris 源码，不然会出现 thrift 命令找不到的情况，需要到 `incubator-doris` 目录下执行 `sh build.sh`
-2. 建议在 doris 的 docker 编译环境 `apache/incubator-doris:build-env-1.2` 下进行编译，因为 1.3 下面的JDK 版本是 11，会存在编译问题。
+在源码目录下执行：
 
 ```bash
-sh build.sh
+sh build.sh --flink 1.11.6 --scala 2.12 # flink 1.11.6 scala 2.12
 ```
 
-编译成功后，会在 `output/` 目录下生成文件 `doris-flink-1.0.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。：
+> 注：如果你是从 tag 检出的源码，则可以直接执行 `sh build.sh --tag`，而无需指定 flink 和 scala 的版本。因为 tag 源码中的版本是固定的。比如 `1.13.5-2.12-1.0.1` 表示 flink 版本 1.13.5，scala 版本 2.12，connector 版本 1.0.1。
+
+编译成功后，会在 `output/` 目录下生成文件，如：`doris-flink-1.13.5-2.12-1.0.1-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
 **备注**
 
@@ -80,6 +69,22 @@ conf/fe.conf
 ```
 enable_http_server_v2 = true
 ```
+
+## 使用Maven 管理
+
+添加 maven 依赖
+
+```
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>doris-flink-connector</artifactId>
+  <version>1.11.6-2.12-SNAPSHOT</version>
+</dependency>
+```
+
+**备注**
+
+`1.11.6 ` 可以根据flink 版本替换成替换成 `1.12.7` 或者 `1.13.5`
 
 ## 使用方法
 
@@ -300,6 +305,7 @@ outputFormat.close();
 | sink.max-retries     | 1              | 写BE失败之后的重试次数       |
 | sink.batch.interval     | 10s               | flush 间隔时间，超过该时间后异步线程将 缓存中数据写入BE。 默认值为10秒，支持时间单位ms、s、min、h和d。设置为0表示关闭定期写入。 |
 | sink.properties.*     | --               | Stream load 的导入参数<br /><br />例如:<br />'sink.properties.column_separator' = ', '<br />定义列分隔符<br /><br />'sink.properties.escape_delimiters' = 'true'<br />特殊字符作为分隔符,'\\x01'会被转换为二进制的0x01<br /><br /> 'sink.properties.format' = 'json'<br />'sink.properties.strip_outer_array' = 'true' <br />JSON格式导入|
+| sink.enable-delete     | true               | 是否启用删除。此选项需要Doris表开启批量删除功能(0.15+版本默认开启)，只支持Uniq模型。|
 
 ## Doris 和 Flink 列类型映射关系
 
@@ -322,3 +328,38 @@ outputFormat.close();
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## 使用Flink CDC接入Doris示例（支持insert/update/delete事件）
+```sql
+CREATE TABLE cdc_mysql_source (
+  id int
+  ,name VARCHAR
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+-- 支持删除事件同步(sink.enable-delete='true'),需要Doris表开启批量删除功能
+CREATE TABLE doris_sink (
+id INT,
+name STRING
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.strip_outer_array' = 'true',
+  'sink.enable-delete' = 'true'
+);
+
+insert into doris_sink select id,name from cdc_mysql_source;
+```

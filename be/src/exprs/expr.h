@@ -55,7 +55,7 @@ class TupleIsNullPredicate;
 class VectorizedRowBatch;
 class Literal;
 class MemTracker;
-class UserFunctionCacheEntry;
+struct UserFunctionCacheEntry;
 
 // This is the superclass of all expr evaluation nodes.
 class Expr {

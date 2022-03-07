@@ -38,6 +38,8 @@
 #include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -152,6 +154,7 @@ private:
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
+
     BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) {}
 
     BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options)
@@ -227,6 +230,28 @@ public:
         return Status::OK();
     }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+            *n = 0;
+            return Status::OK();
+        }
+        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+
+        uint32_t len_array[max_fetch];
+        uint32_t start_offset_array[max_fetch];
+        for (int i = 0; i < max_fetch; i++, _cur_idx++) {
+            const uint32_t start_offset  = offset(_cur_idx);
+            uint32_t len = offset(_cur_idx + 1) - start_offset;
+            len_array[i] = len;
+            start_offset_array[i] = start_offset;
+        }
+        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array, max_fetch);
+ 
+        *n = max_fetch;
+        return Status::OK();
+    };
+
     size_t count() const override {
         DCHECK(_parsed);
         return _num_elems;
@@ -241,6 +266,24 @@ public:
         const uint32_t start_offset = offset(idx);
         uint32_t len = offset(idx + 1) - start_offset;
         return Slice(&_data[start_offset], len);
+    }
+
+    void get_dict_word_info(StringRef* dict_word_info) {
+        if (_num_elems <= 0) [[unlikely]] return;
+
+        char* data_begin = (char*)&_data[0];
+        char* offset_ptr = (char*)&_data[_offsets_pos];
+
+        for (uint32_t i = 0; i < _num_elems; ++i) {
+            dict_word_info[i].data = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
+            offset_ptr += sizeof(uint32_t);
+        }
+
+        for (int i = 0; i < (int)_num_elems - 1; ++i) {
+            dict_word_info[i].size = (char*)dict_word_info[i+1].data - (char*)dict_word_info[i].data;
+        }
+
+        dict_word_info[_num_elems-1].size = (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems-1].data;
     }
 
 private:
@@ -263,6 +306,8 @@ private:
 
     // Index of the currently seeked element in the page.
     uint32_t _cur_idx;
+    friend class BinaryDictPageDecoder;
+    friend class FileColumnIterator;
 };
 
 } // namespace segment_v2

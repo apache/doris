@@ -56,7 +56,6 @@ public class PartitionLoadInfoTest {
         sources.add(source2);
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(sources);
         partitionLoadInfo.setVersion(100000);
-        partitionLoadInfo.setVersionHash(2000000);
         partitionLoadInfo.write(dos);
         
         PartitionLoadInfo partitionLoadInfo0 = new PartitionLoadInfo();
@@ -75,7 +74,6 @@ public class PartitionLoadInfoTest {
         List<Source> sources1 = partitionLoadInfo1.getSources();
 
         Assert.assertEquals(partitionLoadInfo1.getVersion(), 100000);
-        Assert.assertEquals(partitionLoadInfo1.getVersionHash(), 2000000);
         Assert.assertEquals(sources1.size(), 2);
         Assert.assertEquals(sources1.get(0).getFileUrls().size(), 10);       
         Assert.assertEquals(sources1.get(0).getColumnNames().size(), 10);

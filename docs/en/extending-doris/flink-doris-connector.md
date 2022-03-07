@@ -26,47 +26,36 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector can support read and write data stored in Doris through Flink.
+- The Flink Doris Connector can support operations (read, insert, modify, delete) data stored in Doris through Flink.
 
-- You can map the `Doris` table to` DataStream` or `Table`.
+Github: https://github.com/apache/incubator-doris-flink-connector
+
+* `Doris` table can be mapped to `DataStream` or `Table`.
+
+>**Note:**
+>
+>1. Modification and deletion are only supported on the Unique Key model
+>2. The current deletion is to support Flink CDC to access data to achieve automatic deletion. If it is to delete other data access methods, you need to implement it yourself. For the data deletion usage of Flink CDC, please refer to the last section of this document
 
 ## Version Compatibility
 
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
-| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
-
-**For Flink 1.13.x version adaptation issues**
-
-```xml
-     <properties>
-         <scala.version>2.12</scala.version>
-         <flink.version>1.11.2</flink.version>
-         <libthrift.version>0.9.3</libthrift.version>
-         <arrow.version>0.15.1</arrow.version>
-         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-         <doris.home>${basedir}/../../</doris.home>
-         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
-     </properties>
-```
-
-Just change the `flink.version` here to be the same as your Flink cluster version, and edit again
+| 1.11.6-2.12-xx | 1.11.x | 0.13+  | 8    | 2.12  |
+| 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
+| 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
 
 ## Build and Install
 
-Execute following command in dir `extension/flink-doris-connector/`:
-
-**Notice:**
-
-1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
-2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
+Execute following command in source dir:
 
 ```bash
-sh build.sh
+sh build.sh --flink 1.11.6 --scala 2.12 # flink 1.11.6 scala 2.12
 ```
 
-After successful compilation, the file `doris-flink-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+> Note: If you check out the source code from tag, you can just run `sh build.sh --tag` without specifying the flink and scala versions. This is because the version in the tag source code is fixed. For example, `1.13.5-2.12-1.0.1` means flink version 1.13.5, scala version 2.12, and connector version 1.0.1.
+
+After successful compilation, the file `doris-flink-1.13.5-2.12-1.0.1-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 **Remarks:** 
 
@@ -78,7 +67,21 @@ conf/fe.conf
 ```
 enable_http_server_v2 = true
 ```
+## Using Maven
 
+Add Dependency
+
+```
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>doris-flink-connector</artifactId>
+  <version>1.11.6-2.12-SNAPSHOT</version>
+</dependency>
+```
+
+**Remarks**
+
+`1.11.6 ` can be substitute with `1.12.7` or `1.13.5` base on flink version you are using 
 
 ## How to use
 
@@ -298,6 +301,7 @@ outputFormat.close();
 | sink.max-retries                        | 1          | Number of retries after writing BE failed                                              |
 | sink.batch.interval                         | 10s           | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 10 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
 | sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br />  Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />  Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
+| sink.enable-delete     | true               | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
 
 
 ## Doris & Flink Column Type Mapping
@@ -321,3 +325,38 @@ outputFormat.close();
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## An example of using Flink CDC to access Doris (supports insert/update/delete events)
+```sql
+CREATE TABLE cdc_mysql_source (
+  id int
+  ,name VARCHAR
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+-- Support delete event synchronization (sink.enable-delete='true'), requires Doris table to enable batch delete function
+CREATE TABLE doris_sink (
+id INT,
+name STRING
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.strip_outer_array' = 'true',
+  'sink.enable-delete' = 'true'
+);
+
+insert into doris_sink select id,name from cdc_mysql_source;
+```

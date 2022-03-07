@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AdminShowDataSkewStmt;
+import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
@@ -247,7 +247,7 @@ public class MetadataViewer {
         return sb.toString();
     }
 
-    public static List<List<String>> getDataSkew(AdminShowDataSkewStmt stmt) throws DdlException {
+    public static List<List<String>> getDataSkew(ShowDataSkewStmt stmt) throws DdlException {
         return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
@@ -257,7 +257,6 @@ public class MetadataViewer {
 
         List<List<String>> result = Lists.newArrayList();
         Catalog catalog = Catalog.getCurrentCatalog();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
         if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
             throw new DdlException("Should specify one and only one partitions");
@@ -288,7 +287,7 @@ public class MetadataViewer {
                 List<Long> tabletIds = mIndex.getTabletIdsInOrder();
                 for (int i = 0; i < tabletIds.size(); i++) {
                     Tablet tablet = mIndex.getTablet(tabletIds.get(i));
-                    long dataSize = tablet.getDataSize(false);
+                    long dataSize = tablet.getDataSize(true);
                     tabletInfos.set(i, tabletInfos.get(i) + dataSize);
                     totalSize += dataSize;
                 }

@@ -77,7 +77,7 @@ public enum ErrorCode {
     ERR_HANDSHAKE_ERROR(1043, new byte[]{'0', '8', 'S', '0', '1'}, "Bad handshake"),
     ERR_DBACCESS_DENIED_ERROR(1044, new byte[]{'4', '2', '0', '0', '0'}, "Access denied for user '%s'@'%s' to " +
             "database '%s'"),
-    ERR_ACCESS_DENIED_ERROR(1045, new byte[]{'2', '8', '0', '0', '0'}, "Access denied for user '%s'@'%s' (using " +
+    ERR_ACCESS_DENIED_ERROR(1045, new byte[]{'2', '8', '0', '0', '0'}, "Access denied for user '%s' (using " +
             "password: %s)"),
     ERR_NO_DB_ERROR(1046, new byte[]{'3', 'D', '0', '0', '0'}, "No database selected"),
     ERR_UNKNOWN_COM_ERROR(1047, new byte[]{'0', '8', 'S', '0', '1'}, "Unknown command"),
@@ -1684,6 +1684,8 @@ public enum ErrorCode {
     ERR_EMPTY_PARTITION_IN_TABLE(5083, new byte[]{'4', '2', '0', '0', '0'},
             "data cannot be inserted into table with empty partition. " +
                     "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),
+    ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE(5084, new byte[]{'4', '2', '0', '0', '0'},
+            "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.")
     ;
 
     // This is error code

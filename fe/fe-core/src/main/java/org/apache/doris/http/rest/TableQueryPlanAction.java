@@ -59,8 +59,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.codehaus.jackson.map.ObjectMapper;
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -107,17 +107,14 @@ public class TableQueryPlanAction extends RestBaseAction {
                     || Strings.isNullOrEmpty(tableName)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "{database}/{table} must be selected");
             }
-            String sql;
             if (Strings.isNullOrEmpty(postContent)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
-            JSONObject jsonObject;
-            try {
-                jsonObject = new JSONObject(postContent);
-            } catch (JSONException e) {
+            JSONObject jsonObject = (JSONObject) JSONValue.parse(postContent);
+            if (jsonObject == null) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "malformed json [ " + postContent + " ]");
             }
-            sql = jsonObject.optString("sql");
+            String sql = (String) jsonObject.get("sql");
             if (Strings.isNullOrEmpty(sql)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
@@ -252,7 +249,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, node.versionHash, node.schemaHash));
+            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0l /*versionHash*/, node.schemaHash));
         });
         tQueryPlanInfo.tablet_info = tablet_info;
 
@@ -281,8 +278,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         for (TScanRangeLocations scanRangeLocations : scanRangeLocationsList) {
             // only process palo(doris) scan range
             TPaloScanRange scanRange = scanRangeLocations.scan_range.palo_scan_range;
-            Node tabletRouting = new Node(Long.parseLong(scanRange.version),
-                    Long.parseLong(scanRange.version_hash), Integer.parseInt(scanRange.schema_hash));
+            Node tabletRouting = new Node(Long.parseLong(scanRange.version), Integer.parseInt(scanRange.schema_hash));
             for (TNetworkAddress address : scanRange.hosts) {
                 tabletRouting.addRouting(address.hostname + ":" + address.port);
             }
@@ -296,12 +292,10 @@ public class TableQueryPlanAction extends RestBaseAction {
         // ["host1:port1", "host2:port2", "host3:port3"]
         public List<String> routings = new ArrayList<>();
         public long version;
-        public long versionHash;
         public int schemaHash;
 
-        public Node(long version, long versionHash, int schemaHash) {
+        public Node(long version, int schemaHash) {
             this.version = version;
-            this.versionHash = versionHash;
             this.schemaHash = schemaHash;
         }
 

@@ -43,13 +43,13 @@
 namespace doris {
 
 class OlapScanNode;
-class RuntimeProfile;
-class Field;
 
 class OlapScanner {
 public:
     OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
                 bool need_agg_finalize, const TPaloScanRange& scan_range);
+
+    virtual ~OlapScanner() = default;
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,
@@ -58,7 +58,7 @@ public:
 
     Status open();
 
-    Status get_batch(RuntimeState* state, RowBatch* batch, bool* eof);
+    virtual Status get_batch(RuntimeState* state, RowBatch* batch, bool* eof);
 
     Status close(RuntimeState* state);
 
@@ -82,7 +82,7 @@ public:
         _watcher.start();
     }
 
-    int64_t update_wait_worker_timer() { return _watcher.elapsed_time(); }
+    int64_t update_wait_worker_timer() const { return _watcher.elapsed_time(); }
 
     void set_use_pushdown_conjuncts(bool has_pushdown_conjuncts) {
         _use_pushdown_conjuncts = has_pushdown_conjuncts;
@@ -90,12 +90,10 @@ public:
 
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
 
-    const std::vector<SlotDescriptor*>& get_query_slots() const {
-        return _query_slots;
-    }
+    const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
 
 protected:
-    Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
+    Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
                         const std::vector<TCondition>& filters,
                         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                                 bloom_filters);
@@ -105,13 +103,12 @@ protected:
     // Update profile that need to be reported in realtime.
     void _update_realtime_counter();
 
+    virtual void set_tablet_reader() { _tablet_reader = std::make_unique<TupleReader>(); }
+
 protected:
     RuntimeState* _runtime_state;
     OlapScanNode* _parent;
     const TupleDescriptor* _tuple_desc; /**< tuple descriptor */
-    RuntimeProfile* _profile;
-    const std::vector<SlotDescriptor*>& _string_slots;
-    const std::vector<SlotDescriptor*>& _collection_slots;
 
     std::vector<ExprContext*> _conjunct_ctxs;
     // to record which runtime filters have been used
@@ -122,14 +119,10 @@ protected:
     bool _aggregation;
     bool _need_agg_finalize = true;
     bool _has_update_counter = false;
-
-    int _tuple_idx = 0;
-    int _direct_conjunct_size = 0;
-
     bool _use_pushdown_conjuncts = false;
 
-    ReaderParams _params;
-    std::unique_ptr<Reader> _reader;
+    TabletReader::ReaderParams _tablet_reader_params;
+    std::unique_ptr<TabletReader> _tablet_reader;
 
     TabletSharedPtr _tablet;
     int64_t _version;
@@ -143,12 +136,10 @@ protected:
     // time costed and row returned statistics
     ExecNode::EvalConjunctsFn _eval_conjuncts_fn = nullptr;
 
-    RuntimeProfile::Counter* _rows_read_counter = nullptr;
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
     int64_t _compressed_bytes_read = 0;
 
-    RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     // number rows filtered by pushed condition
     int64_t _num_rows_pushed_cond_filtered = 0;
 

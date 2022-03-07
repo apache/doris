@@ -52,7 +52,6 @@ OLAPStatus RowsetConverter::_convert_rowset(const RowsetMetaSharedPtr& src_rowse
     context.segments_overlap = src_rowset_meta->segments_overlap();
     if (context.rowset_state == VISIBLE) {
         context.version = src_rowset_meta->version();
-        context.version_hash = src_rowset_meta->version_hash();
     } else {
         context.txn_id = src_rowset_meta->txn_id();
         context.load_id = src_rowset_meta->load_id();

@@ -431,6 +431,7 @@ public final class RuntimeFilter {
     public void assignToPlanNodes() {
         Preconditions.checkState(hasTargets());
         builderNode.addRuntimeFilter(this);
+        builderNode.fragment_.setBuilderRuntimeFilterIds(getFilterId());
         for (RuntimeFilterTarget target: targets) {
             target.node.addRuntimeFilter(this);
             // fragment is expected to use this filter id
@@ -443,7 +444,6 @@ public final class RuntimeFilter {
         if (LOG.isTraceEnabled()) LOG.trace("Runtime filter: " + debugString());
         assignToPlanNodes();
         analyzer.putAssignedRuntimeFilter(this);
-        getBuilderNode().fragment_.setBuilderRuntimeFilterIds(getFilterId());
     }
 
     public String debugString() {

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
+#pragma once
 
 #include <atomic>
 #include <condition_variable>
@@ -32,6 +31,8 @@
 #include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
 #include "util/spinlock.h"
+#include "vec/exec/volap_scanner.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -55,7 +56,7 @@ public:
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
     Status close(RuntimeState* state) override;
-    Status set_scan_ranges(const std::vector <TScanRangeParams>& scan_ranges) override;
+    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
     inline void set_no_agg_finalize() { _need_agg_finalize = false; }
 
 protected:
@@ -135,7 +136,9 @@ protected:
     // Write debug string of this into out.
     void debug_string(int indentation_level, std::stringstream* out) const override {}
 
-    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const { return _runtime_filter_descs; }
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const {
+        return _runtime_filter_descs;
+    }
 
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
@@ -158,6 +161,7 @@ protected:
                             RuntimeProfile* profile);
 
     friend class OlapScanner;
+    friend class vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
@@ -215,7 +219,7 @@ protected:
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
-    int64_t _running_thread = 0;
+    std::atomic_int _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
 
     std::list<RowBatch*> _scan_row_batches;
@@ -236,6 +240,7 @@ protected:
     SpinLock _status_mutex;
     Status _status;
     RuntimeState* _runtime_state;
+
     RuntimeProfile::Counter* _scan_timer;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
@@ -321,8 +326,9 @@ protected:
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
 
     RuntimeProfile::Counter* _olap_wait_batch_queue_timer = nullptr;
+
+    // for debugging or profiling, record any info as you want
+    RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
 };
 
 } // namespace doris
-
-#endif

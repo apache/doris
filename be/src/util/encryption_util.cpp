@@ -17,13 +17,12 @@
 
 #include "util/encryption_util.h"
 
-#include <openssl/aes.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/ossl_typ.h>
+#include <sys/types.h>
 
 #include <cstring>
-#include <iostream>
-#include <memory>
 #include <string>
 
 namespace doris {
@@ -174,20 +173,29 @@ static int do_encrypt(EVP_CIPHER_CTX* cipher_ctx, const EVP_CIPHER* cipher,
 
 int EncryptionUtil::encrypt(EncryptionMode mode, const unsigned char* source,
                             uint32_t source_length, const unsigned char* key, uint32_t key_length,
-                            const unsigned char* iv, bool padding, unsigned char* encrypt) {
+                            const char* iv_str, bool padding, unsigned char* encrypt) {
     const EVP_CIPHER* cipher = get_evp_type(mode);
     /* The encrypt key to be used for encryption */
     unsigned char encrypt_key[ENCRYPTION_MAX_KEY_LENGTH / 8];
     create_key(key, key_length, encrypt_key, mode);
 
-    if (cipher == nullptr || (EVP_CIPHER_iv_length(cipher) > 0 && !iv)) {
+    int iv_length = EVP_CIPHER_iv_length(cipher);
+    if (cipher == nullptr || (iv_length > 0 && !iv_str)) {
         return AES_BAD_DATA;
+    }
+    char* init_vec = nullptr;
+    std::string iv_default("DORISDORISDORIS_");
+
+    if (iv_str) {
+        init_vec = &iv_default[0];
+        memcpy(init_vec, iv_str, strnlen(iv_str, EVP_MAX_IV_LENGTH));
+        init_vec[iv_length] = '\0';
     }
     EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX_reset(cipher_ctx);
     int length = 0;
-    int ret = do_encrypt(cipher_ctx, cipher, source, source_length, encrypt_key, iv, padding,
-                         encrypt, &length);
+    int ret = do_encrypt(cipher_ctx, cipher, source, source_length, encrypt_key,
+                         reinterpret_cast<unsigned char*>(init_vec), padding, encrypt, &length);
     EVP_CIPHER_CTX_free(cipher_ctx);
     if (ret == 0) {
         ERR_clear_error();
@@ -222,21 +230,31 @@ static int do_decrypt(EVP_CIPHER_CTX* cipher_ctx, const EVP_CIPHER* cipher,
 
 int EncryptionUtil::decrypt(EncryptionMode mode, const unsigned char* encrypt,
                             uint32_t encrypt_length, const unsigned char* key, uint32_t key_length,
-                            const unsigned char* iv, bool padding, unsigned char* decrypt_content) {
+                            const char* iv_str, bool padding, unsigned char* decrypt_content) {
     const EVP_CIPHER* cipher = get_evp_type(mode);
 
     /* The encrypt key to be used for decryption */
     unsigned char encrypt_key[ENCRYPTION_MAX_KEY_LENGTH / 8];
     create_key(key, key_length, encrypt_key, mode);
 
-    if (cipher == nullptr || (EVP_CIPHER_iv_length(cipher) > 0 && !iv)) {
+    int iv_length = EVP_CIPHER_iv_length(cipher);
+    if (cipher == nullptr || (iv_length > 0 && !iv_str)) {
         return AES_BAD_DATA;
+    }
+    char* init_vec = nullptr;
+    std::string iv_default("DORISDORISDORIS_");
+
+    if (iv_str) {
+        init_vec = &iv_default[0];
+        memcpy(init_vec, iv_str, strnlen(iv_str, EVP_MAX_IV_LENGTH));
+        init_vec[iv_length] = '\0';
     }
     EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX_reset(cipher_ctx);
     int length = 0;
-    int ret = do_decrypt(cipher_ctx, cipher, encrypt, encrypt_length, encrypt_key, iv, padding,
-                         decrypt_content, &length);
+    int ret = do_decrypt(cipher_ctx, cipher, encrypt, encrypt_length, encrypt_key,
+                         reinterpret_cast<unsigned char*>(init_vec), padding, decrypt_content,
+                         &length);
     EVP_CIPHER_CTX_free(cipher_ctx);
     if (ret > 0) {
         return length;

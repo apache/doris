@@ -59,10 +59,9 @@ OLAPStatus Rowset::load(bool use_cache) {
     return OLAP_SUCCESS;
 }
 
-void Rowset::make_visible(Version version, VersionHash version_hash) {
+void Rowset::make_visible(Version version) {
     _is_pending = false;
     _rowset_meta->set_version(version);
-    _rowset_meta->set_version_hash(version_hash);
     _rowset_meta->set_rowset_state(VISIBLE);
     // update create time to the visible time,
     // it's used to skip recently published version during compaction
@@ -72,7 +71,7 @@ void Rowset::make_visible(Version version, VersionHash version_hash) {
         _rowset_meta->mutable_delete_predicate()->set_version(version.first);
         return;
     }
-    make_visible_extra(version, version_hash);
+    make_visible_extra(version);
 }
 
 } // namespace doris

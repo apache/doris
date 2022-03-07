@@ -32,21 +32,21 @@ public:
 
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new Literal(*this)); }
 
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
-    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
-    virtual IntVal get_int_val(ExprContext* context, TupleRow*);
-    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
-    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
-    virtual FloatVal get_float_val(ExprContext* context, TupleRow*);
-    virtual DoubleVal get_double_val(ExprContext* context, TupleRow*);
-    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
-    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
-    virtual CollectionVal get_array_val(ExprContext* context, TupleRow*);
+    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
+    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;
+    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*) override;
+    virtual IntVal get_int_val(ExprContext* context, TupleRow*) override;
+    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*) override;
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
+    virtual FloatVal get_float_val(ExprContext* context, TupleRow*) override;
+    virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
+    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
+    virtual StringVal get_string_val(ExprContext* context, TupleRow* row) override;
+    virtual CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
     // init val before use
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                           ExprContext* context);
+                           ExprContext* context) override;
 
 protected:
     friend class Expr;

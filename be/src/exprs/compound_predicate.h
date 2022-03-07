@@ -51,13 +51,13 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new AndPredicate(*this));
     }
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
 
 protected:
     friend class Expr;
     AndPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
-    virtual std::string debug_string() const {
+    virtual std::string debug_string() const override {
         std::stringstream out;
         out << "AndPredicate(" << Expr::debug_string() << ")";
         return out.str();
@@ -73,13 +73,13 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new OrPredicate(*this));
     }
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
 
 protected:
     friend class Expr;
     OrPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
-    virtual std::string debug_string() const {
+    virtual std::string debug_string() const override {
         std::stringstream out;
         out << "OrPredicate(" << Expr::debug_string() << ")";
         return out.str();
@@ -95,13 +95,13 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new NotPredicate(*this));
     }
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
 
 protected:
     friend class Expr;
     NotPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
-    virtual std::string debug_string() const {
+    virtual std::string debug_string() const override {
         std::stringstream out;
         out << "NotPredicate(" << Expr::debug_string() << ")";
         return out.str();

@@ -35,7 +35,7 @@ namespace doris {
 
 class Tuple;
 class SlotDescriptor;
-class Slice;
+struct Slice;
 class ParquetReaderWrap;
 class RuntimeState;
 class ExprContext;
@@ -52,8 +52,7 @@ public:
                    const TBrokerScanRangeParams& params,
                    const std::vector<TBrokerRangeDesc>& ranges,
                    const std::vector<TNetworkAddress>& broker_addresses,
-                   const std::vector<TExpr>& pre_filter_texprs,
-                   ScannerCounter* counter);
+                   const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
     ~ParquetScanner();
 
@@ -61,7 +60,7 @@ public:
     virtual Status open();
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple);
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple);
 
     // Close this scanner
     virtual void close();
@@ -79,7 +78,6 @@ private:
     ParquetReaderWrap* _cur_file_reader;
     int _next_range;
     bool _cur_file_eof; // is read over?
-    bool _scanner_eof;
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;

@@ -55,32 +55,23 @@ StringVal encrypt(FunctionContext* ctx, const StringVal& src, const StringVal& k
     if (src.len == 0 || src.is_null) {
         return StringVal::null();
     }
+    /*
+     * Buffer for ciphertext. Ensure the buffer is long enough for the
+     * ciphertext which may be longer than the plaintext, depending on the
+     * algorithm and mode.
+     */
+
     int cipher_len = src.len + 16;
-    std::unique_ptr<char[]> p;
-    p.reset(new char[cipher_len]);
-    int ret_code = 0;
-    if (mode != AES_128_ECB && mode != AES_192_ECB && mode != AES_256_ECB && mode != AES_256_ECB &&
-        mode != SM4_128_ECB) {
-        if (iv.len == 0 || iv.is_null) {
-            return StringVal::null();
-        }
-        int iv_len = 32; // max  key length 256 / 8
-        std::unique_ptr<char[]> init_vec;
-        init_vec.reset(new char[iv_len]);
-        std::memset(init_vec.get(), 0, iv.len + 1);
-        memcpy(init_vec.get(), iv.ptr, iv.len);
-        ret_code = EncryptionUtil::encrypt(
-                mode, (unsigned char*)src.ptr, src.len, (unsigned char*)key.ptr, key.len,
-                (unsigned char*)init_vec.get(), true, (unsigned char*)p.get());
-    } else {
-        ret_code = EncryptionUtil::encrypt(mode, (unsigned char*)src.ptr, src.len,
-                                           (unsigned char*)key.ptr, key.len, nullptr, true,
-                                           (unsigned char*)p.get());
-    }
-    if (ret_code < 0) {
+    std::unique_ptr<char[]> cipher_text;
+    cipher_text.reset(new char[cipher_len]);
+    int cipher_text_len = 0;
+    cipher_text_len = EncryptionUtil::encrypt(mode, (unsigned char*)src.ptr, src.len,
+                                              (unsigned char*)key.ptr, key.len, (char*)iv.ptr, true,
+                                              (unsigned char*)cipher_text.get());
+    if (cipher_text_len < 0) {
         return StringVal::null();
     }
-    return AnyValUtil::from_buffer_temp(ctx, p.get(), ret_code);
+    return AnyValUtil::from_buffer_temp(ctx, cipher_text.get(), cipher_text_len);
 }
 
 StringVal decrypt(FunctionContext* ctx, const StringVal& src, const StringVal& key,
@@ -89,31 +80,16 @@ StringVal decrypt(FunctionContext* ctx, const StringVal& src, const StringVal& k
         return StringVal::null();
     }
     int cipher_len = src.len;
-    std::unique_ptr<char[]> p;
-    p.reset(new char[cipher_len]);
-    int ret_code = 0;
-    if (mode != AES_128_ECB && mode != AES_192_ECB && mode != AES_256_ECB && mode != AES_256_ECB &&
-        mode != SM4_128_ECB) {
-        if (iv.len == 0 || iv.is_null) {
-            return StringVal::null();
-        }
-        int iv_len = 32; // max  key length 256 / 8
-        std::unique_ptr<char[]> init_vec;
-        init_vec.reset(new char[iv_len]);
-        std::memset(init_vec.get(), 0, iv.len + 1);
-        memcpy(init_vec.get(), iv.ptr, iv.len);
-        ret_code = EncryptionUtil::decrypt(
-                mode, (unsigned char*)src.ptr, src.len, (unsigned char*)key.ptr, key.len,
-                (unsigned char*)init_vec.get(), true, (unsigned char*)p.get());
-    } else {
-        ret_code = EncryptionUtil::decrypt(mode, (unsigned char*)src.ptr, src.len,
-                                           (unsigned char*)key.ptr, key.len, nullptr, true,
-                                           (unsigned char*)p.get());
-    }
-    if (ret_code < 0) {
+    std::unique_ptr<char[]> plain_text;
+    plain_text.reset(new char[cipher_len]);
+    int plain_text_len = 0;
+    plain_text_len =
+            EncryptionUtil::decrypt(mode, (unsigned char*)src.ptr, src.len, (unsigned char*)key.ptr,
+                                    key.len, (char*)iv.ptr, true, (unsigned char*)plain_text.get());
+    if (plain_text_len < 0) {
         return StringVal::null();
     }
-    return AnyValUtil::from_buffer_temp(ctx, p.get(), ret_code);
+    return AnyValUtil::from_buffer_temp(ctx, plain_text.get(), plain_text_len);
 }
 
 StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx, const StringVal& src,
@@ -197,15 +173,15 @@ StringVal EncryptionFunctions::from_base64(FunctionContext* ctx, const StringVal
         return StringVal::null();
     }
 
-    int cipher_len = src.len;
-    std::unique_ptr<char[]> p;
-    p.reset(new char[cipher_len]);
+    int encoded_len = src.len;
+    std::unique_ptr<char[]> plain_text;
+    plain_text.reset(new char[encoded_len]);
 
-    int ret_code = base64_decode((const char*)src.ptr, src.len, p.get());
-    if (ret_code < 0) {
+    int plain_text_len = base64_decode((const char*)src.ptr, src.len, plain_text.get());
+    if (plain_text_len < 0) {
         return StringVal::null();
     }
-    return AnyValUtil::from_buffer_temp(ctx, p.get(), ret_code);
+    return AnyValUtil::from_buffer_temp(ctx, plain_text.get(), plain_text_len);
 }
 
 StringVal EncryptionFunctions::to_base64(FunctionContext* ctx, const StringVal& src) {
@@ -213,15 +189,16 @@ StringVal EncryptionFunctions::to_base64(FunctionContext* ctx, const StringVal& 
         return StringVal::null();
     }
 
-    int cipher_len = (size_t)(4.0 * ceil((double)src.len / 3.0));
-    std::unique_ptr<char[]> p;
-    p.reset(new char[cipher_len]);
+    int encoded_len = (size_t)(4.0 * ceil((double)src.len / 3.0));
+    std::unique_ptr<char[]> encoded_text;
+    encoded_text.reset(new char[encoded_len]);
 
-    int ret_code = base64_encode((unsigned char*)src.ptr, src.len, (unsigned char*)p.get());
-    if (ret_code < 0) {
+    int encoded_text_len =
+            base64_encode((unsigned char*)src.ptr, src.len, (unsigned char*)encoded_text.get());
+    if (encoded_text_len < 0) {
         return StringVal::null();
     }
-    return AnyValUtil::from_buffer_temp(ctx, p.get(), ret_code);
+    return AnyValUtil::from_buffer_temp(ctx, encoded_text.get(), encoded_text_len);
 }
 
 StringVal EncryptionFunctions::md5sum(FunctionContext* ctx, int num_args, const StringVal* args) {

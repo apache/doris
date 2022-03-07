@@ -171,16 +171,6 @@ Default：false
 
 If set to true, FE will be started in BDBJE debug mode
 
-### enable_fe_heartbeat_by_thrift
-
-Default：false
-
-IsMutable：true
-
-MasterOnly：true
-
-This config is used to solve fe heartbeat response read_timeout problem,  When config is set to be true, master will get fe heartbeat response by thrift protocol  instead of http protocol. In order to maintain compatibility with the old version,  the default is false, and the configuration cannot be changed to true until all fe are upgraded.
-
 ### enable_alpha_rowset
 
 Default：false
@@ -404,7 +394,7 @@ IsMutable：true
 MasterOnly：true
 
 If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
-  
+
 ### drop_backend_after_decommission
 
 Default：false
@@ -458,9 +448,9 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### check_java_version
 
-Default：false
+Default：true
 
-If set to true, Doris will check whether the compiled and running Java versions are compatible
+Doris will check whether the compiled and run Java versions are compatible, if not, it will throw a Java version mismatch exception message and terminate the startup
 
 ### max_running_rollup_job_num_per_table
 
@@ -2074,7 +2064,7 @@ the transaction will be cleaned after transaction_clean_interval_second seconds 
 
 The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
 
-The default value is -1。
+The default value is -1
 
 ### use_compact_thrift_rpc
 
@@ -2083,7 +2073,7 @@ Default: true
 Whether to use compressed format to send query plan structure. After it is turned on, the size of the query plan structure can be reduced by about 50%, thereby avoiding some "send fragment timeout" errors.
 However, in some high-concurrency small query scenarios, the concurrency may be reduced by about 10%.
 
-### force_drop_redundant_replica
+### enable_force_drop_redundant_replica
 
 Default: false
 
@@ -2093,3 +2083,124 @@ Only for Master FE: true
 
 If set to true, the system will immediately drop redundant replicas in the tablet scheduling logic. This may cause some load jobs that are writing to the corresponding replica to fail, but it will speed up the balance and repair speed of the tablet.
 When there are a large number of replicas waiting to be balanced or repaired in the cluster, you can try to set this config to speed up the balance and repair of replicas at the expense of partial load success rate.
+
+### repair_slow_replica
+
+Default: false
+
+IsMutable：true
+
+MasterOnly: true
+
+If set to true, the replica with slower compaction will be automatically detected and migrated to other machines. The detection condition is that the version count of the fastest replica exceeds the value of `min_version_count_indicate_replica_compaction_too_slow`, and the ratio of the version count difference from the fastest replica exceeds the value of `valid_version_count_delta_ratio_between_replicas`
+
+### colocate_group_relocate_delay_second
+
+Default: 1800
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The relocation of a colocation group may involve a large number of tablets moving within the cluster. Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
+Reloaction usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
+
+### allow_replica_on_same_host
+
+Default: false
+
+Dynamically configured: false
+
+Only for Master FE: false
+
+Whether to allow multiple replicas of the same tablet to be distributed on the same host. This parameter is mainly used for local testing, to facilitate building multiple BEs to test certain multi-replica situations. Do not use it for non-test environments.
+
+### min_version_count_indicate_replica_compaction_too_slow
+
+Default: 300
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The version count threshold used to judge whether replica compaction is too slow
+
+### valid_version_count_delta_ratio_between_replicas
+
+Default: 0.5
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The valid ratio threshold of the difference between the version count of the slowest replica and the fastest replica. If `repair_slow_replica` is set to true, it is used to determine whether to repair the slowest replica
+
+### min_bytes_indicate_replica_too_large
+
+Default: 2 * 1024 * 1024 * 1024 (2G)
+
+Dynamically configured: true
+
+Only for Master FE: true
+
+The data size threshold used to judge whether replica is too large
+
+### skip_compaction_slower_replica
+
+Default: true
+
+Dynamically configured: true
+
+Only for Master FE: false
+
+If set to true, the compaction slower replica will be skipped when select get queryable replicas
+
+### enable_create_sync_job
+
+Enable Mysql data synchronization job function. The default is false, this function is turned off
+
+Default: false
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### sync_commit_interval_second
+
+The maximum time interval for committing transactions. If there is still data in the channel that has not been submitted after this time, the consumer will notify the channel to submit the transaction.
+
+Default: 10 (seconds)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### min_sync_commit_size
+
+The minimum number of events that must be satisfied to commit a transaction. If the number of events received by Fe is less than it, it will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 10000 events. If you want to modify this configuration, please make sure that this value is smaller than the `canal.instance.memory.buffer.size` configuration on the canal side (default 16384), otherwise Fe will try to get the queue length longer than the store before ack More events cause the store queue to block until it times out.
+
+Default: 10000
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### min_bytes_sync_commit
+
+The minimum data size required to commit a transaction. If the data size received by Fe is smaller than it, it will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 15MB, if you want to modify this configuration, please make sure this value is less than the product of `canal.instance.memory.buffer.size` and `canal.instance.memory.buffer.memunit` on the canal side (default 16MB), otherwise Before the ack, Fe will try to obtain data that is larger than the store space, causing the store queue to block until it times out.
+
+Default: 15*1024*1024 (15M)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### max_bytes_sync_commit
+
+ The maximum number of threads in the data synchronization job thread pool. There is only one thread pool in the entire FE, which is used to process all data synchronization tasks in the FE that send data to the BE. The implementation of the thread pool is in the `SyncTaskPool` class.
+
+Default: 10
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
