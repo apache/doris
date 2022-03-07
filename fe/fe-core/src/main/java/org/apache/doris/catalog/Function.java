@@ -103,8 +103,6 @@ public class Function implements Writable {
     private Type retType;
     // Array of parameter types.  empty array if this function does not have parameters.
     private Type[] argTypes;
-    // Only used by window_funnel()()
-    private Type[] leftParamsTypes;
     // If true, this function has variable arguments.
     // TODO: we don't currently support varargs with no fixed types. i.e. fn(...)
     private boolean hasVarArgs;
