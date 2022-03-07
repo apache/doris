@@ -301,6 +301,10 @@ public class Coordinator {
         this.queryOptions.setQueryType(type);
     }
 
+    public void setExecVecEngine(boolean vec) {
+        this.queryOptions.setEnableVectorizedEngine(vec);
+    }
+
     public Status getExecStatus() {
         return queryStatus;
     }
