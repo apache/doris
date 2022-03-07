@@ -90,7 +90,7 @@ docker build -t doris .
 
 运行镜像
 
-此处按需注意 [挂载的问题](https://doris.incubator.apache.org/zh-CN/installing/compilation.html#%E4%BD%BF%E7%94%A8-docker-%E5%BC%80%E5%8F%91%E9%95%9C%E5%83%8F%E7%BC%96%E8%AF%91-%E6%8E%A8%E8%8D%90)
+此处按需注意 [挂载的问题](/zh-CN/installing/compilation.html#%E4%BD%BF%E7%94%A8-docker-%E5%BC%80%E5%8F%91%E9%95%9C%E5%83%8F%E7%BC%96%E8%AF%91-%E6%8E%A8%E8%8D%90)
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 

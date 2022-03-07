@@ -90,7 +90,7 @@ docker build -t doris .
 
 run image
 
-note! [problems with mounting](https://doris.incubator.apache.org/installing/compilation.html#developing-mirror-compilation-using-docker-recommended)
+note! [problems with mounting](/installing/compilation.html#developing-mirror-compilation-using-docker-recommended)
 
 > See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 
