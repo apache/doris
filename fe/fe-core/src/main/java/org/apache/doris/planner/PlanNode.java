@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -128,6 +129,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     protected List<RuntimeFilter> runtimeFilters = new ArrayList<>();
 
     private boolean cardinalityIsDone = false;
+
+    protected List<SlotId> outputSlotIds;
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
         this.id = id;
@@ -851,15 +854,6 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return Joiner.on(", ").join(filtersStr) + "\n";
     }
 
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
-        sb.append("\nFragment: ").append(getFragmentId().asInt()).append("]");
-        sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
-        return sb.toString();
-    }
-
     public void convertToVectoriezd() {
         if (!conjuncts.isEmpty()) {
             vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
@@ -869,5 +863,23 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         for (PlanNode child : children) {
             child.convertToVectoriezd();
         }
+    }
+
+    // The slotIdSet could be null
+    public void initOutputSlotIds(Set<SlotId> slotIdSet, Analyzer analyzer) throws NotImplementedException {
+        throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
+    }
+
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+        throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
+        sb.append("\nFragment: ").append(getFragmentId().asInt()).append("]");
+        sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
+        return sb.toString();
     }
 }

@@ -31,6 +31,7 @@ import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.CheckedMath;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -43,6 +44,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +53,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -163,6 +166,36 @@ public class HashJoinNode extends PlanNode {
     public void setColocate(boolean colocate, String reason) {
         isColocate = colocate;
         colocateReason = reason;
+    }
+
+    @Override
+    public void initOutputSlotIds(Set<SlotId> slotIdSet, Analyzer analyzer) {
+        outputSlotIds = Lists.newArrayList();
+        for (TupleId tupleId : tupleIds) {
+            for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
+                if (slotDescriptor.isMaterialized() &&
+                        (slotIdSet == null || slotIdSet.contains(slotDescriptor.getId()))) {
+                    outputSlotIds.add(slotDescriptor.getId());
+                }
+            }
+        }
+    }
+
+    // output slots + predicate slots = input slots
+    @Override
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+        Preconditions.checkState(outputSlotIds != null);
+        Set<SlotId> result = Sets.newHashSet();
+        result.addAll(outputSlotIds);
+        // eq conjunct
+        List<SlotId> eqConjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(eqJoinConjuncts, null, eqConjunctSlotIds);
+        result.addAll(eqConjunctSlotIds);
+        // other conjunct
+        List<SlotId> otherConjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(otherJoinConjuncts, null, otherConjunctSlotIds);
+        result.addAll(otherConjunctSlotIds);
+        return result;
     }
 
     @Override
@@ -607,6 +640,11 @@ public class HashJoinNode extends PlanNode {
         if (votherJoinConjunct != null) {
             msg.hash_join_node.setVotherJoinConjunct(votherJoinConjunct.treeToThrift());
         }
+        if (outputSlotIds != null) {
+            for (SlotId slotId : outputSlotIds) {
+                msg.hash_join_node.addToOutputSlotIds(slotId.asInt());
+            }
+        }
     }
 
     @Override
@@ -638,6 +676,13 @@ public class HashJoinNode extends PlanNode {
         }
         output.append(detailPrefix).append(String.format(
                 "cardinality=%s", cardinality)).append("\n");
+        if (outputSlotIds != null) {
+            output.append(detailPrefix).append("output slot ids: ");
+            for (SlotId slotId: outputSlotIds) {
+                output.append(slotId).append(" ");
+            }
+            output.append("\n");
+        }
         return output.toString();
     }
 

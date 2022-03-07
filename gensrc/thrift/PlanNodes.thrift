@@ -393,7 +393,10 @@ struct THashJoinNode {
 
   // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
   // equi-join predicate, only use in vec exec engine
-  5: optional Exprs.TExpr vother_join_conjunct	
+  5: optional Exprs.TExpr vother_join_conjunct
+
+  // demo for vec output column
+  6: optional list<Types.TSlotId> output_slot_ids
 }
 
 struct TMergeJoinNode {

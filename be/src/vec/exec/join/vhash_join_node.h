@@ -232,6 +232,10 @@ private:
     std::vector<int> _build_block_rows;
 
     std::shared_ptr<MemTracker> _hash_table_mem_tracker;
+
+    std::vector<SlotId> _output_slot_ids;
+    std::vector<int> _left_output_slot_idx;
+    std::vector<int> _right_output_slot_idx;
 private:
     Status _hash_table_build(RuntimeState* state);
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);

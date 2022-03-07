@@ -211,12 +211,24 @@ struct ProcessHashTableProbe {
     }
 
     // output probe side result column
-    void probe_side_output_column(MutableColumns& mcol, int column_length, int size) {
-        for (int i = 0; i < column_length; ++i) {
-            auto& column = _probe_block.get_by_position(i).column;
-            column->replicate(&_items_counts[0], size, *mcol[i]);
+//    void probe_side_output_column(MutableColumns& mcol, int column_length, int size) {
+//        for (int i = 0; i < column_length; ++i) {
+//            auto& column = _probe_block.get_by_position(i).column;
+//            column->replicate(&_items_counts[0], size, *mcol[i]);
+//        }
+//    }
+
+    void probe_side_output_column(MutableColumns& mcol, std::vector<int> _left_output_slot_idx, int size) {
+        for (int i = 0; i < _left_output_slot_idx.size(); ++i) {
+            if (_left_output_slot_idx[i]) {
+                auto& column = _probe_block.get_by_position(i).column;
+                column->replicate(&_items_counts[0], size, *mcol[i]);
+            } else {
+                mcol[i]->resize(size);
+            }
         }
     }
+
     // Only process the join with no other join conjunt, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
@@ -331,7 +343,9 @@ struct ProcessHashTableProbe {
 
         {
             SCOPED_TIMER(_probe_side_output_timer);
-            probe_side_output_column(mcol, right_col_idx, current_offset);
+//            probe_side_output_column(mcol, right_col_idx, current_offset);
+            probe_side_output_column(mcol, _join_node->_left_output_slot_idx, current_offset);
+
         }
 
         output_block->swap(mutable_block.to_block());
@@ -628,7 +642,8 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _build_unique(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
-          _is_outer_join(_match_all_build || _match_all_probe) {
+          _is_outer_join(_match_all_build || _match_all_probe),
+          _output_slot_ids(tnode.hash_join_node.output_slot_ids){
     _runtime_filter_descs = tnode.runtime_filters;
     init_join_op();
 
@@ -636,6 +651,11 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     // one block can store 4g data, _build_blocks can store 128*4g data.
     // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
     _build_blocks.reserve(128);
+
+    // output slot
+    if (tnode.hash_join_node.__isset.output_slot_ids) {
+        _output_slot_ids = tnode.hash_join_node.output_slot_ids;
+    }
 }
 
 HashJoinNode::~HashJoinNode() = default;
@@ -704,6 +724,18 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     for (const auto& filter_desc : _runtime_filter_descs) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(RuntimeFilterRole::PRODUCER,
                                                                    filter_desc, state->query_options()));
+    }
+
+    for (int i=0; i< child(0)->row_desc().tuple_descriptors().size(); i++) {
+        TupleDescriptor* probe_tuple_desc = child(0)->row_desc().tuple_descriptors()[i];
+        for (const SlotDescriptor* slot : probe_tuple_desc->slots()) {
+            if (_output_slot_ids.empty()
+                || std::find(_output_slot_ids.begin(), _output_slot_ids.end(), slot->id()) != _output_slot_ids.end()) {
+                _left_output_slot_idx.push_back(1);
+            } else {
+                _left_output_slot_idx.push_back(0);
+            }
+        }
     }
 
     return Status::OK();

@@ -173,6 +173,11 @@ public class Planner {
             singleNodePlan.convertToVectoriezd();
         }
 
+        if (analyzer.getContext().getSessionVariable().isEnableHashProject() && statement instanceof SelectStmt) {
+            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
+        }
+
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
