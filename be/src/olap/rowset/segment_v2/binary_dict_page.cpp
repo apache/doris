@@ -240,6 +240,8 @@ void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRe
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
     if (_encoding_type == PLAIN_ENCODING) {
+        // todo(zeno) Handle convert in ColumnDictionary,
+        //  add interface like convert_to_predicate_column_if_necessary
         auto* col_ptr = dst.get();
         if (dst->is_nullable()) {
             auto nullable_col = reinterpret_cast<vectorized::ColumnNullable*>(dst.get());

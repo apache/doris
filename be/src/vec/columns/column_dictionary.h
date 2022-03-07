@@ -249,10 +249,10 @@ public:
             dict_inited = true;
         }
 
-        for (int i = 0; i < data_num; i++, start_index++) {
-            int32_t code = data_array[start_index];
-            insert_data(code);
-        }
+        char* end_ptr = (char*)codes.get_end_ptr();
+        memcpy(end_ptr, data_array + start_index, data_num * sizeof(T));
+        end_ptr += data_num * sizeof(T);
+        codes.set_end_ptr(end_ptr);
     }
 
     bool is_dict_inited() const { return dict_inited; }
