@@ -147,12 +147,13 @@ FE 的配置项有两种方式进行配置：
 
 默认值：32767
 
-用于设置单个tablet的最大replication数量。
+用于设置单个 tablet 的最大 replication 数量。
 
 ### `enable_outfile_to_local`
 
 默认值：false
-是否允许outfile函数将结果导出到本地磁盘
+
+是否允许 outfile 函数将结果导出到本地磁盘
 
 ### `enable_access_file_without_broker`
 
@@ -180,7 +181,7 @@ FE 的配置项有两种方式进行配置：
 
 默认值：从官方 0.14.0 release 版之后默认是 true，之前默认 false
 
-HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只有启用 httpv2 才能用户使用新的前端 UI 界面
+HTTP Server V2 由 SpringBoot 实现, 并采用前后端分离的架构。只有启用 httpv2，用户才能使用新的前端 UI 界面
 
 ### `jetty_server_acceptors`
 
@@ -194,9 +195,9 @@ HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只�
 
 默认值：0
 
-以上三个参数，Jetty的线程架构模型非常简单，分为 acceptors，selectors 和 workers 三个线程池。acceptors 负责接受新连接，然后交给selectors处理HTTP消息协议的解包，最后由workers处理请求。前两个线程池采用非阻塞模型，一个线程可以处理很多socket的读写，所以线程池数量较小。
+Jetty 的线程数量由以上三个参数控制。Jetty的线程架构模型非常简单，分为 acceptors、selectors 和 workers 三个线程池。acceptors 负责接受新连接，然后交给 selectors 处理HTTP消息协议的解包，最后由 workers 处理请求。前两个线程池采用非阻塞模型，一个线程可以处理很多 socket 的读写，所以线程池数量较小。
 
-大多数项目，acceptors 线程只需要1-2个，selectors 线程配置2～4个足矣。workers 是阻塞性的业务逻辑，往往有较多的数据库操作，需要的线程数量较多，具体数量随应用程序的 QPS 和 IO 事件占比而定。QPS 越高，需要的线程数量越多，IO 占比越高，等待的线程数越多，需要的总线程数也越多。
+大多数项目，acceptors 线程只需要1～2个，selectors 线程配置2～4个足矣。workers 是阻塞性的业务逻辑，往往有较多的数据库操作，需要的线程数量较多，具体数量随应用程序的 QPS 和 IO 事件占比而定。QPS 越高，需要的线程数量越多，IO 占比越高，等待的线程数越多，需要的总线程数也越多。
 
 workers 线程池默认不做设置，根据自己需要进行设置
 
@@ -204,7 +205,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 默认值：100 * 1024 * 1024  （100MB）
 
-这个是put或post方法上传文件的最大字节数，默认值：100MB
+这个是 put 或 post 方法上传文件的最大字节数，默认值：100MB
 
 ### `default_max_filter_ratio`
 
@@ -214,7 +215,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 是否为 Master FE 节点独有的配置项：true
 
-可过滤数据的最大百分比（由于数据不规则等原因）默认值为0。表示严格模式，只要数据有一条被过滤掉整个导入失败
+可过滤数据（由于数据不规则等原因）的最大百分比。默认值为0，表示严格模式，只要数据有一条被过滤掉整个导入失败
 
 ### `default_db_data_quota_bytes`
 
@@ -268,7 +269,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的tablet会导致整个查询失败，无法查询剩余的健康 tablet。 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的药片替换为空药片，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
+在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
 ### `max_allowed_in_element_num_of_delete`
 
@@ -308,7 +309,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为 true，fe 将从 be cache 中获取数据，该选项适用于部分分区的实时更新。
+如果设置为 true，FE 将从 BE cache 中获取数据，该选项适用于部分分区的实时更新。
 
 ### `cache_enable_sql_mode`
 
@@ -318,7 +319,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为 true，fe 会启用 sql 结果缓存该选项适用于离线数据更新场景
+如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
 
 |                        | case1 | case2 | case3 | case4 |
 | ---------------------- | ----- | ----- | ----- | ----- |
@@ -345,7 +346,7 @@ show data （其他用法：HELP SHOW DATA）
 
 当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。
 
-该配置目前主要用来解决 `PUBLISH_VERSION` 代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
+该配置目前主要用来解决 `PUBLISH_VERSION` 代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到 BE 存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
 
 但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。
 
@@ -359,7 +360,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否启用 ODBC 表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：
 
-`ADMIN SET FRONTEND CONFIG(“key”=“value”) `方式进行设置
+`ADMIN SET FRONTEND CONFIG("key"="value") `方式进行设置
 
 ### `enable_spark_load`
 
@@ -389,7 +390,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-该配置用于控制系统在成功下线（Decommission） BE 后，是否 Drop 该 BE。如果为 true，则在 BE 成功下线后，会删除掉该BE节点。如果为 false，则在 BE 成功下线后，该 BE 会一直处于 DECOMMISSION 状态，但不会被删除。
+该配置用于控制系统在成功下线（Decommission） BE 后，是否 Drop 该 BE。如果为 true，则在 BE 成功下线后，会删除掉该 BE 节点。如果为 false，则在 BE 成功下线后，该 BE 会一直处于 DECOMMISSION 状态，但不会被删除。
 
 该配置在某些场景下可以发挥作用。假设一个 Doris 集群的初始状态为每个 BE 节点有一块磁盘。运行一段时间后，系统进行了纵向扩容，即每个 BE 节点新增2块磁盘。因为 Doris 当前还不支持 BE 内部各磁盘间的数据均衡，所以会导致初始磁盘的数据量可能一直远高于新增磁盘的数据量。此时我们可以通过以下操作进行人工的磁盘间均衡：
 
@@ -592,7 +593,7 @@ SmallFileMgr 中存储的最大文件数
 
 是否为 Master FE 节点独有的配置项：true
 
-这个配置主要是用来控制同一个 db 的并发导入个数的。
+这个配置主要是用来控制同一个 DB 的并发导入个数的。
 
 当集群中有过多的导入任务正在运行时，新提交的导入任务可能会报错：
 
@@ -704,7 +705,7 @@ tablet 调度程序中每个路径的默认 slot 数量
 
 是否为 Master FE 节点独有的配置项：true
 
-决定修复tablet前的延迟时间因素。
+决定修复 tablet 前的延迟时间因素。
 
 1. 如果优先级为 VERY_HIGH，请立即修复。
 2. HIGH，延迟 tablet_repair_delay_factor_second  * 1；
@@ -715,7 +716,7 @@ tablet 调度程序中每个路径的默认 slot 数量
 
 默认值：10
 
-fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片信息
+FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片信息
 
 ### `disable_hadoop_load`
 
@@ -859,8 +860,8 @@ tablet 状态更新间隔
 
 如果磁盘容量达到 `storage_flood_stage_usage_percent` 和 `storage_flood_stage_left_capacity_bytes`      以下操作将被拒绝：
 
-1. load作业
-2. restore工作
+1. load 作业      
+2. restore 工作 
 
 ### `storage_high_watermark_usage_percent`
 
@@ -878,7 +879,7 @@ tablet 状态更新间隔
 
 是否为 Master FE 节点独有的配置项：true
 
-`storage_high_watermark_usage_percent` 限制BE端存储路径的最大容量使用百分比。  `storage_min_left_capacity_bytes`限制BE端存储路径的最小剩余容量。  如果达到这两个限制，则不能选择此存储路径作为 tablet 存储目的地。 但是对于 tablet 恢复，我们可能会超过这些限制以尽可能保持数据完整性。
+`storage_high_watermark_usage_percent` 限制 BE 端存储路径使用最大容量百的分比。  `storage_min_left_capacity_bytes`限制 BE 端存储路径的最小剩余容量。  如果达到这两个限制，则不能选择此存储路径作为 tablet 存储目的地。 但是对于 tablet 恢复，我们可能会超过这些限制以尽可能保持数据完整性。
 
 ### `backup_job_default_timeout_ms`
 
@@ -902,7 +903,7 @@ tablet 状态更新间隔
 
 ### `dpp_bytes_per_reduce`
 
-默认值：100 * 1024 * 1024L;   // 100M
+默认值：100 * 1024 * 1024L (100M)
 
 ### `dpp_default_cluster`
 
@@ -911,27 +912,17 @@ tablet 状态更新间隔
 ### `dpp_default_config_str`
 
 默认值：{
-"hadoop_configs : '"
-"mapred.job.priority=NORMAL;"
-"mapred.job.map.capacity=50;"
-"mapred.job.reduce.capacity=50;"
-"mapred.hce.replace.streaming=false;"
-"abaci.long.stored.job=true;"
-"dce.shuffle.enable=false;"
-"dfs.client.authserver.force_stop=true;"
-"dfs.client.auth.method=0"
-"'}
+            hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
+        } 
 
-### `dpp_config_str`
+### dpp_config_str
 
-默认值：{palo-dpp : {"
-+ "hadoop_palo_path : '/dir',"
-+ "hadoop_configs : '"
-+ "fs.default.name=hdfs://host:port;"
-+ "mapred.job.tracker=host:port;"
-+ "hadoop.job.ugi=user,password"
-+ "'}"
-+ "}
+默认值：{
+            palo-dpp : {
+                    hadoop_palo_path : '/dir',
+                    hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
+                }
+        }
 
 ### `enable_deploy_manager`
 
@@ -1363,7 +1354,7 @@ routine load V2 版本加载的默认等待作业数 ，这是一个理想的数
 默认值：PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
 
 
-默认的 yarn 配置文件目录每次运行 yarn 命令之前，我们需要检查一下这个路径下是否存在 config 文件，如果不存在，则创建它们。
+默认的 Yarn 配置文件目录每次运行 Yarn 命令之前，我们需要检查一下这个路径下是否存在 config 文件，如果不存在，则创建它们。
 
 
 ### `yarn_client_path`
@@ -1376,7 +1367,7 @@ routine load V2 版本加载的默认等待作业数 ，这是一个理想的数
 
 默认值： sys_log_dir + "/spark_launcher_log"
 
-指定的 spark 启动器日志目录
+指定的 Spark 启动器日志目录
 
 ### `spark_resource_path`
 
@@ -1654,7 +1645,8 @@ mysql 中处理任务的最大线程数。
 ### `cluster_name`
 
 默认值： Apache doris
-集群名称将显示为网页标题
+
+集群名称，将显示为网页标题
 
 ### `mysql_service_io_threads_num`
 
@@ -1761,7 +1753,7 @@ FE http 端口，当前所有 FE http 端口都必须相同
 
 默认值：空
 
-为那些有很多 ip 的服务器声明一个选择策略。 请注意，最多应该有一个 ip 与此列表匹配。 这是一个以分号分隔格式的列表，用 CIDR 表示法，例如 10.10.10.0/24 ， 如果没有匹配这条规则的ip，会随机选择一个。
+为那些有很多 ip 的服务器声明一个选择策略。 请注意，最多应该有一个 ip 与此列表匹配。 这是一个以分号分隔格式的列表，用 CIDR 表示法，例如 10.10.10.0/24。 如果没有匹配这条规则的ip，会随机选择一个。
 
 ### `txn_rollback_limit`
 
@@ -1924,31 +1916,33 @@ sys_log_dir:
 
 默认值：{}
 
-sys_log_verbose_modules：
 详细模块。 VERBOSE 级别由 log4j DEBUG 级别实现。
+
 例如：
-sys_log_verbose_modules = org.apache.doris.catalog
-这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
+    sys_log_verbose_modules = org.apache.doris.catalog
+    这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
 
 ### `sys_log_roll_interval`
 
 默认值：DAY
 
-sys_log_roll_interval:
-DAY:  log 前缀是 yyyyMMdd
-HOUR: log 前缀是 yyyyMMddHH
+可选项:
+
+- DAY:  log 前缀是 yyyyMMdd
+- HOUR: log 前缀是 yyyyMMddHH
 
 ### `sys_log_delete_age`
 
 默认值：7d
 
-sys_log_delete_age:
 默认为 7 天，如果日志的最后修改时间为 7 天前，则将其删除。
+
 支持格式：
-7d 7 天
-10 小时 10 小时
-60m 60 分钟
-120s    120 秒
+
+- 7d: 7 天
+- 10h: 10 小时
+- 60m: 60 分钟
+- 120s: 120 秒
 
 ### `audit_log_dir`
 
@@ -2103,7 +2097,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为true，系统会在副本调度逻辑中，立即删除冗余副本。这可能导致部分正在对对应副本写入的导入作业失败，但是会加速副本的均衡和修复速度。
+如果设置为 true，系统会在副本调度逻辑中，立即删除冗余副本。这可能导致部分正在对对应副本写入的导入作业失败，但是会加速副本的均衡和修复速度。
 当集群中有大量等待被均衡或修复的副本时，可以尝试设置此参数，以牺牲部分导入成功率为代价，加速副本的均衡和修复。
 
 ### `repair_slow_replica`
@@ -2114,7 +2108,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为true，会自动检测compaction比较慢的副本，并将迁移到其他机器，检测条件是 最慢副本的版本计数超过 `min_version_count_indicate_replica_compaction_too_slow` 的值， 且与最快副本的版本计数差异所占比例超过 `valid_version_count_delta_ratio_between_replicas` 的值
+如果设置为 true，会自动检测compaction比较慢的副本，并将迁移到其他机器，检测条件是 最慢副本的版本计数超过 `min_version_count_indicate_replica_compaction_too_slow` 的值， 且与最快副本的版本计数差异所占比例超过 `valid_version_count_delta_ratio_between_replicas` 的值
 
 ### `colocate_group_relocate_delay_second`
 
@@ -2124,7 +2118,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 是否为 Master FE 节点独有的配置项：true
 
-重分布一个 Colocation Group 可能涉及大量的tablet迁移。因此，我们需要一个更保守的策略来避免不必要的Colocation 重分布。
+重分布一个 Colocation Group 可能涉及大量的tablet迁移。因此，我们需要一个更保守的策略来避免不必要的 Colocation 重分布。
 重分布通常发生在 Doris 检测到有 BE 节点宕机后。这个参数用于推迟对BE宕机的判断。如默认参数下，如果 BE 节点能够在 1800 秒内恢复，则不会触发 Colocation 重分布。
 
 ### `allow_replica_on_same_host`
