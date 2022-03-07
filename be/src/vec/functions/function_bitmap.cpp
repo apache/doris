@@ -142,23 +142,48 @@ struct BitmapHash {
     }
 };
 
-struct NameBitmapCount {
+class FunctionBitmapCount : public IFunction {
+public:
     static constexpr auto name = "bitmap_count";
-};
 
-struct BitmapCount {
-    using ReturnType = DataTypeInt64;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
-    using Type = DataTypeBitMap::FieldType;
-    using ReturnColumnType = ColumnVector<Int64>;
-    using ReturnColumnContainer = ColumnVector<Int64>::Container;
+    String get_name() const override { return name; }
 
-    static Status vector(const std::vector<BitmapValue>& data, ReturnColumnContainer& res) {
-        size_t size = data.size();
-        res.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
-            res.push_back(data[i].cardinality());
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapCount>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto res_data_column = ColumnInt64::create();
+        auto& res = res_data_column->get_data();
+        auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_map = data_null_map->get_data();
+
+        auto column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
+            VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
+            column = nullable->get_nested_column_ptr();
         }
+        auto str_col = assert_cast<const ColumnBitmap*>(column.get());
+        const auto& col_data = str_col->get_data();
+
+        res.reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if(null_map[i]) {
+                res.push_back(0);
+                continue;
+            }
+            res.push_back(col_data[i].cardinality());
+        }
+        block.replace_by_position(result, std::move(res_data_column));
         return Status::OK();
     }
 };
@@ -447,7 +472,6 @@ public:
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionBitmapFromString = FunctionUnaryToType<BitmapFromString, NameBitmapFromString>;
 using FunctionBitmapHash = FunctionUnaryToType<BitmapHash, NameBitmapHash>;
-using FunctionBitmapCount = FunctionUnaryToType<BitmapCount, NameBitmapCount>;
 
 using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
 using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
