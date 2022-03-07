@@ -479,7 +479,7 @@ Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
                 []() -> std::string {
                     fmt::memory_buffer error_msg;
                     fmt::format_to(error_msg, "{}", "Unable to display");
-                    return error_msg.data();
+                    return fmt::to_string(error_msg);
                 }, &_scanner_eof));
         _counter->num_rows_filtered++;
         _success = false;
@@ -514,7 +514,7 @@ Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
                         fmt::format_to(error_msg, "{}", "actual column number is less than schema column number.");
                         fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ", _split_values.size(), _value_separator);
                         fmt::format_to(error_msg, "line delimiter: [{}], schema number: {}; ", _line_delimiter, _src_slot_descs.size());
-                        return error_msg.data();
+                        return fmt::to_string(error_msg);
                         }, &_scanner_eof));
             _counter->num_rows_filtered++;
             _success = false;
@@ -527,7 +527,7 @@ Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
                         fmt::format_to(error_msg, "{}", "actual column number is more than schema column number.");
                         fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ", _split_values.size(), _value_separator);
                         fmt::format_to(error_msg, "line delimiter: [{}], schema number: {}; ", _line_delimiter, _src_slot_descs.size());
-                        return error_msg.data();
+                        return fmt::to_string(error_msg);
                         }, &_scanner_eof));
             _counter->num_rows_filtered++;
             _success = false;

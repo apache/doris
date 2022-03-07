@@ -153,6 +153,7 @@ Used to set maximal number of replication per tablet.
 ### enable_outfile_to_local
 
 Default：false
+
 Whether to allow the outfile function to export the results to the local disk.
 
 ### enable_access_file_without_broker
@@ -866,7 +867,7 @@ MasterOnly：true
 
 If capacity of disk reach the 'storage_flood_stage_usage_percent' and  'storage_flood_stage_left_capacity_bytes', the following operation will be rejected: 
 
-1. .load job
+1. load job
 2. restore job
 
 ### storage_high_watermark_usage_percent
@@ -918,27 +919,17 @@ Default：palo-dpp
 ### dpp_default_config_str
 
 Default：{
-           "hadoop_configs : '"
-             "mapred.job.priority=NORMAL;"
-            "mapred.job.map.capacity=50;"
-            "mapred.job.reduce.capacity=50;"
-            "mapred.hce.replace.streaming=false;"
-            "abaci.long.stored.job=true;"
-            "dce.shuffle.enable=false;"
-            "dfs.client.authserver.force_stop=true;"
-            "dfs.client.auth.method=0"
-            "'}
+            hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
+        }
 
 ### dpp_config_str
 
-Default：{palo-dpp : {"
-            + "hadoop_palo_path : '/dir',"
-                        + "hadoop_configs : '"
-                        + "fs.default.name=hdfs://host:port;"
-                                    + "mapred.job.tracker=host:port;"
-                                    + "hadoop.job.ugi=user,password"
-                                                + "'}"
-                                                + "}
+Default：{
+            palo-dpp : {
+                    hadoop_palo_path : '/dir',
+                    hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
+                }
+        }
 
 ### enable_deploy_manager
 
@@ -1643,6 +1634,7 @@ Cluster token used for internal authentication.
 ### cluster_name
 
 Default： Apache doris
+
 Cluster name will be shown as the title of web page
 
 ### mysql_service_io_threads_num
@@ -1916,19 +1908,20 @@ Maximal FE log files to be kept within an sys_log_roll_interval. default is 10, 
 
 Default：{}
 
-sys_log_verbose_modules：
-       Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
-       eg：
-            sys_log_verbose_modules = org.apache.doris.catalog
-            This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
+Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
+
+eg：
+    sys_log_verbose_modules = org.apache.doris.catalog
+    This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
 
 ### sys_log_roll_interval
 
 Default：DAY
 
 sys_log_roll_interval:
-           DAY:  log suffix is  yyyyMMdd
-          HOUR: log suffix is  yyyyMMddHH
+
+- DAY:  log suffix is  yyyyMMdd
+- HOUR: log suffix is  yyyyMMddHH
 
 ### sys_log_delete_age
 
@@ -2144,3 +2137,63 @@ Dynamically configured: true
 Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
+
+### skip_compaction_slower_replica
+
+Default: true
+
+Dynamically configured: true
+
+Only for Master FE: false
+
+If set to true, the compaction slower replica will be skipped when select get queryable replicas
+
+### enable_create_sync_job
+
+Enable Mysql data synchronization job function. The default is false, this function is turned off
+
+Default: false
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### sync_commit_interval_second
+
+The maximum time interval for committing transactions. If there is still data in the channel that has not been submitted after this time, the consumer will notify the channel to submit the transaction.
+
+Default: 10 (seconds)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### min_sync_commit_size
+
+The minimum number of events that must be satisfied to commit a transaction. If the number of events received by Fe is less than it, it will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 10000 events. If you want to modify this configuration, please make sure that this value is smaller than the `canal.instance.memory.buffer.size` configuration on the canal side (default 16384), otherwise Fe will try to get the queue length longer than the store before ack More events cause the store queue to block until it times out.
+
+Default: 10000
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### min_bytes_sync_commit
+
+The minimum data size required to commit a transaction. If the data size received by Fe is smaller than it, it will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 15MB, if you want to modify this configuration, please make sure this value is less than the product of `canal.instance.memory.buffer.size` and `canal.instance.memory.buffer.memunit` on the canal side (default 16MB), otherwise Before the ack, Fe will try to obtain data that is larger than the store space, causing the store queue to block until it times out.
+
+Default: 15*1024*1024 (15M)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### max_bytes_sync_commit
+
+ The maximum number of threads in the data synchronization job thread pool. There is only one thread pool in the entire FE, which is used to process all data synchronization tasks in the FE that send data to the BE. The implementation of the thread pool is in the `SyncTaskPool` class.
+
+Default: 10
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false

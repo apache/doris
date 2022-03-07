@@ -23,7 +23,7 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
 
 import java.util.Map;
 
@@ -73,15 +73,15 @@ public class EsUtil {
         int firstOccr = key.indexOf('.', fromIndex);
         if (firstOccr == -1) {
             String token = key.substring(key.lastIndexOf('.') + 1);
-            if (jsonObject.has(token)) {
-                return jsonObject.getJSONObject(token);
+            if (jsonObject.containsKey(token)) {
+                return (JSONObject) jsonObject.get(token);
             } else {
                 return null;
             }
         }
         String fieldName = key.substring(fromIndex, firstOccr);
-        if (jsonObject.has(fieldName)) {
-            return getJsonObject(jsonObject.getJSONObject(fieldName), key, firstOccr + 1);
+        if (jsonObject.containsKey(fieldName)) {
+            return getJsonObject((JSONObject) jsonObject.get(fieldName), key, firstOccr + 1);
         } else {
             return null;
         }

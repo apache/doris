@@ -835,6 +835,15 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
     return dst;
 }
 
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor *>& tuple_descs) {
+    for (auto tuple_desc : tuple_descs) {
+        for (auto slot_desc : tuple_desc->slots()) {
+            _data_types.emplace_back(slot_desc->get_data_type_ptr());
+            _columns.emplace_back(_data_types.back()->create_column());
+        }
+    }
+}
+
 size_t MutableBlock::rows() const {
     for (const auto& column : _columns) {
         if (column) {
