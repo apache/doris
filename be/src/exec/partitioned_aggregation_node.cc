@@ -408,7 +408,7 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
                     "Cannot perform aggregation at node with id $0."
                     " Failed to allocate $1 output bytes.",
                     _id, sv->len);
-            RETURN_ALLOC_LIMIT_EXCEEDED(pool->mem_tracker(), state_, details, sv->len, rst);
+            RETURN_LIMIT_EXCEEDED(pool->mem_tracker(), state_, details, sv->len, rst);
         }
         memcpy(new_ptr, sv->ptr, sv->len);
         sv->ptr = new_ptr;

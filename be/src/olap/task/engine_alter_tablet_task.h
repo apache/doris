@@ -37,7 +37,6 @@ public:
 private:
     const TAlterTabletReqV2& _alter_tablet_req;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

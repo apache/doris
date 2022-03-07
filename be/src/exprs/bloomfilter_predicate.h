@@ -97,11 +97,9 @@ class BloomFilterFuncBase : public IBloomFilterFuncBase {
 public:
     BloomFilterFuncBase(MemTracker* tracker) : _tracker(tracker), _inited(false) {}
 
-    virtual ~BloomFilterFuncBase() {
-        if (_tracker != nullptr) {
-            _tracker->release(_bloom_filter_alloced);
-        }
-    }
+    // Do not release _bloom_filter_alloced, this does not affect the final statistic.
+    // RuntimeFilterMgr._tracker will be destructed first in ~RuntimeState.
+    virtual ~BloomFilterFuncBase() {}
 
     Status init(int64_t expect_num, double fpp) override {
         size_t filter_size = BloomFilterAdaptor::optimal_bit_num(expect_num, fpp);

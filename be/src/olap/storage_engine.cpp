@@ -114,8 +114,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _file_cache(nullptr),
           _compaction_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::AutoCompaction",
                                                              nullptr, MemTrackerLevel::OVERVIEW)),
-          _tablet_mem_tracker(MemTracker::create_virtual_tracker(
-                  -1, "StorageEngine::TabletHeader", nullptr, MemTrackerLevel::OVERVIEW)),
+          _tablet_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::TabletHeader", nullptr,
+                                                         MemTrackerLevel::OVERVIEW)),
           _schema_change_mem_tracker(MemTracker::create_tracker(
                   -1, "StorageEngine::SchemaChange", nullptr, MemTrackerLevel::OVERVIEW)),
           _clone_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Clone", nullptr,

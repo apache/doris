@@ -175,8 +175,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         // k2 := k1 * 10
         // k3 := 4096 * i + rid
         for (int i = 0; i < num_segments; ++i) {
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool mem_pool(tracker);
+            MemPool mem_pool("BetaRowsetTest");
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 10 + i;
                 uint32_t k2 = k1 * 10;

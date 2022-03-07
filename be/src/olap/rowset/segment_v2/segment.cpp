@@ -50,8 +50,12 @@ Status Segment::open(const FilePathDesc& path_desc, uint32_t segment_id,
 Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id,
                  const TabletSchema* tablet_schema)
         : _path_desc(path_desc), _segment_id(segment_id), _tablet_schema(tablet_schema) {
+#ifndef BE_TEST
     _mem_tracker = MemTracker::create_tracker(
             -1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
+#else
+    _mem_tracker = MemTracker::create_tracker(-1, "Segment");
+#endif
 }
 
 Segment::~Segment() {

@@ -55,11 +55,7 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
           _tablet_infos(tablet_infos),
           _res_status(res_status),
           _signature(signature),
-          _master_info(master_info) {
-    _mem_tracker = MemTracker::create_tracker(
-            -1, "clone tablet: " + std::to_string(_clone_req.tablet_id),
-            StorageEngine::instance()->clone_mem_tracker(), MemTrackerLevel::TASK);
-}
+          _master_info(master_info) {}
 
 OLAPStatus EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process

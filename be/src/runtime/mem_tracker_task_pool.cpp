@@ -68,8 +68,20 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
         // No RuntimeState uses this task MemTracker, it is only referenced by this map, delete it
         if (it->second.use_count() == 1) {
             if (!config::memory_leak_detection || it->second->consumption() == 0) {
-                // 
-                it->second->parent()->consume(-it->second->consumption(), MemTracker::get_process_tracker().get());
+                // If consumption is not equal to 0 before query mem tracker is destructed,
+                // there are two possibilities in theory.
+                // 1. A memory leak occurs.
+                // 2. Some of the memory consumed/released on the query mem tracker is actually released/consume on
+                // other trackers such as the process mem tracker, and there is no manual transfer between the two trackers.
+                //
+                // The second case should be eliminated in theory, but it has not been done so far, so the query memory leak
+                // cannot be located, and the value of the query pool mem tracker statistics will be inaccurate.
+                //
+                // In order to ensure that the query pool mem tracker is the sum of all currently running query mem trackers,
+                // the effect of the ended query mem tracker on the query pool mem tracker should be cleared, that is,
+                // the negative number of the current value of consume.
+                it->second->parent()->consume(-it->second->consumption(),
+                                              MemTracker::get_process_tracker().get());
                 expired_tasks.emplace_back(it->first);
             } else {
                 LOG(WARNING) << "Memory tracker " << it->second->debug_string() << " Memory leak "
@@ -84,7 +96,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
     }
 }
 
-// TODO(zxy)
+// TODO(zxy) More observable methods
 // /// Logs the usage of 'limit' number of queries based on maximum total memory
 // /// consumption.
 // std::string MemTracker::LogTopNQueries(int limit) {

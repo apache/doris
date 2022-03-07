@@ -76,8 +76,6 @@ private:
     Status* _res_status;
     std::string _remote_file_path;
     std::string _local_file_path;
-
-    std::shared_ptr<MemTracker> _mem_tracker;
 }; // class EngineBatchLoadTask
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H

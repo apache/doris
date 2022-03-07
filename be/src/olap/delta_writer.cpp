@@ -289,6 +289,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
+    _mem_tracker->flush_untracked_mem();
     DCHECK_EQ(_mem_tracker->consumption(), 0);
 
     // use rowset meta manager to save meta
@@ -332,6 +333,7 @@ OLAPStatus DeltaWriter::cancel() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
     }
+    _mem_tracker->flush_untracked_mem();
     DCHECK_EQ(_mem_tracker->consumption(), 0);
     _is_cancelled = true;
     return OLAP_SUCCESS;

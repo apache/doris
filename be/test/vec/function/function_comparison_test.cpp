@@ -38,7 +38,7 @@ TEST(ComparisonTest, ComparisonFunctionTest) {
 
     auto tuple_desc = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc());
     RowDescriptor row_desc(tuple_desc, false);
-    auto tracker_ptr = MemTracker::CreateTracker(-1, "BlockTest", nullptr, false);
+    auto tracker_ptr = MemTracker::create_tracker(-1, "BlockTest", nullptr);
     RowBatch row_batch(row_desc, 1024, tracker_ptr.get());
 
     int16_t k1 = -100;

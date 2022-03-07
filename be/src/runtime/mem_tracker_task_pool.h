@@ -43,6 +43,7 @@ public:
 
     std::shared_ptr<MemTracker> get_task_mem_tracker(const std::string& task_id);
 
+    // Remove the mem tracker that has ended the query.
     void logout_task_mem_tracker();
 
 private:

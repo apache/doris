@@ -177,12 +177,15 @@ public:
     }
 
     static void batch_consume(int64_t bytes,
-                                const std::vector<std::shared_ptr<MemTracker>>& trackers) {
+                              const std::vector<std::shared_ptr<MemTracker>>& trackers) {
         for (auto& tracker : trackers) {
             tracker->consume(bytes);
         }
     }
 
+    // When the accumulated untracked memory value exceeds the upper limit,
+    // the current value is returned and set to 0.
+    // Thread safety.
     int64_t add_untracked_mem(int64_t bytes) {
         _untracked_mem += bytes;
         if (std::abs(_untracked_mem) >= config::mem_tracker_consume_min_size_bytes) {
@@ -191,10 +194,20 @@ public:
         return 0;
     }
 
+    void flush_untracked_mem() {
+        consume(_untracked_mem.exchange(0));
+        for (const auto& tracker_weak : _child_trackers) {
+            std::shared_ptr<MemTracker> tracker = tracker_weak.lock();
+            if (tracker) {
+                consume(tracker->_untracked_mem.exchange(0));
+            }
+        }
+    }
+
     void release_cache(int64_t bytes) {
-        int64_t consume_bytes = add_untracked_mem(bytes);
+        int64_t consume_bytes = add_untracked_mem(-bytes);
         if (consume_bytes != 0) {
-            release(consume_bytes);
+            release(-consume_bytes);
         }
     }
 
@@ -231,7 +244,7 @@ public:
     WARN_UNUSED_RESULT
     Status try_transfer_to(MemTracker* dst, int64_t bytes) {
         // Must release first, then consume
-        consume_cache(-bytes);
+        release_cache(bytes);
         Status st = dst->try_consume_cache(bytes);
         if (!st) {
             consume_cache(bytes);
@@ -242,7 +255,7 @@ public:
 
     // Forced transfer, 'dst' may limit exceed, and more ancestor trackers will be updated.
     void transfer_to(MemTracker* dst, int64_t bytes) {
-        consume_cache(-bytes);
+        release_cache(bytes);
         dst->consume_cache(bytes);
     }
 
@@ -353,9 +366,7 @@ public:
         return tracker == nullptr ? false : true;
     }
 
-    std::string id() {
-        return _id;
-    }
+    std::string id() { return _id; }
 
     std::string debug_string() {
         std::stringstream msg;
@@ -379,6 +390,8 @@ private:
 private:
     // If consumption is higher than max_consumption, attempts to free memory by calling
     // any added GC functions.  Returns true if max_consumption is still exceeded. Takes gc_lock.
+    // Note: If the cache of segment/chunk is released due to insufficient query memory at a certain moment,
+    // the performance of subsequent queries may be degraded, so the use of gc function should be careful enough.
     bool gc_memory(int64_t max_consumption);
 
     inline Status try_gc_memory(int64_t bytes) {
@@ -452,6 +465,8 @@ private:
 
     // Consume size smaller than mem_tracker_consume_min_size_bytes will continue to accumulate
     // to avoid frequent calls to consume/release of MemTracker.
+    // TODO(zxy) It may be more performant to use thread_local static, which is inherently thread-safe.
+    // Test after introducing TCMalloc hook
     std::atomic<int64_t> _untracked_mem = 0;
 
     std::vector<MemTracker*> _all_trackers;   // this tracker plus all of its ancestors
@@ -471,12 +486,11 @@ private:
     std::vector<GcFunction> _gc_functions;
 };
 
-#define RETURN_LIMIT_EXCEEDED(tracker, state, msg) return tracker->mem_limit_exceeded(state, msg);
-#define RETURN_ALLOC_LIMIT_EXCEEDED(tracker, state, msg, size, st) \
-    return tracker->mem_limit_exceeded(state, msg, size, st);
+#define RETURN_LIMIT_EXCEEDED(tracker, ...) return tracker->mem_limit_exceeded(__VA_ARGS__);
 #define RETURN_IF_LIMIT_EXCEEDED(tracker, state, msg) \
     if (tracker->any_limit_exceeded()) RETURN_LIMIT_EXCEEDED(tracker, state, msg);
-#define RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, msg) \
-    if (state->instance_mem_tracker()->any_limit_exceeded()) RETURN_LIMIT_EXCEEDED(state->instance_mem_tracker(), state, msg);
+#define RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, msg)        \
+    if (state->instance_mem_tracker()->any_limit_exceeded()) \
+        RETURN_LIMIT_EXCEEDED(state->instance_mem_tracker(), state, msg);
 
 } // namespace doris
