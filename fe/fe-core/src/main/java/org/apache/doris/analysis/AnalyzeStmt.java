@@ -35,8 +35,8 @@ import java.util.Map;
  */
 public class AnalyzeStmt extends DdlStmt {
     private final TableName tbl;
-    private List<String> columnNames;
-    private Map<String, String> properties;
+    private final List<String> columnNames;
+    private final Map<String, String> properties;
 
     public AnalyzeStmt(TableName tbl, List<String> columns, Map<String, String> properties) {
         this.tbl = tbl;
@@ -48,20 +48,12 @@ public class AnalyzeStmt extends DdlStmt {
         return this.columnNames;
     }
 
-    public void setColumnNames(List<String> columnNames) {
-        this.columnNames = columnNames;
-    }
-
     public TableName getTableName() {
         return this.tbl;
     }
 
     public Map<String, String> getProperties() {
         return this.properties;
-    }
-
-    public void setProperties(Map<String, String> properties) {
-        this.properties = properties;
     }
 
     @Override

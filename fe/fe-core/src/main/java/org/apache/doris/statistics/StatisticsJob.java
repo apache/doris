@@ -51,77 +51,60 @@ public class StatisticsJob {
         FAILED
     }
 
-    private long id;
+    private final long id;
 
     /**
      * to be collected database stats.
      */
-    private long dbId;
+    private final long dbId;
 
     /**
      * to be collected table stats.
      */
-    private List<Long> tableIdList;
+    private final List<Long> tableIds;
 
     /**
      * to be collected column stats.
      */
-    private Map<Long, List<String>> tableIdToColumnName;
+    private final Map<Long, List<String>> tableIdToColumnName;
 
     /**
      * to be executed tasks.
      */
-    private List<StatisticsTask> taskList;
+    private final List<StatisticsTask> tasks;
 
+    /**
+     * The progress of the job, it's equal to the number of completed tasks.
+     */
     private int progress = 0;
     private JobState jobState = JobState.PENDING;
 
     public StatisticsJob(Long dbId, List<Long> tableIdList, Map<Long, List<String>> tableIdToColumnName) {
-        this.dbId = dbId;
-        this.tableIdList = tableIdList;
-        this.tableIdToColumnName = tableIdToColumnName;
         this.id = Catalog.getCurrentCatalog().getNextId();
-        this.taskList = Lists.newArrayList();
+        this.dbId = dbId;
+        this.tableIds = tableIdList;
+        this.tableIdToColumnName = tableIdToColumnName;
+        this.tasks = Lists.newArrayList();
     }
 
     public long getId() {
         return id;
     }
 
-    public void setId(long id) {
-        this.id = id;
-    }
-
     public long getDbId() {
         return dbId;
     }
 
-    public void setDbId(long dbId) {
-        this.dbId = dbId;
-    }
-
-    public List<Long> getTableIdList() {
-        return tableIdList;
-    }
-
-    public void setTableIdList(List<Long> tableIdList) {
-        this.tableIdList = tableIdList;
+    public List<Long> getTableIds() {
+        return tableIds;
     }
 
     public Map<Long, List<String>> getTableIdToColumnName() {
         return tableIdToColumnName;
     }
 
-    public void setTableIdToColumnName(Map<Long, List<String>> tableIdToColumnName) {
-        this.tableIdToColumnName = tableIdToColumnName;
-    }
-
-    public List<StatisticsTask> getTaskList() {
-        return taskList;
-    }
-
-    public void setTaskList(List<StatisticsTask> taskList) {
-        this.taskList = taskList;
+    public List<StatisticsTask> getTasks() {
+        return tasks;
     }
 
     public int getProgress() {
@@ -147,7 +130,6 @@ public class StatisticsJob {
      * tableIdToColumnName <t1, [c1,c2,c3]>
      */
     public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) throws DdlException {
-
         long dbId;
         final List<Long> tableIdList = Lists.newArrayList();
         final Map<Long, List<String>> tableIdToColumnName = Maps.newHashMap();
@@ -216,8 +198,15 @@ public class StatisticsJob {
 
     public Set<Long> relatedTableId() {
         Set<Long> relatedTableId = Sets.newHashSet();
-        relatedTableId.addAll(tableIdList);
+        relatedTableId.addAll(tableIds);
         relatedTableId.addAll(tableIdToColumnName.keySet());
         return relatedTableId;
+    }
+
+    public String showProgress() {
+        if (this.tasks.isEmpty()) {
+            return "0";
+        }
+        return this.progress + "/" + this.tasks.size();
     }
 }

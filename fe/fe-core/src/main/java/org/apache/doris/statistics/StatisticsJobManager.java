@@ -105,7 +105,7 @@ public class StatisticsJobManager {
         // check table unfinished job
         for (StatisticsJob statisticsJob : statisticsJobs) {
             JobState jobState = statisticsJob.getJobState();
-            List<Long> tableIdList = statisticsJob.getTableIdList();
+            List<Long> tableIdList = statisticsJob.getTableIds();
             if (jobState == JobState.PENDING || jobState == JobState.SCHEDULING || jobState == JobState.RUNNING) {
                 for (Long tableId : tableIds) {
                     if (tableIdList.contains(tableId)) {

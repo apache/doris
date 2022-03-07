@@ -77,7 +77,7 @@ public class StatisticsJobSchedulerTest {
          * sampleTask(1):
          *  - col1[max_size、avg_size]
          */
-        assertEquals(2 * 8, statisticsJob.getTaskList().size());
+        assertEquals(2 * 8, statisticsJob.getTasks().size());
     }
 
     @Test

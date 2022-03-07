@@ -78,7 +78,7 @@ public class StatisticsJobTest {
         // Run the test
         final StatisticsJob result = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
         assertEquals(1L, result.getDbId());
-        assertEquals(Collections.singletonList(1L), result.getTableIdList());
+        assertEquals(Collections.singletonList(1L), result.getTableIds());
         assertEquals(tableIdToColumnName, result.getTableIdToColumnName());
         assertEquals(0, result.getProgress());
         assertEquals(StatisticsJob.JobState.PENDING, result.getJobState());
@@ -141,7 +141,7 @@ public class StatisticsJobTest {
         // Run the test
         final StatisticsJob result = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
         assertEquals(0L, result.getDbId());
-        assertEquals(Collections.singletonList(0L), result.getTableIdList());
+        assertEquals(Collections.singletonList(0L), result.getTableIds());
         assertEquals(tableIdToColumnName, result.getTableIdToColumnName());
         assertEquals(0, result.getProgress());
         assertEquals(StatisticsJob.JobState.PENDING, result.getJobState());

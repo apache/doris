@@ -56,37 +56,40 @@ public class StatisticsJobScheduler extends MasterDaemon {
      * and normal query services may be affected. Therefore, we put the jobs into the queue
      * and schedule them one by one, and finally divide each job to several subtasks and execute them.
      */
-    public Queue<StatisticsJob> pendingJobQueue = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
+    public final Queue<StatisticsJob> pendingJobQueue;
 
     public StatisticsJobScheduler() {
         super("Statistics job scheduler", 0);
+        this.pendingJobQueue = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        StatisticsJob pendingJob = pendingJobQueue.peek();
-        // step0: check job state again
-        if (pendingJob != null && pendingJob.getJobState() == JobState.PENDING) {
-            List<StatisticsTask> taskList = null;
-            try {
-                // step1: divide statistics job to task
-                taskList = this.divide(pendingJob);
-            } catch (DdlException e) {
-                pendingJobQueue.remove();
-                pendingJob.setJobState(JobState.FAILED);
-                LOG.warn("Failed to schedule the statistical job(id="
-                        + pendingJob.getId() + "). " + e.getMessage());
-            }
-            if (taskList != null) {
-                // step2: submit tasks
-                Catalog.getCurrentCatalog().getStatisticsTaskScheduler().addTasks(taskList);
-                pendingJob.setJobState(JobState.SCHEDULING);
+        StatisticsJob pendingJob = this.pendingJobQueue.peek();
+        if (pendingJob != null) {
+            // step0: check job state again
+            JobState jobState = pendingJob.getJobState();
+            if (jobState == JobState.PENDING) {
+                try {
+                    // step1: divide statistics job to tasks
+                    List<StatisticsTask> tasks = this.divide(pendingJob);
+                    // step2: submit tasks
+                    Catalog.getCurrentCatalog().getStatisticsTaskScheduler().addTasks(tasks);
+                    pendingJob.setJobState(JobState.SCHEDULING);
+                } catch (DdlException e) {
+                    pendingJob.setJobState(JobState.FAILED);
+                    LOG.warn("Failed to schedule the statistical job(id=" + pendingJob.getId() + "). " + e.getMessage());
+                }
+            } else if (jobState == JobState.FAILED
+                    || jobState == JobState.FINISHED
+                    || jobState == JobState.CANCELLED) {
+                this.pendingJobQueue.remove();
             }
         }
     }
 
     public void addPendingJob(StatisticsJob statisticsJob) throws IllegalStateException {
-        pendingJobQueue.add(statisticsJob);
+        this.pendingJobQueue.add(statisticsJob);
     }
 
     /**
@@ -122,7 +125,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
         final Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
         final Set<Long> tableIds = statisticsJob.relatedTableId();
         final Map<Long, List<String>> tableIdToColumnName = statisticsJob.getTableIdToColumnName();
-        final List<StatisticsTask> taskList = statisticsJob.getTaskList();
+        final List<StatisticsTask> tasks = statisticsJob.getTasks();
         final List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
 
         for (Long tableId : tableIds) {
@@ -136,7 +139,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
             StatsGranularityDesc dataSizeGranularity = this.getTblStatsGranularityDesc(tableId);
             MetaStatisticsTask dataSizeTask = new MetaStatisticsTask(jobId,
                     dataSizeGranularity, dataSizeCategory, Collections.singletonList(StatsType.DATA_SIZE));
-            taskList.add(dataSizeTask);
+            tasks.add(dataSizeTask);
 
             // step 1: generate row_count task
             KeysType keysType = ((OlapTable) tbl).getKeysType();
@@ -145,7 +148,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                 StatsGranularityDesc rowCountGranularity = this.getTblStatsGranularityDesc(tableId);
                 MetaStatisticsTask metaTask = new MetaStatisticsTask(jobId,
                         rowCountGranularity, rowCountCategory, Collections.singletonList(StatsType.ROW_COUNT));
-                taskList.add(metaTask);
+                tasks.add(metaTask);
             } else {
                 if (rowCount > backendIds.size() * 3700000000L) {
                     // divide subtasks by partition
@@ -154,14 +157,14 @@ public class StatisticsJobScheduler extends MasterDaemon {
                         StatsGranularityDesc rowCountGranularity = this.getPartitionStatsGranularityDesc(tableId, partitionId);
                         SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId,
                                 rowCountGranularity, rowCountCategory, Collections.singletonList(StatsType.ROW_COUNT));
-                        taskList.add(sqlTask);
+                        tasks.add(sqlTask);
                     }
                 } else {
                     StatsCategoryDesc rowCountCategory = this.getTblStatsCategoryDesc(dbId, tableId);
                     StatsGranularityDesc rowCountGranularity = this.getTblStatsGranularityDesc(tableId);
                     SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId,
                             rowCountGranularity, rowCountCategory, Collections.singletonList(StatsType.ROW_COUNT));
-                    taskList.add(sqlTask);
+                    tasks.add(sqlTask);
                 }
             }
 
@@ -174,7 +177,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                         StatsGranularityDesc columnGranularity = this.getPartitionStatsGranularityDesc(tableId, partitionId);
                         List<StatsType> statsTypes = Arrays.asList(StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
                         SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
-                        taskList.add(sqlTask);
+                        tasks.add(sqlTask);
                     }
                 }
             } else {
@@ -183,7 +186,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                     StatsGranularityDesc columnGranularity = this.getTblStatsGranularityDesc(tableId);
                     List<StatsType> statsTypes = Arrays.asList(StatsType.MIN_VALUE, StatsType.MAX_VALUE, StatsType.NDV);
                     SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
-                    taskList.add(sqlTask);
+                    tasks.add(sqlTask);
                 }
             }
 
@@ -193,7 +196,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                 StatsGranularityDesc columnGranularity = this.getTblStatsGranularityDesc(tableId);
                 SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId,
                         columnGranularity, columnCategory, Collections.singletonList(StatsType.NUM_NULLS));
-                taskList.add(sqlTask);
+                tasks.add(sqlTask);
             }
 
             // step 4: generate [max_col_lens, avg_col_lens] task
@@ -205,15 +208,15 @@ public class StatisticsJobScheduler extends MasterDaemon {
                 Type colType = column.getType();
                 if (colType.isStringType()) {
                     SQLStatisticsTask sampleSqlTask = new SampleSQLStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
-                    taskList.add(sampleSqlTask);
+                    tasks.add(sampleSqlTask);
                 } else {
                     MetaStatisticsTask metaTask = new MetaStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
-                    taskList.add(metaTask);
+                    tasks.add(metaTask);
                 }
             }
         }
 
-        return taskList;
+        return tasks;
     }
 
     private StatsCategoryDesc getTblStatsCategoryDesc(long dbId, long tableId) {
