@@ -358,21 +358,17 @@ BigIntVal BitmapFunctions::bitmap_min(FunctionContext* ctx, const StringVal& src
 
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
                                      const doris_udf::StringVal& src) {
+    if(src.is_null) {
+        return StringVal::null();
+    } 
+    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+    uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+            reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+    if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+        return StringVal::null();
+    }        
     BitmapValue bitmap;
-    if (!src.is_null) {
-        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
-        if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-            std::stringstream error_msg;
-            error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-                      << " is not valid, to_bitmap only support bigint value from 0 to "
-                         "18446744073709551615 currently";
-            ctx->set_error(error_msg.str().c_str());
-            return StringVal::null();
-        }
-        bitmap.add(int_value);
-    }
+    bitmap.add(int_value);
     return serialize(ctx, &bitmap);
 }
 

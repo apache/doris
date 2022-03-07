@@ -36,38 +36,55 @@ struct BitmapEmpty {
     static auto init_value() { return BitmapValue {}; }
 };
 
-struct NameToBitmap {
+class FunctionToBitmap : public IFunction {
+public:
     static constexpr auto name = "to_bitmap";
-};
 
-struct ToBitmapImpl {
-    using ReturnType = DataTypeBitMap;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
-    using Type = String;
-    using ReturnColumnType = ColumnBitmap;
+    String get_name() const override { return name; }
 
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res) {
-        auto size = offsets.size();
-        res.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
+    static FunctionPtr create() { return std::make_shared<FunctionToBitmap>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeBitMap>());
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto res_data_column = ColumnBitmap::create();
+        auto& null_map = res_null_map->get_data();
+        auto& res = res_data_column->get_data();
+
+        ColumnPtr argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnString* str_column = check_and_get_column<ColumnString>(argument_column.get());
+        const ColumnString::Chars& data = str_column->get_chars();
+        const ColumnString::Offsets& offsets = str_column->get_offsets();
+
+        res.reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t str_size = offsets[i] - offsets[i - 1] - 1;
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
                                                                                 &parse_result);
-
-            // TODO: which where cause problem in to_bitmap(null), rethink how to slove the problem
-            // of null
-            //            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-            //                return Status::RuntimeError(
-            //                        fmt::format("The input: {:.{}} is not valid, to_bitmap only support bigint "
-            //                                    "value from 0 to 18446744073709551615 currently",
-            //                                    raw_str, str_size));
-            //            }
+            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
             res.emplace_back();
             res.back().add(int_value);
         }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
         return Status::OK();
     }
 };
@@ -428,7 +445,6 @@ public:
 };
 
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
-using FunctionToBitmap = FunctionUnaryToType<ToBitmapImpl, NameToBitmap>;
 using FunctionBitmapFromString = FunctionUnaryToType<BitmapFromString, NameBitmapFromString>;
 using FunctionBitmapHash = FunctionUnaryToType<BitmapHash, NameBitmapHash>;
 using FunctionBitmapCount = FunctionUnaryToType<BitmapCount, NameBitmapCount>;
