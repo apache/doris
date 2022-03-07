@@ -42,9 +42,14 @@ class MinMaxNumFunc : public MinMaxFuncBase {
 public:
     MinMaxNumFunc() = default;
     ~MinMaxNumFunc() = default;
-    virtual void insert(const void* data) {
-        if (data == nullptr) return;
-        const T val_data = *reinterpret_cast<const T*>(data);
+    void insert(const void* data) override {
+        if (data == nullptr) {
+            return;
+        }
+
+        T val_data;
+        memcpy(&val_data, data, sizeof(T));
+
         if (_empty) {
             _min = val_data;
             _max = val_data;
@@ -58,15 +63,16 @@ public:
         }
     }
 
-    virtual bool find(void* data) {
+    bool find(void* data) override {
         if (data == nullptr) {
             return false;
         }
+
         T val_data = *reinterpret_cast<T*>(data);
         return val_data >= _min && val_data <= _max;
     }
 
-    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) {
+    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
         if constexpr (std::is_same_v<T, StringValue>) {
             MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
 
@@ -95,13 +101,13 @@ public:
         return Status::OK();
     }
 
-    virtual bool is_empty() { return _empty; }
+    bool is_empty() override { return _empty; }
 
-    virtual void* get_max() { return &_max; }
+    void* get_max() override { return &_max; }
 
-    virtual void* get_min() { return &_min; }
+    void* get_min() override { return &_min; }
 
-    virtual Status assign(void* min_data, void* max_data) {
+    Status assign(void* min_data, void* max_data) override {
         _min = *(T*)min_data;
         _max = *(T*)max_data;
         return Status::OK();
