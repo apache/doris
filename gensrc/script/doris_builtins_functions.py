@@ -1076,6 +1076,9 @@ visible_functions = [
     [['version'], 'VARCHAR', [],
         '_ZN5doris16UtilityFunctions7versionEPN9doris_udf15FunctionContextE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['compare_version'], 'BOOLEAN', ['VARCHAR', 'VARCHAR', 'VARCHAR'],
+        '_ZN5doris16UtilityFunctions15compare_versionEPN9doris_udf15FunctionContextERNS1_9StringValES5_S5_',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
     # Json functions
     [['get_json_int'], 'INT', ['VARCHAR', 'VARCHAR'],

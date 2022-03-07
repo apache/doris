@@ -35,6 +35,12 @@ public:
     // Testing function that sleeps for the specified number of seconds. Returns true.
     static doris_udf::BooleanVal sleep(doris_udf::FunctionContext* ctx,
                                        const doris_udf::IntVal& seconds);
+    
+    // Implementation of the compare_version() function. Returns the compare result.
+    static doris_udf::BooleanVal compare_version(doris_udf::FunctionContext* context,
+                                                doris_udf::StringVal& version1,
+                                                doris_udf::StringVal& op,
+                                                doris_udf::StringVal& version2);
 };
 
 } // namespace doris
