@@ -669,7 +669,7 @@ public class HashJoinNode extends PlanNode {
     }
 
     @Override
-    void convertToVectoriezd() {
+    public void convertToVectoriezd() {
         if (!otherJoinConjuncts.isEmpty()) {
             votherJoinConjunct = convertConjunctsToAndCompoundPredicate(otherJoinConjuncts);
             initCompoundPredicate(votherJoinConjunct);
