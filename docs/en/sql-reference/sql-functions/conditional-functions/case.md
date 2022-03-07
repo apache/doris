@@ -28,12 +28,24 @@ under the License.
 ## description
 ### Syntax
 
-`CASE a WHEN b THEN c [WHEN d THEN e]... [ELSE f] END`
-
+```
+CASE expression
+    WHEN condition1 THEN result1
+    [WHEN condition2 THEN result2]
+    ...
+    [WHEN conditionN THEN resultN]
+    [ELSE result]
+END
+```
 OR
-
-`CASE WHEN a THEN b [WHEN c THEN d]* [ELSE e] END`
-
+```
+CASE WHEN condition1 THEN result1
+    [WHEN condition2 THEN result2]
+    ...
+    [WHEN conditionN THEN resultN]
+    [ELSE result]
+END
+```
 
 Compare the expression with multiple possible values, and return the corresponding results when matching
 

@@ -31,7 +31,7 @@ under the License.
 `ifnull(expr1, expr2)`
 
 
-If the value of expr1 is not null, V1 is returned, otherwise expr2 is returned
+If the value of expr1 is not null, expr1 is returned, otherwise expr2 is returned
 
 ## example
 

@@ -32,6 +32,8 @@ under the License.
 
 
 如果表达式 condition 成立，返回结果 valueTrue；否则，返回结果 valueFalseOrNull
+返回类型： valueTrue 表达式结果的类型
+
 
 ## example
 

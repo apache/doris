@@ -31,7 +31,9 @@ under the License.
 `if(boolean condition, type valueTrue, type valueFalseOrNull)`
 
 
-Returns valueTrue when condition is true, returns valueFalseOrNull otherwise
+Returns valueTrue when condition is true, returns valueFalseOrNull otherwise. 
+
+The return type is the type of the result of the valueTrue/valueFalseOrNull expression
 
 ## example
 
