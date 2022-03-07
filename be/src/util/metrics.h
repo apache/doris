@@ -410,6 +410,7 @@ public:
     std::string to_prometheus(bool with_tablet_metrics = false) const;
     std::string to_json(bool with_tablet_metrics = false) const;
     std::string to_core_string() const;
+    std::string to_json_by_name(const std::string& name, const std::string& group) const;
 
 private:
     const std::string _name;

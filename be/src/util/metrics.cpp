@@ -16,6 +16,7 @@
 // under the License.
 
 #include "util/metrics.h"
+#include "util/doris_metrics.h"
 
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -420,6 +421,16 @@ std::string MetricRegistry::to_core_string() const {
     }
 
     return ss.str();
+}
+
+std::string MetricRegistry::to_json_by_name(const std::string& name, const std::string& group) const {
+    // this method is easy to get single metric from server_entity
+    auto server_entity = DorisMetrics::instance()->server_entity();
+    Metric* metric = server_entity->get_metric(name, group);
+    if (metric == nullptr) {
+        return "can't find metric from server_entity, name = <" + name + ">, group = <" + group + ">.";
+    }
+    return metric->to_string();
 }
 
 } // namespace doris
