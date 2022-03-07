@@ -81,7 +81,7 @@ public class LoadCheckerTest {
         label = "test_label";
  
         // mock catalog
-        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
+        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
         new Expectations() {
             {
                 catalog.getDbNullable(dbId);
@@ -262,10 +262,8 @@ public class LoadCheckerTest {
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
-        long newVersionHash = 1L;
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(new ArrayList<Source>());
         partitionLoadInfo.setVersion(newVersion);
-        partitionLoadInfo.setVersionHash(newVersionHash);
         Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<Long, PartitionLoadInfo>();
         idToPartitionLoadInfo.put(partitionId, partitionLoadInfo);
         TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);
@@ -321,7 +319,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex olapIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : olapIndex.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateVersionInfo(newVersion, newVersionHash, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, 0L, 0L);
                 }
             }
         }       
@@ -343,10 +341,8 @@ public class LoadCheckerTest {
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
-        long newVersionHash = 0L;
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(new ArrayList<Source>());
         partitionLoadInfo.setVersion(newVersion);
-        partitionLoadInfo.setVersionHash(newVersionHash);
         Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<Long, PartitionLoadInfo>();
         idToPartitionLoadInfo.put(partitionId, partitionLoadInfo);
         TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);
@@ -359,7 +355,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateVersionInfo(newVersion, newVersionHash, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, 0L, 0L);
                 }
                 TabletLoadInfo tabletLoadInfo = new TabletLoadInfo("/label/path", 1L);
                 tabletLoadInfos.put(tablet.getId(), tabletLoadInfo);

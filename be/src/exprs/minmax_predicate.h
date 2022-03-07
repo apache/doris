@@ -35,7 +35,6 @@ public:
     // merge from other minmax_func
     virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
     virtual ~MinMaxFuncBase() = default;
-    ;
 };
 
 template <class T>

@@ -318,12 +318,10 @@ public class ConsistencyChecker extends MasterDaemon {
                                     }
 
                                     // check if version has already been checked
-                                    if (partition.getVisibleVersion() == tablet.getCheckedVersion()
-                                            && partition.getVisibleVersionHash() == tablet.getCheckedVersionHash()) {
+                                    if (partition.getVisibleVersion() == tablet.getCheckedVersion()) {
                                         if (tablet.isConsistent()) {
-                                            LOG.debug("tablet[{}]'s version[{}-{}] has been checked. ignore",
-                                                    chosenTabletId, tablet.getCheckedVersion(),
-                                                    tablet.getCheckedVersionHash());
+                                            LOG.debug("tablet[{}]'s version[{}] has been checked. ignore",
+                                                    chosenTabletId, tablet.getCheckedVersion());
                                         }
                                     } else {
                                         LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),
@@ -378,7 +376,7 @@ public class ConsistencyChecker extends MasterDaemon {
             partition.setLastCheckTime(lastCheckTime);
             index.setLastCheckTime(lastCheckTime);
             tablet.setLastCheckTime(lastCheckTime);
-            tablet.setCheckedVersion(info.getCheckedVersion(), info.getCheckedVersionHash());
+            tablet.setCheckedVersion(info.getCheckedVersion());
 
             tablet.setIsConsistent(info.isConsistent());
         } finally {

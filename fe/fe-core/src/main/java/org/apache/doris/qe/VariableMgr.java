@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
@@ -38,7 +37,8 @@ import org.apache.commons.lang.SerializationUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -310,10 +310,8 @@ public class VariableMgr {
                 variablesToRead = defaultSessionVariableForCkpt;
             }
             variablesToRead.readFields(in);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_90) {
-                GlobalVarPersistInfo info = GlobalVarPersistInfo.read(in);
-                replayGlobalVariableV2(info);
-            }
+            GlobalVarPersistInfo info = GlobalVarPersistInfo.read(in);
+            replayGlobalVariableV2(info);
         } finally {
             wlock.unlock();
         }
@@ -324,19 +322,19 @@ public class VariableMgr {
         wlock.lock();
         try {
             String json = info.getPersistJsonString();
-            JSONObject root = new JSONObject(json);
-            for (String varName : root.keySet()) {
-                VarContext varContext = ctxByVarName.get(varName);
+            JSONObject root = (JSONObject) JSONValue.parse(json);
+            for (Object varName : root.keySet()) {
+                VarContext varContext = ctxByVarName.get((String) varName);
                 if (Catalog.isCheckpointThread()) {
                     // If this is checkpoint thread, we should write value in `ctxByVarNameForCkpt` to the image
                     // instead of `ctxByVarName`.
-                    varContext = ctxByVarNameForCkpt.get(varName);
+                    varContext = ctxByVarNameForCkpt.get((String) varName);
                 }
                 if (varContext == null) {
-                    LOG.error("failed to get global variable {} when replaying", varName);
+                    LOG.error("failed to get global variable {} when replaying", (String) varName);
                     continue;
                 }
-                setValue(varContext.getObj(), varContext.getField(), root.get(varName).toString());
+                setValue(varContext.getObj(), varContext.getField(), root.get((String) varName).toString());
             }
         } finally {
             wlock.unlock();

@@ -860,7 +860,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return sb.toString();
     }
 
-    void convertToVectoriezd() {
+    public void convertToVectoriezd() {
         if (!conjuncts.isEmpty()) {
             vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
             initCompoundPredicate(vconjunct);

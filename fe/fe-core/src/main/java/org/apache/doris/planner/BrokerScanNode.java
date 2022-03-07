@@ -401,7 +401,7 @@ public class BrokerScanNode extends LoadScanNode {
         Collections.shuffle(backends, random);
     }
 
-    private TFileFormatType formatType(String fileFormat, String path) {
+    private TFileFormatType formatType(String fileFormat, String path) throws UserException {
         if (fileFormat != null) {
             if (fileFormat.toLowerCase().equals("parquet")) {
                 return TFileFormatType.FORMAT_PARQUET;
@@ -411,6 +411,8 @@ public class BrokerScanNode extends LoadScanNode {
                 return TFileFormatType.FORMAT_JSON;
             } else if (fileFormat.toLowerCase().equals("csv")) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
+            } else {
+                throw new UserException("Not supported file format: " + fileFormat);
             }
         }
 
@@ -432,6 +434,10 @@ public class BrokerScanNode extends LoadScanNode {
         }
     }
 
+    public String getHostUri() throws UserException {
+        return "";
+    }
+
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
             ParamCreateContext context,
@@ -440,11 +446,11 @@ public class BrokerScanNode extends LoadScanNode {
         if (fileStatuses  == null || fileStatuses.isEmpty()) {
             return;
         }
+        // set hdfs params, used to Hive and Iceberg scan
         THdfsParams tHdfsParams = new THdfsParams();
-        if (this instanceof HiveScanNode) {
-            String fsName = ((HiveScanNode) this).getHdfsUri();
-            tHdfsParams.setFsName(fsName);
-        }
+        String fsName = getHostUri();
+        tHdfsParams.setFsName(fsName);
+
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc);
         long curInstanceBytes = 0;
         long curFileOffset = 0;
@@ -477,10 +483,8 @@ public class BrokerScanNode extends LoadScanNode {
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
                             leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
-                    if (this instanceof HiveScanNode) {
-                        rangeDesc.setHdfsParams(tHdfsParams);
-                        rangeDesc.setReadByColumnDef(true);
-                    }
+                    rangeDesc.setHdfsParams(tHdfsParams);
+                    rangeDesc.setReadByColumnDef(true);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
@@ -502,10 +506,8 @@ public class BrokerScanNode extends LoadScanNode {
                     rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
                     rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
                 }
-                if (this instanceof HiveScanNode) {
-                    rangeDesc.setHdfsParams(tHdfsParams);
-                    rangeDesc.setReadByColumnDef(true);
-                }
+                rangeDesc.setHdfsParams(tHdfsParams);
+                rangeDesc.setReadByColumnDef(true);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;

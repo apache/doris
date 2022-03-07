@@ -146,4 +146,8 @@ public class HashDistributionInfo extends DistributionInfo {
 
         return builder.toString();
     }
+
+    public RandomDistributionInfo toRandomDistributionInfo() {
+        return new RandomDistributionInfo(bucketNum);
+    }
 }

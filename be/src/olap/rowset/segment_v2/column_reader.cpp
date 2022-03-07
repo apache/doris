@@ -104,7 +104,7 @@ Status ColumnReader::init() {
         return Status::NotSupported(
                 strings::Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
 
     for (int i = 0; i < _meta.indexes_size(); i++) {
@@ -392,7 +392,7 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
-    TypeInfo* offset_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+    auto offset_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
     RETURN_IF_ERROR(
             ColumnVectorBatch::create(1024, false, offset_type_info, nullptr, &_length_batch));
     return Status::OK();
@@ -469,27 +469,24 @@ Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
     RETURN_IF_ERROR(_read_data_page(_page_iter));
 
-    _seek_to_pos_in_page(_page.get(), 0);
+    _seek_to_pos_in_page(&_page, 0);
     _current_ordinal = 0;
     return Status::OK();
 }
 
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
-    if (_page == nullptr || !_page->contains(ord) || !_page_iter.valid()) {
+    if (!_page || !_page.contains(ord) || !_page_iter.valid()) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter));
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
-    _seek_to_pos_in_page(_page.get(), ord - _page->first_ordinal);
+    _seek_to_pos_in_page(&_page, ord - _page.first_ordinal);
     _current_ordinal = ord;
     return Status::OK();
 }
 
 Status FileColumnIterator::seek_to_page_start() {
-    if (_page == nullptr) {
-        return Status::NotSupported("Can not seek to page first when page is nullptr");
-    }
-    return seek_to_ordinal(_page->first_ordinal);
+    return seek_to_ordinal(_page.first_ordinal);
 }
 
 void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) {
@@ -499,7 +496,7 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset
     }
 
     ordinal_t pos_in_data = offset_in_page;
-    if (_page->has_null) {
+    if (_page.has_null) {
         ordinal_t offset_in_data = 0;
         ordinal_t skips = offset_in_page;
 
@@ -525,7 +522,7 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
     size_t remaining = *n;
     *has_null = false;
     while (remaining > 0) {
-        if (!_page->has_remaining()) {
+        if (!_page.has_remaining()) {
             bool eos = false;
             RETURN_IF_ERROR(_load_next_page(&eos));
             if (eos) {
@@ -534,9 +531,9 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
         }
 
         // number of rows to be read from this page
-        size_t nrows_in_page = std::min(remaining, _page->remaining());
+        size_t nrows_in_page = std::min(remaining, _page.remaining());
         size_t nrows_to_read = nrows_in_page;
-        if (_page->has_null) {
+        if (_page.has_null) {
             // when this page contains NULLs we read data in some runs
             // first we read null bits in the same value, if this is null, we
             // don't need to read value from page.
@@ -545,11 +542,11 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
             // will lead too many function calls to PageDecoder
             while (nrows_to_read > 0) {
                 bool is_null = false;
-                size_t this_run = _page->null_decoder.GetNextRun(&is_null, nrows_to_read);
+                size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
-                    RETURN_IF_ERROR(_page->data_decoder->next_batch(&num_rows, dst));
+                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
@@ -559,19 +556,19 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
                 dst->set_null_bits(this_run, is_null);
 
                 nrows_to_read -= this_run;
-                _page->offset_in_page += this_run;
+                _page.offset_in_page += this_run;
                 dst->advance(this_run);
                 _current_ordinal += this_run;
             }
         } else {
-            RETURN_IF_ERROR(_page->data_decoder->next_batch(&nrows_to_read, dst));
+            RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
             DCHECK_EQ(nrows_to_read, nrows_in_page);
 
             if (dst->is_nullable()) {
                 dst->set_null_bits(nrows_to_read, false);
             }
 
-            _page->offset_in_page += nrows_to_read;
+            _page.offset_in_page += nrows_to_read;
             dst->advance(nrows_to_read);
             _current_ordinal += nrows_to_read;
         }
@@ -589,7 +586,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &d
     size_t remaining = *n;
     *has_null = false;
     while (remaining > 0) {
-        if (!_page->has_remaining()) {
+        if (!_page.has_remaining()) {
             bool eos = false;
             RETURN_IF_ERROR(_load_next_page(&eos));
             if (eos) {
@@ -598,16 +595,16 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &d
         }
 
         // number of rows to be read from this page
-        size_t nrows_in_page = std::min(remaining, _page->remaining());
+        size_t nrows_in_page = std::min(remaining, _page.remaining());
         size_t nrows_to_read = nrows_in_page;
-        if (_page->has_null) {
+        if (_page.has_null) {
             while (nrows_to_read > 0) {
                 bool is_null = false;
-                size_t this_run = _page->null_decoder.GetNextRun(&is_null, nrows_to_read);
+                size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
-                    RETURN_IF_ERROR(_page->data_decoder->next_batch(&num_rows, dst));
+                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
@@ -618,14 +615,14 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &d
                 }
 
                 nrows_to_read -= this_run;
-                _page->offset_in_page += this_run;
+                _page.offset_in_page += this_run;
                 _current_ordinal += this_run;
             }
         } else {
-            RETURN_IF_ERROR(_page->data_decoder->next_batch(&nrows_to_read, dst));
+            RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
             DCHECK_EQ(nrows_to_read, nrows_in_page);
 
-            _page->offset_in_page += nrows_to_read;
+            _page.offset_in_page += nrows_to_read;
             _current_ordinal += nrows_to_read;
         }
         remaining -= nrows_in_page;
@@ -643,7 +640,7 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
     }
 
     RETURN_IF_ERROR(_read_data_page(_page_iter));
-    _seek_to_pos_in_page(_page.get(), 0);
+    _seek_to_pos_in_page(&_page, 0);
     *eos = false;
     return Status::OK();
 }
@@ -665,7 +662,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     // note that concurrent iterators for the same column won't repeatedly read dictionary page
     // because of page cache.
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
-        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page->data_decoder);
+        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder);
         if (dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 // read dictionary page

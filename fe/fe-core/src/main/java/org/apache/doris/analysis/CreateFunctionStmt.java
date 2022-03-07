@@ -55,7 +55,7 @@ import java.util.List;
 import java.util.Map;
 
 import io.grpc.ManagedChannel;
-import io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.meta;
 
+import org.apache.doris.common.FeMetaVersion;
+
 /*
  * MetaContext saved the current meta version.
  * And we need to create a thread local meta context for all threads which are about to reading meta.
@@ -32,6 +34,11 @@ public class MetaContext {
     }
 
     public void setMetaVersion(int metaVersion) {
+        if (metaVersion < FeMetaVersion.MINIMUM_VERSION_REQUIRED) {
+            throw new IllegalArgumentException("Could not set meta version to " 
+                    + metaVersion + " since it is lower than minimum required version " 
+                    + FeMetaVersion.MINIMUM_VERSION_REQUIRED);
+        }
         this.metaVersion = metaVersion;
     }
 

@@ -65,8 +65,7 @@ OPTS=$(getopt \
   -o '' \
   -l 'run' \
   -l 'clean' \
-  -o 'j:' \
-  -o 'v' \
+  -o 'vj:' \
   -- "$@")
 
 if [ $? != 0 ] ; then

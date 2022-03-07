@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Remote User Defined Function Service",
+    "title": "远程UDF",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Remote User Defined Function Service
+# 远程UDF
 
 Remote UDF Service 支持通过 RPC 的方式访问用户提供的 UDF Service，以实现用户自定义函数的执行。相比于 Native 的 UDF 实现，Remote UDF Service 有如下优势和限制：
 1. 优势
@@ -106,3 +106,5 @@ UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函�
 
 当你不再需要 UDF 函数时，你可以通过下述命令来删除一个 UDF 函数, 可以参考 `DROP FUNCTION`。
 
+## 示例
+在`samples/doris-demo/` 目录中提供和 cpp/java/python 语言的rpc server 实现示例。具体使用方法见每个目录下的`README.md`

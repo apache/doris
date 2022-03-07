@@ -367,6 +367,18 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
     用于兼容 MySQL 客户端。无实际作用。
     
+* `tx_read_only`
+
+    用于兼容 MySQL 客户端。无实际作用。
+    
+* `transaction_read_only`
+
+    用于兼容 MySQL 客户端。无实际作用。
+    
+* `transaction_isolation`
+
+    用于兼容 MySQL 客户端。无实际作用。
+    
 * `version`
 
     用于兼容 MySQL 客户端。无实际作用。

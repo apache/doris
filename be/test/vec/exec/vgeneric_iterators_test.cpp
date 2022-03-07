@@ -149,7 +149,7 @@ TEST(VGenericIteratorsTest, Merge) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(inputs, MemTracker::CreateTracker(-1, "VMergeIterator", nullptr, false));
+    auto iter = vectorized::new_merge_iterator(inputs, MemTracker::CreateTracker(-1, "VMergeIterator", nullptr, false), -1);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
@@ -188,6 +188,122 @@ TEST(VGenericIteratorsTest, Merge) {
 
     delete iter;
 }
+
+// only used for Seq Column UT
+class SeqColumnUtIterator : public RowwiseIterator {
+public:
+    // Will generate num_rows rows in total
+    SeqColumnUtIterator(const Schema& schema, size_t num_rows, size_t rows_returned, size_t seq_col_idx, size_t seq_col_rows_returned)
+            : _schema(schema), _num_rows(num_rows), _rows_returned(rows_returned), _seq_col_idx(seq_col_idx), _seq_col_rows_returned(seq_col_rows_returned) {}
+    ~SeqColumnUtIterator() override {}
+
+    // NOTE: Currently, this function will ignore StorageReadOptions
+    Status init(const StorageReadOptions& opts) override {
+        return Status::OK();
+    };
+
+    Status next_batch(vectorized::Block* block) override {
+        int row_idx = 0;
+        while (_rows_returned < _num_rows) {
+            for (int j = 0; j < _schema.num_columns(); ++j) {
+                vectorized::ColumnWithTypeAndName& vc = block->get_by_position(j);
+                vectorized::IColumn& vi = (vectorized::IColumn&)(*vc.column);
+
+                char data[16] = {};
+                size_t data_len = 0;
+                const auto* col_schema = _schema.column(j);
+                switch (col_schema->type()) {
+                    case OLAP_FIELD_TYPE_SMALLINT:
+                        *(int16_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                        data_len = sizeof(int16_t);
+                        break; 
+                    case OLAP_FIELD_TYPE_INT:
+                        *(int32_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                        data_len = sizeof(int32_t);
+                        break;
+                    case OLAP_FIELD_TYPE_BIGINT:
+                        *(int64_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                        data_len = sizeof(int64_t);
+                        break;
+                    case OLAP_FIELD_TYPE_FLOAT: 
+                        *(float*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                        data_len = sizeof(float);
+                        break;
+                    case OLAP_FIELD_TYPE_DOUBLE: 
+                        *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                        data_len = sizeof(double);
+                        break;
+                    default:
+                        break;
+                }
+
+                vi.insert_data(data, data_len);
+            }
+
+            ++_rows_returned;
+            _seq_col_rows_returned++;
+            row_idx++;
+        }
+        
+        if (row_idx > 0)
+            return Status::OK();
+        return Status::EndOfFile("End of VAutoIncrementIterator");
+    }
+
+    const Schema& schema() const override { return _schema; }
+
+    const Schema& _schema;
+    size_t _num_rows;
+    size_t _rows_returned;
+    int _seq_col_idx = -1;
+    int _seq_col_rows_returned = -1;
+};
+
+TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
+    ASSERT_TRUE(1);
+    auto schema = create_schema();
+    std::vector<RowwiseIterator*> inputs;
+
+    int seq_column_id = 2;
+    int seg_iter_num = 10;
+    int num_rows = 1;
+    int rows_begin = 0;
+    // The same key in each file will only keep one with the largest seq id
+    // keep the key columns all the same, but seq column value different
+    // input seg file in Ascending,  expect output seq column in Descending 
+    for (int i = 0; i < seg_iter_num; i++) {
+        int seq_id_in_every_file = i;
+        inputs.push_back(new SeqColumnUtIterator(schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
+    }
+
+    auto iter = vectorized::new_merge_iterator(inputs, MemTracker::CreateTracker(-1, "VMergeIterator", nullptr, false), seq_column_id);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    ASSERT_TRUE(st.ok());
+
+    vectorized::Block block;
+    create_block(schema, block);
+
+    do {
+        st = iter->next_batch(&block);
+    } while (st.ok());
+
+    ASSERT_TRUE(st.is_end_of_file());
+    ASSERT_EQ(block.rows(), seg_iter_num);
+
+    auto col0 = block.get_by_position(0).column;
+    auto col1 = block.get_by_position(1).column;
+    auto seq_col = block.get_by_position(seq_column_id).column;
+
+    for (size_t i = 0; i < seg_iter_num; i++) {
+        size_t expected_value = seg_iter_num - i - 1; // in Descending 
+        size_t actual_value = (*seq_col)[i].get<int>();
+        ASSERT_EQ(expected_value, actual_value);
+    }
+
+    delete iter;
+}
+
 
 } // namespace vectorized
 

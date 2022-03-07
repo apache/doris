@@ -27,7 +27,7 @@ under the License.
 # SHOW TRANSACTION
 ## description
 
-This syntax is used to view transaction details for the specified transaction id or label name.
+This syntax is used to view transaction details for the specified transaction id, label name or transaction status.
 
 grammar:
 
@@ -36,7 +36,8 @@ SHOW TRANSACTION
 [FROM db_name]
 WHERE
 [id = transaction_id]
-[label = label_name];
+[label = label_name]
+[status = transaction_status];
 ```
 
 Example return result:
@@ -48,6 +49,7 @@ Example return result:
  TransactionStatus: VISIBLE
  LoadJobSourceType: INSERT_STREAMING
        PrepareTime: 2020-01-09 14:59:07
+     PreCommitTime: 2020-01-09 14:59:07
         CommitTime: 2020-01-09 14:59:09
         FinishTime: 2020-01-09 14:59:09
             Reason:
@@ -61,11 +63,13 @@ ErrorReplicasCount: 0
 * Coordinator: the node responsible for transaction coordination
 * TransactionStatus: transaction status
     * PREPARE: preparation stage
+    * PRECOMMITTED: The transaction was precommitted
     * COMMITTED: The transaction was successful, but the data is not visible
     * VISIBLE: The transaction was successful and the data is visible
     * ABORTED: transaction failed
 * LoadJobSourceType: The type of the load job.
 * PrepareTime: transaction start time
+* PreCommitTime: the time when the transaction was precommitted
 * CommitTime: the time when the transaction was successfully committed
 * FinishTime: The time when the data is visible
 * Reason: error message
@@ -86,6 +90,10 @@ ErrorReplicasCount: 0
 3. View the transaction with label `label_name`:
 
     SHOW TRANSACTION WHERE LABEL = 'label_name';
+    
+4. View the transactions with status `visible`:
+
+   SHOW TRANSACTION WHERE STATUS = 'visible';
 
 ## keyword
 

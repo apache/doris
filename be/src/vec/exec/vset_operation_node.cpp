@@ -26,8 +26,9 @@ namespace vectorized {
 template <class HashTableContext>
 struct HashTableBuild {
     HashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                   VSetOperationNode* operation_node)
+                   VSetOperationNode* operation_node, uint8_t offset)
             : _rows(rows),
+              _offset(offset),
               _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
               _operation_node(operation_node) {}
@@ -54,7 +55,7 @@ struct HashTableBuild {
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
-                new (&emplace_result.get_mapped()) Mapped({&_acquired_block, k});
+                new (&emplace_result.get_mapped()) Mapped({k, _offset});
                 _operation_node->_valid_element_in_hash_tbl++;
             }
         }
@@ -63,6 +64,7 @@ struct HashTableBuild {
 
 private:
     const int _rows;
+    const uint8_t _offset;
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
     VSetOperationNode* _operation_node;
@@ -138,6 +140,7 @@ Status VSetOperationNode::prepare(RuntimeState* state) {
         _left_table_data_types.push_back(ctx->root()->data_type());
     }
     hash_table_init();
+
     return Status::OK();
 }
 
@@ -225,9 +228,13 @@ void VSetOperationNode::hash_table_init() {
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
+    MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
+
+    uint8_t index = 0;
+    int64_t last_mem_used = 0;
     bool eos = false;
     while (!eos) {
-        block.clear();
+        block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));
@@ -237,29 +244,44 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         _mem_used += allocated_bytes;
 
         RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while getting next from the child 0.");
-        RETURN_IF_ERROR(process_build_block(block));
-        RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
+        if (block.rows() != 0) { mutable_block.merge(block); }
+
+        // make one block for each 4 gigabytes
+        constexpr static auto BUILD_BLOCK_MAX_SIZE =  4 * 1024UL * 1024UL * 1024UL;
+        if (_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE) {
+             _build_blocks.emplace_back(mutable_block.to_block());
+            // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
+            // which is better.
+            RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
+            RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
+            mutable_block = MutableBlock();
+            ++index;
+            last_mem_used = _mem_used;
+        }
     }
+
+    _build_blocks.emplace_back(mutable_block.to_block());
+    RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
+    RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
     return Status::OK();
 }
 
-Status VSetOperationNode::process_build_block(Block& block) {
+Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
     }
 
-    auto& acquired_block = _acquire_list.acquire(std::move(block));
-    vectorized::materialize_block_inplace(acquired_block);
+    vectorized::materialize_block_inplace(block);
     ColumnRawPtrs raw_ptrs(_child_expr_lists[0].size());
-    RETURN_IF_ERROR(extract_build_column(acquired_block, raw_ptrs));
+    RETURN_IF_ERROR(extract_build_column(block, raw_ptrs));
 
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableBuild<HashTableCtxType> hash_table_build_process(rows, acquired_block,
-                                                                              raw_ptrs, this);
+                    HashTableBuild<HashTableCtxType> hash_table_build_process(rows, block,
+                                                                              raw_ptrs, this, offset);
                     hash_table_build_process(arg);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";

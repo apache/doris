@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+
 #include <mutex>
 #include <string>
 
@@ -46,6 +47,7 @@ void register_function_bit(SimpleFunctionFactory& factory);
 void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
+void register_function_bitmap_variadic(SimpleFunctionFactory& factory);
 void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
 void register_function_to_time_fuction(SimpleFunctionFactory& factory);
@@ -70,6 +72,7 @@ void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
 void register_function_convert_tz(SimpleFunctionFactory& factory);
 void register_function_least_greast(SimpleFunctionFactory& factory);
+void register_function_fake(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -148,6 +151,7 @@ public:
         static SimpleFunctionFactory instance;
         std::call_once(oc, [&]() {
             register_function_bitmap(instance);
+            register_function_bitmap_variadic(instance);
             register_function_hll_cardinality(instance);
             register_function_hll_empty(instance);
             register_function_hll_hash(instance);
@@ -189,6 +193,7 @@ public:
             register_function_datetime_floor_ceil(instance);
             register_function_convert_tz(instance);
             register_function_least_greast(instance);
+            register_function_fake(instance);
         });
         return instance;
     }

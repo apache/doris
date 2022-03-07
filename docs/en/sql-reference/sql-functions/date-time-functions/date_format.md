@@ -102,6 +102,14 @@ The formats available are:
 
 %%  | Represent %
 
+Also support 3 formats:
+
+yyyyMMdd
+
+yyyy-MM-dd
+
+yyyy-MM-dd HH:mm:ss
+
 ## example
 
 ```

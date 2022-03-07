@@ -35,7 +35,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -459,32 +458,30 @@ public class BackupJob extends AbstractJob {
             // snapshot partitions
             for (Partition partition : partitions) {
                 long visibleVersion = partition.getVisibleVersion();
-                long visibleVersionHash = partition.getVisibleVersionHash();
                 List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
                 for (MaterializedIndex index : indexes) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
-                        Replica replica = chooseReplica(tablet, visibleVersion, visibleVersionHash);
+                        Replica replica = chooseReplica(tablet, visibleVersion);
                         if (replica == null) {
                             status = new Status(ErrCode.COMMON_ERROR,
                                     "failed to choose replica to make snapshot for tablet " + tablet.getId()
-                                            + ". visible version: " + visibleVersion
-                                            + ", visible version hash: " + visibleVersionHash);
+                                            + ". visible version: " + visibleVersion);
                             return;
                         }
                         SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                                 jobId, dbId, olapTable.getId(), partition.getId(),
                                 index.getId(), tablet.getId(),
-                                visibleVersion, visibleVersionHash,
+                                visibleVersion,
                                 schemaHash, timeoutMs, false /* not restore task */);
                         batchTask.addTask(task);
                         unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
                     }
                 }
 
-                LOG.info("snapshot for partition {}, version: {}, version hash: {}",
-                        partition.getId(), visibleVersion, visibleVersionHash);
+                LOG.info("snapshot for partition {}, version: {}",
+                        partition.getId(), visibleVersion);
             }
         } finally {
             olapTable.readUnlock();
@@ -762,7 +759,7 @@ public class BackupJob extends AbstractJob {
      * Choose a replica order by replica id.
      * This is to expect to choose the same replica at each backup job.
      */
-    private Replica chooseReplica(Tablet tablet, long visibleVersion, long visibleVersionHash) {
+    private Replica chooseReplica(Tablet tablet, long visibleVersion) {
         List<Long> replicaIds = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
             replicaIds.add(replica.getId());
@@ -772,7 +769,7 @@ public class BackupJob extends AbstractJob {
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
             if (replica.getLastFailedVersion() < 0 && (replica.getVersion() > visibleVersion
-                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash))) {
+                    || (replica.getVersion() == visibleVersion))) {
                 return replica;
             }
         }
@@ -951,10 +948,6 @@ public class BackupJob extends AbstractJob {
 
         if (in.readBoolean()) {
             localJobInfoFilePath = Text.readString(in);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
-            return;
         }
         // read properties
         size = in.readInt();

@@ -156,9 +156,7 @@ Status VDataStreamSender::Channel::add_row(Block* block, int row) {
     }
 
     if (_mutable_block.get() == nullptr) {
-        auto empty_block = block->clone_empty();
-        _mutable_block.reset(
-                new MutableBlock(empty_block.mutate_columns(), empty_block.get_data_types()));
+        _mutable_block.reset(new MutableBlock(block->clone_empty()));
     }
     _mutable_block->add_row(block, row);
 
@@ -174,9 +172,7 @@ Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>
     }
 
     if (_mutable_block.get() == nullptr) {
-        auto empty_block = block->clone_empty();
-        _mutable_block.reset(
-                new MutableBlock(empty_block.mutate_columns(), empty_block.get_data_types()));
+        _mutable_block.reset(new MutableBlock(block->clone_empty()));
     }
 
     int row_wait_add = rows.size();

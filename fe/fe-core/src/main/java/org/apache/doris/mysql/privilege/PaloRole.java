@@ -20,8 +20,6 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -168,13 +166,11 @@ public class PaloRole implements Writable {
             PrivBitSet privs = PrivBitSet.read(in);
             tblPatternToPrivs.put(tblPattern, privs);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                ResourcePattern resourcePattern = ResourcePattern.read(in);
-                PrivBitSet privs = PrivBitSet.read(in);
-                resourcePatternToPrivs.put(resourcePattern, privs);
-            }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            ResourcePattern resourcePattern = ResourcePattern.read(in);
+            PrivBitSet privs = PrivBitSet.read(in);
+            resourcePatternToPrivs.put(resourcePattern, privs);
         }
         size = in.readInt();
         for (int i = 0; i < size; i++) {

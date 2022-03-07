@@ -23,6 +23,7 @@
 #include <initializer_list>
 #include <list>
 #include <set>
+#include <utility>
 #include <vector>
 #include <parallel_hashmap/phmap.h>
 
@@ -273,6 +274,14 @@ public:
         return 0;
     }
 
+    //note(wb) no DCHECK here, because this method is only used after compare_at now, so no need to repeat check here.
+    // If this method is used in more places, you can add DCHECK case by case.
+    int compare_column_at(size_t n, size_t m, size_t col_idx, const Block& rhs, int nan_direction_hint) const {
+        auto res = get_by_position(col_idx).column->compare_at(n, m, *(rhs.get_by_position(col_idx).column),
+                                                             nan_direction_hint);
+        return res;
+    }
+
     doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int, bool padding_char = false);
 
 private:
@@ -297,12 +306,17 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(MutableColumns&& columns, DataTypes&& data_types)
-            : _columns(std::move(columns)), _data_types(std::move(data_types)) {}
+    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs);
+
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
     MutableBlock(Block&& block)
             : _columns(block.mutate_columns()), _data_types(block.get_data_types()) {}
+
+    void operator=(MutableBlock&& m_block) {
+        _columns = std::move(m_block._columns);
+        _data_types = std::move(m_block._data_types);
+    }
 
     size_t rows() const;
     size_t columns() const { return _columns.size(); }
@@ -330,6 +344,7 @@ public:
                 }
             }
         } else {
+            DCHECK_EQ(_columns.size(), block.columns());
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
                     DCHECK(_data_types[i]->is_nullable());
@@ -364,9 +379,6 @@ public:
         _columns.clear();
         _data_types.clear();
     }
-
-    // TODO: use add_rows instead of this
-    // add_rows(Block* block,PODArray<Int32>& group,int group_num);
 };
 
 } // namespace vectorized

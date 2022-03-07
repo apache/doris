@@ -337,12 +337,7 @@ public class PartitionInfo implements Writable {
                 idToReplicaAllocation.put(partitionId, replicaAlloc);
             }
 
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-                idToInMemory.put(partitionId, in.readBoolean());
-            } else {
-                // for compatibility, default is false
-                idToInMemory.put(partitionId, false);
-            }
+            idToInMemory.put(partitionId, in.readBoolean());
         }
     }
 

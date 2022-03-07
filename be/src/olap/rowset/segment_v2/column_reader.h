@@ -173,7 +173,7 @@ private:
     uint64_t _num_rows;
     FilePathDesc _path_desc;
 
-    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
+    std::shared_ptr<const TypeInfo> _type_info = nullptr; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
     const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
@@ -275,7 +275,7 @@ public:
 
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
 
-    ParsedPage* get_current_page() { return _page.get(); }
+    ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
 
@@ -290,8 +290,7 @@ private:
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
     //    If new seek is issued, the _page will be reset.
-    // 3. When _page is null, it means that this reader can not be read.
-    std::unique_ptr<ParsedPage> _page;
+    ParsedPage _page;
 
     // keep dict page decoder
     std::unique_ptr<PageDecoder> _dict_decoder;
@@ -390,7 +389,8 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfo* type_info, size_t schema_length)
+                               bool is_nullable, std::shared_ptr<const TypeInfo> type_info,
+                               size_t schema_length)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
@@ -430,7 +430,7 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    TypeInfo* _type_info;
+    std::shared_ptr<const TypeInfo> _type_info;
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
