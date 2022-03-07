@@ -30,7 +30,7 @@ using doris_udf::AnyVal;
 using MemFootprint = std::pair<int64_t, uint8_t*>;
 using GenMemFootprintFunc = std::function<MemFootprint (int size)>;
 
-class TypeDescriptor;
+struct TypeDescriptor;
 class ArrayIterator;
 
 /**
