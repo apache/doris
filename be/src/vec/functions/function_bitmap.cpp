@@ -36,13 +36,64 @@ struct BitmapEmpty {
     static auto init_value() { return BitmapValue {}; }
 };
 
-class FunctionToBitmap : public IFunction {
-public:
+struct ToBitmap {
     static constexpr auto name = "to_bitmap";
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         std::vector<BitmapValue>& res, NullMap& null_map) {
+        auto size = offsets.size();
+        res.reserve(size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t str_size = offsets[i] - offsets[i - 1] - 1;
+            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
+                                                                                &parse_result);
+            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+            res.emplace_back();
+            res.back().add(int_value);
+        }
+        return Status::OK();
+    }
+};
+
+struct BitmapFromString {
+    static constexpr auto name = "bitmap_from_string";
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         std::vector<BitmapValue>& res, NullMap& null_map) {
+        auto size = offsets.size();
+        res.reserve(size);
+        std::vector<uint64_t> bits;
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            int64_t str_size = offsets[i] - offsets[i - 1] - 1;
+
+            if ((str_size > INT32_MAX) ||
+                !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+            res.emplace_back(bits);
+            bits.clear();
+        }
+        return Status::OK();
+    }
+};
+
+template <typename Impl>
+class FunctionBitmapAlwaysNull : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
 
     String get_name() const override { return name; }
 
-    static FunctionPtr create() { return std::make_shared<FunctionToBitmap>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapAlwaysNull>(); }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeBitMap>());
@@ -67,52 +118,10 @@ public:
         const ColumnString::Chars& data = str_column->get_chars();
         const ColumnString::Offsets& offsets = str_column->get_offsets();
 
-        res.reserve(input_rows_count);
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1] - 1;
-            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
-                                                                                &parse_result);
-            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                res.emplace_back();
-                null_map[i] = 1;
-                continue;
-            }
-            res.emplace_back();
-            res.back().add(int_value);
-        }
+        Impl::vector(data, offsets, res, null_map);
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
-        return Status::OK();
-    }
-};
-
-struct NameBitmapFromString {
-    static constexpr auto name = "bitmap_from_string";
-};
-
-struct BitmapFromString {
-    using ReturnType = DataTypeBitMap;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
-    using Type = String;
-    using ReturnColumnType = ColumnBitmap;
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res) {
-        auto size = offsets.size();
-        res.reserve(size);
-        std::vector<uint64_t> bits;
-        for (size_t i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1] - 1;
-            if (SplitStringAndParse({raw_str, str_size}, ",", &safe_strtou64, &bits)) {
-                res.emplace_back(bits);
-            } else {
-                res.emplace_back();
-            }
-            bits.clear();
-        }
         return Status::OK();
     }
 };
@@ -470,7 +479,8 @@ public:
 };
 
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
-using FunctionBitmapFromString = FunctionUnaryToType<BitmapFromString, NameBitmapFromString>;
+using FunctionToBitmap = FunctionBitmapAlwaysNull<ToBitmap>;
+using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
 using FunctionBitmapHash = FunctionUnaryToType<BitmapHash, NameBitmapHash>;
 
 using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
