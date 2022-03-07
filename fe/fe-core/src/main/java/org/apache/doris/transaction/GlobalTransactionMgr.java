@@ -438,6 +438,13 @@ public class GlobalTransactionMgr implements Writable {
                 continue;
             }
             info.add(db.getFullName());
+            long runningNum = 0;
+            try {
+                DatabaseTransactionMgr dbMgr = getDatabaseTransactionMgr(dbId);
+                runningNum = dbMgr.getRunningTxnNums();
+            } catch (AnalysisException e) {
+            }
+            info.add(runningNum);
             infos.add(info);
         }
         return infos;
