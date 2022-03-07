@@ -102,6 +102,9 @@ void MemTable::insert(const Tuple* tuple) {
     _agg_buffer_pool.clear();
 }
 
+void  MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t& num_rows) {
+    // TODO:
+}
 void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
     for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row->cell(i);

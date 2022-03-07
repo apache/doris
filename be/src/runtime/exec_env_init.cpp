@@ -65,6 +65,7 @@
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/runtime/vload_channel_mgr.h"
 
 namespace doris {
 
@@ -142,7 +143,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _tmp_file_mgr = new TmpFileMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
-    _load_channel_mgr = new LoadChannelMgr();
+    _load_channel_mgr = new vectorized::VLoadChannelMgr();
     _load_stream_mgr = new LoadStreamMgr();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();

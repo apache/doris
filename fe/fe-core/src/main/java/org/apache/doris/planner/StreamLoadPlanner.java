@@ -140,6 +140,7 @@ public class StreamLoadPlanner {
         scanNode.init(analyzer);
         descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
+        scanNode.convertToVectoriezd();
 
         int timeout = taskInfo.getTimeout();
         if (taskInfo instanceof RoutineLoadJob) {
@@ -191,6 +192,7 @@ public class StreamLoadPlanner {
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
+        queryOptions.setEnableVectorizedEngine(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(DATE_FORMAT.format(new Date()));

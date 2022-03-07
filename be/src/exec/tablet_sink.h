@@ -53,6 +53,10 @@ class TupleDescriptor;
 class ExprContext;
 class TExpr;
 
+namespace vectorized {
+class Block;
+class MutableBlock;
+}
 namespace stream_load {
 
 class OlapTableSink;
@@ -152,25 +156,26 @@ class IndexChannel;
 class NodeChannel {
 public:
     NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
-    ~NodeChannel() noexcept;
+    virtual ~NodeChannel() noexcept;
 
     // called before open, used to add tablet located in this backend
     void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
 
-    Status init(RuntimeState* state);
+    virtual Status init(RuntimeState* state);
 
     // we use open/open_wait to parallel
     void open();
-    Status open_wait();
+    virtual Status open_wait();
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
-
-    Status add_row(BlockRow& block_row, int64_t tablet_id);
+    virtual Status add_row(BlockRow& block_row, int64_t tablet_id) {
+        LOG(FATAL) << "add block row to NodeChannel not supported";
+    }
 
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    void mark_close();
+    virtual void mark_close();
     Status close_wait(RuntimeState* state);
 
     void cancel(const std::string& cancel_msg);
@@ -180,7 +185,7 @@ public:
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
-    int try_send_and_fetch_status(RuntimeState* state,
+    virtual int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
 
     void try_send_batch(RuntimeState* state);
@@ -209,15 +214,21 @@ public:
 
     void clear_all_batches();
 
+    virtual void clear_all_blocks() {
+        LOG(FATAL) << "NodeChannel::clear_all_blocks not supported";
+    }
+
     std::string channel_info() const {
         return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
                            _node_info.brpc_port);
     }
 
-private:
+protected:
     void _cancel_with_msg(const std::string& msg);
+    virtual void _close_check();
 
-private:
+protected:
+    bool _is_vectorized = false;
     OlapTableSink* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
@@ -243,28 +254,23 @@ private:
     std::atomic<bool> _send_finished {false};
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
-    std::atomic<bool> _add_batches_finished {false};
+    std::atomic<bool> _add_batches_finished {false}; // reuse for vectorized
 
-    std::atomic<bool> _last_patch_processed_finished {true};
+    std::atomic<bool> _last_patch_processed_finished {true}; // reuse for vectorized
 
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
     std::unique_ptr<RowDescriptor> _row_desc;
     int _batch_size = 0;
-    std::unique_ptr<RowBatch> _cur_batch;
-    PTabletWriterAddBatchRequest _cur_add_batch_request;
 
-    std::mutex _pending_batches_lock;
-    using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
-    std::queue<AddBatchReq> _pending_batches;
-    std::atomic<int> _pending_batches_num {0};
     // limit _pending_batches size
     std::atomic<size_t> _pending_batches_bytes {0};
     size_t _max_pending_batches_bytes {10 * 1024 * 1024};
+    std::mutex _pending_batches_lock; // reuse for vectorized
+    std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
-    ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 
     std::vector<TTabletWithPartition> _all_tablets;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
@@ -275,6 +281,7 @@ private:
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
 
+private:
     // buffer for saving serialized row batch data.
     // In the non-attachment approach, we need to use two PRowBatch structures alternately
     // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
@@ -297,6 +304,11 @@ private:
     // The IndexChannel is definitely accessible until the NodeChannel is closed.
     std::mutex _closed_lock;
     bool _is_closed = false;
+    std::unique_ptr<RowBatch> _cur_batch;
+    PTabletWriterAddBatchRequest _cur_add_batch_request;
+    using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
+    std::queue<AddBatchReq> _pending_batches;
+    ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 };
 
 class IndexChannel {
@@ -304,13 +316,15 @@ public:
     IndexChannel(OlapTableSink* parent, int64_t index_id) : _parent(parent), _index_id(index_id) {
         _index_channel_tracker = MemTracker::create_tracker(-1, "IndexChannel");
     }
-    ~IndexChannel();
+    virtual ~IndexChannel();
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
     void add_row(Tuple* tuple, int64_t tablet_id);
 
-    void add_row(BlockRow& block_row, int64_t tablet_id);
+    virtual void add_row(BlockRow& block_row, int64_t tablet_id) {
+        LOG(FATAL) << "add block row to IndexChannel not supported";
+    }
 
     void for_each_node_channel(const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
         for (auto& it : _node_channels) {
@@ -326,9 +340,11 @@ public:
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
-private:
+protected:
     friend class NodeChannel;
+    friend class VNodeChannel;
 
+    bool _is_vectorized = false;
     OlapTableSink* _parent;
     int64_t _index_id;
 
@@ -401,6 +417,11 @@ protected:
     friend class NodeChannel;
     friend class IndexChannel;
 
+    friend class VNodeChannel;
+    friend class VIndexChannel;
+
+    bool _is_vectorized = false;
+
     std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
@@ -415,8 +436,6 @@ protected:
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
     RowDescriptor* _output_row_desc = nullptr;
-    std::vector<ExprContext*> _output_expr_ctxs;
-    std::unique_ptr<RowBatch> _output_batch;
 
     bool _need_validate_data = false;
 
@@ -429,7 +448,6 @@ protected:
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
-    OlapTablePartitionParam* _partition = nullptr;
     OlapTableLocationParam* _location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
@@ -455,7 +473,6 @@ protected:
     int64_t _convert_batch_ns = 0;
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
-    int64_t _serialize_batch_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
@@ -502,6 +519,11 @@ protected:
         FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK
     };
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
+
+private:
+    OlapTablePartitionParam* _partition = nullptr;
+    std::vector<ExprContext*> _output_expr_ctxs;
+    std::unique_ptr<RowBatch> _output_batch;
 };
 
 } // namespace stream_load
