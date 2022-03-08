@@ -36,6 +36,9 @@ public class ShowLastInsertStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) {
+        // No need to check priv here. Bacause `show last insert` can only view
+        // the insert result of current session.
+        // So if user does not have priv to insert, than there is no result to show.
     }
 
     @Override
