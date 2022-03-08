@@ -1495,3 +1495,7 @@ The default value is currently only an empirical value, and may need to be modif
 
 Translated with www.DeepL.com/Translator (free version)
 
+### `doris_scan_range_max_mb`
+* Type: int32
+* Description: The maximum amount of data read by each OlapScanner.
+* Default: 1024
