@@ -89,7 +89,7 @@ import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
-
+import org.apache.doris.thrift.TSharedHashTableParams;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
@@ -122,6 +122,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import org.apache.doris.planner.HashTableId;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
@@ -894,6 +895,9 @@ public class Coordinator {
         // assign runtime filter merge addr and target addr
         assignRuntimeFilterAddr();
 
+        // find the instance in the same process and set params.
+        assignSharedHashTable();
+
         // compute destinations and # senders per exchange node
         // (the root fragment doesn't have a destination)
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
@@ -959,6 +963,15 @@ public class Coordinator {
             } else {
                 // add destination host to this fragment's destination
                 for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                    // For shared hash table fragment instance,if the instance is not leader
+                    // No fragment instance will send data to it.
+                    if (params.fragment.hasSendToSharedHashTableFragment() &&
+                            params.fragment.getOutputPartition() == DataPartition.UNPARTITIONED &&
+                            destParams.instanceExecParams.get(j).instanceCountInSameProcess > 1 &&
+                            !destParams.instanceExecParams.get(j).isSharedHashTableLeader) {
+                        continue;
+                    }
+
                     TPlanFragmentDestination dest = new TPlanFragmentDestination();
                     dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                     dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
@@ -1255,6 +1268,46 @@ public class Coordinator {
         FragmentExecParams uppermostParams = fragmentExecParamsMap.get(fragments.get(0).getFragmentId());
         runtimeFilterMergeAddr = toBrpcHost(uppermostParams.instanceExecParams.get(0).host);
         runtimeFilterMergeInstanceId = uppermostParams.instanceExecParams.get(0).instanceId;
+    }
+
+    // Collect the same instances in the same process,assign one instance as the leader to construct shared hash table.
+    // Merge shared hash table id between fragments.The first arrived fragment instance will create all shared hash table entity on be.
+    private void assignSharedHashTable() throws Exception {
+        List<HashTableId> allHashTableIdList = Lists.newArrayList();
+        int haveSharedHashTableFragmentCount = 0;
+        for (PlanFragment fragment: fragments) {
+            Map<TNetworkAddress, Integer> addrToInstancesCount = Maps.newHashMap();
+            // If fragment not contain shared hash table,instanceCountInSameProcess is zero.
+            if (!fragment.getSharedHashTableIds().isEmpty()) {
+                FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
+                for (FInstanceExecParam instance : params.instanceExecParams) {
+                    Integer instancesCountInSameProcess = addrToInstancesCount.get(instance.host);
+                    if (instancesCountInSameProcess == null) {
+                        addrToInstancesCount.put(instance.host, 1);
+                        instance.isSharedHashTableLeader = true;
+                    } else {
+                        addrToInstancesCount.put(instance.host, ++instancesCountInSameProcess);
+                    }
+                }
+
+                for (FInstanceExecParam instance : params.instanceExecParams) {
+                    instance.instanceCountInSameProcess = addrToInstancesCount.get(instance.host);
+                }
+
+                allHashTableIdList.addAll(fragment.getSharedHashTableIds());
+                haveSharedHashTableFragmentCount++;
+            }
+        }
+
+        // Merge shared hash table id.
+        if (haveSharedHashTableFragmentCount > 1) {
+            for (PlanFragment fragment: fragments) {
+                if (!fragment.getSharedHashTableIds().isEmpty()) {
+                    fragment.getSharedHashTableIds().clear();
+                    fragment.getSharedHashTableIds().addAll(allHashTableIdList);
+                }
+            }
+        }
     }
 
     // If fragment has colocated plan node, it will return true.
@@ -2121,6 +2174,17 @@ public class Coordinator {
                 params.setQueryOptions(queryOptions);
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
+                // Set shared hash table params.
+                if (instanceExecParam.instanceCountInSameProcess > 1) {
+                    params.params.setSharedHashTableParams(new TSharedHashTableParams());
+                    // If the count of instances in the same process is less than 2, needn't use shared hash table.
+                    params.params.shared_hash_table_params.setContainSharedHashTable(true);
+                    for (HashTableId hashTableId : fragment.getSharedHashTableIds()) {
+                        params.params.shared_hash_table_params.addToSharedHashTableIds(hashTableId.asInt());
+                    }
+                    params.params.shared_hash_table_params.setInstacncesCountInSameProcess(instanceExecParam.instanceCountInSameProcess);
+                    params.params.shared_hash_table_params.setIsLeader(instanceExecParam.isSharedHashTableLeader);
+                }
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
@@ -2227,6 +2291,11 @@ public class Coordinator {
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
         FragmentExecParams fragmentExecParams;
+        
+        // The count of instances which use shared hash table in the same process.
+        // When it is less than 2, will not activate shared hash table.
+        public int instanceCountInSameProcess = 0;
+        public boolean isSharedHashTableLeader = false;
 
         public void addBucketSeq(int bucketSeq) {
             this.bucketSeqSet.add(bucketSeq);

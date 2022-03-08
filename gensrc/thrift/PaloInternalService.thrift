@@ -200,6 +200,13 @@ struct TRuntimeFilterParams {
   4: optional map<i32, i32> runtime_filter_builder_num
 }
 
+struct TSharedHashTableParams {
+  1: required bool contain_shared_hash_table = false
+  2: required bool is_leader = false
+  3: optional i32 instacnces_count_in_same_process = 0
+  4: optional list<i32> shared_hash_table_ids
+}
+
 // Parameters for a single execution instance of a particular TPlanFragment
 // TODO: for range partitioning, we also need to specify the range boundaries
 struct TPlanFragmentExecParams {
@@ -234,6 +241,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
+  13: optional TSharedHashTableParams shared_hash_table_params
 }
 
 // Global query parameters assigned by the coordinator.

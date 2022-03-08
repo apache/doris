@@ -19,7 +19,7 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
-
+#include <vec/data_types/data_type.h>
 #include <random>
 
 #include "runtime/client_cache.h"
@@ -84,6 +84,26 @@ Status VDataStreamSender::Channel::send_current_block(bool eos) {
     RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
     ch_roll_pb_block();
     return Status::OK();
+}
+
+bool VDataStreamSender::Channel::channel_is_blocked(Block* block) {
+    if (_is_local) {
+        std::shared_ptr<VDataStreamRecvr> recvr =
+        _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
+                                                                _dest_node_id);
+        if (recvr != nullptr) {
+            if (recvr->exceeds_limit(block->bytes())) {
+                return true;
+            }
+        }
+        return false;
+    } else {
+        if (_closure !=  nullptr &&
+            _closure->get_ref() > 1) {
+            return true;
+        }
+        return false;
+    }
 }
 
 Status VDataStreamSender::Channel::send_local_block(bool eos) {
@@ -398,16 +418,39 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         // 2. send block
         // 3. rollover block
         int local_size = 0;
+        std::vector<Channel*> blocked_channels;
         for (auto channel : _channels) {
             if (channel->is_local()) local_size++;
         }
         if (local_size == _channels.size()) {
             for (auto channel : _channels) {
+                if (!channel->channel_is_blocked(block)) {
+                    RETURN_IF_ERROR(channel->send_local_block(block));
+                } else {
+                    // skip blocked channel
+                    blocked_channels.push_back(channel);
+                }
+            }
+            // send block to skiped channels
+            for (auto channel : blocked_channels) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else {
             RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
             for (auto channel : _channels) {
+                if (!channel->channel_is_blocked(block)) {
+                    if (channel->is_local()) {
+                        RETURN_IF_ERROR(channel->send_local_block(block));
+                    } else {
+                        RETURN_IF_ERROR(channel->send_block(_cur_pb_block));
+                    }
+                } else {
+                    blocked_channels.push_back(channel);
+                }
+            }
+
+             // send block to skiped channels
+            for (auto channel : blocked_channels) {
                 if (channel->is_local()) {
                     RETURN_IF_ERROR(channel->send_local_block(block));
                 } else {
@@ -418,9 +461,24 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
             _roll_pb_block(); 
         }
     } else if (_part_type == TPartitionType::RANDOM) {
-        // 1. select channel
-        Channel* current_channel = _channels[_current_channel_idx];
-        // 2. serialize, send and rollover block
+        int skip_num = 0;
+        int max_skip_count = _channels.size() * 2;
+        Channel* current_channel = nullptr;
+        while (true) {
+            // 1. select channel
+            current_channel = _channels[_current_channel_idx];
+
+            // 2. if channel is blocked,skip it.
+            // To prevent infinite loops, set the maximum number of loops.
+            if (current_channel->channel_is_blocked(block) && skip_num < max_skip_count) {
+                _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
+                skip_num++;
+            } else {
+                break;
+            }
+        }
+
+        // 3. serialize, send and rollover block
         if (current_channel->is_local()) {
             RETURN_IF_ERROR(current_channel->send_local_block(block));
         } else {

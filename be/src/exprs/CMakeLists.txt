@@ -77,4 +77,5 @@ add_library(Exprs
   table_function/explode_json_array.cpp
   table_function/table_function_factory.cpp
   table_function/dummy_table_functions.cpp
+  shared_hash_table.cpp
 )

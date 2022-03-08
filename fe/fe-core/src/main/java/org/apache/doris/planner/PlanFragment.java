@@ -139,6 +139,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
+    // Shared hash table id in the fragment.if it's empty means shared hash table feature is close.
+    private List<HashTableId> sharedHashTableIds = Lists.newArrayList();
+
+    private boolean sendToSharedHashTableFragment = false;
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -219,6 +223,21 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return hasColocatePlanNode;
     }
 
+    public void addSharedHashTableIds(HashTableId id) {
+        this.sharedHashTableIds.add(id);
+    }
+
+    public List<HashTableId> getSharedHashTableIds() {
+        return this.sharedHashTableIds;
+    }
+    public void setSendToSharedHashTableFragment(boolean sendToSharedHashTableFragment) {
+        this.sendToSharedHashTableFragment = sendToSharedHashTableFragment;
+    }
+
+    public boolean hasSendToSharedHashTableFragment() {
+        return sendToSharedHashTableFragment;
+    }
+    
     /**
      * Finalize plan tree and create stream sink, if needed.
      */

@@ -86,14 +86,13 @@ public:
     void cancel_stream();
 
     void close();
-
-private:
-    class SenderQueue;
-    friend struct ReceiveQueueSortCursorImpl;
-
+    
     bool exceeds_limit(int batch_size) {
         return _num_buffered_bytes + batch_size > _total_buffer_limit;
     }
+private:
+    class SenderQueue;
+    friend struct ReceiveQueueSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr;

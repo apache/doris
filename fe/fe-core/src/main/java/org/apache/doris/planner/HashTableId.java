@@ -15,44 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.planner;
 
-#include <google/protobuf/stubs/common.h>
+import org.apache.doris.common.Id;
+import org.apache.doris.common.IdGenerator;
 
-#include <atomic>
-
-#include "service/brpc.h"
-
-namespace doris {
-
-template <typename T>
-class RefCountClosure : public google::protobuf::Closure {
-public:
-    RefCountClosure() : _refs(0) {}
-    ~RefCountClosure() {}
-
-    void ref() { _refs.fetch_add(1); }
-
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
-
-    void Run() override {
-        if (unref()) {
-            delete this;
-        }
+public class HashTableId extends Id<HashTableId> {
+    public HashTableId(int id) {
+        super(id);
     }
 
-    void join() { brpc::Join(cntl.call_id()); }
-
-    int get_ref () {
-        return _refs.load();
+    public static IdGenerator<HashTableId> createGenerator() {
+        return new IdGenerator<HashTableId>() {
+            @Override
+            public HashTableId getNextId() { return new HashTableId(nextId_++); }
+            @Override
+            public HashTableId getMaxId() { return new HashTableId(nextId_ - 1); }
+        };
     }
-    
-    brpc::Controller cntl;
-    T result;
 
-private:
-    std::atomic<int> _refs;
-};
-
-} // namespace doris
+    @Override
+    public String toString() {
+        return String.format("%02d", id);
+    }
+}

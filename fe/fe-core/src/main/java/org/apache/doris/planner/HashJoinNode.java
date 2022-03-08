@@ -81,6 +81,10 @@ public class HashJoinNode extends PlanNode {
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
     private boolean isBucketShuffle = false; // the flag for bucket shuffle join
+    // The instances of hashjoin which DistributionMode is HashJoinNode.DistributionMode.BROADCAST
+    // share the same hash table within the one process.
+    private HashTableId sharedHashTableId = new HashTableId(-1); // shared hash table id.
+    private boolean isSharedHashTableLeader = false;
 
     private List<SlotId> hashOutputSlotIds;
 
@@ -160,6 +164,14 @@ public class HashJoinNode extends PlanNode {
         this.distrMode = distrMode;
     }
 
+    public void setSharedHashTableId(HashTableId id) {
+        this.sharedHashTableId = id;
+    }
+
+    public HashTableId getSharedHashTableId() {
+        return this.sharedHashTableId;
+    }
+
     public boolean isColocate() {
         return isColocate;
     }
@@ -172,7 +184,7 @@ public class HashJoinNode extends PlanNode {
         isColocate = colocate;
         colocateReason = reason;
     }
-    
+
     /**
      * Calculate the slots output after going through the hash table in the hash join node.
      * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that
@@ -681,6 +693,7 @@ public class HashJoinNode extends PlanNode {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
             }
         }
+        msg.hash_join_node.setSharedHashTableId(sharedHashTableId.asInt());
     }
 
     @Override

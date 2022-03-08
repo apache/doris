@@ -44,6 +44,7 @@ public class PlannerContext {
     private final IdGenerator<PlanNodeId> nodeIdGenerator_ = PlanNodeId.createGenerator();
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator_ =
             PlanFragmentId.createGenerator();
+    private final IdGenerator<HashTableId> hashTableIdGenerator_ = HashTableId.createGenerator();
 
     // TODO(zc) private final TQueryCtx queryCtx_;
     // TODO(zc) private final AnalysisContext.AnalysisResult analysisResult_;
@@ -67,4 +68,5 @@ public class PlannerContext {
     public PlanFragmentId getNextFragmentId() { return fragmentIdGenerator_.getNextId(); }
 
     public boolean isInsert() { return statement_ instanceof InsertStmt; }
+    public HashTableId getNextHashTableId() { return hashTableIdGenerator_.getNextId(); }
 }

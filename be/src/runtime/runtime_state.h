@@ -60,6 +60,7 @@ class ReservationTracker;
 class InitialReservations;
 class RowDescriptor;
 class RuntimeFilterMgr;
+class SharedHashTableMgr;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -359,6 +360,8 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
+    SharedHashTableMgr* shared_hash_table_mgr() { return _shared_hash_table_mgr.get(); }
+
     void set_query_fragments_ctx(QueryFragmentsCtx* ctx) { _query_ctx = ctx; }
 
     QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
@@ -390,6 +393,9 @@ private:
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
 
+    // shared hash table
+    std::unique_ptr<SharedHashTableMgr> _shared_hash_table_mgr;
+    
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;
 

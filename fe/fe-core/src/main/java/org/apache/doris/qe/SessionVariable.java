@@ -165,7 +165,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
-    
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
@@ -179,6 +179,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
+    public static final String ENABLE_SHARED_HASH_TABLE = "enable_shared_hash_table";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -221,19 +222,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TX_READ_ONLY)
     public boolean txReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
     public boolean transactionReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
     public String transactionIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -438,9 +439,11 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
-  
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = false;
+    @VariableMgr.VarAttr(name = ENABLE_SHARED_HASH_TABLE)
+    public boolean enableSharedHashTable = true;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -482,7 +485,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isAutoCommit() {
         return autoCommit;
     }
-    
+
     public boolean isTxReadonly() {
         return txReadonly;
     }
@@ -490,11 +493,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isTransactionReadonly() {
         return transactionReadonly;
     }
-    
+
     public String getTransactionIsolation() {
         return transactionIsolation;
     }
-    
+
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -640,6 +643,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
+    }
+
+    public boolean isEnableSharedHashTable() {
+        return enableSharedHashTable;
     }
 
     public int getExchangeInstanceParallel() {

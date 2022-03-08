@@ -141,6 +141,29 @@ using JoinOpVariants = std::variant<std::integral_constant<TJoinOp::type, TJoinO
     M(NULL_AWARE_LEFT_ANTI_JOIN)
 
 class VExprContext;
+class SharedHashTableContext;
+
+using shared_hash_table_operator = std::function<bool(SharedHashTableContext&)>;
+using shared_hash_table_barrier = std::function<bool()>;
+
+class SharedHashTableContext {
+public:
+    SharedHashTableContext() = default; 
+    ~SharedHashTableContext() = default;
+
+    bool _use_shared_hash_table = false;
+    bool _is_leader = false;
+    int _shared_hash_table_id = -1;
+    shared_hash_table_operator _hash_table_operator;
+    shared_hash_table_barrier _hash_table_barrier;
+
+    std::shared_ptr<HashTableVariants> _hash_table_variants;
+    std::shared_ptr<std::vector<Block>> _build_blocks;
+    std::shared_ptr<std::unordered_map<const Block*, std::vector<int>>> _inserted_rows;
+    std::shared_ptr<Arena> _arena;
+    std::shared_ptr<Sizes> _probe_key_sz;
+    std::shared_ptr<Sizes> _build_key_sz;
+};
 
 class HashJoinNode : public ::doris::ExecNode {
 public:
@@ -153,7 +176,7 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     virtual Status close(RuntimeState* state) override;
-    HashTableVariants& get_hash_table_variants() { return _hash_table_variants; }
+    std::shared_ptr<HashTableVariants>& get_hash_table_variants() { return _shared_hash_table_ctx._hash_table_variants; }
     void init_join_op();
 
 private:
@@ -202,19 +225,12 @@ private:
     int64_t _hash_table_rows;
     int64_t _mem_used;
 
-    Arena _arena;
-    HashTableVariants _hash_table_variants;
-
-    std::vector<Block> _build_blocks;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
     bool _probe_ignore_null = false;
     int _probe_index = -1;
     bool _probe_eos = false;
-
-    Sizes _probe_key_sz;
-    Sizes _build_key_sz;
 
     const bool _match_all_probe; // output all rows coming from the probe input. Full/Left Join
     const bool _match_one_build; // match at most one build row to each probe row. Left semi Join
@@ -238,6 +254,7 @@ private:
     std::vector<bool> _right_output_slot_flags;
 private:
     Status _hash_table_build(RuntimeState* state);
+    Status _runtime_filter_build(RuntimeState* state);
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
     Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
@@ -259,6 +276,7 @@ private:
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
+    SharedHashTableContext _shared_hash_table_ctx;
 };
 } // namespace vectorized
 } // namespace doris

@@ -377,6 +377,22 @@ public class DistributedPlanner {
             node.setChild(0, leftChildFragment.getPlanRoot());
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
+
+            // Shared hash table not support right join.
+            if (ConnectContext.get().getSessionVariable().isEnableSharedHashTable() &&
+                    (node.getJoinOp() == JoinOperator.INNER_JOIN ||
+                            node.getJoinOp() == JoinOperator.LEFT_OUTER_JOIN ||
+                            node.getJoinOp() == JoinOperator.LEFT_SEMI_JOIN ||
+                            node.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN)) {
+                //  generate id for shared hash table.
+                node.setSharedHashTableId(ctx_.getNextHashTableId());
+
+                // record hash table id and hashjoin plan node in the fragment which using shared hash table.
+                leftChildFragment.addSharedHashTableIds(node.getSharedHashTableId());
+
+                // mark the sender fragment against the fragment which using shared hash table.
+                rightChildFragment.setSendToSharedHashTableFragment(true);
+            }
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);

@@ -230,6 +230,8 @@ public:
 
     bool is_local() const { return _is_local; }
 
+    bool channel_is_blocked(Block* block);
+    
     void ch_roll_pb_block();
 
 private:

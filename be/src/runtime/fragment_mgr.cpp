@@ -44,6 +44,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/thread_context.h"
+#include "runtime/shared_hash_table.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -52,6 +53,7 @@
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+#include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
 
@@ -106,6 +108,11 @@ public:
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
+    }
+
+    void set_shared_hash_table_handler(
+            std::shared_ptr<SharedHashTableControlEntity>& handler) {
+        _shared_hash_table_handler = handler;
     }
 
     // Update status of this fragment execute
@@ -169,6 +176,9 @@ private:
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    std::shared_ptr<SharedHashTableControlEntity> _shared_hash_table_handler;
+
     // The pipe for data transfering, such as insert.
     std::shared_ptr<StreamLoadPipe> _pipe;
 };
@@ -628,6 +638,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     _runtimefilter_controller.add_entity(params, &handler);
     exec_state->set_merge_controller_handler(handler);
 
+    std::shared_ptr<SharedHashTableControlEntity> shared_hash_table_handler;
+    _shared_hash_table_controller.add_entity(params, &shared_hash_table_handler);
+    exec_state->set_shared_hash_table_handler(shared_hash_table_handler);
+
     RETURN_IF_ERROR(exec_state->prepare(params));
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -865,6 +879,18 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request, const char*
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     RETURN_IF_ERROR(filter_controller->merge(request, attach_data));
+    return Status::OK();
+}
+
+Status FragmentMgr::get_shared_hash_table_callback(const TUniqueId& query_id,
+                                                        int shared_hash_table_id,
+                                                        vectorized::shared_hash_table_operator* hash_table_operator,
+                                                        vectorized::shared_hash_table_barrier* hash_table_releaser){
+    std::shared_ptr<SharedHashTableControlEntity> shared_hash_table_entity;
+    RETURN_IF_ERROR(_shared_hash_table_controller.acquire(query_id, &shared_hash_table_entity));
+    SharedHashTableVal* shared_hash_table_val = nullptr;
+    RETURN_IF_ERROR(shared_hash_table_entity->find_hash_table_val(shared_hash_table_id, shared_hash_table_val));
+    RETURN_IF_ERROR(shared_hash_table_val->get_callback(hash_table_operator, hash_table_releaser));
     return Status::OK();
 }
 

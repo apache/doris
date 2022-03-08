@@ -36,6 +36,7 @@
 #include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thread.h"
+#include "shared_hash_table.h"
 
 namespace doris {
 
@@ -49,6 +50,8 @@ class TExecPlanFragmentParamsList;
 class TUniqueId;
 class RuntimeFilterMergeController;
 class StreamLoadPipe;
+class SharedHashTableController;
+class HashTableVariants;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -92,6 +95,10 @@ public:
 
     std::shared_ptr<StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
 
+    Status get_shared_hash_table_callback(const TUniqueId& query_id, 
+                                            int shared_hash_table_id, 
+                                            vectorized::shared_hash_table_operator* hash_table_operator,
+                                            vectorized::shared_hash_table_barrier* hash_table_releaser);
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 
@@ -116,6 +123,7 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
+    SharedHashTableController _shared_hash_table_controller;
 };
 
 } // namespace doris
