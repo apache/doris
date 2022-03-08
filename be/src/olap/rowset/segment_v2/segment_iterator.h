@@ -45,6 +45,11 @@ class BitmapIndexIterator;
 class BitmapIndexReader;
 class ColumnIterator;
 
+enum ReadIndexType {
+    READ_WITH_BITMAP,
+    READ_WITHOUT_BITMAP,
+};
+
 class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema,
@@ -91,6 +96,7 @@ private:
     // for vectorization implementation
     Status _read_columns(const std::vector<ColumnId>& column_ids,
                          vectorized::MutableColumns& column_block, size_t nrows);
+    template<ReadIndexType T>
     Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                   bool set_block_rowid);
     void _init_current_block(vectorized::Block* block,
@@ -129,6 +135,7 @@ private:
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
+    bool _is_bitmap_index_pruned = true;
 
     // fields for vectorization execution
     bool _is_all_column_basic_type;

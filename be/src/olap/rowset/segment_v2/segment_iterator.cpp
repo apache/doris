@@ -53,9 +53,18 @@ public:
 
     bool has_more_range() const { return !_eof; }
 
+    template<ReadIndexType T>
+    bool next_range(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+        if constexpr (T == READ_WITH_BITMAP) {
+            return get_next_range_with_bitmap_index(max_range_size, from, to);
+        } else if constexpr (T == READ_WITHOUT_BITMAP) {
+            return get_next_range_without_bitmap_index(max_range_size, from, to);
+        }
+    }
+
     // read next range into [*from, *to) whose size <= max_range_size.
     // return false when there is no more range.
-    bool next_range(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+    bool get_next_range_with_bitmap_index(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
         if (_eof) {
             return false;
         }
@@ -76,6 +85,27 @@ public:
         return true;
     }
 
+    bool get_next_range_without_bitmap_index(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+        if (_curr_pos == _max_value) {
+            return false;
+        }
+        if (_curr_pos + max_range_size <= _max_value) {
+            *from = _curr_pos;
+            _curr_pos += max_range_size;
+            *to = _curr_pos;
+            return true;
+        } else {
+            *from = _curr_pos;
+            *to = *from + (_max_value - _curr_pos);
+            _curr_pos = _max_value;
+            return true;
+        }
+    }
+
+    void set_max_value(uint32_t max_value) {
+        this->_max_value = max_value;
+    }
+
 private:
     void _read_next_batch() {
         _buf_pos = 0;
@@ -89,6 +119,10 @@ private:
     uint32_t _buf_pos = 0;
     uint32_t _buf_size = 0;
     bool _eof = false;
+
+    // used when no index works
+    uint32_t _curr_pos = 0;
+    uint32_t _max_value;
 };
 
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema,
@@ -140,6 +174,10 @@ Status SegmentIterator::_init(bool is_vec) {
         _init_lazy_materialization();
     }
     _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    if (_row_bitmap.cardinality() == _segment->num_rows()) {
+        _is_bitmap_index_pruned = false;
+        _range_iter->set_max_value(_segment->num_rows());
+    }
     return Status::OK();
 }
 
@@ -511,7 +549,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         uint32_t range_from;
         uint32_t range_to;
         bool has_next_range =
-                _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
+                _range_iter->next_range<READ_WITH_BITMAP>(nrows_read_limit - nrows_read, &range_from, &range_to);
         if (!has_next_range) {
             break;
         }
@@ -778,13 +816,14 @@ Status SegmentIterator::_output_column_by_sel_idx(vectorized::Block* block,
     return Status::OK();
 }
 
+template<ReadIndexType T>
 Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                bool set_block_rowid) {
     do {
         uint32_t range_from;
         uint32_t range_to;
         bool has_next_range =
-                _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
+                _range_iter->next_range<T>(nrows_read_limit - nrows_read, &range_from, &range_to);
         if (!has_next_range) {
             break;
         }
@@ -907,7 +946,12 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
-    _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
+    if (_is_bitmap_index_pruned) {
+        _read_columns_by_index<READ_WITH_BITMAP>(nrows_read_limit, nrows_read, _lazy_materialization_read);
+    } else {
+        _read_columns_by_index<READ_WITHOUT_BITMAP>(nrows_read_limit, nrows_read, _lazy_materialization_read);
+    }
+    
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += nrows_read;
