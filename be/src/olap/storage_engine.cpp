@@ -86,8 +86,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "compaction"}}));
 
-using WriteLock = std::unique_lock<std::shared_mutex>;
-
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
 static Status _validate_options(const EngineOptions& options) {

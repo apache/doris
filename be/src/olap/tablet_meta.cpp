@@ -31,7 +31,6 @@
 using std::string;
 using std::unordered_map;
 using std::vector;
-using WriteLock = std::unique_lock<std::shared_mutex>;
 
 namespace doris {
 

@@ -66,7 +66,6 @@ using std::string;
 using std::stringstream;
 using std::to_string;
 using std::vector;
-using WriteLock = std::unique_lock<std::shared_mutex>;
 
 namespace doris {
 
