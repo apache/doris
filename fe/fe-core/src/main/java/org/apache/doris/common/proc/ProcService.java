@@ -40,7 +40,7 @@ public final class ProcService {
         root.register("backends", new BackendsProcDir(Catalog.getCurrentSystemInfo()));
         root.register("dbs", new DbsProcDir(Catalog.getCurrentCatalog()));
         root.register("jobs", new JobsDbProcDir(Catalog.getCurrentCatalog()));
-        root.register("statistic", new StatisticProcDir(Catalog.getCurrentCatalog()));
+        root.register("statistic", new StatisticProcNode(Catalog.getCurrentCatalog()));
         root.register("tasks", new TasksProcDir());
         root.register("frontends", new FrontendsProcNode(Catalog.getCurrentCatalog()));
         root.register("brokers", Catalog.getCurrentCatalog().getBrokerMgr().getProcNode());
@@ -53,7 +53,7 @@ public final class ProcService {
         root.register("current_query_stmts", new CurrentQueryStatementsProcNode());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
         root.register("cluster_balance", new ClusterBalanceProcDir());
-        root.register("cluster_health", new ClusterHealthProcDir(Catalog.getCurrentCatalog()));
+        root.register("cluster_health", new ClusterHealthProcDir());
         root.register("routine_loads", new RoutineLoadsProcDir());
         root.register("stream_loads", new StreamLoadProcNode());
         root.register("colocation_group", new ColocationGroupProcDir());
