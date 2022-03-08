@@ -179,7 +179,7 @@ public:
             value |= *(unsigned char*)(cur_ptr);
             vectorized::VecDateTimeValue date;
             date.from_olap_date(value);
-            data.push_back_without_reserve(date);
+            this->insert_data(reinterpret_cast<char*>(&date), 0);
         }
     }
 
@@ -189,7 +189,7 @@ public:
             const char* cur_ptr = data_ptr + value_size * i;
             uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
             vectorized::VecDateTimeValue date(value);
-            data.push_back_without_reserve(date);
+            this->insert_data(reinterpret_cast<char*>(&date), 0);
         }
     }
 
