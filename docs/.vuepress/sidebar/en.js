@@ -649,6 +649,7 @@ module.exports = [
               "SHOW TABLE CREATION",
               "SHOW TABLET",
               "SHOW TRANSACTION",
+              "SHOW-LAST-INSERT",
               "STOP ROUTINE LOAD",
               "STOP SYNC JOB",
               "STREAM LOAD",

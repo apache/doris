@@ -1025,10 +1025,11 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     case "int":
-                        field.set(this, root.get(attr.name()));
+                        // root.get(attr.name()) always return Long type, so need to convert it.
+                        field.set(this, Integer.valueOf(root.get(attr.name()).toString()));
                         break;
                     case "long":
-                        field.set(this, root.get(attr.name()));
+                        field.set(this, (Long) root.get(attr.name()));
                         break;
                     case "float":
                         field.set(this, root.get(attr.name()));
@@ -1132,3 +1133,4 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 }
+

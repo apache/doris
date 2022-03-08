@@ -2876,6 +2876,11 @@ show_param ::=
     {:
         RESULT = new ShowTableCreationStmt(db, parser.wild);
     :}
+    /* show last insert */
+    | KW_LAST KW_INSERT
+    {:
+        RESULT = new ShowLastInsertStmt();
+    :}
     ;
 
 opt_tmp ::=
