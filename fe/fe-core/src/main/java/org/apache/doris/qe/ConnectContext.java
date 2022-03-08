@@ -33,6 +33,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -133,6 +134,21 @@ public class ConnectContext {
 
     // The FE ip current connected
     private String currentConnectedFEIp = "";
+
+    private InsertResult insertResult;
+
+    public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
+                                        TransactionStatus txnStatus, long loadedRows, int filteredRows) {
+        if (isTxnModel() && insertResult != null) {
+            insertResult.updateResult(txnStatus, loadedRows, filteredRows);
+        } else {
+            insertResult = new InsertResult(txnId, label, db, tbl, txnStatus, loadedRows, filteredRows);
+        }
+    }
+
+    public InsertResult getInsertResult() {
+        return insertResult;
+    }
 
     public static ConnectContext get() {
         return threadLocalInfo.get();
@@ -544,4 +560,5 @@ public class ConnectContext {
     public String getQueryIdentifier() {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
+
 }

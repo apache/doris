@@ -196,6 +196,28 @@ Insert Into itself is a SQL command, and the return result is divided into the f
         2. If `status` is` visible`, the data is loaded successfully.
     3. If `warnings` is greater than 0, it means that some data is filtered. You can get the url through the `show load` statement to see the filtered rows.
 
+### SHOW LAST INSERT
+
+In the previous section, we described how to follow up on the results of insert operations. However, it is difficult to get the json string of the returned result in some mysql libraries. Therefore, Doris also provides the `SHOW LAST INSERT` command to explicitly retrieve the results of the last insert operation.
+
+After executing an insert operation, you can execute `SHOW LAST INSERT` on the same session connection. This command returns the result of the most recent insert operation, e.g.
+
+```
+mysql> show last insert\G
+*************************** 1. row ***************************
+    TransactionId: 64067
+            Label: insert_ba8f33aea9544866-8ed77e2844d0cc9b
+         Database: default_cluster:db1
+            Table: t1
+TransactionStatus: VISIBLE
+       LoadedRows: 2
+     FilteredRows: 0
+```
+
+This command returns the insert results and the details of the corresponding transaction. Therefore, you can continue to execute the `show last insert` command after each insert operation to get the insert results.
+
+> Note: This command will only return the results of the last insert operation within the same session connection. If the connection is broken or replaced with a new one, the empty set will be returned.
+
 ## Relevant System Configuration
 
 ### FE configuration
