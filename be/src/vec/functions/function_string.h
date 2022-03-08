@@ -1307,8 +1307,8 @@ public:
             StringRef old_str = assert_cast<const ColumnString*>(col_old.get())->get_data_at(i);
             StringRef new_str = assert_cast<const ColumnString*>(col_new.get())->get_data_at(i);
 
-            std::string result =
-                    replace(origin_str.to_string(), old_str.to_string(), new_str.to_string());
+            std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
+                                         new_str.to_string_view());
             col_res->insert_data(result.data(), result.length());
         }
 
@@ -1317,7 +1317,7 @@ public:
     }
 
 private:
-    std::string replace(std::string str, std::string old_str, std::string new_str) {
+    std::string replace(std::string str, std::string_view old_str, std::string_view new_str) {
         std::string::size_type pos = 0;
         std::string::size_type oldLen = old_str.size();
         std::string::size_type newLen = new_str.size();

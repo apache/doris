@@ -110,11 +110,7 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
 
     assert(status.ok());
 
-    if (status.ok()) {
-        return runtime_filter;
-    }
-
-    return nullptr;
+    return status.ok() ? runtime_filter : nullptr;
 }
 
 std::vector<TupleRow>* create_rows(ObjectPool* _obj_pool, int from, int to) {
@@ -508,8 +504,6 @@ TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_bloom_filter_merge_b
     ASSERT_TRUE(status.ok());
     ASSERT_FALSE(runtime_filter->is_ignored());
     ASSERT_TRUE(runtime_filter->is_bloomfilter());
-    //    ASSERT_TRUE(runtime_filter->get_profile()->get_info_string("RealRuntimeFilterType") ==
-    //                        ::doris::to_string(doris::RuntimeFilterType::BLOOM_FILTER);
 
     // get expr context from filter
 
