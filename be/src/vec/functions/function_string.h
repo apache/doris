@@ -36,6 +36,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -1268,6 +1269,63 @@ private:
         } else {
             return 0;
         }
+    }
+};
+
+class FunctionReplace : public IFunction {
+public:
+    static constexpr auto name = "replace";
+    static FunctionPtr create() { return std::make_shared<FunctionReplace>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>()};
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto col_origin =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_old =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_new =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+
+        ColumnString::MutablePtr col_res = ColumnString::create();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            StringRef origin_str =
+                    assert_cast<const ColumnString*>(col_origin.get())->get_data_at(i);
+            StringRef old_str = assert_cast<const ColumnString*>(col_old.get())->get_data_at(i);
+            StringRef new_str = assert_cast<const ColumnString*>(col_new.get())->get_data_at(i);
+
+            std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
+                                         new_str.to_string_view());
+            col_res->insert_data(result.data(), result.length());
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    std::string replace(std::string str, std::string_view old_str, std::string_view new_str) {
+        std::string::size_type pos = 0;
+        std::string::size_type oldLen = old_str.size();
+        std::string::size_type newLen = new_str.size();
+        while ((pos = str.find(old_str, pos)) != std::string::npos) {
+            str.replace(pos, oldLen, new_str);
+            pos += newLen;
+        }
+        return str;
     }
 };
 
