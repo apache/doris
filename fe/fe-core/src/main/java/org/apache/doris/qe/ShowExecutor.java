@@ -49,6 +49,7 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
+import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
@@ -157,6 +158,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -165,7 +167,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang3.tuple.Triple;
-import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -330,6 +331,8 @@ public class ShowExecutor {
             handleShowColumnStats();
         } else if (stmt instanceof ShowTableCreationStmt) {
             handleShowTableCreation();
+        } else if (stmt instanceof ShowLastInsertStmt) {
+            handleShowLastInsert();
         } else {
             handleEmtpy();
         }
@@ -2104,6 +2107,19 @@ public class ShowExecutor {
             keyNameSet.add(resultRow.get(0));
         }
 
+        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void handleShowLastInsert() {
+        ShowLastInsertStmt showStmt = (ShowLastInsertStmt) stmt;
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        if (ConnectContext.get() != null) {
+            InsertResult insertResult = ConnectContext.get().getInsertResult();
+            if (insertResult != null) {
+                resultRowSet.add(insertResult.toRow());
+            }
+        }
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
