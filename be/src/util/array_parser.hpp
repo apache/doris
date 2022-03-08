@@ -41,14 +41,13 @@ public:
     static Status parse(CollectionVal& array_val, FunctionContext* context,
                         const StringVal& str_val) {
         rapidjson::Document document;
-        if (document.Parse(reinterpret_cast<char*>(str_val.ptr), str_val.len).HasParseError()) {
+        if (document.Parse(reinterpret_cast<char*>(str_val.ptr), str_val.len).HasParseError() ||
+            !document.IsArray()) {
             return Status::RuntimeError("Failed to parse the json to array.");
         }
         if (document.IsNull()) {
             array_val = CollectionVal::null();
             return Status::OK();
-        } else if (!document.IsArray()) {
-            return Status::RuntimeError("Failed to parse the json to array.");
         }
         auto type_desc = _convert_to_type_descriptor(context->get_return_type());
         return _parse<rapidjson::UTF8<>>(
