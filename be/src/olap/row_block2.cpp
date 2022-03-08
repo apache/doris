@@ -253,7 +253,8 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
                 auto ptr = reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx));
 
                 uint64_t value = *reinterpret_cast<const uint64_t*>(ptr);
-                vectorized::VecDateTimeValue data(value);
+                vectorized::VecDateTimeValue data;
+                data.from_olap_datetime(value);
                 (column_int)->insert_data(reinterpret_cast<char*>(&data), 0);
             } else {
                 column_int->insert_default();
