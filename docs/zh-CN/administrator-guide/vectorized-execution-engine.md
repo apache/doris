@@ -119,3 +119,5 @@ set batch_size = 4096;
 4. 不支持`TupleIsNull`函数，可能会导致部分外连接并带有非Nullable函数计算的表达式无法得到所需的NULL值。
 5. `string/text`类型最大长度支持为1MB，而不是默认的2GB。
 6. 不支持output in file的导出方式。
+7. 不支持lateral view
+8. 不支持extrenal brocker外表
