@@ -221,7 +221,14 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(block);
         } else {
-            blocks.push_back(block);
+            if (!blocks.empty() && blocks.back()->rows() + block->rows() <= _runtime_state->batch_size()) {
+                MutableBlock(blocks.back()).merge(*block);
+                block->clear_column_data();
+                std::lock_guard<std::mutex> l(_free_blocks_lock);
+                _free_blocks.emplace_back(block);
+            } else {
+                blocks.push_back(block);
+            }
         }
         raw_rows_read = scanner->raw_rows_read();
     }
