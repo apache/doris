@@ -122,3 +122,5 @@ In most scenarios, users only need to turn on the seesion variable by default to
 4. The `TupleIsNull` function is not supported, which may cause partial outer joins and expressions with non-Nullable functions to obtain the required NULL value.
 5. The maximum length of `string/text` type is 1MB instead of the default 2GB.
 6. The export method of output in file is not supported.
+7. Does not support lateral view
+8. Does not support extrenal brocker appearance
