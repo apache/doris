@@ -42,13 +42,19 @@ class MinMaxNumFunc : public MinMaxFuncBase {
 public:
     MinMaxNumFunc() = default;
     ~MinMaxNumFunc() = default;
+
     void insert(const void* data) override {
         if (data == nullptr) {
             return;
         }
 
         T val_data;
-        memcpy(&val_data, data, sizeof(T));
+        if constexpr (sizeof(T) >= sizeof(int128_t)) {
+            // use dereference operator on unalign address maybe lead segmentation fault
+            memcpy(&val_data, data, sizeof(T));
+        } else {
+            val_data = *reinterpret_cast<const T*>(data);
+        }
 
         if (_empty) {
             _min = val_data;
