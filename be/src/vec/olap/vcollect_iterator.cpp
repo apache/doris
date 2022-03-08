@@ -129,7 +129,14 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     // for UNIQUE_KEYS just read the highest version and no need agg_update.
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
     bool lower = (cmp_res != 0) ? (cmp_res < 0) : (lhs->version() < rhs->version());
-    lower ? lhs->set_same(true) : rhs->set_same(true);
+
+    // if lhs or rhs set same is true, means some same value already output, so need to
+    // set another is same
+    if (lower) {
+        lhs->is_same() ? rhs->set_same(true) : lhs->set_same(true);
+    } else {
+        rhs->is_same() ? lhs->set_same(true) : rhs->set_same(true);
+    }
     return lower;
 }
 
