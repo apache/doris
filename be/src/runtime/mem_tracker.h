@@ -117,7 +117,6 @@ public:
         for (auto& tracker : _all_trackers) {
             if (tracker == end_tracker) return;
             tracker->_consumption->add(bytes);
-            memory_leak_check(tracker);
         }
     }
 
@@ -172,7 +171,6 @@ public:
         for (auto& tracker : _all_trackers) {
             if (tracker == end_tracker) return;
             tracker->_consumption->add(-bytes);
-            memory_leak_check(tracker);
         }
     }
 
@@ -194,13 +192,13 @@ public:
         return 0;
     }
 
+    // In most cases, no need to call flush_untracked_mem on the child tracker,
+    // because when it is destructed, theoretically all its children have been destructed.
     void flush_untracked_mem() {
         consume(_untracked_mem.exchange(0));
         for (const auto& tracker_weak : _child_trackers) {
             std::shared_ptr<MemTracker> tracker = tracker_weak.lock();
-            if (tracker) {
-                consume(tracker->_untracked_mem.exchange(0));
-            }
+            if (tracker) tracker->flush_untracked_mem();
         }
     }
 
@@ -349,6 +347,17 @@ public:
                               int64_t failed_allocation = -1,
                               Status failed_alloc = Status::OK()) WARN_UNUSED_RESULT;
 
+    // Usually, a negative values means that the statistics are not accurate,
+    // 1. The released memory is not consumed.
+    // 2. The same block of memory, tracker A calls consume, and tracker B calls release.
+    // 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
+    //    after the release is called on the parent MemTracker,
+    //    the child ~MemTracker will cause repeated releases.
+    static void memory_leak_check(MemTracker* tracker) {
+        tracker->flush_untracked_mem();
+        DCHECK_EQ(tracker->_consumption->current_value(), 0) << std::endl << tracker->log_usage();
+    }
+
     // If an ancestor of this tracker is a Task MemTracker, return that tracker. Otherwise return nullptr.
     MemTracker* parent_task_mem_tracker() {
         MemTracker* tracker = this;
@@ -422,28 +431,6 @@ private:
     static std::string log_usage(int max_recursive_depth,
                                  const std::list<std::weak_ptr<MemTracker>>& trackers,
                                  int64_t* logged_consumption);
-
-    // Usually, a negative values means that the statistics are not accurate,
-    // 1. The released memory is not consumed.
-    // 2. The same block of memory, tracker A calls consume, and tracker B calls release.
-    // 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
-    //    after the release is called on the parent MemTracker,
-    //    the child ~MemTracker will cause repeated releases.
-    //
-    // But TCMalloc Hook will cache a batch of untracked values ​​when it consumes/releases
-    // MemTracker, which may cause tracker->consumption to be temporarily less than 0.
-    // so a small range of negative values ​​is allowed, because, this may obscure above errors.
-    //
-    // A query corresponds to multiple threads, and each thread may have
-    // config::mem_tracker_consume_min_size_bytes is not consumed. Here, 100 is just a guess.
-    void memory_leak_check(MemTracker* tracker) {
-        if (config::memory_leak_detection) {
-            DCHECK_GE(tracker->_consumption->current_value(),
-                      -config::mem_tracker_consume_min_size_bytes * 1024)
-                    << std::endl
-                    << tracker->log_usage();
-        }
-    }
 
     // Creates the process tracker.
     static void create_process_tracker();

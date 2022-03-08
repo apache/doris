@@ -148,9 +148,11 @@ void MemTracker::init_virtual() {
 }
 
 MemTracker::~MemTracker() {
+    consume(_untracked_mem.exchange(0));
+    if (!_virtual && config::memory_leak_detection) MemTracker::memory_leak_check(this);
     if (!_virtual && parent()) {
         if (consumption() != 0) {
-            memory_leak_check(this);
+            // TODO(zxy) delete after. Because some trackers do not manually release completely before destructing
             _parent->release(consumption());
         }
 
@@ -162,7 +164,7 @@ MemTracker::~MemTracker() {
             _child_tracker_it = _parent->_child_trackers.end();
         }
     }
-    consume(_untracked_mem);
+    DCHECK_EQ(_untracked_mem, 0);
 }
 
 void MemTracker::transfer_to_relative(MemTracker* dst, int64_t bytes) {
