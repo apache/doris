@@ -30,6 +30,7 @@
 #include "runtime/string_value.hpp"
 #include "udf/udf.h"
 #include "util/md5.h"
+#include "util/sm3.h"
 #include "util/url_parser.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -922,10 +923,21 @@ public:
     }
 };
 
-class FunctionStringMd5sum : public IFunction {
-public:
+struct SM3Sum {
+    static constexpr auto name = "sm3sum";
+    using ObjectData = SM3Digest;
+};
+
+struct MD5Sum {
     static constexpr auto name = "md5sum";
-    static FunctionPtr create() { return std::make_shared<FunctionStringMd5sum>(); }
+    using ObjectData = Md5Digest;
+};
+
+template <typename Impl>
+class FunctionStringMd5AndSM3 : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionStringMd5AndSM3>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
@@ -964,7 +976,8 @@ public:
 
         res_offset.resize(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            Md5Digest digest;
+            using ObjectData = typename Impl::ObjectData;
+            ObjectData digest;
             for (size_t j = 0; j < offsets_list.size(); ++j) {
                 auto& current_offsets = *offsets_list[j];
                 auto& current_chars = *chars_list[j];

@@ -28,7 +28,6 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::stri
                                                                  const DataTypes& argument_types,
                                                                  const Array& parameters,
                                                                  const bool result_is_nullable) {
-    LOG(INFO) << "percentile_approx function size is: " << argument_types.size();
 
     if (argument_types.size() == 1) {
         return std::make_shared<AggregateFunctionPercentileApproxMerge>(argument_types);

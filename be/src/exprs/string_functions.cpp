@@ -488,7 +488,7 @@ bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::str
 }
 
 // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
-static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
+re2::RE2* StringFunctions::compile_regex(const StringVal& pattern, std::string* error_str,
                                const StringVal& match_parameter) {
     re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
     re2::RE2::Options options;
@@ -512,7 +512,7 @@ static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
         return nullptr;
     }
     return re;
-}
+} 
 
 void StringFunctions::regexp_prepare(FunctionContext* context,
                                      FunctionContext::FunctionStateScope scope) {
