@@ -23,18 +23,8 @@
 #include <fmt/format.h>
 
 #include "common/logging.h"
-#include "olap/olap_common.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
@@ -143,132 +133,11 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::BITMAP;
     case TypeIndex::HLL:
         return PGenericType::HLL;
+    case TypeIndex::Array:
+        return PGenericType::LIST;
     default:
         return PGenericType::UNKNOWN;
     }
 }
 
-DataTypePtr IDataType::from_thrift(const doris::PrimitiveType& type, const bool is_nullable){
-    DataTypePtr result;
-    switch (type) {
-        case TYPE_BOOLEAN:
-            result = std::make_shared<DataTypeUInt8>();
-            break;
-        case TYPE_TINYINT:
-            result = std::make_shared<DataTypeInt8>();
-            break;
-        case TYPE_SMALLINT:
-            result = std::make_shared<DataTypeInt16>();
-            break;
-        case TYPE_INT:
-            result = std::make_shared<DataTypeInt32>();
-            break;
-        case TYPE_FLOAT:
-            result = std::make_shared<DataTypeFloat32>();
-            break;
-        case TYPE_BIGINT:
-            result = std::make_shared<DataTypeInt64>();
-            break;
-        case TYPE_LARGEINT:
-            result = std::make_shared<DataTypeInt128>();
-            break;
-        case TYPE_DATE:
-            result = std::make_shared<DataTypeDate>();
-            break;
-        case TYPE_DATETIME:
-            result = std::make_shared<DataTypeDateTime>();
-            break;
-        case TYPE_TIME:
-        case TYPE_DOUBLE:
-            result = std::make_shared<DataTypeFloat64>();
-            break;
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING:
-            result = std::make_shared<DataTypeString>();
-            break;
-        case TYPE_HLL:
-            result = std::make_shared<DataTypeHLL>();
-            break;        
-        case TYPE_OBJECT:
-            result = std::make_shared<DataTypeBitMap>();
-            break;
-        case TYPE_DECIMALV2:
-            result = std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
-            break;
-        case TYPE_NULL:
-            result = std::make_shared<DataTypeNothing>();
-            break;
-        case INVALID_TYPE:
-        default:
-            DCHECK(false);
-            result = nullptr;
-            break;
-    }
-    if (is_nullable) {
-        result = std::make_shared<DataTypeNullable>(result);
-    }
-
-    return result;
-}
-
-DataTypePtr IDataType::from_olap_engine(const doris::FieldType & type, const _Bool is_nullable) {
-    DataTypePtr result;
-    switch (type) {
-        case OLAP_FIELD_TYPE_BOOL:
-            result = std::make_shared<DataTypeUInt8>();
-            break;
-        case OLAP_FIELD_TYPE_TINYINT:
-            result = std::make_shared<DataTypeInt8>();
-            break;
-        case OLAP_FIELD_TYPE_SMALLINT:
-            result = std::make_shared<DataTypeInt16>();
-            break;
-        case OLAP_FIELD_TYPE_INT:
-            result = std::make_shared<DataTypeInt32>();
-            break;
-        case OLAP_FIELD_TYPE_FLOAT:
-            result = std::make_shared<DataTypeFloat32>();
-            break;
-        case OLAP_FIELD_TYPE_BIGINT:
-            result = std::make_shared<DataTypeInt64>();
-            break;
-        case OLAP_FIELD_TYPE_LARGEINT:
-            result = std::make_shared<DataTypeInt128>();
-            break;
-        case OLAP_FIELD_TYPE_DATE:
-            result = std::make_shared<DataTypeDate>();
-            break;
-        case OLAP_FIELD_TYPE_DATETIME:
-            result = std::make_shared<DataTypeDateTime>();
-            break;
-        case OLAP_FIELD_TYPE_DOUBLE:
-            result = std::make_shared<DataTypeFloat64>();
-            break;
-        case OLAP_FIELD_TYPE_CHAR:
-        case OLAP_FIELD_TYPE_VARCHAR:
-        case OLAP_FIELD_TYPE_STRING:
-            result = std::make_shared<DataTypeString>();
-            break;
-        case OLAP_FIELD_TYPE_HLL:
-            result = std::make_shared<DataTypeHLL>();
-            break;        
-        case OLAP_FIELD_TYPE_OBJECT:
-            result = std::make_shared<DataTypeBitMap>();
-            break;
-        case OLAP_FIELD_TYPE_DECIMAL:
-            result = std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
-            break;
-
-        default:
-            DCHECK(false) << "Invalid olap engine type";
-            result = nullptr;
-            break;
-    }
-    if (is_nullable) {
-        result = std::make_shared<DataTypeNullable>(result);
-    }
-
-    return result;
-}
 } // namespace doris::vectorized
