@@ -23,6 +23,7 @@
 #include <functional>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "gutil/hash/city.h"
@@ -52,6 +53,7 @@ struct StringRef {
     StringRef() = default;
 
     std::string to_string() const { return std::string(data, size); }
+    std::string_view to_string_view() const { return std::string_view(data, size); }
 
     explicit operator std::string() const { return to_string(); }
 
@@ -108,22 +110,25 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
         if (size >= 8) {
             /// Chunks of [8,16] bytes.
             return unaligned_load<uint64_t>(p1) == unaligned_load<uint64_t>(p2) &&
-                   unaligned_load<uint64_t>(p1 + size - 8) == unaligned_load<uint64_t>(p2 + size - 8);
+                   unaligned_load<uint64_t>(p1 + size - 8) ==
+                           unaligned_load<uint64_t>(p2 + size - 8);
         } else if (size >= 4) {
             /// Chunks of [4,7] bytes.
             return unaligned_load<uint32_t>(p1) == unaligned_load<uint32_t>(p2) &&
-                   unaligned_load<uint32_t>(p1 + size - 4) == unaligned_load<uint32_t>(p2 + size - 4);
+                   unaligned_load<uint32_t>(p1 + size - 4) ==
+                           unaligned_load<uint32_t>(p2 + size - 4);
         } else if (size >= 2) {
             /// Chunks of [2,3] bytes.
             return unaligned_load<uint16_t>(p1) == unaligned_load<uint16_t>(p2) &&
-                   unaligned_load<uint16_t>(p1 + size - 2) == unaligned_load<uint16_t>(p2 + size - 2);
+                   unaligned_load<uint16_t>(p1 + size - 2) ==
+                           unaligned_load<uint16_t>(p2 + size - 2);
         } else if (size >= 1) {
             /// A single byte.
             return *p1 == *p2;
         }
         return true;
     }
-    
+
     while (size >= 64) {
         if (compareSSE2x4(p1, p2)) {
             p1 += 64;
@@ -133,11 +138,15 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
             return false;
     }
 
-    switch (size / 16)
-    {
-        case 3: if (!compareSSE2(p1 + 32, p2 + 32)) return false; [[fallthrough]];
-        case 2: if (!compareSSE2(p1 + 16, p2 + 16)) return false; [[fallthrough]];
-        case 1: if (!compareSSE2(p1, p2)) return false;
+    switch (size / 16) {
+    case 3:
+        if (!compareSSE2(p1 + 32, p2 + 32)) return false;
+        [[fallthrough]];
+    case 2:
+        if (!compareSSE2(p1 + 16, p2 + 16)) return false;
+        [[fallthrough]];
+    case 1:
+        if (!compareSSE2(p1, p2)) return false;
     }
 
     return compareSSE2(p1 + size - 16, p2 + size - 16);
