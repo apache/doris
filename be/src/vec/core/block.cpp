@@ -44,85 +44,13 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
-
-inline DataTypePtr create_data_type(const PColumnMeta& pcolumn_meta) {
-    switch (pcolumn_meta.type()) {
-    case PGenericType::UINT8: {
-        return std::make_shared<DataTypeUInt8>();
-    }
-    case PGenericType::UINT16: {
-        return std::make_shared<DataTypeUInt16>();
-    }
-    case PGenericType::UINT32: {
-        return std::make_shared<DataTypeUInt32>();
-    }
-    case PGenericType::UINT64: {
-        return std::make_shared<DataTypeUInt64>();
-    }
-    case PGenericType::UINT128: {
-        return std::make_shared<DataTypeUInt128>();
-    }
-    case PGenericType::INT8: {
-        return std::make_shared<DataTypeInt8>();
-    }
-    case PGenericType::INT16: {
-        return std::make_shared<DataTypeInt16>();
-    }
-    case PGenericType::INT32: {
-        return std::make_shared<DataTypeInt32>();
-    }
-    case PGenericType::INT64: {
-        return std::make_shared<DataTypeInt64>();
-    }
-    case PGenericType::INT128: {
-        return std::make_shared<DataTypeInt128>();
-    }
-    case PGenericType::FLOAT: {
-        return std::make_shared<DataTypeFloat32>();
-    }
-    case PGenericType::DOUBLE: {
-        return std::make_shared<DataTypeFloat64>();
-    }
-    case PGenericType::STRING: {
-        return std::make_shared<DataTypeString>();
-    }
-    case PGenericType::DATE: {
-        return std::make_shared<DataTypeDate>();
-    }
-    case PGenericType::DATETIME: {
-        return std::make_shared<DataTypeDateTime>();
-    }
-    case PGenericType::DECIMAL32: {
-        return std::make_shared<DataTypeDecimal<Decimal32>>(
-                pcolumn_meta.decimal_param().precision(), pcolumn_meta.decimal_param().scale());
-    }
-    case PGenericType::DECIMAL64: {
-        return std::make_shared<DataTypeDecimal<Decimal64>>(
-                pcolumn_meta.decimal_param().precision(), pcolumn_meta.decimal_param().scale());
-    }
-    case PGenericType::DECIMAL128: {
-        return std::make_shared<DataTypeDecimal<Decimal128>>(
-                pcolumn_meta.decimal_param().precision(), pcolumn_meta.decimal_param().scale());
-    }
-    case PGenericType::BITMAP: {
-        return std::make_shared<DataTypeBitMap>();
-    }
-    case PGenericType::HLL: {
-        return std::make_shared<DataTypeHLL>();
-    }
-    default: {
-        LOG(FATAL) << fmt::format("Unknown data type: {}, data type name: {}", pcolumn_meta.type(),
-                                  PGenericType_TypeId_Name(pcolumn_meta.type()));
-        return nullptr;
-    }
-    }
-}
 
 Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {
     initialize_index_by_name();
@@ -153,14 +81,8 @@ Block::Block(const PBlock& pblock) {
     }
 
     for (const auto& pcol_meta : pblock.column_metas()) {
-        DataTypePtr type = create_data_type(pcol_meta);
-        MutableColumnPtr data_column;
-        if (pcol_meta.is_nullable()) {
-            data_column = ColumnNullable::create(type->create_column(), ColumnUInt8::create());
-            type = make_nullable(type);
-        } else {
-            data_column = type->create_column();
-        }
+        DataTypePtr type = DataTypeFactory::instance().create_data_type(pcol_meta);
+        MutableColumnPtr data_column = type->create_column();
         buf = type->deserialize(buf, data_column.get());
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }

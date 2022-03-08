@@ -23,6 +23,7 @@
 
 #include "exprs/anyval_util.h"
 #include "gen_cpp/Exprs_types.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcompound_pred.h"
@@ -45,11 +46,12 @@ VExpr::VExpr(const doris::TExprNode& node)
     if (node.__isset.fn) {
         _fn = node.fn;
     }
+
+    bool is_nullable = true;
     if (node.__isset.is_nullable) {
-        _data_type = IDataType::from_thrift(_type.type, node.is_nullable);
-    } else {
-        _data_type = IDataType::from_thrift(_type.type);
+        is_nullable = node.is_nullable;
     }
+    _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
@@ -57,7 +59,8 @@ VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
-    _data_type = IDataType::from_thrift(_type.type, is_nullable);
+
+    _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {

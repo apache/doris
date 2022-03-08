@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "gen_cpp/data.pb.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
 #include "olap/hll.h"
