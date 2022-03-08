@@ -775,44 +775,34 @@ public:
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_TINYINT: {
-            int8_t min_val;
-            int8_t max_val;
-            min_val = static_cast<int8_t>(minmax_filter->min_val().intval());
-            max_val = static_cast<int8_t>(minmax_filter->max_val().intval());
+            int8_t min_val = static_cast<int8_t>(minmax_filter->min_val().intval());
+            int8_t max_val = static_cast<int8_t>(minmax_filter->max_val().intval());
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_SMALLINT: {
-            int16_t min_val;
-            int16_t max_val;
-            min_val = static_cast<int16_t>(minmax_filter->min_val().intval());
-            max_val = static_cast<int16_t>(minmax_filter->max_val().intval());
+            int16_t min_val = static_cast<int16_t>(minmax_filter->min_val().intval());
+            int16_t max_val = static_cast<int16_t>(minmax_filter->max_val().intval());
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_INT: {
-            int32_t min_val;
-            int32_t max_val;
-            min_val = minmax_filter->min_val().intval();
-            max_val = minmax_filter->max_val().intval();
+            int32_t min_val = minmax_filter->min_val().intval();
+            int32_t max_val = minmax_filter->max_val().intval();
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_BIGINT: {
-            int64_t min_val;
-            int64_t max_val;
-            min_val = minmax_filter->min_val().longval();
-            max_val = minmax_filter->max_val().longval();
+            int64_t min_val = minmax_filter->min_val().longval();
+            int64_t max_val = minmax_filter->max_val().longval();
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_LARGEINT: {
-            int128_t min_val;
-            int128_t max_val;
             auto min_string_val = minmax_filter->min_val().stringval();
             auto max_string_val = minmax_filter->max_val().stringval();
             StringParser::ParseResult result;
-            min_val = StringParser::string_to_int<int128_t>(min_string_val.c_str(),
-                                                            min_string_val.length(), &result);
+            int128_t min_val = StringParser::string_to_int<int128_t>(
+                    min_string_val.c_str(), min_string_val.length(), &result);
             DCHECK(result == StringParser::PARSE_SUCCESS);
-            max_val = StringParser::string_to_int<int128_t>(max_string_val.c_str(),
-                                                            max_string_val.length(), &result);
+            int128_t max_val = StringParser::string_to_int<int128_t>(
+                    max_string_val.c_str(), max_string_val.length(), &result);
             DCHECK(result == StringParser::PARSE_SUCCESS);
             return _minmax_func->assign(&min_val, &max_val);
         }
