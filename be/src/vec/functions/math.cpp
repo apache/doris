@@ -167,56 +167,6 @@ struct CeilName {
 };
 using FunctionCeil = FunctionMathUnary<UnaryFunctionVectorized<CeilName, std::ceil, DataTypeInt64>>;
 
-struct HexIntName {
-    static constexpr auto name = "hex";
-};
-
-struct HexIntImpl {
-    using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::Int64;
-    using Type = Int64;
-    using ReturnColumnType = ColumnString;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeInt64>()};
-    }
-    
-    static std::string_view hex(uint64_t num, char* ans){
-        static constexpr auto hex_table = "0123456789ABCDEF";
-        // uint64_t max value 0xFFFFFFFFFFFFFFFF , 16 'F'
-        if (num == 0) { return {hex_table, 1};}
-
-        int i = 0;
-        while (num) {
-            ans[i++] = hex_table[num & 15];
-            num = num >> 4;
-        }
-        ans[i] = '\0';
-
-        // reverse
-        for (int k = 0, j = i - 1; k <= j && k <= 16; k++, j--) {
-            char tmp = ans[j];
-            ans[j] = ans[k];
-            ans[k] = tmp;
-        }
-
-        return {ans, static_cast<size_t>(i)};
-    }
-    
-    static Status vector(const ColumnInt64::Container& data, ColumnString::Chars& res_data,
-                         ColumnString::Offsets& res_offsets) {
-        res_offsets.resize(data.size());
-        size_t input_size = res_offsets.size();
-        char ans[17];
-        for (size_t i = 0; i < input_size; ++i) {
-            StringOP::push_value_string(hex(data[i], ans), i, res_data, res_offsets);
-        }
-        return Status::OK();
-    }
-};
-
-using FunctionHexInt = FunctionUnaryToType<HexIntImpl, HexIntName>;
-
 template <typename A>
 struct SignImpl {
     using ResultType = Int8;
@@ -459,7 +409,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCeil>();
     factory.register_alias("ceil", "dceil");
     factory.register_alias("ceil", "ceiling");
-    factory.register_function<FunctionHexInt>();
     factory.register_function<FunctionE>();
     factory.register_function<FunctionLn>();
     factory.register_alias("ln", "dlog1");
