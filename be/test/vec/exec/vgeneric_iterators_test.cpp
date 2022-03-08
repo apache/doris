@@ -53,7 +53,7 @@ static void create_block(Schema& schema, vectorized::Block& block)
 {
     for (auto &column_desc : schema.columns()) {
         ASSERT_TRUE(column_desc);
-        auto data_type = Schema::get_data_type_ptr(column_desc->type());
+        auto data_type = Schema::get_data_type_ptr(*column_desc);
         ASSERT_NE(data_type, nullptr);
         if (column_desc->is_nullable()) {
             data_type = std::make_shared<vectorized::DataTypeNullable>(std::move(data_type));

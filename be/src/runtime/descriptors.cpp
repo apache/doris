@@ -26,6 +26,7 @@
 #include "gen_cpp/descriptors.pb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
@@ -84,19 +85,15 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
-    auto data_column = type().get_data_type_ptr()->create_column();
-    if (is_nullable()) {
-        return doris::vectorized::ColumnNullable::create(std::move(data_column),
-                                                         doris::vectorized::ColumnUInt8::create());
+    auto data_type = get_data_type_ptr();
+    if (data_type) {
+        return data_type->create_column();
     }
-    return data_column;
+    return nullptr;
 }
 
 vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
-    if (is_nullable()) {
-        return std::make_shared<vectorized::DataTypeNullable>(type().get_data_type_ptr());
-    }
-    return type().get_data_type_ptr();
+    return vectorized::DataTypeFactory::instance().create_data_type(type(), is_nullable());
 }
 
 std::string SlotDescriptor::debug_string() const {

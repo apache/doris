@@ -20,6 +20,7 @@
 #include "tablet_meta.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -496,7 +497,7 @@ vectorized::Block TabletSchema::create_block(const std::vector<uint32_t>& return
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {
         const auto& col = _cols[return_columns[i]];
-        auto data_type = vectorized::IDataType::from_olap_engine(col.type(), col.is_nullable());
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
         auto column = data_type->create_column();
         block.insert({std::move(column), data_type, col.name()});
     }
@@ -560,6 +561,5 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
-
 
 } // namespace doris

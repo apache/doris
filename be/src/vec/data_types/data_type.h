@@ -241,8 +241,6 @@ public:
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
-    static DataTypePtr from_thrift(const doris::PrimitiveType& type, const bool is_nullable = true);
-    static DataTypePtr from_olap_engine(const doris::FieldType& type, const bool is_nullable = true);
 
 private:
     friend class DataTypeFactory;
