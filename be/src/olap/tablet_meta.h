@@ -81,7 +81,8 @@ public:
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int32_t schema_hash,
                uint64_t shard_id, const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-               TabletUid tablet_uid, TTabletType::type tabletType, TStorageMedium::type t_storage_medium);
+               TabletUid tablet_uid, TTabletType::type tabletType,
+               TStorageMedium::type t_storage_medium);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -166,6 +167,8 @@ public:
 
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset() { _stale_rs_metas.clear(); }
+
+    inline bool all_beta() const;
 
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
@@ -300,6 +303,20 @@ inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const 
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_stale_rs_metas() const {
     return _stale_rs_metas;
+}
+
+inline bool TabletMeta::all_beta() const {
+    for (auto& rs : _rs_metas) {
+        if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
+            return false;
+        }
+    }
+    for (auto& rs : _stale_rs_metas) {
+        if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // Only for unit test now.
