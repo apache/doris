@@ -1511,3 +1511,8 @@ webserver默认工作线程数
 * 类型：int32
 * 描述：load 作业中各个rpc 的最小超时时间。
 * 默认：20
+
+### `doris_scan_range_max_mb`
+* 类型: int32
+* 描述: 每个OlapScanner 读取的最大数据量
+* 默认值: 1024
