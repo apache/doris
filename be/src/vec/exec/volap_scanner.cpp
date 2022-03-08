@@ -20,7 +20,6 @@
 #include <memory>
 
 #include "runtime/runtime_state.h"
-
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -35,8 +34,7 @@ namespace doris::vectorized {
 
 VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
                            bool need_agg_finalize, const TPaloScanRange& scan_range)
-        : OlapScanner(runtime_state, parent, aggregation, need_agg_finalize, scan_range) {
-}
+        : OlapScanner(runtime_state, parent, aggregation, need_agg_finalize, scan_range) {}
 
 Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bool* eof) {
     // only empty block should be here
@@ -47,8 +45,8 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
+                                                slot_desc->get_data_type_ptr(),
+                                                slot_desc->col_name()));
         }
     }
 

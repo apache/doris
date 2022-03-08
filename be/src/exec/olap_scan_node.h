@@ -154,12 +154,6 @@ protected:
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);
 
-    static Status get_hints(const TPaloScanRange& scan_range, int block_row_count,
-                            bool is_begin_include, bool is_end_include,
-                            const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                            std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                            RuntimeProfile* profile);
-
     friend class OlapScanner;
     friend class vectorized::VOlapScanner;
 

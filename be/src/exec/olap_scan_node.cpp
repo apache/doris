@@ -680,24 +680,11 @@ Status OlapScanNode::build_scan_key() {
     return Status::OK();
 }
 
-Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_count,
-                               bool is_begin_include, bool is_end_include,
-                               const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                               std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                               RuntimeProfile* profile) {
-    auto tablet_id = scan_range.tablet_id;
-    int32_t schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
-    std::string err;
-    TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
-            tablet_id, schema_hash, true, &err);
-    if (table == nullptr) {
-        std::stringstream ss;
-        ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
-           << ", reason: " << err;
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
-    }
-
+static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
+                        int block_row_count, bool is_begin_include, bool is_end_include,
+                        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                        RuntimeProfile* profile) {
     RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
     std::vector<std::vector<OlapTuple>> ranges;
     bool have_valid_range = false;
@@ -777,21 +764,42 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     }
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
-
     std::unordered_set<std::string> disk_set;
     for (auto& scan_range : _scan_ranges) {
+        auto tablet_id = scan_range->tablet_id;
+        int32_t schema_hash = strtoul(scan_range->schema_hash.c_str(), nullptr, 10);
+        std::string err;
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                tablet_id, schema_hash, true, &err);
+        if (tablet == nullptr) {
+            std::stringstream ss;
+            ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
+               << ", reason: " << err;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
         std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
         std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
-        if (need_split) {
-            auto st = get_hints(*scan_range, config::doris_scan_range_row_count,
+        if (need_split && !tablet->all_beta()) {
+            auto st = get_hints(tablet, *scan_range, config::doris_scan_range_row_count,
                                 _scan_keys.begin_include(), _scan_keys.end_include(), cond_ranges,
                                 &split_ranges, _runtime_profile.get());
             if (st.ok()) {
                 ranges = &split_ranges;
             }
         }
-
-        int ranges_per_scanner = std::max(1, (int)ranges->size() / scanners_per_tablet);
+        // In order to avoid the problem of too many scanners caused by small tablets,
+        // in addition to scanRange, we also need to consider the size of the tablet when
+        // creating the scanner. One scanner is used for every 1Gb, and the final scanner_per_tablet
+        // takes the minimum value calculated by scanrange and size.
+        int size_based_scanners_per_tablet = 1;
+        if (config::doris_scan_range_max_mb > 0) {
+            size_based_scanners_per_tablet = std::max(
+                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+        }
+        int ranges_per_scanner =
+                std::max(1, (int)ranges->size() /
+                                    std::min(scanners_per_tablet, size_based_scanners_per_tablet));
         int num_ranges = ranges->size();
         for (int i = 0; i < num_ranges;) {
             std::vector<OlapScanRange*> scanner_ranges;

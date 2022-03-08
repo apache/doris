@@ -123,7 +123,8 @@ public:
     // if quiet is true, no error log will be printed if there are missing versions
     OLAPStatus check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
-    void acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
+    void acquire_version_and_rowsets(
+            std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const;
@@ -264,6 +265,8 @@ public:
     std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy() {
         return _cumulative_compaction_policy;
     }
+
+    inline bool all_beta() const { return _tablet_meta->all_beta(); }
 
 private:
     OLAPStatus _init_once_action();
