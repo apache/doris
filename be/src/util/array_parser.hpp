@@ -50,14 +50,15 @@ public:
         } else if (!document.IsArray()) {
             return Status::RuntimeError("Failed to parse the json to array.");
         }
-        auto type_desc = _convertToTypeDescriptor(context->get_return_type());
+        auto type_desc = _convert_to_type_descriptor(context->get_return_type());
         return _parse<rapidjson::UTF8<>>(
                 array_val, context,
                 reinterpret_cast<const rapidjson::Document*>(&document)->GetArray(), type_desc);
     }
 
 private:
-    static TypeDescriptor _convertToTypeDescriptor(FunctionContext::TypeDesc function_type_desc) {
+    static TypeDescriptor _convert_to_type_descriptor(
+            FunctionContext::TypeDesc function_type_desc) {
         auto iterator = _types_mapping.find(function_type_desc.type);
         if (iterator == _types_mapping.end()) {
             return TypeDescriptor();
@@ -67,7 +68,7 @@ private:
         type_desc.precision = function_type_desc.precision;
         type_desc.scale = function_type_desc.scale;
         for (auto child_type_desc : function_type_desc.children) {
-            type_desc.children.push_back(_convertToTypeDescriptor(child_type_desc));
+            type_desc.children.push_back(_convert_to_type_descriptor(child_type_desc));
         }
         return type_desc;
     }
