@@ -26,6 +26,7 @@
 #include "util/url_coding.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -998,6 +999,22 @@ TEST(function_string_test, function_str_to_date_test) {
             {{std::string("2020-09-01"), std::string("%Y-%m-%d %H:%i:%s")},
              str_to_data_time("2020-09-01 00:00:00", false)}};
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_replace) {
+    std::string func_name = "replace";
+    InputTypeSet input_types = {
+            TypeIndex::String,
+            TypeIndex::String,
+            TypeIndex::String,
+    };
+    DataSet data_set = {{{Null(), VARCHAR("9090"), VARCHAR("")}, {Null()}},
+                        {{VARCHAR("http://www.baidu.com:9090"), VARCHAR("9090"), VARCHAR("")},
+                         {VARCHAR("http://www.baidu.com:")}},
+                        {{VARCHAR("aaaaa"), VARCHAR("a"), VARCHAR("")}, {VARCHAR("")}},
+                        {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("")}, {VARCHAR("a")}},
+                        {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("a")}, {VARCHAR("aaa")}}};
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
 } // namespace doris::vectorized
