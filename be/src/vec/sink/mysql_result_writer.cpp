@@ -216,7 +216,11 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
 }
 
 int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_idx,
+<<<<<<< HEAD
                                       const DataTypePtr& type, MysqlRowBuffer& buffer) {
+=======
+                                         const DataTypePtr& type, MysqlRowBuffer& buffer) {
+>>>>>>> [feature-wip](array-type)support select ARRAY data type on vectorized engine (#8217)
     WhichDataType which(type->get_type_id());
     if (which.is_nullable() && column_ptr->is_null_at(row_idx)) {
         return buffer.push_null();
@@ -270,6 +274,7 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
             buf_ret = buffer.push_string(string_val.data, string_val.size);
         }
         return buf_ret;
+<<<<<<< HEAD
     } else if (which.is_array()) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
@@ -302,6 +307,8 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         }
         buf_ret = buffer.push_string("]", strlen("]"));
         return buf_ret;
+=======
+>>>>>>> [feature-wip](array-type)support select ARRAY data type on vectorized engine (#8217)
     } else {
         LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
         return -1;
@@ -445,6 +452,7 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
         }
         case TYPE_ARRAY: {
             if (type_ptr->is_nullable()) {
+<<<<<<< HEAD
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
@@ -454,6 +462,14 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result,
                                                                            sub_type);
+=======
+                auto& nested_type = assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result, sub_type);
+            } else {
+                auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result, sub_type);
+>>>>>>> [feature-wip](array-type)support select ARRAY data type on vectorized engine (#8217)
             }
             break;
         }
