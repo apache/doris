@@ -53,13 +53,13 @@ public:
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator);
 
-    const TypeInfo* type_info() const { return _typeinfo; }
+    std::shared_ptr<const TypeInfo> type_info() const { return _typeinfo; }
 
 private:
     friend class BloomFilterIndexIterator;
 
     FilePathDesc _path_desc;
-    const TypeInfo* _typeinfo;
+    std::shared_ptr<const TypeInfo> _typeinfo;
     const BloomFilterIndexPB* _bloom_filter_index_meta;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;
 };

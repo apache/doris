@@ -269,6 +269,8 @@ public:
     }
 
     void get_dict_word_info(StringRef* dict_word_info) {
+        if (_num_elems <= 0) [[unlikely]] return;
+
         char* data_begin = (char*)&_data[0];
         char* offset_ptr = (char*)&_data[_offsets_pos];
 

@@ -67,7 +67,6 @@ public class CheckConsistencyJob {
 
     private int checkedSchemaHash;
     private long checkedVersion;
-    private long checkedVersionHash;
 
     private long createTime;
     private long timeoutMs;
@@ -80,7 +79,6 @@ public class CheckConsistencyJob {
 
         this.checkedSchemaHash = -1;
         this.checkedVersion = -1L;
-        this.checkedVersionHash = -1L;
 
         this.createTime = System.currentTimeMillis();
         this.timeoutMs = 0L;
@@ -166,7 +164,6 @@ public class CheckConsistencyJob {
             }
 
             checkedVersion = partition.getVisibleVersion();
-            checkedVersionHash = partition.getVisibleVersionHash();
             checkedSchemaHash = olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId());
 
             int sentTaskReplicaNum = 0;
@@ -188,7 +185,7 @@ public class CheckConsistencyJob {
                                                                      tabletMeta.getPartitionId(),
                                                                      tabletMeta.getIndexId(),
                                                                      tabletId, checkedSchemaHash,
-                                                                     checkedVersion, checkedVersionHash);
+                                                                     checkedVersion);
 
                 // add task to send
                 batchTask.addTask(task);
@@ -220,7 +217,7 @@ public class CheckConsistencyJob {
                 return false;
             }
             try {
-                tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
+                tablet.setCheckedVersion(checkedVersion);
             } finally {
                 table.writeUnlock();
             }
@@ -361,12 +358,12 @@ public class CheckConsistencyJob {
             tablet.setIsConsistent(isConsistent);
 
             // set checked version
-            tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
+            tablet.setCheckedVersion(checkedVersion);
 
             // log
             ConsistencyCheckInfo info = new ConsistencyCheckInfo(db.getId(), table.getId(), partition.getId(),
                                                                  index.getId(), tabletId, lastCheckTime,
-                                                                 checkedVersion, checkedVersionHash, isConsistent);
+                                                                 checkedVersion, isConsistent);
             Catalog.getCurrentCatalog().getEditLog().logFinishConsistencyCheck(info);
             return 1;
 

@@ -37,8 +37,9 @@ namespace segment_v2 {
 struct ParsedPage {
     static Status create(PageHandle handle, const Slice& body, const DataPageFooterPB& footer,
                          const EncodingInfo* encoding, const PagePointer& page_pointer,
-                         uint32_t page_index, std::unique_ptr<ParsedPage>* result) {
-        std::unique_ptr<ParsedPage> page(new ParsedPage);
+                         uint32_t page_index, ParsedPage* result) {
+        result->~ParsedPage();
+        ParsedPage* page = new (result)(ParsedPage);
         page->page_handle = std::move(handle);
 
         auto null_size = footer.nullmap_size();
@@ -63,11 +64,13 @@ struct ParsedPage {
 
         page->first_array_item_ordinal = footer.first_array_item_ordinal();
 
-        *result = std::move(page);
         return Status::OK();
     }
 
-    ~ParsedPage() { delete data_decoder; }
+    ~ParsedPage() { 
+        delete data_decoder; 
+        data_decoder = nullptr;
+    }
 
     PageHandle page_handle;
 
@@ -93,12 +96,12 @@ struct ParsedPage {
     bool contains(ordinal_t ord) {
         return ord >= first_ordinal && ord < (first_ordinal + num_rows);
     }
-    bool has_remaining() const { return offset_in_page < num_rows; }
-    size_t remaining() const { return num_rows - offset_in_page; }
 
-private:
-    // client should use create() factory method
-    ParsedPage() = default;
+    operator bool() const { return data_decoder != nullptr; }
+
+    bool has_remaining() const { return offset_in_page < num_rows; }
+
+    size_t remaining() const { return num_rows - offset_in_page; }
 };
 
 } // namespace segment_v2

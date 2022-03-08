@@ -478,7 +478,11 @@ ColumnPtr ColumnArray::filter_nullable(const Filter & filt, ssize_t result_size_
 
 void ColumnArray::insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) {
     for (auto x = indices_begin; x != indices_end; ++x) {
-        ColumnArray::insert_from(src, *x);
+        if (*x == -1) {
+            ColumnArray::insert_default();
+        } else {
+            ColumnArray::insert_from(src, *x);
+        }
     }
 }
 

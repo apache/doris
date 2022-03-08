@@ -562,4 +562,7 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
         return nullptr;
     }
 }
+std::ostream& operator<<(std::ostream& os, const StringVal& string_val) {
+    return os << string_val.to_string();
+}
 } // namespace doris_udf

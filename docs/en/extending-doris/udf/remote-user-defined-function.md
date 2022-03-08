@@ -104,3 +104,6 @@ The use of UDF is consistent with ordinary function methods. The only difference
 ## Delete UDF
 
 When you no longer need UDF functions, you can delete a UDF function by the following command, you can refer to `DROP FUNCTION`.
+
+## Example
+Examples of rpc server implementations and cpp/java/python languages are provided in the `samples/doris-demo/` directory. See the `README.md` in each directory for details on how to use it.

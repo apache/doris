@@ -56,7 +56,12 @@ public class PlanTreeBuilder {
             PlanTreeNode sinkNode = null;
             if (sink != null) {
                 StringBuilder sb = new StringBuilder();
-                sb.append("[").append(sink.getExchNodeId().asInt()).append(": ").append(sink.getClass().getSimpleName()).append("]");
+                if (sink.getExchNodeId() != null) {
+                    sb.append("[").append(sink.getExchNodeId().asInt()).append(": ")
+                            .append(sink.getClass().getSimpleName()).append("]");
+                } else {
+                    sb.append("[").append(sink.getClass().getSimpleName()).append("]");
+                }
                 sb.append("\n[Fragment: ").append(fragment.getId().asInt()).append("]");
                 sb.append("\n").append(sink.getExplainString("", TExplainLevel.BRIEF));
                 sinkNode = new PlanTreeNode(sink.getExchNodeId(), sb.toString());

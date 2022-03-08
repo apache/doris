@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+
 #include <utility>
 
 #include "vec/columns/column_string.h"

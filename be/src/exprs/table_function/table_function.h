@@ -42,6 +42,7 @@ public:
     virtual Status forward(bool *eos) = 0;
 
 public:
+    std::string name() const { return _fn_name; }
     bool eos() const { return _eos; }
 
     void set_expr_context(ExprContext* expr_context) {

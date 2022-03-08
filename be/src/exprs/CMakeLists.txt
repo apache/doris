@@ -41,7 +41,6 @@ add_library(Exprs
   expr.cpp
   expr_context.cpp
   in_predicate.cpp
-  new_in_predicate.cpp
   bloomfilter_predicate.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc

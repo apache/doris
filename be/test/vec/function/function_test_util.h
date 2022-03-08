@@ -86,7 +86,6 @@ void insert_column_to_block(std::list<ColumnPtr>& columns, ColumnsWithTypeAndNam
 // Null values are represented by Null()
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}
 // A DataSet with a constant column can only have one row of data
-
 template <typename ReturnType, bool nullable = false>
 void check_function(const std::string& func_name, const std::vector<std::any>& input_types,
                     const DataSet& data_set) {

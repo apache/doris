@@ -34,6 +34,7 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -141,6 +142,7 @@ public class UpdateStmtExecutor {
         coordinator = new Coordinator(Catalog.getCurrentCatalog().getNextId(), queryId, analyzer.getDescTbl(),
                 updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
         coordinator.setQueryType(TQueryType.LOAD);
+        coordinator.setExecVecEngine(VectorizedUtil.isVectorized());
         QeProcessorImpl.INSTANCE.registerQuery(queryId, coordinator);
         analyzer.getContext().getExecutor().setCoord(coordinator);
 

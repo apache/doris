@@ -21,6 +21,7 @@
 #include "exprs/expr_context.h"
 #include "fmt/format.h"
 #include "gen_cpp/function_service.pb.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 #include "service/brpc.h"
@@ -60,6 +61,7 @@ Status RPCFnCall::prepare(RuntimeState* state, const RowDescriptor& desc, ExprCo
 Status RPCFnCall::open(RuntimeState* state, ExprContext* ctx,
                        FunctionContext::FunctionStateScope scope) {
     RETURN_IF_ERROR(Expr::open(state, ctx, scope));
+    _state = state;
     return Status::OK();
 }
 
@@ -68,8 +70,7 @@ void RPCFnCall::close(RuntimeState* state, ExprContext* context,
     Expr::close(state, context, scope);
 }
 
-Status RPCFnCall::_eval_children(ExprContext* context, TupleRow* row,
-                                 PFunctionCallResponse* response) {
+Status RPCFnCall::call_rpc(ExprContext* context, TupleRow* row, PFunctionCallResponse* response) {
     PFunctionCallRequest request;
     request.set_function_name(_rpc_function_symbol);
     for (int i = 0; i < _children.size(); ++i) {
@@ -188,8 +189,10 @@ Status RPCFnCall::_eval_children(ExprContext* context, TupleRow* row,
         }
         default: {
             FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-            fn_ctx->set_error(
-                    fmt::format("data time not supported: {}", _children[i]->type().type).c_str());
+            std::string error_msg =
+                    fmt::format("data time not supported: {}", _children[i]->type().type);
+            fn_ctx->set_error(error_msg.c_str());
+            cancel(error_msg);
             break;
         }
         }
@@ -199,23 +202,28 @@ Status RPCFnCall::_eval_children(ExprContext* context, TupleRow* row,
     _client->fn_call(&cntl, &request, response, nullptr);
     if (cntl.Failed()) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        fn_ctx->set_error(cntl.ErrorText().c_str());
-        return Status::InternalError(fmt::format("call rpc function {} failed: {}",
-                                                 _rpc_function_symbol, cntl.ErrorText())
-                                             .c_str());
+        std::string error_msg = fmt::format("call rpc function {} failed: {}", _rpc_function_symbol,
+                                            cntl.ErrorText());
+        fn_ctx->set_error(error_msg.c_str());
+        cancel(error_msg);
+        return Status::InternalError(error_msg);
     }
     if (!response->has_status() || !response->has_result()) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        fn_ctx->set_error(response->status().DebugString().c_str());
-        return Status::InternalError(fmt::format(
-                "call rpc function {} failed: status or result is not set.", _rpc_function_symbol));
+        std::string error_msg =
+                fmt::format("call rpc function {} failed: status or result is not set: {}",
+                            _rpc_function_symbol, response->status().DebugString());
+        fn_ctx->set_error(error_msg.c_str());
+        cancel(error_msg);
+        return Status::InternalError(error_msg);
     }
     if (response->status().status_code() != 0) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        fn_ctx->set_error(response->status().DebugString().c_str());
-        return Status::InternalError(fmt::format("call rpc function {} failed: {}",
-                                                 _rpc_function_symbol,
-                                                 response->status().DebugString()));
+        std::string error_msg = fmt::format("call rpc function {} failed: {}", _rpc_function_symbol,
+                                            response->status().DebugString());
+        fn_ctx->set_error(error_msg.c_str());
+        cancel(error_msg);
+        return Status::InternalError(error_msg);
     }
     return Status::OK();
 }
@@ -223,7 +231,7 @@ Status RPCFnCall::_eval_children(ExprContext* context, TupleRow* row,
 template <typename T>
 T RPCFnCall::interpret_eval(ExprContext* context, TupleRow* row) {
     PFunctionCallResponse response;
-    Status st = _eval_children(context, row, &response);
+    Status st = call_rpc(context, row, &response);
     WARN_IF_ERROR(st, "call rpc udf error");
     if (!st.ok() || (response.result().has_null() && response.result().null_map(0))) {
         return T::null();
@@ -328,6 +336,10 @@ doris_udf::DecimalV2Val RPCFnCall::get_decimalv2_val(ExprContext* context, Tuple
 }
 doris_udf::CollectionVal RPCFnCall::get_array_val(ExprContext* context, TupleRow* row) {
     return interpret_eval<CollectionVal>(context, row);
+}
+void RPCFnCall::cancel(const std::string& msg) {
+    _state->exec_env()->fragment_mgr()->cancel(_state->fragment_instance_id(),
+                                               PPlanFragmentCancelReason::CALL_RPC_ERROR, msg);
 }
 
 } // namespace doris

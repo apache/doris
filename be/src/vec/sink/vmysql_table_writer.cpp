@@ -55,7 +55,7 @@ Status VMysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string
     if (res == nullptr) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "mysql_real_connect failed because : {}.", mysql_error(_mysql_conn));
-        return Status::InternalError(err_ss.data());
+        return Status::InternalError(fmt::to_string(err_ss.data()));
     }
 
     // set character
@@ -63,7 +63,7 @@ Status VMysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "mysql_set_character_set failed because : {}.",
                        mysql_error(_mysql_conn));
-        return Status::InternalError(err_ss.data());
+        return Status::InternalError(fmt::to_string(err_ss.data()));
     }
 
     _mysql_tbl = tbl;
@@ -190,7 +190,7 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             fmt::memory_buffer err_out;
             fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
                            _vec_output_expr_ctxs[i]->root()->type().type);
-            return Status::InternalError(err_out.data());
+            return Status::InternalError(fmt::to_string(err_out));
         }
         }
     }
@@ -202,7 +202,7 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "Insert to mysql server({}) failed, because: {}.",
                        mysql_get_host_info(_mysql_conn), mysql_error(_mysql_conn));
-        return Status::InternalError(err_ss.data());
+        return Status::InternalError(fmt::to_string(err_ss));
     }
 
     return Status::OK();

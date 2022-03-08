@@ -102,9 +102,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddMinutes>();
     factory.register_function<FunctionAddHours>();
     factory.register_function<FunctionAddDays>();
-    factory.register_alias("days_add", "add_dates");
     factory.register_alias("days_add", "date_add");
-    factory.register_alias("days_add", "add_date");
+    factory.register_alias("days_add", "adddate");
     factory.register_function<FunctionAddWeeks>();
     factory.register_function<FunctionAddMonths>();
     factory.register_function<FunctionAddYears>();
@@ -114,9 +113,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubMinutes>();
     factory.register_function<FunctionSubHours>();
     factory.register_function<FunctionSubDays>();
-    factory.register_alias("days_sub", "subdate");
     factory.register_alias("days_sub", "date_sub");
-    factory.register_alias("days_sub", "sub_date");
+    factory.register_alias("days_sub", "subdate");
     factory.register_function<FunctionSubMonths>();
     factory.register_function<FunctionSubYears>();
     factory.register_function<FunctionSubQuarters>();

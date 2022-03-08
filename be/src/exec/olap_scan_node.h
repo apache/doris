@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
+#pragma once
 
 #include <atomic>
 #include <condition_variable>
@@ -57,7 +56,7 @@ public:
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
     Status close(RuntimeState* state) override;
-    Status set_scan_ranges(const std::vector <TScanRangeParams>& scan_ranges) override;
+    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
     inline void set_no_agg_finalize() { _need_agg_finalize = false; }
 
 protected:
@@ -137,7 +136,9 @@ protected:
     // Write debug string of this into out.
     void debug_string(int indentation_level, std::stringstream* out) const override {}
 
-    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const { return _runtime_filter_descs; }
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const {
+        return _runtime_filter_descs;
+    }
 
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
@@ -328,11 +329,6 @@ protected:
 
     // for debugging or profiling, record any info as you want
     RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
-
-    vectorized::VExpr* _dfs_peel_conjunct(vectorized::VExpr* expr, int& leaf_index);
-    void _peel_pushed_conjuncts(); // remove pushed expr from conjunct tree
 };
 
 } // namespace doris
-
-#endif

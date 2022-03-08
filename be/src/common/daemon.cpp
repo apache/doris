@@ -37,7 +37,6 @@
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
 #include "exprs/math_functions.h"
-#include "exprs/new_in_predicate.h"
 #include "exprs/operators.h"
 #include "exprs/string_functions.h"
 #include "exprs/table_function/dummy_table_functions.h"
@@ -250,7 +249,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     StringFunctions::init();
     ArrayFunctions::init();
     CastFunctions::init();
-    InPredicate::init();
     MathFunctions::init();
     EncryptionFunctions::init();
     TimestampFunctions::init();

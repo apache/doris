@@ -60,10 +60,10 @@ public class HashDistributionDesc extends DistributionDesc {
     @Override
     public void analyze(Set<String> cols) throws AnalysisException {
         if (numBucket <= 0) {
-            throw new AnalysisException("Number of hash distribution is zero.");
+            throw new AnalysisException("Number of hash distribution should be larger than zero.");
         }
         if (distributionColumnNames == null || distributionColumnNames.size() == 0) {
-            throw new AnalysisException("Number of hash column is zero.");
+            throw new AnalysisException("Number of hash column should be larger than zero.");
         }
         for (String columnName : distributionColumnNames) {
             if (!cols.contains(columnName)) {

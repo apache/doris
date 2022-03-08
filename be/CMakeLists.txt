@@ -20,7 +20,7 @@ cmake_minimum_required(VERSION 3.19.2)
 project(doris CXX C)
 
 # Write compile_commands.json
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # set platforms
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
@@ -563,7 +563,6 @@ if(ARCH_AARCH64)
         ${DORIS_DEPENDENCIES}
         ${WL_START_GROUP}
         ${COMMON_THIRDPARTY}
-        ${WL_END_GROUP}
     )
 else()
     set(DORIS_DEPENDENCIES

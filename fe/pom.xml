@@ -120,7 +120,12 @@ under the License.
         <log4j2.version>2.17.1</log4j2.version>
         <revision>0.15-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
+        <!-- ATTN: avro version must be consistent with Iceberg version -->
+        <!-- Please modify iceberg.version and avro.version together,
+         you can find avro version info in iceberg mvn repository -->
         <iceberg.version>0.12.0</iceberg.version>
+        <avro.version>1.10.1</avro.version>
+        <!-- ATTN: avro version must be consistent with Iceberg version -->
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -317,11 +322,10 @@ under the License.
                 <artifactId>commons-io</artifactId>
                 <version>2.6</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.json/json -->
             <dependency>
-                <groupId>org.json</groupId>
-                <artifactId>json</artifactId>
-                <version>20171018</version>
+                <groupId>com.googlecode.json-simple</groupId>
+                <artifactId>json-simple</artifactId>
+                <version>1.1.1</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/junit/junit -->
             <dependency>
@@ -371,12 +375,6 @@ under the License.
                 <artifactId>metrics-core</artifactId>
                 <version>4.0.2</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/mysql/mysql-connector-java -->
-            <dependency>
-                <groupId>mysql</groupId>
-                <artifactId>mysql-connector-java</artifactId>
-                <version>5.1.41</version>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
             <dependency>
                 <groupId>io.netty</groupId>
@@ -391,7 +389,7 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty</artifactId>
+                <artifactId>grpc-netty-shaded</artifactId>
                 <version>${grpc.version}</version>
                 <scope>provided</scope>
             </dependency>
@@ -704,6 +702,13 @@ under the License.
                 <groupId>org.apache.iceberg</groupId>
                 <artifactId>iceberg-hive-metastore</artifactId>
                 <version>${iceberg.version}</version>
+            </dependency>
+
+            <!-- For Iceberg, must be consistent with Iceberg version -->
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>${avro.version}</version>
             </dependency>
 
             <dependency>

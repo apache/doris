@@ -17,8 +17,6 @@
 
 package org.apache.doris.httpv2.rest;
 
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
@@ -56,8 +54,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -72,6 +70,8 @@ import java.util.UUID;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
  * This class responsible for parse the sql and generate the query plan fragment for a (only one) table{@see OlapTable}
@@ -93,18 +93,15 @@ public class TableQueryPlanAction extends RestBaseController {
         String postContent = HttpUtil.getBody(request);
         try {
             // may be these common validate logic should be moved to one base class
-            String sql;
             if (Strings.isNullOrEmpty(postContent)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
-            JSONObject jsonObject;
-            try {
-                jsonObject = new JSONObject(postContent);
-            } catch (JSONException e) {
-                return ResponseEntityBuilder.badRequest("malformed json: " + e.getMessage());
+            JSONObject jsonObject = (JSONObject) JSONValue.parse(postContent);
+            if (jsonObject == null) {
+                return ResponseEntityBuilder.badRequest("malformed json: " + postContent);
             }
 
-            sql = jsonObject.optString("sql");
+            String sql = (String) jsonObject.get("sql");
             if (Strings.isNullOrEmpty(sql)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
@@ -226,7 +223,7 @@ public class TableQueryPlanAction extends RestBaseController {
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, node.versionHash, node.schemaHash));
+            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0l /*version hash*/, node.schemaHash));
         });
         tQueryPlanInfo.tablet_info = tablet_info;
 
@@ -255,8 +252,7 @@ public class TableQueryPlanAction extends RestBaseController {
         for (TScanRangeLocations scanRangeLocations : scanRangeLocationsList) {
             // only process palo(doris) scan range
             TPaloScanRange scanRange = scanRangeLocations.scan_range.palo_scan_range;
-            Node tabletRouting = new Node(Long.parseLong(scanRange.version),
-                    Long.parseLong(scanRange.version_hash), Integer.parseInt(scanRange.schema_hash));
+            Node tabletRouting = new Node(Long.parseLong(scanRange.version), Integer.parseInt(scanRange.schema_hash));
             for (TNetworkAddress address : scanRange.hosts) {
                 tabletRouting.addRouting(address.hostname + ":" + address.port);
             }
@@ -270,12 +266,10 @@ public class TableQueryPlanAction extends RestBaseController {
         // ["host1:port1", "host2:port2", "host3:port3"]
         public List<String> routings = new ArrayList<>();
         public long version;
-        public long versionHash;
         public int schemaHash;
 
-        public Node(long version, long versionHash, int schemaHash) {
+        public Node(long version, int schemaHash) {
             this.version = version;
-            this.versionHash = versionHash;
             this.schemaHash = schemaHash;
         }
 

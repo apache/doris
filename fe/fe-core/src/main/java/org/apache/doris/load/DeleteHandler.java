@@ -252,7 +252,7 @@ public class DeleteHandler implements Writable {
                                         replica.getBackendId(), db.getId(), olapTable.getId(),
                                         partition.getId(), indexId,
                                         tabletId, replicaId, schemaHash,
-                                        -1, 0, "", -1, 0,
+                                        -1, "", -1, 0,
                                         -1, type, conditions,
                                         true, TPriority.NORMAL,
                                         TTaskType.REALTIME_PUSH,
@@ -432,7 +432,7 @@ public class DeleteHandler implements Writable {
             }
             for (PushTask pushTask : job.getPushTasks()) {
                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                        pushTask.getVersion(), pushTask.getVersionHash(),
+                        pushTask.getVersion(),
                         pushTask.getPushType(), pushTask.getTaskType());
             }
 

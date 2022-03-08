@@ -110,6 +110,7 @@ set(VEC_FILES
   functions/array/function_array_register.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
+  functions/function_bitmap_variadic.cpp
   functions/comparison.cpp
   functions/comparison_less.cpp
   functions/comparison_equals.cpp
@@ -155,6 +156,7 @@ set(VEC_FILES
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
   functions/least_greast.cpp
+  functions/function_fake.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

@@ -56,7 +56,7 @@ public:
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
-    const TypeInfo* type_info() const { return _type_info; }
+    std::shared_ptr<const TypeInfo> type_info() const { return _type_info; }
     bool support_ordinal_seek() const { return _meta.has_ordinal_index_meta(); }
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
@@ -82,7 +82,7 @@ private:
     PageHandle _ordinal_index_page_handle;
     PageHandle _value_index_page_handle;
 
-    const TypeInfo* _type_info = nullptr;
+    std::shared_ptr<const TypeInfo> _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
@@ -140,7 +140,7 @@ private:
     // current in-use index iterator, could be `&_ordinal_iter` or `&_value_iter` or null
     IndexPageIterator* _current_iter = nullptr;
     // seeked data page, containing value at `_current_ordinal`
-    std::unique_ptr<ParsedPage> _data_page;
+    ParsedPage _data_page;
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
     // open file handle

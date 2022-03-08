@@ -191,6 +191,24 @@ public:
 private:
 };
 
+class HiveTableDescriptor : public TableDescriptor {
+public:
+    HiveTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~HiveTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
+class IcebergTableDescriptor : public TableDescriptor {
+public:
+    IcebergTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~IcebergTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
 class EsTableDescriptor : public TableDescriptor {
 public:
     EsTableDescriptor(const TTableDescriptor& tdesc);

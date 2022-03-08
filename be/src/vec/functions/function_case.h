@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "vec/columns/column_complex.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
@@ -188,7 +189,9 @@ public:
                                  uint8* then_idx, CaseWhenColumnHolder& column_holder) {
         auto result_column_ptr = data_type->create_column();
 
-        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+        if constexpr (std::is_same_v<ColumnType, ColumnString> ||
+                      std::is_same_v<ColumnType, ColumnBitmap> ||
+                      std::is_same_v<ColumnType, ColumnHLL>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
             update_result_normal(result_column_ptr, then_idx, column_holder);

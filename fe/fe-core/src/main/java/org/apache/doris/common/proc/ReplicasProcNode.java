@@ -34,9 +34,8 @@ import java.util.List;
  */
 public class ReplicasProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("ReplicaId").add("BackendId").add("Version").add("VersionHash")
-            .add("LstSuccessVersion").add("LstSuccessVersionHash")
-            .add("LstFailedVersion").add("LstFailedVersionHash")
+            .add("ReplicaId").add("BackendId").add("Version")
+            .add("LstSuccessVersion").add("LstFailedVersion")
             .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
             .add("IsBad").add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
             .build();
@@ -73,11 +72,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
                                         String.valueOf(replica.getBackendId()),
                                         String.valueOf(replica.getVersion()),
-                                        String.valueOf(replica.getVersionHash()),
                                         String.valueOf(replica.getLastSuccessVersion()),
-                                        String.valueOf(replica.getLastSuccessVersionHash()),
                                         String.valueOf(replica.getLastFailedVersion()),
-                                        String.valueOf(replica.getLastFailedVersionHash()),
                                         TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
                                         String.valueOf(replica.getSchemaHash()),
                                         String.valueOf(replica.getDataSize()),

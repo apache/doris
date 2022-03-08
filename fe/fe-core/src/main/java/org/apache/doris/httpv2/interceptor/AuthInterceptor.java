@@ -21,13 +21,10 @@ import org.apache.doris.httpv2.controller.BaseController;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
-
-import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -57,10 +54,5 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-    }
-
-    private String toJson(Map<String, Object> map) {
-        JSONObject root = new JSONObject(map);
-        return root.toString();
     }
 }

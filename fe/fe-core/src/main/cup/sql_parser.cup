@@ -267,7 +267,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_SKEW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
-    KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_TEXT, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
+    KW_TABLE, KW_TABLES, KW_TABLET, KW_TABLETS, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_TEXT, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNLOCK, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
@@ -1876,19 +1876,19 @@ stop_routine_load_stmt ::=
 show_routine_load_stmt ::=
     KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, false);
+        RESULT = new ShowRoutineLoadStmt(jobLabel, false, null);
     :}
     | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, true);
+        RESULT = new ShowRoutineLoadStmt(jobLabel, true, null);
     :}
-    | KW_SHOW KW_ROUTINE KW_LOAD
+    | KW_SHOW KW_ROUTINE KW_LOAD opt_wild_where
     {:
-        RESULT = new ShowRoutineLoadStmt(null, false);
+        RESULT = new ShowRoutineLoadStmt(null, false, parser.wild);
     :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_wild_where
     {:
-        RESULT = new ShowRoutineLoadStmt(null, true);
+        RESULT = new ShowRoutineLoadStmt(null, true, parser.wild);
     :}
     ;
 
@@ -2757,7 +2757,7 @@ show_param ::=
     {:
         RESULT = new ShowTabletStmt(null, tabletId);
     :}
-    | KW_TABLET KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_TABLETS KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowTabletStmt(dbTblName, -1L, partitionNames, parser.where, orderByClause, limitClause);
     :}

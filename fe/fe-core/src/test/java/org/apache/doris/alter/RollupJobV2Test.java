@@ -112,10 +112,8 @@ public class RollupJobV2Test {
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_61);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
-        // slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterCatalog.getEditLog());
 
@@ -228,65 +226,13 @@ public class RollupJobV2Test {
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
-                        testPartition.getVisibleVersionHash(), shadowReplica.getDataSize(),
+                        shadowReplica.getDataSize(),
                         shadowReplica.getRowCount());
             }
         }
 
         materializedViewHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.FINISHED, rollupJob.getJobState());
-
-        /*
-        Assert.assertEquals(CatalogTestUtil.testIndexId1, rollupJob.getBaseIndexId());
-        Assert.assertEquals(CatalogTestUtil.testRollupIndex2, rollupJob.getRollupIndexName());
-        MaterializedIndex rollupIndex = rollupJob.getRollupIndex(CatalogTestUtil.testPartitionId1);
-        MaterializedIndex baseIndex = testPartition.getBaseIndex();
-        assertEquals(IndexState.ROLLUP, rollupIndex.getState());
-        assertEquals(IndexState.NORMAL, baseIndex.getState());
-        assertEquals(OlapTableState.ROLLUP, olapTable.getState());
-        assertEquals(PartitionState.ROLLUP, testPartition.getState());
-        Tablet rollupTablet = rollupIndex.getTablets().get(0);
-        List<Replica> replicas = rollupTablet.getReplicas();
-        Replica rollupReplica1 = replicas.get(0);
-        Replica rollupReplica2 = replicas.get(1);
-        Replica rollupReplica3 = replicas.get(2);
-        
-        assertEquals(-1, rollupReplica1.getVersion());
-        assertEquals(-1, rollupReplica2.getVersion());
-        assertEquals(-1, rollupReplica3.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica1.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica2.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica3.getLastFailedVersion());
-        assertEquals(-1, rollupReplica1.getLastSuccessVersion());
-        assertEquals(-1, rollupReplica2.getLastSuccessVersion());
-        assertEquals(-1, rollupReplica3.getLastSuccessVersion());
-        
-        // rollup handler run one cycle, agent task is generated and send tasks
-        rollupHandler.runOneCycle();
-        AgentTask task1 = AgentTaskQueue.getTask(rollupReplica1.getBackendId(), TTaskType.ROLLUP, rollupTablet.getId());
-        AgentTask task2 = AgentTaskQueue.getTask(rollupReplica2.getBackendId(), TTaskType.ROLLUP, rollupTablet.getId());
-        AgentTask task3 = AgentTaskQueue.getTask(rollupReplica3.getBackendId(), TTaskType.ROLLUP, rollupTablet.getId());
-        
-        // be report finishe rollup success
-        TTabletInfo tTabletInfo = new TTabletInfo(rollupTablet.getId(), CatalogTestUtil.testSchemaHash1,
-                CatalogTestUtil.testStartVersion, CatalogTestUtil.testStartVersionHash, 0, 0);
-        rollupHandler.handleFinishedReplica(task1, tTabletInfo, -1);
-        rollupHandler.handleFinishedReplica(task2, tTabletInfo, -1);
-        rollupHandler.handleFinishedReplica(task3, tTabletInfo, -1);
-        
-        // rollup hander run one cycle again, the rollup job is finishing
-        rollupHandler.runOneCycle();
-        Assert.assertEquals(JobState.FINISHING, rollupJob.getState());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica1.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica2.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica3.getVersion());
-        assertEquals(-1, rollupReplica1.getLastFailedVersion());
-        assertEquals(-1, rollupReplica2.getLastFailedVersion());
-        assertEquals(-1, rollupReplica3.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, rollupReplica1.getLastSuccessVersion());
-        */
     }
 
     @Test
@@ -359,7 +305,7 @@ public class RollupJobV2Test {
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
-                        testPartition.getVisibleVersionHash(), shadowReplica.getDataSize(),
+                        shadowReplica.getDataSize(),
                         shadowReplica.getRowCount());
             }
         }
@@ -410,7 +356,7 @@ public class RollupJobV2Test {
 
         // read objects from file
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_86);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
         DataInputStream in = new DataInputStream(new FileInputStream(file));

@@ -138,6 +138,13 @@ struct ConvertImpl {
                     vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
             }
 
+            // TODO: support boolean cast more reasonable
+            if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
+                for (int i = 0; i < size; ++i) {
+                    vec_to[i] = static_cast<bool>(vec_to[i]);
+                }
+            }
+
             block.replace_by_position(result, std::move(col_to));
         } else {
             return Status::RuntimeError(
@@ -313,6 +320,11 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
 
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
         return try_read_float_text(x, rb);
+    }
+
+    // uint8_t now use as boolean in doris
+    if constexpr (std::is_same_v<typename DataType::FieldType, uint8_t>) {
+        return try_read_bool_text(x, rb);
     }
 
     if constexpr (std::is_integral_v<typename DataType::FieldType>) {

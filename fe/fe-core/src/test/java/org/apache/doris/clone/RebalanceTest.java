@@ -213,7 +213,7 @@ public class RebalanceTest {
             try {
                 tabletCtx.setStorageMedium(TStorageMedium.HDD);
                 tabletCtx.setTablet(olapTable.getPartition(tabletCtx.getPartitionId()).getIndex(tabletCtx.getIndexId()).getTablet(tabletCtx.getTabletId()));
-                tabletCtx.setVersionInfo(1, 0, 1, 0);
+                tabletCtx.setVersionInfo(1, 1);
                 tabletCtx.setSchemaHash(olapTable.getSchemaHashByIndexId(tabletCtx.getIndexId()));
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 

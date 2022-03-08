@@ -38,9 +38,9 @@ import org.apache.doris.service.FrontendOptions;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 
-import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
@@ -208,12 +208,12 @@ public class PaloFe {
      *
      */
     private static CommandLineOptions parseArgs(String[] args) {
-        CommandLineParser commandLineParser = new BasicParser();
+        CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
         options.addOption("v", "version", false, "Print the version of Palo Frontend");
         options.addOption("h", "helper", true, "Specify the helper node when joining a bdb je replication group");
         options.addOption("b", "bdb", false, "Run bdbje debug tools");
-        options.addOption("l", "listdb", false, "Run bdbje debug tools");
+        options.addOption("l", "listdb", false, "List databases in bdbje");
         options.addOption("d", "db", true, "Specify a database in bdbje");
         options.addOption("s", "stat", false, "Print statistic of a database, including count, first key, last key");
         options.addOption("f", "from", true, "Specify the start scan key");
