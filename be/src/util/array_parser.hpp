@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_ARRAY_PARSER_HPP
-#define DORIS_BE_SRC_UTIL_ARRAY_PARSER_HPP
+#pragma once
 
 #include <rapidjson/document.h>
 
@@ -51,14 +50,14 @@ public:
         } else if (!document.IsArray()) {
             return Status::RuntimeError("Failed to parse the json to array.");
         }
-        auto type_desc = convertToTypeDescriptor(context->get_return_type());
-        return parse<rapidjson::UTF8<>>(
+        auto type_desc = _convertToTypeDescriptor(context->get_return_type());
+        return _parse<rapidjson::UTF8<>>(
                 array_val, context,
                 reinterpret_cast<const rapidjson::Document*>(&document)->GetArray(), type_desc);
     }
 
 private:
-    static TypeDescriptor convertToTypeDescriptor(FunctionContext::TypeDesc function_type_desc) {
+    static TypeDescriptor _convertToTypeDescriptor(FunctionContext::TypeDesc function_type_desc) {
         auto iterator = _types_mapping.find(function_type_desc.type);
         if (iterator == _types_mapping.end()) {
             return TypeDescriptor();
@@ -68,14 +67,14 @@ private:
         type_desc.precision = function_type_desc.precision;
         type_desc.scale = function_type_desc.scale;
         for (auto child_type_desc : function_type_desc.children) {
-            type_desc.children.push_back(convertToTypeDescriptor(child_type_desc));
+            type_desc.children.push_back(_convertToTypeDescriptor(child_type_desc));
         }
         return type_desc;
     }
 
     template <typename Encoding>
-    static Status parse(CollectionVal& array_val, FunctionContext* context,
-                        const ConstArray<Encoding>& array, const TypeDescriptor& type_desc) {
+    static Status _parse(CollectionVal& array_val, FunctionContext* context,
+                         const ConstArray<Encoding>& array, const TypeDescriptor& type_desc) {
         if (array.Empty()) {
             CollectionValue(0).to_collection_val(&array_val);
             return Status::OK();
@@ -90,11 +89,11 @@ private:
                 auto null = AnyVal(true);
                 collection_value.set(index++, item_type, &null);
                 continue;
-            } else if (!is_type_valid<Encoding>(it, item_type)) {
+            } else if (!_is_type_valid<Encoding>(it, item_type)) {
                 return Status::RuntimeError("Failed to parse the json to array.");
             }
             AnyVal* val;
-            Status status = parse<Encoding>(&val, context, it, child_type_desc);
+            Status status = _parse<Encoding>(&val, context, it, child_type_desc);
             if (!status.ok()) {
                 return status;
             }
@@ -105,8 +104,8 @@ private:
     }
 
     template <typename Encoding>
-    static bool is_type_valid(const ConstArrayIterator<Encoding> iterator,
-                              const PrimitiveType type) {
+    static bool _is_type_valid(const ConstArrayIterator<Encoding> iterator,
+                               const PrimitiveType type) {
         switch (type) {
         case TYPE_NULL:
             return iterator->IsNull();
@@ -137,15 +136,15 @@ private:
     }
 
     template <typename Encoding>
-    static Status parse(AnyVal** val, FunctionContext* context,
-                        const ConstArrayIterator<Encoding> iterator,
-                        const TypeDescriptor& type_desc) {
+    static Status _parse(AnyVal** val, FunctionContext* context,
+                         const ConstArrayIterator<Encoding> iterator,
+                         const TypeDescriptor& type_desc) {
         switch (type_desc.type) {
         case TYPE_ARRAY:
             *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(CollectionVal)));
             new (*val) CollectionVal();
-            return parse<Encoding>(*reinterpret_cast<CollectionVal*>(*val), context,
-                                   iterator->GetArray(), type_desc);
+            return _parse<Encoding>(*reinterpret_cast<CollectionVal*>(*val), context,
+                                    iterator->GetArray(), type_desc);
         case TYPE_BOOLEAN:
             *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(BooleanVal)));
             new (*val) BooleanVal(iterator->GetBool());
@@ -211,5 +210,3 @@ std::unordered_map<FunctionContext::Type, PrimitiveType> ArrayParser::_types_map
 };
 
 } // namespace doris
-
-#endif
