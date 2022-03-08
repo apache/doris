@@ -39,13 +39,13 @@ import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TResourceInfo;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -844,6 +844,7 @@ public class LoadJob implements Writable {
             Text.writeString(out, tableName);
         }
     }
+
     public void readFields(DataInput in) throws IOException {
         long version = Catalog.getCurrentCatalogJournalVersion();
 

@@ -115,7 +115,10 @@ public class LoadLoadingTask extends LoadTask {
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
         beginTime = System.nanoTime();
-        ((BrokerLoadJob) callback).updateState(JobState.LOADING);
+        if (!((BrokerLoadJob) callback).updateState(JobState.LOADING)) {
+            // job may already be cancelled
+            return;
+        }
         executeOnce();
     }
 
@@ -176,7 +179,7 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     private long getLeftTimeMs() {
-        return jobDeadlineMs - System.currentTimeMillis();
+        return Math.max(jobDeadlineMs - System.currentTimeMillis(), 1000L);
     }
 
     private void createProfile(Coordinator coord) {
