@@ -67,8 +67,6 @@ using std::set_difference;
 using std::string;
 using std::stringstream;
 using std::vector;
-using ReadLock = std::shared_lock<std::shared_mutex>;
-using WriteLock = std::unique_lock<std::shared_mutex>;
 
 namespace doris {
 

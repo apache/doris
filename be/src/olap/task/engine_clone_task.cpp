@@ -37,8 +37,6 @@ using std::stringstream;
 using strings::Substitute;
 using strings::Split;
 using strings::SkipWhitespace;
-using ReadLock = std::shared_lock<std::shared_mutex>;
-using WriteLock = std::unique_lock<std::shared_mutex>;
 
 namespace doris {
 

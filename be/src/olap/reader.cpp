@@ -46,7 +46,6 @@
 using std::nothrow;
 using std::set;
 using std::vector;
-using ReadLock = std::shared_lock<std::shared_mutex>;
 
 namespace doris {
 

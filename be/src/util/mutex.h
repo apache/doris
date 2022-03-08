@@ -17,10 +17,14 @@
 
 #ifndef DORIS_BE_SRC_UTIL_MUTEX_H
 #define DORIS_BE_SRC_UTIL_MUTEX_H
-
+#include <mutex>
+#include <shared_mutex>
 #include "olap/olap_define.h"
 
 namespace doris {
+
+using ReadLock = std::shared_lock<std::shared_mutex>;
+using WriteLock = std::unique_lock<std::shared_mutex>;
 
 #define TRY_LOCK true
 

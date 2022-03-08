@@ -49,7 +49,6 @@ class CumulativeCompaction;
 class BaseCompaction;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
-using ReadLock = std::shared_lock<std::shared_mutex>;
 
 class Tablet : public BaseTablet {
 public:

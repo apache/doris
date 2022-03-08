@@ -20,8 +20,6 @@
 #include "olap/snapshot_manager.h"
 #include "olap/tablet_meta_manager.h"
 
-using ReadLock = std::shared_lock<std::shared_mutex>;
-using WriteLock = std::unique_lock<std::shared_mutex>;
 namespace doris {
 
 using std::stringstream;

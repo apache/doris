@@ -27,8 +27,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 
-using ReadLock = std::shared_lock<std::shared_mutex>;
-
 namespace doris {
 
 OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,

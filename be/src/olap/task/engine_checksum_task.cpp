@@ -20,7 +20,6 @@
 #include "olap/tuple_reader.h"
 #include "olap/row.h"
 
-using ReadLock = std::shared_lock<std::shared_mutex>;
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,

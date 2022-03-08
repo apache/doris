@@ -36,8 +36,6 @@
 #include "util/mem_util.hpp"
 #include "util/network_util.h"
 
-using ReadLock = std::shared_lock<std::shared_mutex>;
-
 namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,

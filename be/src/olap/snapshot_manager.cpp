@@ -45,7 +45,6 @@ using std::string;
 using std::stringstream;
 using std::vector;
 using std::list;
-using ReadLock = std::shared_lock<std::shared_mutex>;
 
 namespace doris {
 

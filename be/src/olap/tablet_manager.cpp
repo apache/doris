@@ -62,8 +62,6 @@ using std::set;
 using std::string;
 using std::vector;
 using strings::Substitute;
-using ReadLock = std::shared_lock<std::shared_mutex>;
-using WriteLock = std::unique_lock<std::shared_mutex>;
 
 namespace doris {
 

@@ -37,7 +37,6 @@ using std::list;
 using std::map;
 using std::string;
 using std::vector;
-using ReadLock = std::shared_lock<std::shared_mutex>;
 
 namespace doris {
 
