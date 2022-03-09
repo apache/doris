@@ -199,7 +199,7 @@ public class Replica implements Writable {
     public long getLastFailedVersion() {
         return lastFailedVersion;
     }
-    
+
     public long getLastFailedTimestamp() {
         return lastFailedTimestamp;
     }
