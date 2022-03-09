@@ -15,54 +15,44 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.tablefunction;
+package org.apache.doris.planner;
+
+import java.util.Collections;
+import java.util.List;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.system.Backend;
+import org.apache.doris.tablefunction.TableValuedFunctionInf;
+import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TNumbersScanNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.google.common.collect.Lists;
 
-import java.util.Collections;
-import java.util.List;
+public class TableValuedFunctionScanNode extends ScanNode {
 
-// TODO yiguolei: not accept any pushdown filters
-public class NumbersTableValuedFunctionScanNode extends ScanNode {
-
-    private static final Logger LOG = LogManager.getLogger(NumbersTableValuedFunctionScanNode.class);
-
-    private List<Backend> backendList;
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
-    private int numTablets;
-    private long numbers;
+    private TableValuedFunctionInf tvf;
+    private boolean isFinalized = false;
 
-    boolean isFinalized = false;
-
-    public NumbersTableValuedFunctionScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, long numbers, int tabletNum) {
+    public TableValuedFunctionScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, TableValuedFunctionInf tvf) {
         super(id, desc, planNodeName);
-        this.numbers = numbers;
-        this.numTablets = tabletNum;
+        this.tvf = tvf;
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        assignBackends();
         computeStats(analyzer);
     }
 
@@ -93,42 +83,25 @@ public class NumbersTableValuedFunctionScanNode extends ScanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.NUMBERS_SCAN_NODE;
-        TNumbersScanNode numbersScanNode = new TNumbersScanNode();
-        numbersScanNode.setTotalNumbers(numbers);
-        numbersScanNode.setTupleId(desc.getId().asInt());
-        msg.numbers_scan_node = numbersScanNode;
-    }
-
-    private void assignBackends() throws UserException {
-        backendList = Lists.newArrayList();
-        for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
-                backendList.add(be);
-            }
-        }
-        if (backendList.isEmpty()) {
-            throw new UserException("No Alive backends");
-        }
-        Collections.shuffle(backendList);
+        msg.node_type = TPlanNodeType.TABLE_VALUED_FUNCTION_SCAN_NODE;
+        TTableValuedFunctionScanNode tvfScanNode = new TTableValuedFunctionScanNode();
+        tvfScanNode.setFunc_name(tvf.getFuncName());
+        msg.table_valued_func_scan_node = tvfScanNode;
     }
 
     private List<TScanRangeLocations> getShardLocations() throws UserException {
         List<TScanRangeLocations> result = Lists.newArrayList();
-        for (int i = 0, j = 0; i < numTablets; ++i, ++j) {
-            // Locations
+        
+        for (TableValuedFunctionTask task : tvf.getTasks()) {
             TScanRangeLocations locations = new TScanRangeLocations();
             TScanRangeLocation location = new TScanRangeLocation();
-            Backend be = backendList.get(j % backendList.size());
-            location.setBackendId(be.getId());
-            location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
+            location.setBackendId(task.getBackend().getId());
+            location.setServer(new TNetworkAddress(task.getBackend().getHost(), task.getBackend().getBePort()));
             locations.addToLocations(location);
-            // Set an empty scan range here, it is useless actually. But TScanRangeParams need it
-            TScanRange scanRange = new TScanRange();
-            locations.setScanRange(scanRange);
+            locations.setScanRange(task.getExecParams());
             result.add(locations);
         }
-        System.out.println("number of scan ranges: " + result.size());
+        
         return result;
     }
 }

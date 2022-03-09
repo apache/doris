@@ -17,24 +17,17 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
 
 import java.util.List;
 
 public abstract class TableValuedFunctionInf {
 
-    public abstract String getTableName();
-
-    public abstract List<Column> getTableColumns();
-	
-    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
-
+    public abstract String getFuncName();
+    
     public Table getTable() {
         Table table = new Table(-1, getTableName(), TableType.TABLE_VALUED_FUNCTION, getTableColumns());
         return table;
@@ -46,5 +39,11 @@ public abstract class TableValuedFunctionInf {
             return new NumbersTableValuedFunction(params);
         }
         throw new UserException("Could not find table function " + funcName);
-	}
+    }
+
+    public abstract String getTableName();
+
+    public abstract List<Column> getTableColumns();
+    
+    public abstract List<TableValuedFunctionTask> getTasks();
 }

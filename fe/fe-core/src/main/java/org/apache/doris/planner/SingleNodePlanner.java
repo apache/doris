@@ -1704,7 +1704,7 @@ public class SingleNodePlanner {
                         null, -1);
                 break;
             case TABLE_VALUED_FUNCTION:
-            	scanNode = ((TableValuedFunctionRef)tblRef).getTableFunction().getScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
+            	scanNode = new TableValuedFunctionScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "TableValuedFunctionScanNode", ((TableValuedFunctionRef)tblRef).getTableFunction());
             	break;
             default:
                 break;
