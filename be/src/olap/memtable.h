@@ -26,7 +26,7 @@
 #include "runtime/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
 #include "vec/core/block.h"
-
+#include "vec/common/string_ref.h"
 namespace doris {
 
 struct ContiguousRow;
@@ -49,6 +49,7 @@ public:
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void insert(const Tuple* tuple);
     void insert(const vectorized::Block* block, size_t row_pos, size_t& num_rows);
+    void insert(const vectorized::Block* block, const size_t row_pos, const size_t num_rows);//insert tuple from (row_pos) to (row_pos+num_rows)
     /// Flush
     OLAPStatus flush();
     OLAPStatus close();
@@ -65,9 +66,29 @@ private:
         const Schema* _schema;
     };
 
+    struct RowInBlock{
+        vectorized::MutableBlock* _block;
+        size_t _row_pos;
+        RowInBlock(int i):_block(0), _row_pos(0){} //this constructor is for SkipList::NewNode(0, ...)
+        RowInBlock(vectorized::MutableBlock* block, size_t row_pos):_block(block), _row_pos(row_pos){}
+        RowCursorCell cell(int cid){
+            StringRef ref = _block->mutable_columns()[cid]->get_data_at(_row_pos);
+            return RowCursorCell(ref.data);
+        }
+    };
+    class VecRowComparator {
+    public:
+        VecRowComparator(const Schema* schema):_schema(schema){};
+        int operator()(const RowInBlock left, const RowInBlock right) const;
+    private:
+        const Schema* _schema;
+    };
+
 private:
     typedef SkipList<char*, RowComparator> Table;
     typedef Table::key_type TableKey;
+
+    typedef SkipList<RowInBlock, VecRowComparator> VecTable;
 
 public:
     /// The iterator of memtable, so that the data in this memtable
@@ -90,6 +111,9 @@ public:
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    //for vectorized
+    void insert_one_row_from_block(struct RowInBlock row_in_block);
+    void _aggregate_two_rowInBlock(RowInBlock new_row, RowInBlock row_in_skiplist);
 
     int64_t _tablet_id;
     Schema* _schema;
@@ -99,6 +123,9 @@ private:
     KeysType _keys_type;
 
     std::shared_ptr<RowComparator> _row_comparator;
+    
+    std::shared_ptr<VecRowComparator> _vec_row_comparator;
+
     std::shared_ptr<MemTracker> _mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
@@ -117,6 +144,9 @@ private:
     Table* _skip_list;
     Table::Hint _hint;
 
+    VecTable* _vec_skip_list;
+    VecTable::Hint _vec_hint;
+
     RowsetWriter* _rowset_writer;
 
     // the data size flushed on disk of this memtable
@@ -125,6 +155,10 @@ private:
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggragate key model.
     int64_t _rows = 0;
+
+    //for vectorized 
+    vectorized::MutableBlock _mutableBlock;
+    
 
 }; // class MemTable
 
