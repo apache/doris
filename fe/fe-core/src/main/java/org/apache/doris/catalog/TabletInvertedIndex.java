@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.tuple.ImmutableTriple;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPartitionVersionInfo;
@@ -35,13 +32,16 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Ordering;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
 
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -176,7 +176,7 @@ public class TabletInvertedIndex {
                                             backendTabletInfo.getVersion(),
                                             backendTabletInfo.getVersionHash(),
                                             backendTabletInfo.getSchemaHash(),
-                                            backendTabletInfo.isSetUsed() ? backendTabletInfo.isUsed() : "unknown",
+                                            backendTabletInfo.isSetUsed() ? !backendTabletInfo.isUsed() : "false",
                                             backendTabletInfo.isSetVersionMiss() ? backendTabletInfo.isVersionMiss() : "unset");
                                     synchronized (tabletRecoveryMap) {
                                         tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);

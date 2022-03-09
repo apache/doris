@@ -108,7 +108,7 @@ public class LoadJob implements Writable {
 
     private EtlJobType etlJobType;
     private EtlJobInfo etlJobInfo;
-    
+
     private Map<Long, TableLoadInfo> idToTableLoadInfo;
     private Map<Long, TabletLoadInfo> idToTabletLoadInfo;
     private Set<Long> quorumTablets;
@@ -116,14 +116,14 @@ public class LoadJob implements Writable {
     private List<Long> unfinishedTablets;
     private Set<PushTask> pushTasks;
     private Map<Long, ReplicaPersistInfo> replicaPersistInfos;
-    
+
     private Map<Long, Replica> finishedReplicas;
-    
+
     private List<Predicate> conditions = null;
     private DeleteInfo deleteInfo;
 
     private TResourceInfo resourceInfo;
-    
+
     private TPriority priority;
 
     private long execMemLimit;
@@ -138,15 +138,15 @@ public class LoadJob implements Writable {
     public LoadJob(String label) {
         this(label, DEFAULT_TIMEOUT_S, Config.default_max_filter_ratio);
     }
-    
+
     // convert an async delete job to load job
-    public LoadJob(long id, long dbId, long tableId, long partitionId, String label, 
-            Map<Long, Integer> indexIdToSchemaHash, List<Predicate> deleteConditions, 
-            DeleteInfo deleteInfo) {
+    public LoadJob(long id, long dbId, long tableId, long partitionId, String label,
+                   Map<Long, Integer> indexIdToSchemaHash, List<Predicate> deleteConditions,
+                   DeleteInfo deleteInfo) {
         this.id = id;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.label = label; 
+        this.label = label;
         this.transactionId = -1;
         this.timestamp = -1;
         this.timeoutSecond = DEFAULT_TIMEOUT_S;
@@ -168,8 +168,8 @@ public class LoadJob implements Writable {
         hadoopEtlJobInfo.setEtlOutputDir("");
         this.etlJobInfo = hadoopEtlJobInfo;
         this.etlJobInfo.setJobStatus(etlStatus);
-        this.idToTableLoadInfo = Maps.newHashMap();;
-        this.idToTabletLoadInfo = Maps.newHashMap();;
+        this.idToTableLoadInfo = Maps.newHashMap();
+        this.idToTabletLoadInfo = Maps.newHashMap();
         this.quorumTablets = new HashSet<Long>();
         this.fullTablets = new HashSet<Long>();
         this.unfinishedTablets = new ArrayList<>();
@@ -179,7 +179,7 @@ public class LoadJob implements Writable {
         this.priority = TPriority.NORMAL;
         this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
         this.finishedReplicas = Maps.newHashMap();
-        
+
         // generate table load info
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(null);
         Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<>();
@@ -187,7 +187,7 @@ public class LoadJob implements Writable {
         TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);
         tableLoadInfo.addAllSchemaHash(indexIdToSchemaHash);
         idToTableLoadInfo.put(tableId, tableLoadInfo);
-        
+
         // add delete conditions to load job
         this.conditions = deleteConditions;
         this.deleteInfo = deleteInfo;
@@ -224,11 +224,11 @@ public class LoadJob implements Writable {
         this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
         this.finishedReplicas = Maps.newHashMap();
     }
-    
+
     public void addTableName(String tableName) {
         tableNames.add(tableName);
     }
-    
+
     public Set<String> getTableNames() {
         return tableNames;
     }
@@ -254,11 +254,11 @@ public class LoadJob implements Writable {
     public void setDbId(long dbId) {
         this.dbId = dbId;
     }
-    
+
     public long getTransactionId() {
         return transactionId;
     }
-    
+
     public void setTransactionId(long transactionId) {
         this.transactionId = transactionId;
     }
@@ -274,15 +274,15 @@ public class LoadJob implements Writable {
     public long getTimestamp() {
         return timestamp;
     }
-    
+
     public void setTimeoutSecond(int timeoutSecond) {
         this.timeoutSecond = timeoutSecond;
     }
-    
+
     public int getTimeoutSecond() {
         return timeoutSecond;
     }
-    
+
     public void setMaxFilterRatio(double maxFilterRatio) {
         this.maxFilterRatio = maxFilterRatio;
     }
@@ -310,7 +310,7 @@ public class LoadJob implements Writable {
     public long getCreateTimeMs() {
         return createTimeMs;
     }
-    
+
     public void setCreateTimeMs(long createTimeMs) {
         this.createTimeMs = createTimeMs;
     }
@@ -371,7 +371,7 @@ public class LoadJob implements Writable {
                 break;
         }
     }
-    
+
     public long getQuorumFinishTimeMs() {
         return quorumFinishTimeMs;
     }
@@ -387,7 +387,7 @@ public class LoadJob implements Writable {
     public void setFailMsg(FailMsg failMsg) {
         this.failMsg = failMsg;
     }
-    
+
     public EtlJobType getEtlJobType() {
         return etlJobType;
     }
@@ -408,9 +408,13 @@ public class LoadJob implements Writable {
         return pullLoadSourceInfo;
     }
 
-    public void setExecMemLimit(long execMemLimit) { this.execMemLimit = execMemLimit; }
+    public void setExecMemLimit(long execMemLimit) {
+        this.execMemLimit = execMemLimit;
+    }
 
-    public long getExecMemLimit() { return execMemLimit; }
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
 
     public void setEtlJobType(EtlJobType etlJobType) {
         this.etlJobType = etlJobType;
@@ -485,17 +489,18 @@ public class LoadJob implements Writable {
 
     public void setHadoopEtlJobId(String etlJobId) {
         if (etlJobType == EtlJobType.HADOOP) {
-            ((HadoopEtlJobInfo) etlJobInfo).setEtlJobId(etlJobId);;
+            ((HadoopEtlJobInfo) etlJobInfo).setEtlJobId(etlJobId);
+            ;
         }
     }
-        
+
     public Map<Long, MiniEtlTaskInfo> getMiniEtlTasks() {
         if (etlJobType == EtlJobType.MINI) {
             return ((MiniEtlJobInfo) etlJobInfo).getEtlTasks();
         }
         return null;
     }
-    
+
     public MiniEtlTaskInfo getMiniEtlTask(long taskId) {
         if (etlJobType == EtlJobType.MINI) {
             return ((MiniEtlJobInfo) etlJobInfo).getEtlTask(taskId);
@@ -508,7 +513,7 @@ public class LoadJob implements Writable {
             ((MiniEtlJobInfo) etlJobInfo).setEtlTasks(idToEtlTask);
         }
     }
-    
+
     public boolean miniNeedGetTaskStatus() {
         if (etlJobType == EtlJobType.MINI) {
             return ((MiniEtlJobInfo) etlJobInfo).needGetTaskStatus();
@@ -519,15 +524,15 @@ public class LoadJob implements Writable {
     public EtlStatus getEtlJobStatus() {
         return etlJobInfo.getJobStatus();
     }
-    
+
     public void setEtlJobStatus(EtlStatus etlStatus) {
         etlJobInfo.setJobStatus(etlStatus);
     }
-    
+
     public Map<Long, TableLoadInfo> getIdToTableLoadInfo() {
         return idToTableLoadInfo;
     }
-    
+
     public TableLoadInfo getTableLoadInfo(long tableId) {
         return idToTableLoadInfo.get(tableId);
     }
@@ -556,7 +561,7 @@ public class LoadJob implements Writable {
     public Map<Long, TabletLoadInfo> getIdToTabletLoadInfo() {
         return idToTabletLoadInfo;
     }
-    
+
     public TabletLoadInfo getTabletLoadInfo(long tabletId) {
         return idToTabletLoadInfo.get(tabletId);
     }
@@ -564,19 +569,19 @@ public class LoadJob implements Writable {
     public void setIdToTabletLoadInfo(Map<Long, TabletLoadInfo> idTotabletLoadInfo) {
         this.idToTabletLoadInfo = idTotabletLoadInfo;
     }
- 
+
     public void addQuorumTablet(long tabletId) {
         quorumTablets.add(tabletId);
     }
-    
+
     public Set<Long> getQuorumTablets() {
         return quorumTablets;
     }
-    
+
     public void clearQuorumTablets() {
         quorumTablets.clear();
     }
-   
+
     public void addFullTablet(long tabletId) {
         fullTablets.add(tabletId);
     }
@@ -584,24 +589,24 @@ public class LoadJob implements Writable {
     public Set<Long> getFullTablets() {
         return fullTablets;
     }
-    
+
     public void setUnfinishedTablets(Set<Long> unfinishedTablets) {
         this.unfinishedTablets.clear();
         this.unfinishedTablets.addAll(unfinishedTablets);
     }
-    
+
     public void addPushTask(PushTask pushTask) {
         pushTasks.add(pushTask);
     }
-    
+
     public Set<PushTask> getPushTasks() {
         return pushTasks;
     }
-    
+
     public Map<Long, ReplicaPersistInfo> getReplicaPersistInfos() {
         return this.replicaPersistInfos;
     }
-    
+
     public void addReplicaPersistInfos(ReplicaPersistInfo info) {
         if (!replicaPersistInfos.containsKey(info.getReplicaId())) {
             replicaPersistInfos.put(info.getReplicaId(), info);
@@ -615,16 +620,16 @@ public class LoadJob implements Writable {
     public TResourceInfo getResourceInfo() {
         return resourceInfo;
     }
-    
+
     public boolean addFinishedReplica(Replica replica) {
         finishedReplicas.put(replica.getId(), replica);
         return true;
     }
-    
+
     public boolean isReplicaFinished(long replicaId) {
         return finishedReplicas.containsKey(replicaId);
     }
-    
+
     public Collection<Replica> getFinishedReplicas() {
         return finishedReplicas.values();
     }
@@ -632,24 +637,24 @@ public class LoadJob implements Writable {
     public List<Predicate> getConditions() {
         return conditions;
     }
-    
+
     public boolean isSyncDeleteJob() {
         if (conditions != null) {
             return true;
         }
         return false;
     }
-    
+
     public DeleteInfo getDeleteInfo() {
         return deleteInfo;
     }
-    
+
     public long getDeleteJobTimeout() {
         // timeout is between 30 seconds to 5 min
         long timeout = Math.max(idToTabletLoadInfo.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
         return Math.min(timeout, Config.load_straggler_wait_second * 1000L);
     }
-    
+
     @Override
     public String toString() {
         return "LoadJob [id=" + id + ", dbId=" + dbId + ", label=" + label + ", timeoutSecond=" + timeoutSecond
@@ -657,9 +662,9 @@ public class LoadJob implements Writable {
                 + ", progress=" + progress + ", createTimeMs=" + createTimeMs + ", etlStartTimeMs=" + etlStartTimeMs
                 + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
                 + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
-                + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId 
-                + ", quorumFinishTimeMs=" + quorumFinishTimeMs 
-                + ", unfinished tablets=[" + this.unfinishedTablets.subList(0, Math.min(3, this.unfinishedTablets.size())) + "]" 
+                + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId
+                + ", quorumFinishTimeMs=" + quorumFinishTimeMs
+                + ", unfinished tablets=[" + this.unfinishedTablets.subList(0, Math.min(3, this.unfinishedTablets.size())) + "]"
                 + "]";
     }
 
@@ -669,22 +674,22 @@ public class LoadJob implements Writable {
             idToTableLoadInfo.clear();
             idToTableLoadInfo = null;
         }
-        
+
         if (idToTabletLoadInfo != null) {
             idToTabletLoadInfo.clear();
             idToTabletLoadInfo = null;
         }
-        
+
         if (quorumTablets != null) {
             quorumTablets.clear();
             quorumTablets = null;
         }
-        
+
         if (fullTablets != null) {
             fullTablets.clear();
             fullTablets = null;
         }
-        
+
         if (replicaPersistInfos != null) {
             replicaPersistInfos.clear();
             replicaPersistInfos = null;
@@ -718,7 +723,7 @@ public class LoadJob implements Writable {
         out.writeLong(createTimeMs);
         out.writeLong(etlStartTimeMs);
         out.writeLong(etlFinishTimeMs);
-        out.writeLong(loadStartTimeMs); 
+        out.writeLong(loadStartTimeMs);
         out.writeLong(loadFinishTimeMs);
         failMsg.write(out);
         Text.writeString(out, etlJobType.name());
@@ -736,7 +741,7 @@ public class LoadJob implements Writable {
                 entry.getValue().write(out);
             }
         }
-        
+
         if (idToTabletLoadInfo == null) {
             out.writeBoolean(false);
         } else {
@@ -748,7 +753,7 @@ public class LoadJob implements Writable {
                 entry.getValue().write(out);
             }
         }
-        
+
         if (fullTablets == null) {
             out.writeBoolean(false);
         } else {
@@ -759,7 +764,7 @@ public class LoadJob implements Writable {
                 out.writeLong(id);
             }
         }
-        
+
         if (replicaPersistInfos == null) {
             out.writeBoolean(false);
         } else {
@@ -800,7 +805,7 @@ public class LoadJob implements Writable {
 
         out.writeLong(execMemLimit);
         out.writeLong(transactionId);
-        
+
         if (conditions != null) {
             out.writeBoolean(true);
             count = conditions.size();
@@ -858,7 +863,7 @@ public class LoadJob implements Writable {
         }
         timeoutSecond = in.readInt();
         maxFilterRatio = in.readDouble();
-        
+
         boolean deleteFlag = false;
         if (version >= FeMetaVersion.VERSION_30) {
             deleteFlag = in.readBoolean();
@@ -889,7 +894,7 @@ public class LoadJob implements Writable {
                 long key = in.readLong();
                 TableLoadInfo value = new TableLoadInfo();
                 value.readFields(in);
-                idToTableLoadInfo.put(key, value); 
+                idToTableLoadInfo.put(key, value);
             }
         }
 
@@ -903,7 +908,7 @@ public class LoadJob implements Writable {
                 idToTabletLoadInfo.put(key, tLoadInfo);
             }
         }
-        
+
         if (in.readBoolean()) {
             count = in.readInt();
             fullTablets = new HashSet<Long>();
@@ -912,7 +917,7 @@ public class LoadJob implements Writable {
                 fullTablets.add(id);
             }
         }
-        
+
         if (in.readBoolean()) {
             count = in.readInt();
             replicaPersistInfos = Maps.newHashMap();
@@ -994,19 +999,19 @@ public class LoadJob implements Writable {
             }
         }
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof LoadJob)) {
             return false;
         }
-        
+
         LoadJob job = (LoadJob) obj;
-        
+
         if (this.id == job.id) {
             return true;
         }
@@ -1016,6 +1021,6 @@ public class LoadJob implements Writable {
     // Return true if this job is finished for a long time
     public boolean isExpired(long currentTimeMs) {
         return (getState() == JobState.FINISHED || getState() == JobState.CANCELLED)
-            && (currentTimeMs - getLoadFinishTimeMs()) / 1000 > Config.label_keep_max_second;
+                && (currentTimeMs - getLoadFinishTimeMs()) / 1000 > Config.label_keep_max_second;
     }
 }

@@ -42,6 +42,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
@@ -808,8 +809,7 @@ public class ReportHandler extends Daemon {
                 tabletRecoveryMap.size(), backendId);
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo(backendId);
-        backendTabletsInfo.setBad(true);
+        BackendReplicasInfo backendReplicasInfo = new BackendReplicasInfo(backendId);
         for (Long dbId : tabletRecoveryMap.keySet()) {
             Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -859,37 +859,17 @@ public class ReportHandler extends Daemon {
                                 if (replica.setBad(true)) {
                                     LOG.warn("set bad for replica {} of tablet {} on backend {}",
                                             replica.getId(), tabletId, backendId);
-                                    ReplicaPersistInfo replicaPersistInfo = ReplicaPersistInfo.createForReport(
-                                            dbId, tableId, partitionId, indexId, tabletId, backendId, replica.getId());
-                                    backendTabletsInfo.addReplicaInfo(replicaPersistInfo);
+                                    backendReplicasInfo.addBadReplica(tabletId);
                                 }
                                 break;
                             }
 
-                            if (replica.getVersion() > tTabletInfo.getVersion()) {
-                                LOG.warn("recover for replica {} of tablet {} on backend {}",
-                                        replica.getId(), tabletId, backendId);
-                                if (replica.getVersion() == tTabletInfo.getVersion() + 1) {
-                                    // this missing version is the last version of this replica
-                                    replica.updateVersionInfoForRecovery(
-                                            tTabletInfo.getVersion(), /* set version to BE report version */
-                                            -1, /* BE report version hash is meaningless here */
-                                            replica.getVersion(), /* set LFV to current FE version */
-                                            replica.getVersionHash(), /* set LFV hash to current FE version hash */
-                                            tTabletInfo.getVersion(), /* set LSV to BE report version */
-                                            -1 /* LSV hash is unknown */);
-                                } else {
-                                    // this missing version is a hole
-                                    replica.updateVersionInfoForRecovery(
-                                            tTabletInfo.getVersion(), /* set version to BE report version */
-                                            -1, /* BE report version hash is meaningless here */
-                                            tTabletInfo.getVersion() + 1, /* LFV */
-                                            -1, /* LFV hash is unknown */
-                                            /* remain LSV unchanged, which should be equal to replica.version */
-                                            replica.getLastSuccessVersion(),
-                                            replica.getLastSuccessVersionHash());
-                                }
-                                // no need to write edit log, if FE crashed, this will be recovered again
+                            if (tTabletInfo.isSetVersionMiss() && tTabletInfo.isVersionMiss()) {
+                                // The absolute value is meaningless, as long as it is greater than 0.
+                                // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
+                                // it will be considered a version missing replica and will be handled accordingly.
+                                replica.setLastFailedVersion(1L);
+                                backendReplicasInfo.addMissingVersionReplica(tabletId);
                                 break;
                             }
                         }
@@ -900,9 +880,9 @@ public class ReportHandler extends Daemon {
             }
         } // end for recovery map
 
-        if (!backendTabletsInfo.isEmpty()) {
+        if (!backendReplicasInfo.isEmpty()) {
             // need to write edit log the sync the bad info to other FEs
-            Catalog.getCurrentCatalog().getEditLog().logBackendTabletsInfo(backendTabletsInfo);
+            Catalog.getCurrentCatalog().getEditLog().logBackendReplicasInfo(backendReplicasInfo);
         }
     }
 
