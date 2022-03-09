@@ -120,7 +120,7 @@ In most scenarios, users only need to turn on the seesion variable by default to
 2. The `UDF` and `UDAF` of the original row storage execution engine are not supported.
 3. It is not supported to rewrite the between statement into a compound judgment statement, which will result in the following error: `BetweenPredicate needs to be rewritten into a CompoundPredicate`.
 4. The `TupleIsNull` function is not supported, which may cause partial outer joins and expressions with non-Nullable functions to obtain the required NULL value.
-5. The maximum length of `string/text` type is 1MB instead of the default 2GB.
-6. The export method of output in file is not supported.
-7. Does not support lateral view
-8. Does not support extrenal brocker appearance
+5. The maximum length of `string/text` type is 1MB instead of the default 2GB. That is, when the vectorization engine is turned on, it is impossible to query or import strings larger than 1MB. However, if you turn off the vectorization engine, you can still query and import normally.
+6. The export method of `select ... into outfile` is not supported.
+7. Lateral view is not supported.
+8. Extrenal broker appearance is not supported.
