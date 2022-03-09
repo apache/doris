@@ -53,53 +53,16 @@ struct AggregateFunctionHLLData {
 
     HyperLogLog get() const { return dst_hll; }
 
-    void result_union_agg_impl(IColumn& to) const {
-        if constexpr (is_nullable) {
-            auto& null_column = assert_cast<ColumnNullable&>(to);
-            null_column.get_null_map_data().push_back(0);
-            assert_cast<ColumnInt64&>(null_column.get_nested_column())
-                    .get_data()
-                    .push_back(get_cardinality());
-        } else {
-            assert_cast<ColumnInt64&>(to).get_data().push_back(get_cardinality());
-        }
-    }
-
-    void result_union_impl(IColumn& to) const {
-        if constexpr (is_nullable) {
-            auto& null_column = assert_cast<ColumnNullable&>(to);
-            null_column.get_null_map_data().push_back(0);
-            assert_cast<ColumnHLL&>(null_column.get_nested_column()).get_data().emplace_back(get());
-        } else {
-            auto& column = static_cast<ColumnHLL&>(to);
-            column.get_data().emplace_back(get());
-        }
-    }
-
-    static const DataTypePtr return_type_union_agg() {
-        if constexpr (is_nullable) {
-            return make_nullable(std::make_shared<DataTypeInt64>());
-        } else {
-            return std::make_shared<DataTypeInt64>();
-        }
-    }
-
-    static const DataTypePtr return_type_union() {
-        if constexpr (is_nullable) {
-            return make_nullable(std::make_shared<DataTypeHLL>());
-        } else {
-            return std::make_shared<DataTypeHLL>();
-        }
-    }
-
     void add(const IColumn* column, size_t row_num) {
-        if (auto* nullable_column = check_and_get_column<const ColumnNullable>(*column)) {
+        if constexpr (is_nullable) {
+            auto* nullable_column = check_and_get_column<const ColumnNullable>(*column);
             if (nullable_column->is_null_at(row_num)) {
                 return;
             }
             const auto& sources =
                     static_cast<const ColumnHLL&>((nullable_column->get_nested_column()));
             dst_hll.merge(sources.get_element(row_num));
+
         } else {
             const auto& sources = static_cast<const ColumnHLL&>(*column);
             dst_hll.merge(sources.get_element(row_num));
@@ -109,18 +72,22 @@ struct AggregateFunctionHLLData {
 
 template <typename Data>
 struct AggregateFunctionHLLUnionImpl : Data {
-    void insert_result_into(IColumn& to) const { this->result_union_impl(to); }
+    void insert_result_into(IColumn& to) const {
+        assert_cast<ColumnHLL&>(to).get_data().emplace_back(this->get());
+    }
 
-    static DataTypePtr get_return_type() { return Data::return_type_union(); }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeHLL>(); }
 
     static const char* name() { return "hll_union"; }
 };
 
 template <typename Data>
 struct AggregateFunctionHLLUnionAggImpl : Data {
-    void insert_result_into(IColumn& to) const { this->result_union_agg_impl(to); }
+    void insert_result_into(IColumn& to) const {
+        assert_cast<ColumnInt64&>(to).get_data().emplace_back(this->get_cardinality());
+    }
 
-    static DataTypePtr get_return_type() { return Data::return_type_union_agg(); }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
 
     static const char* name() { return "hll_union_agg"; }
 };
@@ -146,7 +113,8 @@ public:
         this->data(place).add(columns[0], row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -154,7 +122,8 @@ public:
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         this->data(place).read(buf);
     }
 };

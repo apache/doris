@@ -53,7 +53,7 @@ void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& f
 
     factory.register_function("hll_union", create_aggregate_function_HLL_union<false>);
     factory.register_function("hll_union", create_aggregate_function_HLL_union<true>, true);
-    factory.register_alias("hll_raw_agg", "hll_union");
+    factory.register_alias("hll_union", "hll_raw_agg");
 }
 
 } // namespace doris::vectorized
