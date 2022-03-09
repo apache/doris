@@ -101,11 +101,17 @@ pre_set() {
 pre_set "set global enable_vectorized_engine=1;"
 pre_set "set global parallel_fragment_exec_instance_num=8;"
 pre_set "set global exec_mem_limit=48G;"
-pre_set "set global batch_size=1024;"
+pre_set "set global batch_size=4096;"
+# pre_set "show variables like 'batch_size';"
 
 for i in $(seq 1 22); do
-    start=$(date +%s%3N)
-    mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB <$QUERIES_DIR/q$i.sql >/dev/null
-    end=$(date +%s%3N)
-    echo "q$i: $((end - start))ms"
+    total=0
+    # Each query is executed three times and takes the average time
+    for j in $(seq 1 3); do
+        start=$(date +%s%3N)
+        mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB <$QUERIES_DIR/q$i.sql >/dev/null
+        end=$(date +%s%3N)
+        total=$((total + end - start))
+    done
+    echo "q$i: $((total / 3))ms"
 done
