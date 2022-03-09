@@ -117,8 +117,7 @@ Status VBrokerScanNode::close(RuntimeState* state) {
 }
 
 Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
-                                    const std::vector<VExprContext*>& vconjunct_ctxs,
-                                    ScannerCounter* counter) {
+                                     ScannerCounter* counter) {
     //create scanner object and open
     std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
     RETURN_IF_ERROR(scanner->open());
@@ -196,18 +195,12 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
 }
 
 void VBrokerScanNode::scanner_worker(int start_idx, int length) {
-    // Clone expr context
-    std::vector<VExprContext*> vscanner_expr_ctxs;
-    auto status = VExpr::clone_if_not_exists({*_vconjunct_ctx_ptr}, _runtime_state, &vscanner_expr_ctxs);
-    if (!status.ok()) {
-        LOG(WARNING) << "Clone conjuncts failed.";
-    }
-
+    Status status = Status::OK();
     ScannerCounter counter;
     for (int i = 0; i < length && status.ok(); ++i) {
         const TBrokerScanRange& scan_range =
                 _scan_ranges[start_idx + i].scan_range.broker_scan_range;
-        status = scanner_scan(scan_range, vscanner_expr_ctxs, &counter);
+        status = scanner_scan(scan_range, &counter);
         if (!status.ok()) {
             LOG(WARNING) << "Scanner[" << start_idx + i
                          << "] process failed. status=" << status.get_error_msg();
@@ -232,7 +225,6 @@ void VBrokerScanNode::scanner_worker(int start_idx, int length) {
     if (!status.ok()) {
         _queue_writer_cond.notify_all();
     }
-    VExpr::close(vscanner_expr_ctxs, _runtime_state);
 }
 
 }

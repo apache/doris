@@ -45,7 +45,7 @@ private:
     void scanner_worker(int start_idx, int length);
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range,
-                        const std::vector<VExprContext*>& vconjunct_ctxs, ScannerCounter* counter);
+                        ScannerCounter* counter);
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
 };

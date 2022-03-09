@@ -19,3 +19,6 @@
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/vec/exec")
 
 ADD_BE_TEST(vgeneric_iterators_test)
+ADD_BE_TEST(vbroker_scanner_test)
+ADD_BE_TEST(vbroker_scan_node_test)
+ADD_BE_TEST(vtablet_sink_test)

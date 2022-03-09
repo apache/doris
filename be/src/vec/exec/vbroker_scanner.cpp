@@ -41,8 +41,11 @@ VBrokerScanner::~VBrokerScanner() {
 
 Status VBrokerScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eof) {
     SCOPED_TIMER(_read_timer);
+
+    const int batch_size = _state->batch_size();
+
     // Get one line
-    while (!_scanner_eof) {
+    while (columns[0]->size() < batch_size && !_scanner_eof) {
         if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
             // If there isn't any more reader, break this
@@ -68,7 +71,6 @@ Status VBrokerScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eo
             if (_success) {
                 free_expr_local_allocations();
             }
-            break; // break always
         }
     }
     if (_scanner_eof) {
