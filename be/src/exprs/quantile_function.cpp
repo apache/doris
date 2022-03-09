@@ -61,7 +61,7 @@ StringVal QuantileStateFunctions::to_quantile_state(FunctionContext* ctx, const 
         if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
             error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-                      << " is not valid, to_bitmap only support bigint value from 0 to "
+                      << " is not valid, to_quantile_state only support bigint value from 0 to "
                          "18446744073709551615 currently";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
