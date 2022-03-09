@@ -158,10 +158,10 @@ int64_t CgroupsMgr::_get_resource_value(
 }
 
 Status CgroupsMgr::_config_disk_throttle(std::string user_name, std::string level,
-                                              int64_t hdd_read_iops, int64_t hdd_write_iops,
-                                              int64_t hdd_read_mbps, int64_t hdd_write_mbps,
-                                              int64_t ssd_read_iops, int64_t ssd_write_iops,
-                                              int64_t ssd_read_mbps, int64_t ssd_write_mbps) {
+                                         int64_t hdd_read_iops, int64_t hdd_write_iops,
+                                         int64_t hdd_read_mbps, int64_t hdd_write_mbps,
+                                         int64_t ssd_read_iops, int64_t ssd_write_iops,
+                                         int64_t ssd_read_mbps, int64_t ssd_write_mbps) {
     string cgroups_path = this->_root_cgroups_path + "/" + user_name + "/" + level;
     string read_bps_path = cgroups_path + "/blkio.throttle.read_bps_device";
     string write_bps_path = cgroups_path + "/blkio.throttle.write_bps_device";
@@ -230,8 +230,8 @@ Status CgroupsMgr::_config_disk_throttle(std::string user_name, std::string leve
 }
 
 Status CgroupsMgr::modify_user_cgroups(const string& user_name,
-                                            const map<string, int32_t>& user_share,
-                                            const map<string, int32_t>& level_share) {
+                                       const map<string, int32_t>& user_share,
+                                       const map<string, int32_t>& level_share) {
     // Check if the user's cgroups exists, if not create it
     string user_cgroups_path = this->_root_cgroups_path + "/" + user_name;
     if (!is_file_exist(user_cgroups_path.c_str())) {
@@ -295,14 +295,16 @@ Status CgroupsMgr::init_cgroups() {
         if (fs_type.f_type != CGROUP_SUPER_MAGIC) {
             LOG(ERROR) << _root_cgroups_path << " is not a cgroups file system.";
             _is_cgroups_init_success = false;
-            return Status::InternalError(_root_cgroups_path + " is not a cgroups file system");;
+            return Status::InternalError(_root_cgroups_path + " is not a cgroups file system");
+            ;
         }
 #endif
         // Check if current user have write permission to cgroup folder
         if (access(_root_cgroups_path.c_str(), W_OK) != 0) {
             LOG(ERROR) << "Doris does not have write permission to " << _root_cgroups_path;
             _is_cgroups_init_success = false;
-            return Status::InternalError("Doris does not have write permission to " + _root_cgroups_path);
+            return Status::InternalError("Doris does not have write permission to " +
+                                         _root_cgroups_path);
         }
         // If root folder exists, then delete all subfolders under it
         std::filesystem::directory_iterator item_begin(this->_root_cgroups_path);
@@ -313,7 +315,8 @@ Status CgroupsMgr::init_cgroups() {
                 if (!delete_user_cgroups(item_begin->path().filename().string()).ok()) {
                     LOG(ERROR) << "Could not clean subfolder " << item_begin->path().string();
                     _is_cgroups_init_success = false;
-                    return Status::InternalError("Could not clean subfolder " + item_begin->path().string());
+                    return Status::InternalError("Could not clean subfolder " +
+                                                 item_begin->path().string());
                 }
             }
         }
@@ -324,7 +327,8 @@ Status CgroupsMgr::init_cgroups() {
         VLOG_NOTICE << "Could not find a valid cgroups path for resource isolation,"
                     << "current value is " << _root_cgroups_path << ". ignore it.";
         _is_cgroups_init_success = false;
-        return Status::InternalError("Could not find a valid cgroups path for resource isolation");;
+        return Status::InternalError("Could not find a valid cgroups path for resource isolation");
+        ;
     }
 }
 
@@ -345,7 +349,7 @@ Status CgroupsMgr::assign_to_cgroups(const string& user_name, const string& leve
 }
 
 Status CgroupsMgr::assign_thread_to_cgroups(int64_t thread_id, const string& user_name,
-                                                 const string& level) {
+                                            const string& level) {
     if (!_is_cgroups_init_success) {
         return Status::InternalError("Cgroups not inited");
     }
@@ -382,15 +386,11 @@ Status CgroupsMgr::delete_user_cgroups(const string& user_name) {
         for (; item_begin != item_end; item_begin++) {
             if (is_directory(item_begin->path().string().c_str())) {
                 string cur_cgroups_path = item_begin->path().string();
-                if (this->drop_cgroups(cur_cgroups_path) < 0) {
-                    return Status::InternalError("Drop cgroup failed");
-                }
+                RETURN_IF_ERROR(drop_cgroups(cur_cgroups_path));
             }
         }
         // Delete user cgroups
-        if (this->drop_cgroups(user_cgroups_path) < 0) {
-            return Status::InternalError("Drop cgroup failed");
-        }
+        RETURN_IF_ERROR(drop_cgroups(user_cgroups_path));
     }
     return Status::OK();
 }
@@ -420,11 +420,11 @@ Status CgroupsMgr::relocate_tasks(const string& src_cgroups, const string& dest_
     string dest_tasks_path = dest_cgroups + "/tasks";
     std::ifstream src_tasks(src_tasks_path.c_str());
     if (!src_tasks) {
-        return Status::InternalError("Src tasks is null");;
+        return Status::InternalError("Src tasks is null");
     }
     std::ofstream dest_tasks(dest_tasks_path.c_str(), std::ios::out | std::ios::app);
     if (!dest_tasks) {
-        return Status::InternalError("Desk task is null");;
+        return Status::InternalError("Desk task is null");
     }
     int64_t taskid;
     while (src_tasks >> taskid) {
