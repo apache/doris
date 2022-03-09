@@ -553,10 +553,10 @@ bool Tablet::_reconstruct_version_tracker_if_necessary() {
 
 OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
                                                std::vector<Version>* version_path,
-                                               bool quite) const {
+                                               bool quiet) const {
     OLAPStatus status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
-    if (status != OLAP_SUCCESS && !quite) {
+    if (status != OLAP_SUCCESS && !quiet) {
         std::vector<Version> missed_versions;
         calc_missed_versions_unlocked(spec_version.second, &missed_versions);
         if (missed_versions.empty()) {
@@ -578,9 +578,9 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
     return status;
 }
 
-OLAPStatus Tablet::check_version_integrity(const Version& version, bool quite) {
+OLAPStatus Tablet::check_version_integrity(const Version& version, bool quiet) {
     ReadLock rdlock(&_meta_lock);
-    return capture_consistent_versions(version, nullptr, quite);
+    return capture_consistent_versions(version, nullptr, quiet);
 }
 
 // If any rowset contains the specific version, it means the version already exist

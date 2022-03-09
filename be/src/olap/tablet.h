@@ -116,12 +116,12 @@ public:
     void delete_expired_stale_rowset();
 
     // Given spec_version, find a continuous version path and store it in version_path.
-    // If quite is true, then only "does this path exist" is returned.
+    // If quiet is true, then only "does this path exist" is returned.
     OLAPStatus capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path,
-                                           bool quite = false) const;
-    // if quite is true, no error log will be printed if there are missing versions
-    OLAPStatus check_version_integrity(const Version& version, bool quite = false);
+                                           bool quiet = false) const;
+    // if quiet is true, no error log will be printed if there are missing versions
+    OLAPStatus check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
     void acquire_version_and_rowsets(
             std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
