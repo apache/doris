@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_EXPRS_ARITHMETIC_EXPR_H
 #define DORIS_BE_SRC_EXPRS_ARITHMETIC_EXPR_H
 
+#include <set>
+
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 
@@ -25,7 +27,9 @@ namespace doris {
 
 class ArithmeticExpr : public Expr {
 public:
+    static bool is_valid(std::string fn_name) { return _s_valid_fn_names.count(fn_name); }
     static Expr* from_thrift(const TExprNode& node);
+    static Expr* from_fn_name(const TExprNode& node);
 
 protected:
     enum BinaryOpType {
@@ -42,6 +46,8 @@ protected:
 
     ArithmeticExpr(const TExprNode& node) : Expr(node) {}
     virtual ~ArithmeticExpr() {}
+
+    static std::set<std::string> _s_valid_fn_names;
 };
 
 class AddExpr : public ArithmeticExpr {
@@ -56,6 +62,7 @@ public:
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
     virtual FloatVal get_float_val(ExprContext* context, TupleRow*) override;
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
 };
 
 class SubExpr : public ArithmeticExpr {
@@ -70,6 +77,7 @@ public:
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
     virtual FloatVal get_float_val(ExprContext* context, TupleRow*) override;
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
 };
 
 class MulExpr : public ArithmeticExpr {
@@ -84,6 +92,7 @@ public:
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
     virtual FloatVal get_float_val(ExprContext* context, TupleRow*) override;
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
 };
 
 class DivExpr : public ArithmeticExpr {
@@ -98,6 +107,7 @@ public:
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
     virtual FloatVal get_float_val(ExprContext* context, TupleRow*) override;
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
 };
 
 class ModExpr : public ArithmeticExpr {
@@ -112,6 +122,7 @@ public:
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
     virtual FloatVal get_float_val(ExprContext* context, TupleRow*) override;
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
 };
 
 class BitAndExpr : public ArithmeticExpr {

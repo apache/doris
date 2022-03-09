@@ -360,6 +360,8 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new CoalesceExpr(texpr_node));
         } else if (texpr_node.fn.binary_type == TFunctionBinaryType::RPC) {
             *expr = pool->add(new RPCFnCall(texpr_node));
+        } else if (ArithmeticExpr::is_valid(texpr_node.fn.name.function_name)) {
+            *expr = pool->add(ArithmeticExpr::from_fn_name(texpr_node));
         } else {
             *expr = pool->add(new ScalarFnCall(texpr_node));
         }

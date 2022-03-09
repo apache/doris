@@ -4735,6 +4735,8 @@ expr ::=
 function_call_expr ::=
   function_name:fn_name LPAREN RPAREN
   {: RESULT = new FunctionCallExpr(fn_name, new ArrayList<Expr>()); :}
+  | KW_ADD LPAREN function_params:params RPAREN
+  {: RESULT = new FunctionCallExpr("add", params); :}
   | function_name:fn_name LPAREN function_params:params RPAREN
   {:
     if ("grouping".equalsIgnoreCase(fn_name.getFunction())) {
