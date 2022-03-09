@@ -293,9 +293,9 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
 
     while (try_time < TASK_FINISH_MAX_RETRY) {
         DorisMetrics::instance()->finish_task_requests_total->increment(1);
-        AgentStatus client_status = _master_client->finish_task(finish_task_request, &result);
+        Status client_status = _master_client->finish_task(finish_task_request, &result);
 
-        if (client_status == DORIS_SUCCESS) {
+        if (client_status.ok()) {
             break;
         } else {
             DorisMetrics::instance()->finish_task_requests_failed->increment(1);
@@ -510,7 +510,7 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
 void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int64_t signature,
                                    const TTaskType::type task_type,
                                    TFinishTaskRequest* finish_task_request) {
-    AgentStatus status = DORIS_SUCCESS;
+    Status status = Status::OK();
     TStatus task_status;
     std::vector<string> error_msgs;
 
@@ -524,7 +524,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         EnumToString(TTaskType, task_type, task_name);
         LOG(WARNING) << "schema change type invalid. type: " << task_name
                      << ", signature: " << signature;
-        status = DORIS_TASK_REQUEST_ERROR;
+        status = Status::NotSupported("Schema change type invalid");
         break;
     }
 
@@ -533,7 +533,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     // Because if delete failed create rollup will failed
     TTabletId new_tablet_id;
     TSchemaHash new_schema_hash = 0;
-    if (status == DORIS_SUCCESS) {
+    if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
@@ -542,13 +542,13 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
             if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
-            status = DORIS_ERROR;
+            status = Status::DataQualityError("The data quality does not satisfy");
         } else {
-            status = DORIS_SUCCESS;
+            status = Status::OK();
         }
     }
 
-    if (status == DORIS_SUCCESS) {
+    if (status.ok()) {
         ++_s_report_version;
         LOG(INFO) << process_name << " finished. signature: " << signature;
     }
@@ -560,11 +560,11 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     finish_task_request->__set_signature(signature);
 
     std::vector<TTabletInfo> finish_tablet_infos;
-    if (status == DORIS_SUCCESS) {
+    if (status.ok()) {
         TTabletInfo tablet_info;
         status = _get_tablet_info(new_tablet_id, new_schema_hash, signature, &tablet_info);
 
-        if (status != DORIS_SUCCESS) {
+        if (!status.ok()) {
             LOG(WARNING) << process_name << " success, but get new tablet info failed."
                          << "tablet_id: " << new_tablet_id << ", schema_hash: " << new_schema_hash
                          << ", signature: " << signature;
@@ -573,23 +573,16 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         }
     }
 
-    if (status == DORIS_SUCCESS) {
+    if (status.ok()) {
         finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
         LOG(INFO) << process_name << " success. signature: " << signature;
         error_msgs.push_back(process_name + " success");
-        task_status.__set_status_code(TStatusCode::OK);
-    } else if (status == DORIS_TASK_REQUEST_ERROR) {
-        LOG(WARNING) << "alter table request task type invalid. "
-                     << "signature:" << signature;
-        error_msgs.push_back("alter table request new tablet id or schema count invalid.");
-        task_status.__set_status_code(TStatusCode::ANALYSIS_ERROR);
     } else {
         LOG(WARNING) << process_name << " failed. signature: " << signature;
         error_msgs.push_back(process_name + " failed");
-        error_msgs.push_back("status: " + _agent_utils->print_agent_status(status));
-        task_status.__set_status_code(TStatusCode::RUNTIME_ERROR);
+        error_msgs.push_back("status: " + status.to_string());
     }
-
+    task_status.__set_status_code(status.code());
     task_status.__set_error_msgs(error_msgs);
     finish_task_request->__set_task_status(task_status);
 }
@@ -608,7 +601,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
     }
 
     while (_is_work) {
-        AgentStatus status = DORIS_SUCCESS;
+        Status status = Status::OK();
         TAgentTaskRequest agent_task_req;
         TPushReq push_req;
         int32_t index = 0;
@@ -648,12 +641,6 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
         _env->storage_engine()->execute_task(&engine_task);
-
-        if (status == DORIS_PUSH_HAD_LOADED) {
-            // remove the task and not return to fe
-            _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-            continue;
-        }
         // Return result to fe
         std::vector<string> error_msgs;
         TStatus task_status;
@@ -666,7 +653,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
             finish_task_request.__set_request_version(push_req.version);
         }
 
-        if (status == DORIS_SUCCESS) {
+        if (status.ok()) {
             VLOG_NOTICE << "push ok. signature: " << agent_task_req.signature
                         << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
@@ -675,11 +662,6 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
             task_status.__set_status_code(TStatusCode::OK);
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
-        } else if (status == DORIS_TASK_REQUEST_ERROR) {
-            LOG(WARNING) << "push request push_type invalid. type: " << push_req.push_type
-                         << ", signature: " << agent_task_req.signature;
-            error_msgs.push_back("push request push_type invalid.");
-            task_status.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         } else {
             LOG(WARNING) << "push failed, error_code: " << status
                          << ", signature: " << agent_task_req.signature;
@@ -885,7 +867,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
 
 void TaskWorkerPool::_clone_worker_thread_callback() {
     while (_is_work) {
-        AgentStatus status = DORIS_SUCCESS;
+        Status status = Status::OK();
         TAgentTaskRequest agent_task_req;
         TCloneReq clone_req;
 
@@ -919,7 +901,7 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         finish_task_request.__set_signature(agent_task_req.signature);
 
         TStatusCode::type status_code = TStatusCode::OK;
-        if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
+        if (!status.ok()) {
             DorisMetrics::instance()->clone_requests_failed->increment(1);
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "clone failed. signature: " << agent_task_req.signature;
@@ -1499,10 +1481,10 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
     }
 }
 
-AgentStatus TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
+Status TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
                                              const TSchemaHash schema_hash, int64_t signature,
                                              TTabletInfo* tablet_info) {
-    AgentStatus status = DORIS_SUCCESS;
+    Status status = Status::OK();
 
     tablet_info->__set_tablet_id(tablet_id);
     tablet_info->__set_schema_hash(schema_hash);
@@ -1511,7 +1493,7 @@ AgentStatus TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
     if (olap_status != OLAP_SUCCESS) {
         LOG(WARNING) << "get tablet info failed. status: " << olap_status
                      << ", signature: " << signature;
-        status = DORIS_ERROR;
+        status = Status::InternalError("Get tablet info failed");
     }
     return status;
 }
@@ -1535,18 +1517,11 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         }
         LOG(INFO) << "get move dir task, signature:" << agent_task_req.signature
                   << ", job id:" << move_dir_req.job_id;
-
-        TStatusCode::type status_code = TStatusCode::OK;
-        std::vector<string> error_msgs;
-        TStatus task_status;
-
-        // TODO: move dir
-        AgentStatus status =
+        Status status =
                 _move_dir(move_dir_req.tablet_id, move_dir_req.schema_hash, move_dir_req.src,
-                          move_dir_req.job_id, true /* TODO */, &error_msgs);
+                          move_dir_req.job_id, true /* TODO */);
 
-        if (status != DORIS_SUCCESS) {
-            status_code = TStatusCode::RUNTIME_ERROR;
+        if (!status.ok()) {
             LOG(WARNING) << "failed to move dir: " << move_dir_req.src
                          << ", tablet id: " << move_dir_req.tablet_id
                          << ", signature: " << agent_task_req.signature
@@ -1558,30 +1533,25 @@ void TaskWorkerPool::_move_dir_thread_callback() {
                       << ", job id:" << move_dir_req.job_id;
         }
 
-        task_status.__set_status_code(status_code);
-        task_status.__set_error_msgs(error_msgs);
-
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_backend(_backend);
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(task_status);
+        finish_task_request.__set_task_status(status.to_thrift());
 
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }
 
-AgentStatus TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                                      const std::string& src, int64_t job_id, bool overwrite,
-                                      std::vector<std::string>* error_msgs) {
+Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
+                                      const std::string& src, int64_t job_id, bool overwrite) {
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id
                   << ", schema hash:" << schema_hash;
-        error_msgs->push_back("failed to get tablet");
-        return DORIS_TASK_REQUEST_ERROR;
+        return Status::InvalidArgument("Could not find tablet");
     }
 
     std::string dest_tablet_dir = tablet->tablet_path_desc().filepath;
@@ -1590,18 +1560,17 @@ AgentStatus TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHa
 
     if (!status.ok()) {
         LOG(WARNING) << "move failed. job id: " << job_id << ", msg: " << status.get_error_msg();
-        error_msgs->push_back(status.get_error_msg());
-        return DORIS_INTERNAL_ERROR;
+        return status;
     }
 
-    return DORIS_SUCCESS;
+    return Status::OK();
 }
 
 void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     TMasterResult result;
-    AgentStatus status = _master_client->report(request, &result);
+    Status status = _master_client->report(request, &result);
     bool is_report_success = false;
-    if (status != DORIS_SUCCESS) {
+    if (!status.ok()) {
         LOG(WARNING) << "report " << TYPE_STRING(type) << " failed. status: " << status
                      << ", master host: " << _master_info.network_address.hostname
                      << ", port:" << _master_info.network_address.port;
