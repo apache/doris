@@ -519,6 +519,19 @@ TEST(TimestampFunctionsTest, yearweek_test) {
             {{std::string("9999-12-12")}, 999950}};
 
     check_function<DataTypeInt32, true>(func_name, new_input_types, new_data_set);
+
+    InputTypeSet input_types_three_args = {TypeIndex::Date, TypeIndex::Int32, TypeIndex::Int32};
+    DataSet data_set_three_args = {
+            {{std::string("2022-01-01"), 1, 1}, 202201},
+            {{std::string("2022-01-01"), 1, 3}, 202153},
+            {{std::string("2021-12-29"), 1, 1}, 202201},
+            {{std::string(""), 1, 1}, Null()},
+            {{std::string("2022-01-01"), 0, 1}, Null()},
+            {{std::string("2022-01-01"), 8, 1}, Null()},
+            {{std::string("2022-01-01"), 1, 0}, Null()},
+            {{std::string("2022-01-01"), 1, 8}, Null()}};
+
+    check_function<DataTypeInt32, true>(func_name, input_types_three_args, data_set_three_args);
 }
 
 TEST(TimestampFunctionsTest, makedate_test) {

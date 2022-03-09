@@ -233,6 +233,24 @@ TEST_F(TimestampFunctionsTest, year_week_test) {
     doris_udf::DateTimeVal tv5;
     dtv5.to_datetime_val(&tv5);
     ASSERT_EQ(202653, TimestampFunctions::year_week(context, tv5, 3).val);
+
+    DateTimeValue dtv6(20220101000000);
+    dtv6.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv6;
+    dtv6.to_datetime_val(&tv6);
+    ASSERT_EQ(202201, TimestampFunctions::year_week(context, tv6, 1, 1).val);
+
+    DateTimeValue dtv7(20220101000000);
+    dtv7.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv7;
+    dtv7.to_datetime_val(&tv7);
+    ASSERT_EQ(202153, TimestampFunctions::year_week(context, tv7, 1, 3).val);
+
+    DateTimeValue dtv8(20211229000000);
+    dtv8.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv8;
+    dtv8.to_datetime_val(&tv8);
+    ASSERT_EQ(202201, TimestampFunctions::year_week(context, tv8, 1, 1).val);
     delete context;
 }
 

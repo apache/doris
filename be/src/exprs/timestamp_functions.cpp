@@ -209,6 +209,20 @@ IntVal TimestampFunctions::year_week(FunctionContext* context, const DateTimeVal
     return IntVal::null();
 }
 
+IntVal TimestampFunctions::year_week(FunctionContext* context, const DateTimeVal& ts_val,
+                                     const doris_udf::IntVal& week_start,
+                                     const doris_udf::IntVal& day_in_first_week) {
+    if (ts_val.is_null || week_start.val < 1 || week_start.val > 7 || day_in_first_week.val < 1
+            || day_in_first_week.val > 7) {
+        return IntVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    if (ts_value.is_valid_date()) {
+        return ts_value.year_week(week_start.val, day_in_first_week.val);
+    }
+    return IntVal::null();
+}
+
 IntVal TimestampFunctions::week(FunctionContext* context, const DateTimeVal& ts_val) {
     return week(context, ts_val, doris_udf::IntVal {0});
 }

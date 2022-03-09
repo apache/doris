@@ -364,6 +364,7 @@ public:
     static uint64_t calc_daynr(uint32_t year, uint32_t month, uint32_t day);
 
     static uint8_t calc_weekday(uint64_t daynr, bool);
+    static uint8_t calc_weekday(uint64_t daynr, uint8_t week_start);
 
     int year() const { return _year; }
     int month() const { return _month; }
@@ -437,6 +438,7 @@ public:
     uint8_t week(uint8_t) const;
 
     uint32_t year_week(uint8_t mode) const;
+    uint32_t year_week(uint8_t week_start, uint8_t day_in_first_week) const;
 
     // Add interval
     bool date_add_interval(const TimeInterval& interval, TimeUnit unit);
@@ -621,6 +623,8 @@ private:
     int64_t to_time_int64() const;
 
     static uint8_t calc_week(const DateTimeValue& value, uint8_t mode, uint32_t* year);
+    static uint8_t calc_week(const DateTimeValue& value, uint8_t week_start,
+                             uint8_t day_in_first_week, uint32_t *year);
 
     // This is private function which modify date but modify `_type`
     bool get_date_from_daynr(uint64_t);

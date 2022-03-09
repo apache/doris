@@ -280,6 +280,14 @@ public class FEFunctions {
         return null;
     }
 
+    @FEFunction(name = "yearweek", argTypes = { "DATE", "INT", "INT" }, returnType = "INT")
+    public static IntLiteral yearWeekStartDay(LiteralExpr arg) throws AnalysisException {
+        if (arg instanceof IntLiteral) {
+            return (IntLiteral) arg;
+        }
+        return null;
+    }
+
     @FEFunction(name = "week", argTypes = { "DATE" }, returnType = "INT")
     public static IntLiteral week(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof IntLiteral) {

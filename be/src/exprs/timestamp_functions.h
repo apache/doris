@@ -72,6 +72,10 @@ public:
     static doris_udf::IntVal year_week(doris_udf::FunctionContext* context,
                                        const doris_udf::DateTimeVal& ts_val,
                                        const doris_udf::IntVal& para);
+    static doris_udf::IntVal year_week(doris_udf::FunctionContext *context,
+                                       const doris_udf::DateTimeVal &ts_val,
+                                       const doris_udf::IntVal &week_start,
+                                       const doris_udf::IntVal &day_in_first_week);
     static doris_udf::IntVal week(doris_udf::FunctionContext* context,
                                   const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal week(doris_udf::FunctionContext* context,

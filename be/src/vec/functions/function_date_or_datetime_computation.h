@@ -165,6 +165,23 @@ TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)));
 TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)));
 
+#define TIME_FUNCTION_THREE_ARGS_IMPL(CLASS, NAME, FUNCTION)                                 \
+    struct CLASS {                                                                           \
+        using ReturnType = DataTypeInt32;                                                    \
+        static constexpr auto name = #NAME;                                                  \
+        static constexpr auto is_nullable = false;                                           \
+        static inline int64_t execute(const Int64& t0, const Int32 week_start, const Int32 day_in_first_week, bool& is_null) {    \
+            const auto& ts0 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t0);           \
+            is_null = (!ts0.is_valid_date() || week_start < 1 || week_start > 7 || day_in_first_week < 1 || day_in_first_week > 7);                                                    \
+            return ts0.FUNCTION;                                                               \
+        }                                                                                      \
+        static DataTypes get_variadic_argument_types() {                                       \
+            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};  \
+        }                                                                                      \
+    }
+
+TIME_FUNCTION_THREE_ARGS_IMPL(ToYearWeekThreeArgsImpl, yearweek, year_week(week_start, day_in_first_week));
+
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeOp {
     // use for (DateTime, DateTime) -> other_type
@@ -246,6 +263,20 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(from, delta[i], reinterpret_cast<bool&>(null_map[i]));
         }
     }
+
+    // use for (DateTime, int32, int32) -> other_type
+    static void vector_vector_vector(const PaddedPODArray<FromType>& vec_from0,
+                              const PaddedPODArray<Int32>& vec_from1,
+                              const PaddedPODArray<Int32>& vec_from2,
+                              PaddedPODArray<ToType>& vec_to, NullMap& null_map) {
+        size_t size = vec_from0.size();
+        vec_to.resize(size);
+        null_map.resize_fill(size, false);
+
+        for (size_t i = 0; i < size; ++i)
+            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], vec_from2[i],
+                                           reinterpret_cast<bool&>(null_map[i]));
+    }
 };
 
 template <typename FromType, typename Transform>
@@ -312,6 +343,38 @@ struct DateTimeAddIntervalImpl {
                     "Illegal column {} of first argument of function {}",
                     block.get_by_position(arguments[0]).column->get_name(), Transform::name));
         }
+        return Status::OK();
+    }
+};
+
+template <typename FromType, typename Transform>
+struct YearWeekThreeArgsImpl {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        using ToType = typename Transform::ReturnType::FieldType;
+        using Op = DateTimeOp<FromType, ToType, Transform>;
+
+        const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
+        if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
+            auto col_to = ColumnVector<ToType>::create();
+            auto null_map = ColumnUInt8::create();
+            const IColumn& delta_column_1 = *block.get_by_position(arguments[1]).column;
+            const auto* delta_vec_column1 =
+                    check_and_get_column<ColumnVector<Int32>>(delta_column_1);
+            const IColumn& delta_column_2 = *block.get_by_position(arguments[2]).column;
+            const auto* delta_vec_column2 =
+                    check_and_get_column<ColumnVector<Int32>>(delta_column_2);
+            DCHECK(delta_vec_column1 != nullptr && delta_vec_column2 != nullptr);
+            Op::vector_vector_vector(sources->get_data(), delta_vec_column1->get_data(),
+                                     delta_vec_column2->get_data(), col_to->get_data(), null_map->get_data());
+
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(null_map));
+        } else {
+            return Status::RuntimeError(fmt::format(
+                    "Illegal column {} of first argument of function {}",
+                    block.get_by_position(arguments[0]).column->get_name(), Transform::name));
+        }
+
         return Status::OK();
     }
 };
@@ -403,6 +466,50 @@ public:
                         size_t result, size_t input_rows_count) override {
         DCHECK(arguments.empty());
         return FunctionImpl::execute(context, block, result, input_rows_count);
+    }
+};
+
+template <typename Transform>
+class FunctionToYearWeekThreeArgsComputation : public IFunction {
+public:
+    static constexpr auto name = Transform::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+
+    static FunctionPtr create() { return std::make_shared<FunctionToYearWeekThreeArgsComputation>(); }
+
+    String get_name() const override { return name; }
+
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        return {};
+    }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return make_nullable(std::make_shared<typename Transform::ReturnType>());
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
+        WhichDataType which(from_type);
+
+        if (which.is_date()) {
+            return YearWeekThreeArgsImpl<DataTypeDate::FieldType, Transform>::execute(
+                    block, arguments, result);
+        } else if (which.is_date_time()) {
+            return YearWeekThreeArgsImpl<DataTypeDateTime::FieldType, Transform>::execute(
+                    block, arguments, result);
+        } else {
+            return Status::RuntimeError(
+                    fmt::format("Illegal type {} of argument of function {}",
+                                block.get_by_position(arguments[0]).type->get_name(), get_name()));
+        }
     }
 };
 

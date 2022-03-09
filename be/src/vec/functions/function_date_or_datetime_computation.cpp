@@ -50,6 +50,7 @@ using FunctionMinutesDiff = FunctionDateOrDateTimeComputation<MintueSDiffImpl>;
 using FunctionSecondsDiff = FunctionDateOrDateTimeComputation<SecondsDiffImpl>;
 
 using FunctionToYearWeekTwoArgs = FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl>;
+using FunctionToYearWeekThreeArgs = FunctionToYearWeekThreeArgsComputation<ToYearWeekThreeArgsImpl>;
 using FunctionToWeekTwoArgs = FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl>;
 
 struct NowFunctionName {
@@ -131,6 +132,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecondsDiff>();
 
     factory.register_function<FunctionToYearWeekTwoArgs>();
+    factory.register_function<FunctionToYearWeekThreeArgs>();
     factory.register_function<FunctionToWeekTwoArgs>();
 
     factory.register_function<FunctionNow>();
