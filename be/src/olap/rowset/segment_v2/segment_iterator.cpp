@@ -860,6 +860,7 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         auto column_id = column_predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         auto* col_ptr = short_cir_column.get();
+        // todo(zeno) define convert_dict_codes_if_dictionary interface in IColumn
         if (short_cir_column->is_nullable()) {
             auto nullable_col =
                     reinterpret_cast<vectorized::ColumnNullable*>(short_cir_column.get());

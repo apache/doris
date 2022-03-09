@@ -36,7 +36,7 @@
 namespace doris::vectorized {
 
 /**
- * For low cardinality string columns, using ColumnDictionary can reducememory
+ * For low cardinality string columns, using ColumnDictionary can reduce memory
  * usage and improve query efficiency.
  * For equal predicate comparisons, convert the predicate constant to encodings
  * according to the dictionary, so that encoding comparisons are used instead
@@ -246,7 +246,7 @@ public:
                 auto value = StringValue(dict_array[i].data, dict_array[i].size);
                 dict.insert_value(value);
             }
-            dict_inited = true;
+            _dict_inited = true;
         }
 
         char* end_ptr = (char*)codes.get_end_ptr();
@@ -255,11 +255,11 @@ public:
         codes.set_end_ptr(end_ptr);
     }
 
-    bool is_dict_inited() const { return dict_inited; }
+    bool is_dict_inited() const { return _dict_inited; }
 
-    bool is_dict_sorted() const { return dict_sorted; }
+    bool is_dict_sorted() const { return _dict_sorted; }
 
-    bool is_dict_code_converted() const { return dict_code_converted; }
+    bool is_dict_code_converted() const { return _dict_code_converted; }
 
     ColumnPtr convert_to_predicate_column() {
         auto res = vectorized::PredicateColumnType<StringValue>::create();
@@ -283,13 +283,13 @@ public:
             for (size_t i = 0; i < size(); ++i) {
                 codes[i] = dict.convert_code(codes[i]);
             }
-            dict_code_converted = true;
+            _dict_code_converted = true;
         }
     }
 
     void sort_dict() {
         dict.sort();
-        dict_sorted = true;
+        _dict_sorted = true;
     }
 
     class Dictionary {
@@ -315,6 +315,11 @@ public:
         }
 
         inline T find_bound_code(const StringValue& value, bool lower, bool eq) const {
+            auto code = find_code(value);
+            if (code >= 0) {
+                return code;
+            }
+
             if (lower) {
                 return std::lower_bound(dict_data.begin(), dict_data.end(), value) - dict_data.begin() - eq;
             } else {
@@ -371,9 +376,9 @@ public:
     };
 
 private:
-    bool dict_inited = false;
-    bool dict_sorted = false;
-    bool dict_code_converted = false;
+    bool _dict_inited = false;
+    bool _dict_sorted = false;
+    bool _dict_code_converted = false;
     Dictionary dict;
     Container codes;
 };

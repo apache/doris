@@ -118,6 +118,7 @@ IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 
+// todo(zeno) define interface in IColumn to simplify code
 #define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)                                                    \
     template <class type>                                                                          \
     void CLASS<type>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const { \

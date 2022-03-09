@@ -105,7 +105,7 @@ struct StringValue {
     // this < other: -1
     // this == other: 0
     // this > other: 1
-    int compare(const StringValue& other) const {
+    inline int compare(const StringValue& other) const {
         int l = std::min(len, other.len);
 
         if (l == 0) {
@@ -123,7 +123,7 @@ struct StringValue {
     }
 
     // ==
-    bool eq(const StringValue& other) const {
+    inline bool eq(const StringValue& other) const {
         if (this->len != other.len) {
             return false;
         }
