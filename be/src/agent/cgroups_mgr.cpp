@@ -421,12 +421,10 @@ Status CgroupsMgr::relocate_tasks(const string& src_cgroups, const string& dest_
     std::ifstream src_tasks(src_tasks_path.c_str());
     if (!src_tasks) {
         return Status::InternalError("Src tasks is null");
-        ;
     }
     std::ofstream dest_tasks(dest_tasks_path.c_str(), std::ios::out | std::ios::app);
     if (!dest_tasks) {
         return Status::InternalError("Desk task is null");
-        ;
     }
     int64_t taskid;
     while (src_tasks >> taskid) {
