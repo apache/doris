@@ -41,6 +41,7 @@ import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -60,7 +61,7 @@ public class EsRestClient {
     private static OkHttpClient networkClient = new OkHttpClient.Builder()
             .readTimeout(10, TimeUnit.SECONDS)
             .build();
-    
+
     private static OkHttpClient sslNetworkClient;
 
     private Request.Builder builder;
@@ -154,7 +155,7 @@ public class EsRestClient {
         }
         return EsShardPartitions.findShardPartitions(indexName, searchShards);
     }
-    
+
     /**
      * init ssl networkClient use lazy way
      **/
@@ -217,7 +218,7 @@ public class EsRestClient {
             }
             selectNextNode();
         }
-        LOG.warn("try all nodes [{}],no other nodes left", nodes);
+        LOG.warn("try all nodes [{}], no other nodes left", nodes);
         if (scratchExceptionForThrow != null) {
             throw scratchExceptionForThrow;
         }
@@ -245,11 +246,15 @@ public class EsRestClient {
      * support https
      **/
     private static class TrustAllCerts implements X509TrustManager {
-        public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+        public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+        }
 
-        public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+        public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+        }
 
-        public X509Certificate[] getAcceptedIssuers() {return new X509Certificate[0];}
+        public X509Certificate[] getAcceptedIssuers() {
+            return new X509Certificate[0];
+        }
     }
 
     private static class TrustAllHostnameVerifier implements HostnameVerifier {
