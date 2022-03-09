@@ -589,7 +589,7 @@ under the License.
         ) 
         with HDFS (
             "fs.defaultFS"="hdfs://testFs",
-            "hdfs_user"="user"
+            "hdfs_user"="user",
             "dfs.nameservices"="my_ha",
             "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
             "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
