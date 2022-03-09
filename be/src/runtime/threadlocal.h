@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Reference from kudu, Solve the problem of gcc11 compiling
+// non-trivial thread_local variables on lower versions of GLIBC.
+// see https://github.com/apache/incubator-doris/pull/7911
+//
 // Block-scoped static thread local implementation.
 //
 // Usage is similar to a C++11 thread_local. The BLOCK_STATIC_THREAD_LOCAL macro

@@ -24,9 +24,8 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/threadlocal.h"
 
-#define SCOPED_ATTACH_TASK_THREAD_4ARG(query_type, task_id, fragment_instance_id) \
-    auto VARNAME_LINENUM(attach_task_thread) =                                    \
-            AttachTaskThread(query_type, task_id, fragment_instance_id)
+#define SCOPED_ATTACH_TASK_THREAD(type, ...) \
+    auto VARNAME_LINENUM(attach_task_thread) = AttachTaskThread(type, ## __VA_ARGS__)
 
 namespace doris {
 
@@ -94,7 +93,7 @@ private:
 // So, kudu Class-scoped static thread local implementation was introduced. Solve the above problem by
 // Thread-scopedthread local + Class-scoped thread local.
 //
-// This may look very track, but it's the best way I can find.
+// This may look very trick, but it's the best way I can find.
 //
 // refer to:
 //  https://gcc.gnu.org/onlinedocs/gcc-3.3.1/gcc/Thread-Local.html
@@ -133,14 +132,8 @@ inline const std::string ThreadContext::type() const {
 
 class AttachTaskThread {
 public:
-    explicit AttachTaskThread(const ThreadContext::TaskType& type, const std::string& task_id,
-                              const TUniqueId& fragment_instance_id) {
-        DCHECK(task_id != "" && fragment_instance_id != TUniqueId());
-        init(type, task_id, fragment_instance_id);
-    }
-
-    void init(const ThreadContext::TaskType& type, const std::string& task_id,
-              const TUniqueId& fragment_instance_id) {
+    explicit AttachTaskThread(const ThreadContext::TaskType& type, const std::string& task_id = "",
+                              const TUniqueId& fragment_instance_id = TUniqueId()) {
         thread_local_ctx.get()->attach(type, task_id, fragment_instance_id);
     }
 
