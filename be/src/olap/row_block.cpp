@@ -87,7 +87,7 @@ void RowBlock::_compute_layout() {
         _field_offset_in_memory.push_back(memory_size);
 
         // All field has a nullbyte in memory
-        if (column.is_slice_stored()) {
+        if (column.is_length_variable_type()) {
             // 变长部分额外计算下实际最大的字符串长度（此处length已经包括记录Length的2个字节）
             memory_size += sizeof(Slice) + sizeof(char);
         } else {

@@ -51,7 +51,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
                     row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.is_slice_stored()) {
+            if (column.is_length_variable_type()) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();
@@ -93,7 +93,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
 
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.is_slice_stored()) {
+            if (column.is_length_variable_type()) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();

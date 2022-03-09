@@ -589,13 +589,13 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_QUANTILE_UNION, OLAP_FIELD_TYP
 
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
-        auto* quantile_state = new QuantileState<double>(*src_slice);
+        auto* dst_quantile_state = new QuantileState<double>(*src_slice);
 
-        mem_pool->mem_tracker()->Consume(quantile_state->get_serialized_size());
+        mem_pool->mem_tracker()->Consume(dst_quantile_state->get_serialized_size());
 
-        dst_slice->data = reinterpret_cast<char*>(quantile_state);
+        dst_slice->data = reinterpret_cast<char*>(dst_quantile_state);
 
-        agg_pool->add(quantile_state);
+        agg_pool->add(dst_quantile_state);
     }
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {

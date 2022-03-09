@@ -50,7 +50,7 @@ public enum PrimitiveType {
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2),
     TIME("TIME", 8, TPrimitiveType.TIME),
-    // these following type are stored as object binary in BE.
+    // these following types are stored as object binary in BE.
     HLL("HLL", 16, TPrimitiveType.HLL),
     BITMAP("BITMAP", 16, TPrimitiveType.OBJECT),
     QUANTILE_STATE("QUANTILE_STATE", 16, TPrimitiveType.QUANTILE_STATE),

@@ -24,14 +24,15 @@
 namespace doris{
 
 template<typename T>
-QuantileState<T>::QuantileState():_type(EMPTY),compression(2048){}
+QuantileState<T>::QuantileState():_type(EMPTY),_compression(QUANTILE_STATE_COMPRESSION_MIN){}
 
 template<typename T>
-QuantileState<T>::QuantileState(float compression):_type(EMPTY),compression(compression){}
+QuantileState<T>::QuantileState(float compression):_type(EMPTY),_compression(compression){}
 
 
 template<typename T>
 QuantileState<T>::QuantileState(const Slice& slice) {
+    DCHECK(deserialize(slice));
     if (!deserialize(slice)) {
         _type = EMPTY;
     }
@@ -39,7 +40,7 @@ QuantileState<T>::QuantileState(const Slice& slice) {
 
 template<typename T>
 QuantileState<T>::~QuantileState() {
-    clear();
+    delete _tdigest_ptr;
 }
 
 template<typename T>
@@ -55,7 +56,7 @@ size_t QuantileState<T>::get_serialized_size() {
         size += sizeof(uint16_t) + sizeof(T) * _explicit_data.size();
         break;
     case TDIGEST:
-        size += tdigest_ptr->serialized_size();
+        size += _tdigest_ptr->serialized_size();
         break;
     }
     return size;
@@ -63,7 +64,7 @@ size_t QuantileState<T>::get_serialized_size() {
 
 template<typename T>
 void QuantileState<T>::set_compression(float compression) {
-    this->compression = compression;
+    this->_compression = compression;
 }
 
 template<typename T>
@@ -90,7 +91,6 @@ bool QuantileState<T>::is_valid(const Slice& slice) {
             return false;
         }
         ptr += sizeof(T);
-        // _single_data = *reinterpret_cast<T*>(ptr)++;
         break;
     }
     case EXPLICIT: {
@@ -147,7 +147,7 @@ T QuantileState<T>::get_value_by_percentile(float percentile) {
         return get_explicit_value_by_percentile(percentile);
     }
     case TDIGEST: {
-        return tdigest_ptr->quantile(percentile);
+        return _tdigest_ptr->quantile(percentile);
     }
     default:
         break;
@@ -170,7 +170,7 @@ bool QuantileState<T>::deserialize(const Slice& slice) {
     }
 
     const uint8_t* ptr = (uint8_t*)slice.data;
-    compression = *reinterpret_cast<const float*>(ptr);
+    _compression = *reinterpret_cast<const float*>(ptr);
     ptr += sizeof(float);
     // first byte : type
     _type = (QuantileStateType)*ptr++;
@@ -197,8 +197,8 @@ bool QuantileState<T>::deserialize(const Slice& slice) {
     }
     case TDIGEST: {
         // 4: Tdigest object value
-        tdigest_ptr = new TDigest(0);
-        tdigest_ptr->unserialize(ptr);
+        _tdigest_ptr = new TDigest(0);
+        _tdigest_ptr->unserialize(ptr);
         break;
     }
     default:
@@ -213,7 +213,7 @@ bool QuantileState<T>::deserialize(const Slice& slice) {
 template<typename T>
 size_t QuantileState<T>::serialize(uint8_t* dst) const{
     uint8_t* ptr = dst;
-    *reinterpret_cast<float *>(ptr) = compression;
+    *reinterpret_cast<float *>(ptr) = _compression;
     ptr += sizeof(float);
     switch (_type) {
     case EMPTY: {
@@ -237,7 +237,7 @@ size_t QuantileState<T>::serialize(uint8_t* dst) const{
     }
     case TDIGEST: {
         *ptr++ = TDIGEST;
-        size_t tdigest_size = tdigest_ptr->serialize(ptr);
+        size_t tdigest_size = _tdigest_ptr->serialize(ptr);
         ptr += tdigest_size;
         break;
     }
@@ -270,12 +270,12 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
         case EXPLICIT:
             if (_explicit_data.size() + other._explicit_data.size() > QUANTILE_STATE_EXPLICIT_NUM) {
                 _type = TDIGEST;
-                tdigest_ptr = new TDigest(compression);
+                _tdigest_ptr = new TDigest(_compression);
                 for (int i = 0; i < _explicit_data.size(); i++) {
-                    tdigest_ptr->add(_explicit_data[i]);
+                    _tdigest_ptr->add(_explicit_data[i]);
                 }
                 for (int i = 0; i < other._explicit_data.size(); i++) {
-                    tdigest_ptr->add(other._explicit_data[i]);
+                    _tdigest_ptr->add(other._explicit_data[i]);
                 }
             } else {
                 _explicit_data.insert(_explicit_data.end(), other._explicit_data.begin(), other._explicit_data.end());            
@@ -283,7 +283,7 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
             break;
         case TDIGEST:
             for (int i = 0; i < other._explicit_data.size(); i++) {
-                tdigest_ptr->add(other._explicit_data[i]);
+                _tdigest_ptr->add(other._explicit_data[i]);
             }
             break;
         default:
@@ -295,25 +295,25 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
         switch(_type) {
         case EMPTY:
             _type = TDIGEST;
-            tdigest_ptr = other.tdigest_ptr;
-            other.tdigest_ptr = nullptr;
+            _tdigest_ptr = other._tdigest_ptr;
+            other._tdigest_ptr = nullptr;
             break;
         case SINGLE:
             _type = TDIGEST;
-            tdigest_ptr = other.tdigest_ptr;
-            other.tdigest_ptr = nullptr;
-            tdigest_ptr->add(_single_data);
+            _tdigest_ptr = other._tdigest_ptr;
+            other._tdigest_ptr = nullptr;
+            _tdigest_ptr->add(_single_data);
             break;
         case EXPLICIT:
             _type = TDIGEST;
-            tdigest_ptr = other.tdigest_ptr;
-            other.tdigest_ptr = nullptr;
+            _tdigest_ptr = other._tdigest_ptr;
+            other._tdigest_ptr = nullptr;
             for (int i = 0; i < _explicit_data.size(); i++) {
-                tdigest_ptr->add(_explicit_data[i]);
+                _tdigest_ptr->add(_explicit_data[i]);
             }
             break;
         case TDIGEST:
-            tdigest_ptr->merge(other.tdigest_ptr);
+            _tdigest_ptr->merge(other._tdigest_ptr);
             break;
         default:
             break;
@@ -341,9 +341,9 @@ void QuantileState<T>::add_value(const T& value) {
         break;
     case EXPLICIT:
         if (_explicit_data.size() == QUANTILE_STATE_EXPLICIT_NUM) {
-            tdigest_ptr = new TDigest(compression);
+            _tdigest_ptr = new TDigest(_compression);
             for (int i = 0; i < _explicit_data.size(); i++) {
-                tdigest_ptr->add(_explicit_data[i]);
+                _tdigest_ptr->add(_explicit_data[i]);
             }
             _explicit_data.clear();
             _explicit_data.shrink_to_fit();
@@ -354,7 +354,7 @@ void QuantileState<T>::add_value(const T& value) {
         }
         break;
     case TDIGEST:
-        tdigest_ptr->add(value);
+        _tdigest_ptr->add(value);
         break;
     }
 
@@ -363,10 +363,8 @@ void QuantileState<T>::add_value(const T& value) {
 template<typename T>
 void QuantileState<T>::clear() {
     _type = EMPTY;
-    if (tdigest_ptr != nullptr) {
-        delete tdigest_ptr;
-        tdigest_ptr = nullptr;
-    }
+    delete _tdigest_ptr;
+    _tdigest_ptr = nullptr;
     _explicit_data.clear();
     _explicit_data.shrink_to_fit();
 

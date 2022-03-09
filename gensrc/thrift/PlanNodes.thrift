@@ -157,8 +157,8 @@ struct TBrokerRangeDesc {
 }
 
 struct TBrokerScanRangeParams {
-    1: required byte column_separator;
-    2: required byte line_delimiter;
+    1: required i8 column_separator;
+    2: required i8 line_delimiter;
 
     // We construct one line in file to a tuple. And each field of line 
     // correspond to a slot in this tuple. 

@@ -31,6 +31,8 @@ class Slice;
 class TDigest;
 
 const static int QUANTILE_STATE_EXPLICIT_NUM = 2048;
+const static int QUANTILE_STATE_COMPRESSION_MAX = 2048;
+const static int QUANTILE_STATE_COMPRESSION_MIN = 10000;
 
 enum QuantileStateType {
     EMPTY = 0,
@@ -60,10 +62,10 @@ public:
 
 private:
     QuantileStateType _type = EMPTY;
-    TDigest* tdigest_ptr = nullptr;
+    TDigest* _tdigest_ptr = nullptr;
     T _single_data;
     std::vector<T> _explicit_data;
-    float compression;
+    float _compression;
     
 };
 
