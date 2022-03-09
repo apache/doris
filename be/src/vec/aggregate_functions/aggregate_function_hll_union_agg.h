@@ -23,17 +23,16 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/data_types/data_type_hll.h"
 
 namespace doris::vectorized {
 
+template <bool is_nullable>
 struct AggregateFunctionHLLData {
     HyperLogLog dst_hll {};
-
-    void add(const HyperLogLog& src) { dst_hll.merge(src); }
 
     void merge(const AggregateFunctionHLLData& rhs) { dst_hll.merge(rhs.dst_hll); }
 
@@ -52,36 +51,102 @@ struct AggregateFunctionHLLData {
 
     Int64 get_cardinality() const { return dst_hll.estimate_cardinality(); }
 
-    HyperLogLog get() const {
-        return dst_hll;
+    HyperLogLog get() const { return dst_hll; }
+
+    void result_union_agg_impl(IColumn& to) const {
+        if constexpr (is_nullable) {
+            auto& null_column = assert_cast<ColumnNullable&>(to);
+            null_column.get_null_map_data().push_back(0);
+            assert_cast<ColumnInt64&>(null_column.get_nested_column())
+                    .get_data()
+                    .push_back(get_cardinality());
+        } else {
+            assert_cast<ColumnInt64&>(to).get_data().push_back(get_cardinality());
+        }
     }
 
+    void result_union_impl(IColumn& to) const {
+        if constexpr (is_nullable) {
+            auto& null_column = assert_cast<ColumnNullable&>(to);
+            null_column.get_null_map_data().push_back(0);
+            assert_cast<ColumnHLL&>(null_column.get_nested_column()).get_data().emplace_back(get());
+        } else {
+            auto& column = static_cast<ColumnHLL&>(to);
+            column.get_data().emplace_back(get());
+        }
+    }
+
+    static const DataTypePtr return_type_union_agg() {
+        if constexpr (is_nullable) {
+            return make_nullable(std::make_shared<DataTypeInt64>());
+        } else {
+            return std::make_shared<DataTypeInt64>();
+        }
+    }
+
+    static const DataTypePtr return_type_union() {
+        if constexpr (is_nullable) {
+            return make_nullable(std::make_shared<DataTypeHLL>());
+        } else {
+            return std::make_shared<DataTypeHLL>();
+        }
+    }
+
+    void add(const IColumn* column, size_t row_num) {
+        if (auto* nullable_column = check_and_get_column<const ColumnNullable>(*column)) {
+            if (nullable_column->is_null_at(row_num)) {
+                return;
+            }
+            const auto& sources =
+                    static_cast<const ColumnHLL&>((nullable_column->get_nested_column()));
+            dst_hll.merge(sources.get_element(row_num));
+        } else {
+            const auto& sources = static_cast<const ColumnHLL&>(*column);
+            dst_hll.merge(sources.get_element(row_num));
+        }
+    }
 };
 
-class AggregateFunctionHLLUnionAgg
-        : public IAggregateFunctionDataHelper<AggregateFunctionHLLData,
-                                              AggregateFunctionHLLUnionAgg> {
+template <typename Data>
+struct AggregateFunctionHLLUnionImpl : Data {
+    void insert_result_into(IColumn& to) const { this->result_union_impl(to); }
+
+    static DataTypePtr get_return_type() { return Data::return_type_union(); }
+
+    static const char* name() { return "hll_union"; }
+};
+
+template <typename Data>
+struct AggregateFunctionHLLUnionAggImpl : Data {
+    void insert_result_into(IColumn& to) const { this->result_union_agg_impl(to); }
+
+    static DataTypePtr get_return_type() { return Data::return_type_union_agg(); }
+
+    static const char* name() { return "hll_union_agg"; }
+};
+
+template <typename Data>
+class AggregateFunctionHLLUnion
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>> {
 public:
-    virtual String get_name() const override { return "hll_union_agg"; }
+    AggregateFunctionHLLUnion(const DataTypes& argument_types)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types,
+                                                                                  {}) {}
 
-    AggregateFunctionHLLUnionAgg(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+    String get_name() const override { return Data::name(); }
 
-    AggregateFunctionHLLUnionAgg(const IDataType& data_type, const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+    DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
-    virtual DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeInt64>();
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        this->data(place).insert_result_into(to);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
-             Arena*) const override {
-        const auto& column = static_cast<const ColumnHLL&>(*columns[0]);
-        this->data(place).add(column.get_element(row_num));
+             Arena* arena) const override {
+        this->data(place).add(columns[0], row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -89,36 +154,12 @@ public:
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena*) const override {
         this->data(place).read(buf);
     }
-
-    virtual void insert_result_into(ConstAggregateDataPtr __restrict place,
-                                    IColumn& to) const override {
-        auto& column = static_cast<ColumnVector<Int64>&>(to);
-        column.get_data().push_back(this->data(place).get_cardinality());
-    }
 };
 
-class AggregateFunctionHLLUnion final : public AggregateFunctionHLLUnionAgg {
-public:
-    String get_name() const override { return "hll_union"; }
-
-    AggregateFunctionHLLUnion(const DataTypes& argument_types_)
-            : AggregateFunctionHLLUnionAgg {argument_types_} {}
-
-    AggregateFunctionHLLUnion(const IDataType& data_type, const DataTypes& argument_types_)
-            : AggregateFunctionHLLUnionAgg(data_type, argument_types_) {}
-
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeHLL>(); } 
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColumnHLL&>(to);
-        column.get_data().emplace_back(this->data(place).get());
-    }
-};
-
+template <bool is_nullable = false>
 AggregateFunctionPtr create_aggregate_function_HLL_union(const std::string& name,
                                                          const DataTypes& argument_types,
                                                          const Array& parameters,

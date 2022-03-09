@@ -26,6 +26,7 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/function_always_not_nullable.h"
 
 namespace doris::vectorized {
 
@@ -126,28 +127,44 @@ public:
     }
 };
 
-struct NameBitmapHash {
-    static constexpr auto name = "bitmap_hash";
-};
-
 struct BitmapHash {
+    static constexpr auto name = "bitmap_hash";
+
     using ReturnType = DataTypeBitMap;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
-    using Type = String;
-    using ReturnColumnType = ColumnBitmap;
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res) {
-        auto size = offsets.size();
-        res.reserve(size);
+
+    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                       MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t str_size = offsets[i] - offsets[i - 1] - 1;
             uint32_t hash_value =
-                    HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
-            res.emplace_back();
-            res.back().add(hash_value);
+                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+            res_data[i].add(hash_value);
         }
-        return Status::OK();
+    }
+
+    static void vector_nullable(const ColumnString::Chars& data,
+                                const ColumnString::Offsets& offsets, const NullMap& nullmap,
+                                MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
+        for (size_t i = 0; i < size; ++i) {
+            if (nullmap[i]) {
+                continue;
+            } else {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                uint32_t hash_value =
+                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                res_data[i].add(hash_value);
+            }
+        }
     }
 };
 
@@ -481,7 +498,7 @@ public:
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionToBitmap = FunctionBitmapAlwaysNull<ToBitmap>;
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
-using FunctionBitmapHash = FunctionUnaryToType<BitmapHash, NameBitmapHash>;
+using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash>;
 
 using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
 using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
