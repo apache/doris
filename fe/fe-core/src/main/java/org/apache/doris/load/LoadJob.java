@@ -944,7 +944,6 @@ public class LoadJob implements Writable {
             this.pullLoadSourceInfo = BrokerFileGroupAggInfo.read(in);
         }
 
-<<<<<<< HEAD
         this.execMemLimit = in.readLong();
         this.transactionId = in.readLong();
         if (in.readBoolean()) {
@@ -960,31 +959,6 @@ public class LoadJob implements Writable {
                         predicate = new IsNullPredicate(new SlotRef(null, key), true);
                     } else {
                         predicate = new IsNullPredicate(new SlotRef(null, key), true);
-=======
-        if (version >= FeMetaVersion.VERSION_45) {
-            this.transactionId = in.readLong();
-            if (in.readBoolean()) {
-                count = in.readInt();
-                conditions = Lists.newArrayList();
-                for (int i = 0; i < count; i++) {
-                    String key = Text.readString(in);
-                    String opStr = Text.readString(in);
-                    if (opStr.equalsIgnoreCase("IS")) {
-                        String value = Text.readString(in);
-                        IsNullPredicate predicate;
-                        if (value.equalsIgnoreCase("NOT NULL")) {
-                            predicate = new IsNullPredicate(new SlotRef(null, key), true);
-                        } else {
-                            predicate = new IsNullPredicate(new SlotRef(null, key), true);
-                        }
-                        conditions.add(predicate);
-                    } else {
-                        Operator op = Operator.valueOf(opStr);
-                        String value = Text.readString(in);
-                        BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key),
-                                new StringLiteral(value));
-                        conditions.add(predicate);
->>>>>>> 1
                     }
                     conditions.add(predicate);
                 } else {

@@ -406,6 +406,10 @@ public class Replica implements Writable {
         return true;
     }
 
+    public void setLastFailedVersion(long lastFailedVersion) {
+        this.lastFailedVersion = lastFailedVersion;
+    }
+
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
     }
