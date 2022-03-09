@@ -77,7 +77,7 @@ public class MigrationHandler extends AlterHandler {
 
     public static final int CYCLE_COUNT_TO_CHECK_EXPIRE_MIGRATION_JOB = 20;
 
-    public final ThreadPoolExecutor schemaChangeThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(MAX_ACTIVE_MIGRATION_JOB_SIZE, "schema-change-pool", true);
+    public final ThreadPoolExecutor migrationThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(MAX_ACTIVE_MIGRATION_JOB_SIZE, "migration-pool", true);
 
     public final Map<Long, AlterJobV2> activeMigrationJob = Maps.newConcurrentMap();
 
@@ -228,7 +228,7 @@ public class MigrationHandler extends AlterHandler {
                         if (FeConstants.runningUnitTest) {
                             migrationJob.run();
                         } else {
-                            schemaChangeThreadPool.submit(() -> {
+                            migrationThreadPool.submit(() -> {
                                 if (activeMigrationJob.putIfAbsent(migrationJob.getJobId(), migrationJob) == null) {
                                     try {
                                         migrationJob.run();
