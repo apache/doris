@@ -53,6 +53,11 @@ public:
 
     Status add_batch(const PTabletWriterAddBatchRequest& request,
                      PTabletWriterAddBatchResult* response);
+    
+    virtual Status add_block(const PTabletWriterAddBlockRequest& request,
+                             PTabletWriterAddBlockResult* response) {
+        return Status::NotSupported("Not Implemented add_block");
+    }
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);

@@ -31,8 +31,8 @@ public:
     VLoadChannelMgr();
     virtual ~VLoadChannelMgr() override;
 
-    Status add_block(const PTabletWriterAddBlockRequest& request,
-                     PTabletWriterAddBlockResult* response);
+    virtual Status add_block(const PTabletWriterAddBlockRequest& request,
+                             PTabletWriterAddBlockResult* response) override;
 protected:
     LoadChannel* _create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
                                       const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
