@@ -23,8 +23,8 @@
 #include <set>
 #include <vector>
 
-#include "agent/status.h"
 #include "common/configbase.h"
+#include "common/status.h"
 #include "env/env.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"

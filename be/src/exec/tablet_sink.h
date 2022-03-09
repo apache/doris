@@ -390,7 +390,6 @@ protected:
     PUniqueId _load_id;
     int64_t _txn_id = -1;
     int _num_replicas = -1;
-    bool _need_gen_rollup = false;
     int _tuple_desc_id = -1;
 
     // this is tuple descriptor of destination OLAP table

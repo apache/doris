@@ -261,43 +261,6 @@ struct ReverseImpl {
     }
 };
 
-struct HexStringName {
-    static constexpr auto name = "hex";
-};
-
-struct HexStringImpl {
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
-
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
-        auto rows_count = offsets.size();
-        dst_offsets.resize(rows_count);
-        dst_data.resize(data.size() * 2);
-
-        size_t offset = 0;
-        auto dst_data_ptr = dst_data.data();
-        for (int i = 0; i < rows_count; ++i) {
-            auto source = reinterpret_cast<const unsigned char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
-
-            if (srclen == 0) {
-                DCHECK(*source == '\0');
-                *dst_data_ptr = '\0';
-                dst_data_ptr++;
-                offset++;
-            } else {
-                simd::VStringFunctions::hex_encode(source, srclen,
-                                                   reinterpret_cast<char*>(dst_data_ptr));
-                dst_data_ptr[srclen * 2] = '\0';
-                dst_data_ptr += (srclen * 2 + 1);
-                offset += (srclen * 2 + 1);
-            }
-            dst_offsets[i] = offset;
-        }
-        return Status::OK();
-    }
-};
-
 struct NameToLower {
     static constexpr auto name = "lower";
 };
@@ -479,86 +442,6 @@ struct StringSpace {
     }
 };
 
-struct AesEncryptImpl {
-    static constexpr auto name = "aes_encrypt";
-    using Chars = ColumnString::Chars;
-    using Offsets = ColumnString::Offsets;
-    using ReturnType = DataTypeString;
-    using ColumnType = ColumnString;
-    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
-                              const Chars& rdata, const Offsets& roffsets, Chars& res_data,
-                              Offsets& res_offsets, NullMap& null_map_data) {
-        DCHECK_EQ(loffsets.size(), roffsets.size());
-        size_t input_rows_count = loffsets.size();
-        res_offsets.resize(input_rows_count);
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-
-            int r_size = roffsets[i] - roffsets[i - 1] - 1;
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-
-            if (*l_raw == '\0' || l_size == 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-                continue;
-            }
-
-            int cipher_len = l_size + 16;
-            char p[cipher_len];
-
-            int outlen = EncryptionUtil::encrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
-                                                 (unsigned char*)r_raw, r_size, NULL, true,
-                                                 (unsigned char*)p);
-            if (outlen < 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-            } else {
-                StringOP::push_value_string(std::string_view(p, outlen), i, res_data, res_offsets);
-            }
-        }
-    }
-};
-
-struct AesDecryptImpl {
-    static constexpr auto name = "aes_decrypt";
-    using Chars = ColumnString::Chars;
-    using Offsets = ColumnString::Offsets;
-    using ReturnType = DataTypeString;
-    using ColumnType = ColumnString;
-    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
-                              const Chars& rdata, const Offsets& roffsets, Chars& res_data,
-                              Offsets& res_offsets, NullMap& null_map_data) {
-        DCHECK_EQ(loffsets.size(), roffsets.size());
-        size_t input_rows_count = loffsets.size();
-        res_offsets.resize(input_rows_count);
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-
-            int r_size = roffsets[i] - roffsets[i - 1] - 1;
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-
-            if (*l_raw == '\0' || l_size == 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-                continue;
-            }
-
-            int cipher_len = l_size;
-            char p[cipher_len];
-
-            int outlen = EncryptionUtil::decrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
-                                                 (unsigned char*)r_raw, r_size, NULL, true,
-                                                 (unsigned char*)p);
-            if (outlen < 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-            } else {
-                StringOP::push_value_string(std::string_view(p, outlen), i, res_data, res_offsets);
-            }
-        }
-    }
-};
-
 struct ToBase64Impl {
     static constexpr auto name = "to_base64";
     using ReturnType = DataTypeString;
@@ -724,8 +607,6 @@ using FunctionStringFindInSet =
 
 using FunctionReverse = FunctionStringToString<ReverseImpl, NameReverse>;
 
-using FunctionHexString = FunctionStringToString<HexStringImpl, HexStringName>;
-
 using FunctionUnHex = FunctionStringOperateToNullType<UnHexImpl>;
 
 using FunctionToLower = FunctionStringToString<TransferImpl<::tolower>, NameToLower>;
@@ -737,10 +618,6 @@ using FunctionLTrim = FunctionStringToString<TrimImpl<true, false>, NameLTrim>;
 using FunctionRTrim = FunctionStringToString<TrimImpl<false, true>, NameRTrim>;
 
 using FunctionTrim = FunctionStringToString<TrimImpl<true, true>, NameTrim>;
-
-using FunctionAesEncrypt = FunctionBinaryStringOperateToNullType<AesEncryptImpl>;
-
-using FunctionAesDecrypt = FunctionBinaryStringOperateToNullType<AesDecryptImpl>;
 
 using FunctionToBase64 = FunctionStringOperateToNullType<ToBase64Impl>;
 
@@ -764,7 +641,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionReverse>();
-    factory.register_function<FunctionHexString>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();
@@ -782,25 +658,26 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringRepeat>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
-    factory.register_function<FunctionAesEncrypt>();
-    factory.register_function<FunctionAesDecrypt>();
     factory.register_function<FunctionToBase64>();
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();
-    factory.register_function<FunctionStringMd5sum>();
+    factory.register_function<FunctionStringMd5AndSM3<MD5Sum>>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
+    factory.register_function<FunctionStringMd5AndSM3<SM3Sum>>();
+    factory.register_function<FunctionReplace>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
     factory.register_alias(SubstringUtil::name, "substr");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
-    factory.register_alias(FunctionStringMd5sum::name, "md5");
+    factory.register_alias(FunctionStringMd5AndSM3<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
+    factory.register_alias(FunctionStringMd5AndSM3<SM3Sum>::name, "sm3");
 }
 
 } // namespace doris::vectorized

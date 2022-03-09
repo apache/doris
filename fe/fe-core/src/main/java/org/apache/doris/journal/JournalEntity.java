@@ -51,6 +51,7 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -483,6 +484,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BACKEND_TABLETS_INFO: {
                 data = BackendTabletsInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BACKEND_REPLICAS_INFO: {
+                data = BackendReplicasInfo.read(in);
                 isRead = true;
                 break;
             }

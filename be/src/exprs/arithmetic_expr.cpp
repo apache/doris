@@ -21,6 +21,10 @@
 
 namespace doris {
 
+std::set<std::string> ArithmeticExpr::_s_valid_fn_names = {
+        "add", "subtract", "multiply", "divide", "int_divide",
+        "mod", "bitand",   "bitor",    "bitxor", "bitnot"};
+
 Expr* ArithmeticExpr::from_thrift(const TExprNode& node) {
     switch (node.opcode) {
     case TExprOpcode::ADD:
@@ -45,6 +49,31 @@ Expr* ArithmeticExpr::from_thrift(const TExprNode& node) {
     default:
         return nullptr;
     }
+    return nullptr;
+}
+
+Expr* ArithmeticExpr::from_fn_name(const TExprNode& node) {
+    std::string fn_name = node.fn.name.function_name;
+    if (fn_name == "add") {
+        return new AddExpr(node);
+    } else if (fn_name == "subtract") {
+        return new SubExpr(node);
+    } else if (fn_name == "multiply") {
+        return new MulExpr(node);
+    } else if (fn_name == "divide" || fn_name == "int_divide") {
+        return new DivExpr(node);
+    } else if (fn_name == "mod") {
+        return new ModExpr(node);
+    } else if (fn_name == "bitand") {
+        return new BitAndExpr(node);
+    } else if (fn_name == "bitor") {
+        return new BitOrExpr(node);
+    } else if (fn_name == "bitxor") {
+        return new BitXorExpr(node);
+    } else if (fn_name == "bitnot") {
+        return new BitNotExpr(node);
+    }
+
     return nullptr;
 }
 
@@ -159,4 +188,41 @@ BINARY_BIT_FNS(BitXorExpr, ^)
     BITNOT_OP_FN(LargeIntVal, get_large_int_val)
 
 BITNOT_FNS()
+
+#define DECIMAL_ARITHMETIC_OP(EXPR_NAME, OP)                                         \
+    DecimalV2Val EXPR_NAME::get_decimalv2_val(ExprContext* context, TupleRow* row) { \
+        DecimalV2Val v1 = _children[0]->get_decimalv2_val(context, row);             \
+        DecimalV2Val v2 = _children[1]->get_decimalv2_val(context, row);             \
+        if (v1.is_null || v2.is_null) {                                              \
+            return DecimalV2Val::null();                                             \
+        }                                                                            \
+        DecimalV2Value iv1 = DecimalV2Value::from_decimal_val(v1);                   \
+        DecimalV2Value iv2 = DecimalV2Value::from_decimal_val(v2);                   \
+        DecimalV2Value ir = iv1 OP iv2;                                              \
+        DecimalV2Val result;                                                         \
+        ir.to_decimal_val(&result);                                                  \
+        return result;                                                               \
+    }
+
+#define DECIMAL_ARITHMETIC_OP_DIVIDE(EXPR_NAME, OP)                                  \
+    DecimalV2Val EXPR_NAME::get_decimalv2_val(ExprContext* context, TupleRow* row) { \
+        DecimalV2Val v1 = _children[0]->get_decimalv2_val(context, row);             \
+        DecimalV2Val v2 = _children[1]->get_decimalv2_val(context, row);             \
+        if (v1.is_null || v2.is_null || v2.value() == 0) {                           \
+            return DecimalV2Val::null();                                             \
+        }                                                                            \
+        DecimalV2Value iv1 = DecimalV2Value::from_decimal_val(v1);                   \
+        DecimalV2Value iv2 = DecimalV2Value::from_decimal_val(v2);                   \
+        DecimalV2Value ir = iv1 OP iv2;                                              \
+        DecimalV2Val result;                                                         \
+        ir.to_decimal_val(&result);                                                  \
+        return result;                                                               \
+    }
+
+DECIMAL_ARITHMETIC_OP(AddExpr, +);
+DECIMAL_ARITHMETIC_OP(SubExpr, -);
+DECIMAL_ARITHMETIC_OP(MulExpr, *);
+DECIMAL_ARITHMETIC_OP_DIVIDE(DivExpr, /);
+DECIMAL_ARITHMETIC_OP_DIVIDE(ModExpr, %);
+
 } // namespace doris

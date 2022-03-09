@@ -69,6 +69,19 @@ under the License.
                 <artifactId>flatten-maven-plugin</artifactId>
                 <version>1.2.5</version>
             </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>license-maven-plugin</artifactId>
+                <version>2.0.0</version>
+                <executions>
+                    <execution>
+                        <id>add-third-party</id>
+                        <goals>
+                            <goal>add-third-party</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
         <pluginManagement>
             <plugins>
@@ -111,21 +124,79 @@ under the License.
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
+        
+        <cglib.version>2.2</cglib.version>
+        <commons-cli.version>1.4</commons-cli.version>
+        <commons-codec.version>1.9</commons-codec.version>
+        <commons-lang.version>2.6</commons-lang.version>
+        <commons-lang3.version>3.9</commons-lang3.version>
+        <commons-pool2.version>2.2</commons-pool2.version>
+        <commons-validator.version>1.4.1</commons-validator.version>
+        <gson.version>2.8.6</gson.version>
+        <guava.version>29.0-jre</guava.version>
+        <jackson.version>2.12.1</jackson.version>
+        <jackson-mapper-asl.version>1.9.13</jackson-mapper-asl.version>
+        <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
+        <javassist.version>3.18.2-GA</javassist.version>
+        <javax.servlet-api.version>3.0.1</javax.servlet-api.version>
+        <je.version>7.3.7</je.version>
+        <jetty.version>6.1.14</jetty.version>
+        <jflex.version>1.4.3</jflex.version>
+        <jmockit.version>1.49</jmockit.version>
+        <joda-time.version>2.10.1</joda-time.version>
+        <commons-io.version>2.6</commons-io.version>
+        <json-simple.version>1.1.1</json-simple.version>
+        <junit.version>4.12</junit.version>
+        <thrift.version>0.13.0</thrift.version>
+        <log4j2.version>2.17.1</log4j2.version>
+        <metrics-core.version>4.0.2</metrics-core.version>
+        <netty-all.version>4.1.42.Final</netty-all.version>
+        <objenesis.version>2.1</objenesis.version>
         <grpc.version>1.30.0</grpc.version>
         <protobuf.version>3.14.0</protobuf.version>
-        <skip.plugin>false</skip.plugin>
+        <protoparser.version>3.1.5</protoparser.version>
+        <snappy-java.version>1.1.7.2</snappy-java.version>
+        <automaton.version>1.11-8</automaton.version>
+        <generex.version>1.0.1</generex.version>
+        <kubernetes-client.version>1.4.27</kubernetes-client.version>
+        <kubernetes-model.version>1.0.64</kubernetes-model.version>
+        <logging-interceptor.version>4.7.2</logging-interceptor.version>
+        <okhttp.version>4.7.2</okhttp.version>
+        <okhttp-ws.version>3.4.2</okhttp-ws.version>
+        <okio.version>2.6.0</okio.version>
+        <snakeyaml.version>1.15</snakeyaml.version>
+        <validation-api.version>1.1.0.Final</validation-api.version>
+        <zjsonpatch.version>0.2.3</zjsonpatch.version>
+        <slf4j.version>1.7.5</slf4j.version>
+        <kafka-clients.version>0.10.1.1</kafka-clients.version>
+        <oshi-core.version>4.0.0</oshi-core.version>
+        <xnio-nio.version>3.6.5.Final</xnio-nio.version>
+        <javax.annotation-api.version>1.3.2</javax.annotation-api.version>
+        <javax.activation.version>1.2.0</javax.activation.version>
+        <jaxws-api.version>2.3.0</jaxws-api.version>
+        <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
+        <spark.version>2.4.6</spark.version>
         <hive.version>2.3.7</hive.version>
         <hadoop.version>2.8.0</hadoop.version>
-        <jmockit.version>1.49</jmockit.version>
-        <log4j2.version>2.17.1</log4j2.version>
-        <revision>0.15-SNAPSHOT</revision>
-        <project.scm.id>github</project.scm.id>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>0.12.0</iceberg.version>
         <avro.version>1.10.1</avro.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
+        <parquet.version>1.10.1</parquet.version>
+        <commons-collections.version>3.2.2</commons-collections.version>
+        <scala.version>2.12.10</scala.version>
+        <kryo.version>4.0.2</kryo.version>
+        <lombok.version>1.18.16</lombok.version>
+        <tree-printer.version>1.2</tree-printer.version>
+        <hamcrest.version>2.1</hamcrest.version>
+        <httpclient.version>4.5.13</httpclient.version>
+        <httpcore.version>4.4.15</httpcore.version>
+        <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
+
+        <revision>0.15-SNAPSHOT</revision>
+        <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -199,110 +270,110 @@ under the License.
             <dependency>
                 <groupId>cglib</groupId>
                 <artifactId>cglib</artifactId>
-                <version>2.2</version>
+                <version>${cglib.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/commons-cli/commons-cli -->
             <dependency>
                 <groupId>commons-cli</groupId>
                 <artifactId>commons-cli</artifactId>
-                <version>1.4</version>
+                <version>${commons-cli.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/commons-codec/commons-codec -->
             <dependency>
                 <groupId>commons-codec</groupId>
                 <artifactId>commons-codec</artifactId>
-                <version>1.9</version>
+                <version>${commons-codec.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
             <!-- upgrade commons-lang from 2.4 to 2.6 to fix incompatibility of with versioning scheme of Java 9 and later -->
             <dependency>
                 <groupId>commons-lang</groupId>
                 <artifactId>commons-lang</artifactId>
-                <version>2.6</version>
+                <version>${commons-lang.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
-                <version>3.9</version>
+                <version>${commons-lang3.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-pool2 -->
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-pool2</artifactId>
-                <version>2.2</version>
+                <version>${commons-pool2.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/commons-validator/commons-validator -->
             <dependency>
                 <groupId>commons-validator</groupId>
                 <artifactId>commons-validator</artifactId>
-                <version>1.4.1</version>
+                <version>${commons-validator.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.code.gson/gson -->
             <dependency>
                 <groupId>com.google.code.gson</groupId>
                 <artifactId>gson</artifactId>
-                <version>2.8.6</version>
+                <version>${gson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.guava/guava -->
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>29.0-jre</version>
+                <version>${guava.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>2.12.1</version>
+                <artifactId>jackson</artifactId>
+                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.codehaus.jackson/jackson-mapper-asl -->
             <dependency>
                 <groupId>org.codehaus.jackson</groupId>
                 <artifactId>jackson-mapper-asl</artifactId>
-                <version>1.9.13</version>
+                <version>${jackson-mapper-asl.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/net.sourceforge.czt.dev/java-cup -->
             <dependency>
                 <groupId>net.sourceforge.czt.dev</groupId>
                 <artifactId>java-cup</artifactId>
-                <version>0.11-a-czt02-cdh</version>
+                <version>${java-cup.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
                 <groupId>org.javassist</groupId>
                 <artifactId>javassist</artifactId>
-                <version>3.18.2-GA</version>
+                <version>${javassist.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/javax.servlet/javax.servlet-api -->
             <dependency>
                 <groupId>javax.servlet</groupId>
                 <artifactId>javax.servlet-api</artifactId>
-                <version>3.0.1</version>
+                <version>${javax.servlet-api.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>com.sleepycat</groupId>
                 <artifactId>je</artifactId>
-                <version>7.3.7</version>
+                <version>${je.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.mortbay.jetty/jetty -->
             <dependency>
                 <groupId>org.mortbay.jetty</groupId>
                 <artifactId>jetty</artifactId>
-                <version>6.1.14</version>
+                <version>${jetty.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.mortbay.jetty/jetty-util -->
             <dependency>
                 <groupId>org.mortbay.jetty</groupId>
                 <artifactId>jetty-util</artifactId>
-                <version>6.1.14</version>
+                <version>${jetty.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/de.jflex/jflex -->
             <dependency>
                 <groupId>de.jflex</groupId>
                 <artifactId>jflex</artifactId>
-                <version>1.4.3</version>
+                <version>${jflex.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
             <dependency>
@@ -315,30 +386,30 @@ under the License.
             <dependency>
                 <groupId>joda-time</groupId>
                 <artifactId>joda-time</artifactId>
-                <version>2.10.1</version>
+                <version>${joda-time.version}</version>
             </dependency>
             <dependency>
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
-                <version>2.6</version>
+                <version>${commons-io.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.googlecode.json-simple</groupId>
                 <artifactId>json-simple</artifactId>
-                <version>1.1.1</version>
+                <version>${json-simple.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/junit/junit -->
             <dependency>
                 <groupId>junit</groupId>
                 <artifactId>junit</artifactId>
-                <version>4.12</version>
+                <version>${junit.version}</version>
                 <scope>test</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.13.0</version>
+                <version>${thrift.version}</version>
                 <exclusions>
                     <!-- thrift 0.13 depends on httpclient 4.5.10, should exclude it -->
                     <exclusion>
@@ -373,19 +444,19 @@ under the License.
             <dependency>
                 <groupId>io.dropwizard.metrics</groupId>
                 <artifactId>metrics-core</artifactId>
-                <version>4.0.2</version>
+                <version>${metrics-core.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-all</artifactId>
-                <version>4.1.42.Final</version>
+                <version>${netty-all.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.objenesis/objenesis -->
             <dependency>
                 <groupId>org.objenesis</groupId>
                 <artifactId>objenesis</artifactId>
-                <version>2.1</version>
+                <version>${objenesis.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
@@ -415,158 +486,158 @@ under the License.
             <dependency>
                 <groupId>com.squareup</groupId>
                 <artifactId>protoparser</artifactId>
-                <version>3.1.5</version>
+                <version>${protoparser.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.xerial.snappy/snappy-java -->
             <dependency>
                 <groupId>org.xerial.snappy</groupId>
                 <artifactId>snappy-java</artifactId>
-                <version>1.1.7.2</version>
+                <version>${snappy-java.version}</version>
             </dependency>
             <!-- for k8s client-->
             <!-- https://mvnrepository.com/artifact/dk.brics.automaton/automaton -->
             <dependency>
                 <groupId>dk.brics.automaton</groupId>
                 <artifactId>automaton</artifactId>
-                <version>1.11-8</version>
+                <version>${automaton.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.github.mifmif/generex -->
             <dependency>
                 <groupId>com.github.mifmif</groupId>
                 <artifactId>generex</artifactId>
-                <version>1.0.1</version>
+                <version>${generex.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-annotations -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-annotations</artifactId>
-                <version>2.12.1</version>
+                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
-                <version>2.12.1</version>
+                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.dataformat/jackson-dataformat-yaml -->
             <dependency>
                 <groupId>com.fasterxml.jackson.dataformat</groupId>
                 <artifactId>jackson-dataformat-yaml</artifactId>
-                <version>2.12.1</version>
+                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.module/jackson-module-jaxb-annotations -->
             <dependency>
                 <groupId>com.fasterxml.jackson.module</groupId>
                 <artifactId>jackson-module-jaxb-annotations</artifactId>
-                <version>2.12.1</version>
+                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-client -->
             <dependency>
                 <groupId>io.fabric8</groupId>
                 <artifactId>kubernetes-client</artifactId>
-                <version>1.4.27</version>
+                <version>${kubernetes-client.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-model -->
             <dependency>
                 <groupId>io.fabric8</groupId>
                 <artifactId>kubernetes-model</artifactId>
-                <version>1.0.64</version>
+                <version>${kubernetes-model.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/logging-interceptor -->
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>logging-interceptor</artifactId>
-                <version>4.7.2</version>
+                <version>${logging-interceptor.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp -->
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
-                <version>4.7.2</version>
+                <version>${okhttp.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp-ws -->
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp-ws</artifactId>
-                <version>3.4.2</version>
+                <version>${okhttp-ws.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
             <dependency>
                 <groupId>com.squareup.okio</groupId>
                 <artifactId>okio</artifactId>
-                <version>2.6.0</version>
+                <version>${okio.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.yaml/snakeyaml -->
             <dependency>
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
-                <version>1.15</version>
+                <version>${snakeyaml.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/javax.validation/validation-api -->
             <dependency>
                 <groupId>javax.validation</groupId>
                 <artifactId>validation-api</artifactId>
-                <version>1.1.0.Final</version>
+                <version>${validation-api.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.fabric8/zjsonpatch -->
             <dependency>
                 <groupId>io.fabric8</groupId>
                 <artifactId>zjsonpatch</artifactId>
-                <version>0.2.3</version>
+                <version>${zjsonpatch.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
-                <version>1.7.5</version>
+                <version>${slf4j.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
-                <version>0.10.1.1</version>
+                <version>${kafka-clients.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.github.oshi/oshi-core -->
             <dependency>
                 <groupId>com.github.oshi</groupId>
                 <artifactId>oshi-core</artifactId>
-                <version>4.0.0</version>
+                <version>${oshi-core.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.jboss.xnio/xnio-nio -->
             <dependency>
                 <groupId>org.jboss.xnio</groupId>
                 <artifactId>xnio-nio</artifactId>
-                <version>3.6.5.Final</version>
+                <version>${xnio-nio.version}</version>
             </dependency>
             <!-- support jdk9 -->
             <dependency>
                 <groupId>javax.annotation</groupId>
                 <artifactId>javax.annotation-api</artifactId>
-                <version>1.3.2</version>
+                <version>${javax.annotation-api.version}</version>
             </dependency>
             <!-- support jdk9 -->
             <dependency>
                 <groupId>com.sun.activation</groupId>
                 <artifactId>javax.activation</artifactId>
-                <version>1.2.0</version>
+                <version>${javax.activation.version}</version>
             </dependency>
             <!-- support jdk11 -->
             <!-- https://mvnrepository.com/artifact/javax.xml.ws/jaxws-api -->
             <dependency>
                 <groupId>javax.xml.ws</groupId>
                 <artifactId>jaxws-api</artifactId>
-                <version>2.3.0</version>
+                <version>${jaxws-api.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.roaringbitmap</groupId>
                 <artifactId>RoaringBitmap</artifactId>
-                <version>0.8.13</version>
+                <version>${RoaringBitmap.version}</version>
             </dependency>
             <!-- spark -->
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-core_2.12</artifactId>
-                <version>2.4.6</version>
+                <version>${spark.version}</version>
                 <exclusions>
                     <exclusion>
                         <groupId>log4j</groupId>
@@ -582,13 +653,13 @@ under the License.
             <dependency>
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-launcher_2.12</artifactId>
-                <version>2.4.6</version>
+                <version>${spark.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-sql_2.12</artifactId>
-                <version>2.4.6</version>
+                <version>${spark.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
@@ -714,77 +785,77 @@ under the License.
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
-                <version>1.10.1</version>
+                <version>${parquet.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-hadoop</artifactId>
-                <version>1.10.1</version>
+                <version>${parquet.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-common</artifactId>
-                <version>1.10.1</version>
+                <version>${parquet.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>commons-collections</groupId>
                 <artifactId>commons-collections</artifactId>
-                <version>3.2.2</version>
+                <version>${commons-collections.version}</version>
                 <scope>compile</scope>
             </dependency>
             <dependency>
                 <groupId>org.scala-lang</groupId>
                 <artifactId>scala-library</artifactId>
-                <version>2.12.10</version>
+                <version>${scala.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>com.esotericsoftware</groupId>
                 <artifactId>kryo-shaded</artifactId>
-                <version>4.0.2</version>
+                <version>${kryo.version}</version>
                 <scope>compile</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-catalyst_2.12</artifactId>
-                <version>2.4.6</version>
+                <version>${spark.version}</version>
                 <scope>provided</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.projectlombok/lombok -->
             <dependency>
                 <groupId>org.projectlombok</groupId>
                 <artifactId>lombok</artifactId>
-                <version>1.18.16</version>
+                <version>${lombok.version}</version>
                 <scope>provided</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/hu.webarticum/tree-printer -->
             <dependency>
                 <groupId>hu.webarticum</groupId>
                 <artifactId>tree-printer</artifactId>
-                <version>1.2</version>
+                <version>${tree-printer.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.hamcrest</groupId>
                 <artifactId>hamcrest</artifactId>
-                <version>2.1</version>
+                <version>${hamcrest.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpclient</artifactId>
-                <version>4.5.13</version>
+                <version>${httpclient.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpcore</artifactId>
-                <version>4.4.15</version>
+                <version>${httpcore.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-s3</artifactId>
-                <version>1.11.95</version>
+                <version>${aws-java-sdk-s3.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

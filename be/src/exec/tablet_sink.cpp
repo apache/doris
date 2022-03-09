@@ -121,7 +121,6 @@ void NodeChannel::open() {
         ptablet->set_tablet_id(tablet.tablet_id);
     }
     request.set_num_senders(_parent->_num_senders);
-    request.set_need_gen_rollup(_parent->_need_gen_rollup);
     request.set_load_mem_limit(_parent->_load_mem_limit);
     request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
     request.set_is_high_priority(_parent->_is_high_priority);
@@ -668,7 +667,6 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _load_id.set_lo(table_sink.load_id.lo);
     _txn_id = table_sink.txn_id;
     _num_replicas = table_sink.num_replicas;
-    _need_gen_rollup = table_sink.need_gen_rollup;
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));

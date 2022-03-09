@@ -897,14 +897,14 @@ visible_functions = [
             '_ZN5doris15StringFunctions14regexp_prepareEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
-            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+            '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
     [['regexp_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions14regexp_replaceEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValES6_S6_',
             '_ZN5doris15StringFunctions14regexp_prepareEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
-            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+            '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
     [['concat'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -1019,14 +1019,14 @@ visible_functions = [
             '_ZN5doris15StringFunctions14regexp_prepareEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
-            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+            '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
     [['regexp_replace'], 'STRING', ['STRING', 'STRING', 'STRING'],
             '_ZN5doris15StringFunctions14regexp_replaceEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValES6_S6_',
             '_ZN5doris15StringFunctions14regexp_prepareEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
-            '15FunctionContextENS2_18FunctionStateScopeE', '', ''],
+            '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
     [['concat'], 'STRING', ['STRING', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -1252,22 +1252,22 @@ visible_functions = [
         '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
         '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
         '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
-     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
-         '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
-         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
-     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
-         '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
-         '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
-     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
-         '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
-         '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
-     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
-         '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
-         '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'],
+        '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['from_base64'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris19EncryptionFunctions11from_base64EPN9doris_udf'
         '15FunctionContextERKNS1_9StringValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -1276,25 +1276,25 @@ visible_functions = [
         '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'STRING', ['STRING', 'STRING'],
         '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
         '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
         '_ZN5doris19EncryptionFunctions11aes_decryptEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
-      [['sm4_encrypt'], 'STRING', ['STRING', 'STRING'],
-          '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
-          '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
-      [['sm4_decrypt'], 'STRING', ['STRING', 'STRING'],
-          '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
-          '15FunctionContextERKNS1_9StringValES6_', '', '', '', ''],
-      [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
-          '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
-          '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
-      [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
-          '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
-          '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', '', ''],
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11sm4_encryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'],
+        '_ZN5doris19EncryptionFunctions11sm4_decryptEPN9doris_udf'
+        '15FunctionContextERKNS1_9StringValES6_S6_S6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['from_base64'], 'STRING', ['STRING'],
         '_ZN5doris19EncryptionFunctions11from_base64EPN9doris_udf'
         '15FunctionContextERKNS1_9StringValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -1316,13 +1316,13 @@ visible_functions = [
         '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', 'vec', ''],
 
     [['sm3'], 'VARCHAR', ['VARCHAR'],
-        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['sm3sum'], 'VARCHAR', ['VARCHAR', '...'],
-        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
+        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', 'vec', ''],
     [['sm3'], 'VARCHAR', ['STRING'],
-        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', '', ''],
+        '_ZN5doris19EncryptionFunctions3sm3EPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['sm3sum'], 'VARCHAR', ['STRING', '...'],
-        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
+        '_ZN5doris19EncryptionFunctions6sm3sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', 'vec', ''],
 
     # geo functions
     [['ST_Point'], 'VARCHAR', ['DOUBLE', 'DOUBLE'],

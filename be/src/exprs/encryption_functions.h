@@ -22,13 +22,32 @@
 
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
+#include "util/encryption_util.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 class Expr;
 struct ExprValue;
 class TupleRow;
-
+static StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
+        {"AES_128_ECB", AES_128_ECB},       {"AES_192_ECB", AES_192_ECB},
+        {"AES_256_ECB", AES_256_ECB},       {"AES_128_CBC", AES_128_CBC},
+        {"AES_192_CBC", AES_192_CBC},       {"AES_256_CBC", AES_256_CBC},
+        {"AES_128_CFB", AES_128_CFB},       {"AES_192_CFB", AES_192_CFB},
+        {"AES_256_CFB", AES_256_CFB},       {"AES_128_CFB1", AES_128_CFB1},
+        {"AES_192_CFB1", AES_192_CFB1},     {"AES_256_CFB1", AES_256_CFB1},
+        {"AES_128_CFB8", AES_128_CFB8},     {"AES_192_CFB8", AES_192_CFB8},
+        {"AES_256_CFB8", AES_256_CFB8},     {"AES_128_CFB128", AES_128_CFB128},
+        {"AES_192_CFB128", AES_192_CFB128}, {"AES_256_CFB128", AES_256_CFB128},
+        {"AES_128_CTR", AES_128_CTR},       {"AES_192_CTR", AES_192_CTR},
+        {"AES_256_CTR", AES_256_CTR},       {"AES_128_OFB", AES_128_OFB},
+        {"AES_192_OFB", AES_192_OFB},       {"AES_256_OFB", AES_256_OFB}};
+static StringCaseUnorderedMap<EncryptionMode> sm4_mode_map {{"SM4_128_ECB", SM4_128_ECB},
+                                                     {"SM4_128_CBC", SM4_128_CBC},
+                                                     {"SM4_128_CFB128", SM4_128_CFB128},
+                                                     {"SM4_128_OFB", SM4_128_OFB},
+                                                     {"SM4_128_CTR", SM4_128_CTR}};
 class EncryptionFunctions {
 public:
     static void init();

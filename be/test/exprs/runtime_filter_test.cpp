@@ -104,11 +104,13 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
     }
 
     IRuntimeFilter* runtime_filter = nullptr;
-    Status status = IRuntimeFilter::create(_runtime_stat,
-                                           _runtime_stat->instance_mem_tracker().get(), _obj_pool,
-                                           &desc, options, RuntimeFilterRole::PRODUCER, -1, &runtime_filter);
+    Status status = IRuntimeFilter::create(
+            _runtime_stat, _runtime_stat->instance_mem_tracker().get(), _obj_pool, &desc, options,
+            RuntimeFilterRole::PRODUCER, -1, &runtime_filter);
+
     assert(status.ok());
-    return runtime_filter;
+
+    return status.ok() ? runtime_filter : nullptr;
 }
 
 std::vector<TupleRow>* create_rows(ObjectPool* _obj_pool, int from, int to) {
@@ -142,8 +144,8 @@ TEST_F(RuntimeFilterTest, runtime_filter_basic_test) {
     TQueryOptions options;
     options.runtime_filter_max_in_num = 1024;
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(TRuntimeFilterType::BLOOM, &options,
+                                                           _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, tuple_rows);
 
     // get expr context from filter
@@ -184,12 +186,12 @@ TEST_F(RuntimeFilterTest, runtime_filter_merge_in_filter_test) {
     auto rows1 = create_rows(&_obj_pool, 1, 1024);
     auto rows2 = create_rows(&_obj_pool, 1025, 2048);
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(TRuntimeFilterType::IN, &options,
+                                                           _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, rows1);
 
-    IRuntimeFilter* runtime_filter2 =
-            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter2 = create_runtime_filter(TRuntimeFilterType::IN, &options,
+                                                            _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter2, build_expr_ctx, rows2);
 
     Status status = runtime_filter->merge_from(runtime_filter2->get_wrapper());
@@ -232,12 +234,12 @@ TEST_F(RuntimeFilterTest, runtime_filter_ignore_in_filter_test) {
     auto rows1 = create_rows(&_obj_pool, 1, 1);
     auto rows2 = create_rows(&_obj_pool, 2, 2);
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(TRuntimeFilterType::IN, &options,
+                                                           _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, rows1);
 
-    IRuntimeFilter* runtime_filter2 =
-            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter2 = create_runtime_filter(TRuntimeFilterType::IN, &options,
+                                                            _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter2, build_expr_ctx, rows2);
 
     Status status = runtime_filter->merge_from(runtime_filter2->get_wrapper());
@@ -280,13 +282,13 @@ TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_in_merge_in_test) {
     auto rows1 = create_rows(&_obj_pool, 1, 1);
     auto rows2 = create_rows(&_obj_pool, 2, 2);
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(
+            TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, rows1);
     ASSERT_FALSE(runtime_filter->is_bloomfilter());
 
-    IRuntimeFilter* runtime_filter2 =
-            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter2 = create_runtime_filter(TRuntimeFilterType::IN, &options,
+                                                            _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter2, build_expr_ctx, rows2);
     ASSERT_FALSE(runtime_filter2->is_bloomfilter());
 
@@ -331,13 +333,13 @@ TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_in_merge_in_upgrade_
     auto rows1 = create_rows(&_obj_pool, 1, 1);
     auto rows2 = create_rows(&_obj_pool, 2, 2);
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(
+            TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, rows1);
     ASSERT_FALSE(runtime_filter->is_bloomfilter());
 
-    IRuntimeFilter* runtime_filter2 =
-            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter2 = create_runtime_filter(TRuntimeFilterType::IN, &options,
+                                                            _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter2, build_expr_ctx, rows2);
     ASSERT_FALSE(runtime_filter2->is_bloomfilter());
 
@@ -382,13 +384,13 @@ TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_in_merge_bloom_filte
     auto rows1 = create_rows(&_obj_pool, 1, 1);
     auto rows2 = create_rows(&_obj_pool, 2, 2);
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(
+            TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, rows1);
     ASSERT_FALSE(runtime_filter->is_bloomfilter());
 
-    IRuntimeFilter* runtime_filter2 =
-            create_runtime_filter(TRuntimeFilterType::BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter2 = create_runtime_filter(TRuntimeFilterType::BLOOM, &options,
+                                                            _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter2, build_expr_ctx, rows2);
     ASSERT_TRUE(runtime_filter2->is_bloomfilter());
 
@@ -433,15 +435,15 @@ TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_bloom_filter_merge_i
     auto rows1 = create_rows(&_obj_pool, 1, 3);
     auto rows2 = create_rows(&_obj_pool, 4, 4);
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(
+            TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, rows1);
     ASSERT_FALSE(runtime_filter->is_bloomfilter());
     runtime_filter->change_to_bloom_filter();
     ASSERT_TRUE(runtime_filter->is_bloomfilter());
 
-    IRuntimeFilter* runtime_filter2 =
-            create_runtime_filter(TRuntimeFilterType::IN, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter2 = create_runtime_filter(TRuntimeFilterType::IN, &options,
+                                                            _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter2, build_expr_ctx, rows2);
     ASSERT_FALSE(runtime_filter2->is_bloomfilter());
 
@@ -486,15 +488,15 @@ TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_bloom_filter_merge_b
     auto rows1 = create_rows(&_obj_pool, 1, 3);
     auto rows2 = create_rows(&_obj_pool, 4, 6);
 
-    IRuntimeFilter* runtime_filter =
-            create_runtime_filter(TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter = create_runtime_filter(
+            TRuntimeFilterType::IN_OR_BLOOM, &options, _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter, build_expr_ctx, rows1);
     ASSERT_FALSE(runtime_filter->is_bloomfilter());
     runtime_filter->change_to_bloom_filter();
     ASSERT_TRUE(runtime_filter->is_bloomfilter());
 
-    IRuntimeFilter* runtime_filter2 =
-            create_runtime_filter(TRuntimeFilterType::BLOOM, &options, _runtime_stat.get(), &_obj_pool);
+    IRuntimeFilter* runtime_filter2 = create_runtime_filter(TRuntimeFilterType::BLOOM, &options,
+                                                            _runtime_stat.get(), &_obj_pool);
     insert(runtime_filter2, build_expr_ctx, rows2);
     ASSERT_TRUE(runtime_filter2->is_bloomfilter());
 
@@ -502,8 +504,6 @@ TEST_F(RuntimeFilterTest, runtime_filter_in_or_bloom_filter_bloom_filter_merge_b
     ASSERT_TRUE(status.ok());
     ASSERT_FALSE(runtime_filter->is_ignored());
     ASSERT_TRUE(runtime_filter->is_bloomfilter());
-//    ASSERT_TRUE(runtime_filter->get_profile()->get_info_string("RealRuntimeFilterType") ==
-//                        ::doris::to_string(doris::RuntimeFilterType::BLOOM_FILTER);
 
     // get expr context from filter
 

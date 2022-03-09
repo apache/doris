@@ -486,6 +486,17 @@ module.exports = [
             ],
           },
           {
+            title: "条件函数",
+            directoryPath: "conditional-functions/",
+            children: [
+              "case",
+              "coalesce",
+              "if",
+              "ifnull",
+              "nullif"
+            ],
+          },
+          {
             title: "json 函数",
             directoryPath: "json-functions/",
             initialOpenGroupIndex: -1,
@@ -689,6 +700,7 @@ module.exports = [
               "SHOW TABLE CREATION",
               "SHOW TABLET",
               "SHOW TRANSACTION",
+              "SHOW-LAST-INSERT",
               "SPARK LOAD",
               "STOP ROUTINE LOAD",
               "STOP SYNC JOB",

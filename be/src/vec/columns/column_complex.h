@@ -63,6 +63,7 @@ public:
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+        resize(num);
         if constexpr (std::is_same_v<T, BitmapValue>) {
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
@@ -76,6 +77,21 @@ public:
                     *pvalue = std::move(*reinterpret_cast<BitmapValue*>(data_array + start_offset));   
                 }
             }
+        } else if constexpr (std::is_same_v<T, HyperLogLog>) {
+            for (size_t i = 0; i < num; i++) {
+                uint32_t len = len_array[i];
+                uint32_t start_offset = start_offset_array[i];
+                HyperLogLog* pvalue = &get_element(size() - 1);
+                if (len != 0) {
+                    HyperLogLog value;
+                    value.deserialize(Slice(data_array + start_offset, len));
+                    *pvalue = std::move(value);
+                } else {
+                    *pvalue = std::move(*reinterpret_cast<HyperLogLog*>(data_array + start_offset));
+                }
+            }
+        } else {
+            LOG(FATAL) << "Unexpected type in column complex";
         }
     }
 

@@ -208,7 +208,6 @@ TEST_F(LoadChannelMgrTest, normal) {
             tablet->set_tablet_id(20 + i);
         }
         request.set_num_senders(1);
-        request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
         ASSERT_TRUE(st.ok());
@@ -296,7 +295,6 @@ TEST_F(LoadChannelMgrTest, cancel) {
             tablet->set_tablet_id(20 + i);
         }
         request.set_num_senders(1);
-        request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
         ASSERT_TRUE(st.ok());
@@ -339,7 +337,6 @@ TEST_F(LoadChannelMgrTest, open_failed) {
             tablet->set_tablet_id(20 + i);
         }
         request.set_num_senders(1);
-        request.set_need_gen_rollup(false);
         open_status = OLAP_ERR_TABLE_NOT_FOUND;
         auto st = mgr.open(request);
         request.release_id();
@@ -374,7 +371,6 @@ TEST_F(LoadChannelMgrTest, add_failed) {
             tablet->set_tablet_id(20 + i);
         }
         request.set_num_senders(1);
-        request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
         ASSERT_TRUE(st.ok());
@@ -464,7 +460,6 @@ TEST_F(LoadChannelMgrTest, close_failed) {
             tablet->set_tablet_id(20 + i);
         }
         request.set_num_senders(1);
-        request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
         ASSERT_TRUE(st.ok());
@@ -556,7 +551,6 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
             tablet->set_tablet_id(20 + i);
         }
         request.set_num_senders(1);
-        request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
         ASSERT_TRUE(st.ok());
@@ -642,7 +636,6 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
             tablet->set_tablet_id(20 + i);
         }
         request.set_num_senders(1);
-        request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
         ASSERT_TRUE(st.ok());

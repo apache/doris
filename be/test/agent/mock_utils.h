@@ -27,27 +27,21 @@ class MockAgentServerClient : public AgentServerClient {
 public:
     MockAgentServerClient(const TBackend backend);
     MOCK_METHOD2(make_snapshot,
-                 AgentStatus(const TSnapshotRequest& snapshot_request, TAgentResult* result));
+                 Status(const TSnapshotRequest& snapshot_request, TAgentResult* result));
     MOCK_METHOD2(release_snapshot,
-                 AgentStatus(const std::string& snapshot_path, TAgentResult* result));
+                 Status(const std::string& snapshot_path, TAgentResult* result));
 }; // class AgentServerClient
 
 class MockMasterServerClient : public MasterServerClient {
 public:
     MockMasterServerClient(const TMasterInfo& master_info,
                            FrontendServiceClientCache* client_cache);
-    MOCK_METHOD2(finish_task, AgentStatus(const TFinishTaskRequest request, TMasterResult* result));
-    MOCK_METHOD2(report, AgentStatus(const TReportRequest request, TMasterResult* result));
+    MOCK_METHOD2(finish_task, Status(const TFinishTaskRequest request, TMasterResult* result));
+    MOCK_METHOD2(report, Status(const TReportRequest request, TMasterResult* result));
 }; // class AgentServerClient
 
 class MockAgentUtils : public AgentUtils {
 public:
-    MOCK_METHOD6(rsync_from_remote,
-                 AgentStatus(const std::string& remote_host, const std::string& remote_file_path,
-                             const std::string& local_file_path,
-                             const std::vector<std::string>& exclude_file_patterns,
-                             const uint32_t transport_speed_limit_kbps,
-                             const uint32_t timeout_second));
     MOCK_METHOD0(get_local_ip, char*());
     MOCK_METHOD2(exec_cmd, bool(const std::string& command, std::string* errmsg));
     MOCK_METHOD2(write_json_to_file,

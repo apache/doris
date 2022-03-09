@@ -24,7 +24,6 @@
 #include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
