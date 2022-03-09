@@ -20,7 +20,7 @@
 
 #include <mutex>
 
-#include "agent/status.h"
+#include "common/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/olap_define.h"
@@ -65,7 +65,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
 }; // class HeartBeatServer
 
-AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
+Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
                                     ThriftServer** heart_beat_server, uint32_t worker_thread_num,
                                     TMasterInfo* local_master_info);
 } // namespace doris
