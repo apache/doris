@@ -24,8 +24,8 @@
 #include <utility>
 #include <vector>
 
-#include "agent/status.h"
 #include "agent/utils.h"
+#include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gutil/ref_counted.h"
@@ -202,12 +202,11 @@ private:
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
     void _handle_report(TReportRequest& request, ReportType type);
 
-    AgentStatus _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
+    Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                                  int64_t signature, TTabletInfo* tablet_info);
 
-    AgentStatus _move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                          const std::string& src, int64_t job_id, bool overwrite,
-                          std::vector<std::string>* error_msgs);
+    Status _move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
+                          const std::string& src, int64_t job_id, bool overwrite);
 
     OLAPStatus _check_migrate_requset(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
                                       DataDir** dest_store);
