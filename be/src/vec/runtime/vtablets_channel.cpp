@@ -117,7 +117,7 @@ Status VTabletsChannel::add_block(const PTabletWriterAddBlockRequest& request,
                     strings::Substitute("unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
         }
 
-        OLAPStatus st = tablet_writer_it->second->write(&block, tablet_to_rowidxs_it.second);
+        OLAPStatus st = tablet_writer_it->second->write_block(&block, tablet_to_rowidxs_it.second);
         if (st != OLAP_SUCCESS) {
             auto err_msg = strings::Substitute(
                     "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",

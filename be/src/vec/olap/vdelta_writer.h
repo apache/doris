@@ -30,7 +30,7 @@ public:
     static OLAPStatus open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
                             VDeltaWriter** writer);
 
-    virtual OLAPStatus write(const vectorized::Block* block, const std::vector<int>& row_idxs) override;
+    virtual OLAPStatus write_block(const vectorized::Block* block, const std::vector<int>& row_idxs) override;
 
 private:
     VDeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,

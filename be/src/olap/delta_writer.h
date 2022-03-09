@@ -62,7 +62,7 @@ public:
 
     OLAPStatus write(Tuple* tuple);
     OLAPStatus write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
-    virtual OLAPStatus write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
+    virtual OLAPStatus write_block(const vectorized::Block* block, const std::vector<int>& row_idxs) {
         return OLAP_ERR_READER_INITIALIZE_ERROR;
     }
 

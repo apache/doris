@@ -37,7 +37,7 @@ OLAPStatus VDeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracke
     return OLAP_SUCCESS;
 }
 
-OLAPStatus VDeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
+OLAPStatus VDeltaWriter::write_block(const vectorized::Block* block, const std::vector<int>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return OLAP_SUCCESS;
     }
