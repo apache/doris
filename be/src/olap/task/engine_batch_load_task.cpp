@@ -104,7 +104,8 @@ Status EngineBatchLoadTask::_init() {
         LOG(WARNING) << "get tables failed. "
                      << "tablet_id: " << _push_req.tablet_id
                      << ", schema_hash: " << _push_req.schema_hash;
-        return Status::InvalidArgument("Could not find tablet " + _push_req.tablet_id);
+        return Status::InvalidArgument(
+                fmt::format("Could not find tablet {}", _push_req.tablet_id));
     }
 
     // check disk capacity
