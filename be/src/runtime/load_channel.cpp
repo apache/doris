@@ -19,7 +19,6 @@
 
 #include "olap/lru_cache.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/tablets_channel.h"
 
 namespace doris {
 
@@ -64,24 +63,34 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
+Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished, const int64_t index_id) {
+    std::lock_guard<std::mutex> l(_lock);
+    auto it = _tablets_channels.find(index_id);
+    if (it == _tablets_channels.end()) {
+        if (_finished_channel_ids.find(index_id) != _finished_channel_ids.end()) {
+            // this channel is already finished, just return OK
+            is_finished = true;
+            return Status::OK();
+        }
+        std::stringstream ss;
+        ss << "load channel " << _load_id << " add batch with unknown index id: " << index_id;
+        return Status::InternalError(ss.str());
+    }
+
+    is_finished = false;
+    channel = it->second;
+    return Status::OK();
+}
+
 Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
                               PTabletWriterAddBatchResult* response) {
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _tablets_channels.find(index_id);
-        if (it == _tablets_channels.end()) {
-            if (_finished_channel_ids.find(index_id) != _finished_channel_ids.end()) {
-                // this channel is already finished, just return OK
-                return Status::OK();
-            }
-            std::stringstream ss;
-            ss << "load channel " << _load_id << " add batch with unknown index id: " << index_id;
-            return Status::InternalError(ss.str());
-        }
-        channel = it->second;
+    bool is_finished;
+    Status st = _get_tablets_channel(channel, is_finished, index_id);
+    if (!st.ok() || is_finished) {
+        return st;
     }
 
     // 2. check if mem consumption exceed limit
@@ -93,16 +102,10 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     }
 
     // 4. handle eos
-    Status st;
     if (request.has_eos() && request.eos()) {
-        bool finished = false;
-        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
-                                       &finished, request.partition_ids(),
-                                       response->mutable_tablet_vec()));
-        if (finished) {
-            std::lock_guard<std::mutex> l(_lock);
-            _tablets_channels.erase(index_id);
-            _finished_channel_ids.emplace(index_id);
+        st = _handle_eos(channel, request, response);
+        if (!st.ok()) {
+            return st;
         }
     }
     _last_updated_time.store(time(nullptr));

@@ -25,6 +25,7 @@
 #include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -47,6 +48,7 @@ public:
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void insert(const Tuple* tuple);
+    void insert(const vectorized::Block* block, size_t row_pos, size_t& num_rows);
     /// Flush
     OLAPStatus flush();
     OLAPStatus close();

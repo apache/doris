@@ -27,12 +27,12 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/tablets_channel.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 class Cache;
-class TabletsChannel;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
@@ -43,11 +43,16 @@ public:
     ~LoadChannel();
 
     // open a new load channel if not exist
-    Status open(const PTabletWriterOpenRequest& request);
+    virtual Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
     Status add_batch(const PTabletWriterAddBatchRequest& request,
                      PTabletWriterAddBatchResult* response);
+
+    virtual Status add_block(const PTabletWriterAddBlockRequest& request,
+                             PTabletWriterAddBlockResult* response) {
+        return Status::NotSupported("Not Implemented add_block");
+    }
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -70,7 +75,30 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
-private:
+protected:
+    Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel,
+                                bool& is_finished,
+                                const int64_t index_id);
+    
+    template<typename Request, typename Response>
+    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
+                       const Request& request,
+                       Response* response) {
+        bool finished = false;
+        auto index_id = request.index_id();
+        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
+                                        &finished, request.partition_ids(),
+                                        response->mutable_tablet_vec()));
+        if (finished) {
+            std::lock_guard<std::mutex> l(_lock);
+            _tablets_channels.erase(index_id);
+            _finished_channel_ids.emplace(index_id);
+        }
+        return Status::OK();
+    }
+
+
+protected:
     // when mem consumption exceeds limit, should call this method to find the channel
     // that consumes the largest memory(, and then we can reduce its memory usage).
     bool _find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel);

@@ -32,6 +32,7 @@
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
+#include "olap/lru_cache.h"
 
 namespace doris {
 
@@ -43,7 +44,7 @@ class LoadChannel;
 class LoadChannelMgr {
 public:
     LoadChannelMgr();
-    ~LoadChannelMgr();
+    virtual ~LoadChannelMgr();
 
     Status init(int64_t process_mem_limit);
 
@@ -56,14 +57,43 @@ public:
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
-private:
+protected:
+    virtual LoadChannel* _create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
+                                              const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
+                                              const std::string& sender_ip);
+
+    template<typename Request>
+    Status _get_load_channel(std::shared_ptr<LoadChannel>& channel,
+                             bool& is_eof,
+                             const UniqueId load_id,
+                             const Request& request) {
+        is_eof = false;
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _load_channels.find(load_id);
+        if (it == _load_channels.end()) {
+            auto handle = _last_success_channel->lookup(load_id.to_string());
+            // success only when eos be true
+            if (handle != nullptr) {
+                _last_success_channel->release(handle);
+                if (request.has_eos() && request.eos()) {
+                    is_eof = true;
+                    return Status::OK();
+                }
+            }
+            return Status::InternalError(strings::Substitute(
+                    "fail to add batch in load channel. unknown load_id=$0", load_id.to_string()));
+        }
+        channel = it->second;
+        return Status::OK();
+    }
+    void _finish_load_channel(const UniqueId load_id);
     // check if the total load mem consumption exceeds limit.
     // If yes, it will pick a load channel to try to reduce memory consumption.
     void _handle_mem_exceed_limit();
 
     Status _start_bg_worker();
 
-private:
+protected:
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel

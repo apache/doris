@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <cstdint>
 #include <unordered_map>
 #include <utility>
@@ -28,6 +30,7 @@
 #include "util/bitmap.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 
@@ -63,6 +66,10 @@ public:
     // no-op when this channel has been closed or cancelled
     Status add_batch(const PTabletWriterAddBatchRequest& request, PTabletWriterAddBatchResult* response);
 
+    virtual Status add_block(const PTabletWriterAddBlockRequest& request, PTabletWriterAddBlockResult* response) {
+        return Status::NotSupported("Not Implemented add_block");
+    }
+
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
     // to include all tablets written in this channel.
@@ -82,11 +89,31 @@ public:
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
-private:
-    // open all writer
-    Status _open_all_writers(const PTabletWriterOpenRequest& request);
+protected:
+    template<typename Request>
+    Status _get_current_seq(int64_t& cur_seq, const Request& request) {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_state != kOpened) {
+            return _state == kFinished
+                ? _close_status
+                : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
+                            _key.to_string(), _state));
+        }
+        cur_seq = _next_seqs[request.sender_id()];
+        // check packet
+        if (request.packet_seq() > cur_seq) {
+            LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
+                << ", recept_seq=" << request.packet_seq();
+            return Status::InternalError("lost data packet");
+        }
+        return Status::OK();
+    }
 
 private:
+    // open all writer
+    virtual Status _open_all_writers(const PTabletWriterOpenRequest& request);
+
+protected:
     // id of this load channel
     TabletsChannelKey _key;
 
@@ -104,10 +131,13 @@ private:
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
     OlapTableSchemaParam* _schema = nullptr;
+
+private:
     TupleDescriptor* _tuple_desc = nullptr;
     // row_desc used to construct
     RowDescriptor* _row_desc = nullptr;
 
+protected:
     // next sequence we expect
     int _num_remaining_senders = 0;
     std::vector<int64_t> _next_seqs;

@@ -18,7 +18,6 @@
 #include "runtime/load_channel_mgr.h"
 
 #include "gutil/strings/substitute.h"
-#include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
 #include "runtime/mem_tracker.h"
 #include "service/backend_options.h"
@@ -93,6 +92,13 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
+LoadChannel* 
+LoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
+                                     const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
+                                     const std::string& sender_ip) {
+    return new LoadChannel(load_id, mem_limit, timeout_s, mem_tracker, is_high_priority, sender_ip);
+}
+
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
@@ -124,27 +130,27 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
+void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
+    VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _load_channels.erase(load_id);
+        auto handle =
+                _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
+        _last_success_channel->release(handle);
+    }
+    VLOG_CRITICAL << "removed load channel " << load_id;
+}
+
 Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
                                  PTabletWriterAddBatchResult* response) {
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _load_channels.find(load_id);
-        if (it == _load_channels.end()) {
-            auto handle = _last_success_channel->lookup(load_id.to_string());
-            // success only when eos be true
-            if (handle != nullptr) {
-                _last_success_channel->release(handle);
-                if (request.has_eos() && request.eos()) {
-                    return Status::OK();
-                }
-            }
-            return Status::InternalError(strings::Substitute(
-                    "fail to add batch in load channel. unknown load_id=$0", load_id.to_string()));
-        }
-        channel = it->second;
+    bool is_eof;
+    auto status = _get_load_channel(channel, is_eof, load_id, request);
+    if (!status.ok() || is_eof) {
+        return status;
     }
 
     if (!channel->is_high_priority()) {
@@ -161,15 +167,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
 
     // 4. handle finish
     if (channel->is_finished()) {
-        VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
-        {
-            std::lock_guard<std::mutex> l(_lock);
-            _load_channels.erase(load_id);
-            auto handle =
-                    _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
-            _last_success_channel->release(handle);
-        }
-        VLOG_CRITICAL << "removed load channel " << load_id;
+        _finish_load_channel(load_id);
     }
     return Status::OK();
 }
