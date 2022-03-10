@@ -75,5 +75,6 @@ ADD_BE_TEST(sort_heap_test)
 ADD_BE_TEST(counts_test)
 ADD_BE_TEST(date_func_test)
 ADD_BE_TEST(tuple_row_zorder_compare_test)
+ADD_BE_TEST(array_parser_test)
 
 target_link_libraries(Test_util Common Util Gutil ${Boost_LIBRARIES} glog gflags fmt protobuf)
