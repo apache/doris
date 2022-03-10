@@ -46,7 +46,9 @@ set(RUNTIME_FILES
     runtime_state.cpp
     runtime_filter_mgr.cpp
     string_value.cpp
+    thread_context.cpp
     thread_resource_mgr.cpp
+    threadlocal.cc
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
