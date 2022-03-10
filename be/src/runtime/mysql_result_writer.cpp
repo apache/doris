@@ -165,10 +165,10 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     }
 
     case TYPE_ARRAY: {
-        auto children_type = type.children[0].type;
+        auto children_type = type.children[0];
         auto array_value = (const CollectionValue*)(item);
 
-        ArrayIterator iter = array_value->iterator(children_type);
+        ArrayIterator iter = array_value->iterator(children_type.type);
 
         _row_buffer->open_dynamic_mode();
 
@@ -179,14 +179,13 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
             if (begin != 0) {
                 buf_ret = _row_buffer->push_string(", ", 2);
             }
-
-            if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
-                buf_ret = _row_buffer->push_string("'", 1);
-                buf_ret = _add_row_value(index, children_type, iter.value());
-                buf_ret = _row_buffer->push_string("'", 1);
+            if (!iter.value()) {
+                buf_ret = _row_buffer->push_string("NULL", 4);
             } else {
-                if (!iter.value()) {
-                    buf_ret = _row_buffer->push_string("NULL", 4);
+                if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
+                    buf_ret = _row_buffer->push_string("'", 1);
+                    buf_ret = _add_row_value(index, children_type, iter.value());
+                    buf_ret = _row_buffer->push_string("'", 1);
                 } else {
                     buf_ret = _add_row_value(index, children_type, iter.value());
                 }
