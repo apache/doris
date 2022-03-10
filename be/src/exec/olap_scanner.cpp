@@ -359,39 +359,16 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                 // Copy collection slot
                 for (auto desc : _parent->_collection_slots) {
                     CollectionValue* slot = tuple->get_collection_slot(desc->tuple_offset());
-
-                    TypeDescriptor item_type = desc->type().children.at(0);
-                    size_t item_size = item_type.get_slot_size() * slot->length();
-
-                    size_t nulls_size = slot->length();
-                    uint8_t* data = batch->tuple_data_pool()->allocate(item_size + nulls_size);
-
-                    // copy null_signs
-                    memory_copy(data, slot->null_signs(), nulls_size);
-                    memory_copy(data + nulls_size, slot->data(), item_size);
-
-                    slot->set_null_signs(reinterpret_cast<bool*>(data));
-                    slot->set_data(reinterpret_cast<char*>(data + nulls_size));
-
-                    if (!item_type.is_string_type()) {
-                        continue;
-                    }
-
-                    // when string type, copy every item
-                    for (int i = 0; i < slot->length(); ++i) {
-                        int item_offset = nulls_size + i * item_type.get_slot_size();
-                        if (slot->is_null_at(i)) {
-                            continue;
-                        }
-                        StringValue* dst_item_v =
-                                reinterpret_cast<StringValue*>(data + item_offset);
-                        if (dst_item_v->len != 0) {
-                            char* string_copy = reinterpret_cast<char*>(
-                                    batch->tuple_data_pool()->allocate(dst_item_v->len));
-                            memory_copy(string_copy, dst_item_v->ptr, dst_item_v->len);
-                            dst_item_v->ptr = string_copy;
-                        }
-                    }
+                    const TypeDescriptor& item_type = desc->type().children.at(0);
+                    auto pool = batch->tuple_data_pool();
+                    CollectionValue::deep_copy_collection(
+                        slot, item_type, [pool](int size) -> MemFootprint {
+                            int64_t offset = pool->total_allocated_bytes();
+                            uint8_t* data = pool->allocate(size);
+                            return { offset, data };
+                        },
+                        false
+                    );
                 }
                 // the memory allocate by mem pool has been copied,
                 // so we should release these memory immediately

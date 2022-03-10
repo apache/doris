@@ -175,34 +175,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
 
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-
-                // assgin data and null_sign pointer position in tuple_data
-                int data_offset = convert_to<int>(array_val->data());
-                array_val->set_data(tuple_data + data_offset);
-                if (array_val->has_null()) {
-                    int null_offset = convert_to<int>(array_val->null_signs());
-                    array_val->set_null_signs(convert_to<bool*>(tuple_data + null_offset));
-                }
-
-                const TypeDescriptor& item_type = slot_collection->type().children.at(0);
-                if (!item_type.is_string_type()) {
-                    continue;
-                }
-
-                // copy every string item
-                for (size_t k = 0; k < array_val->length(); ++k) {
-                    if (array_val->is_null_at(k)) {
-                        continue;
-                    }
-
-                    StringValue* dst_item_v = convert_to<StringValue*>(
-                            (uint8_t*)array_val->data() + k * item_type.get_slot_size());
-
-                    if (dst_item_v->len != 0) {
-                        int offset = convert_to<int>(dst_item_v->ptr);
-                        dst_item_v->ptr = tuple_data + offset;
-                    }
-                }
+                CollectionValue::deserialize_collection(array_val, tuple_data, slot_collection->type());
             }
         }
     }
@@ -599,26 +572,7 @@ size_t RowBatch::total_byte_size() const {
                 // compute data null_signs size
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                if (array_val->has_null()) {
-                    result += array_val->length() * sizeof(bool);
-                }
-
-                const TypeDescriptor& item_type = slot_collection->type().children.at(0);
-                result += array_val->length() * item_type.get_slot_size();
-
-                if (!item_type.is_string_type()) {
-                    continue;
-                }
-
-                // compute string type item size
-                for (int k = 0; k < array_val->length(); ++k) {
-                    if (array_val->is_null_at(k)) {
-                        continue;
-                    }
-                    StringValue* dst_item_v = convert_to<StringValue*>(
-                            (uint8_t*)array_val->data() + k * item_type.get_slot_size());
-                    result += dst_item_v->len;
-                }
+                result += array_val->get_byte_size(slot_collection->type());
             }
         }
     }
