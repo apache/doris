@@ -70,7 +70,7 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
     return compare_row(lhs_row, rhs_row);
 }
 
-int MemTable::VecRowComparator::operator()(const RowInBlock left, const RowInBlock right) const{
+int VecRowComparator::operator()(const RowInBlock left, const RowInBlock right) const{
     return left._block->compare_at(left._row_pos, right._row_pos, 
                             _schema->num_key_columns(), 
                             *(right._block), -1); 
@@ -79,17 +79,19 @@ int MemTable::VecRowComparator::operator()(const RowInBlock left, const RowInBlo
 
 void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num_rows)
 {
-    if (_mutableBlock.columns() == 0)
+    if (_input_mutable_block.columns() == 0)
     {
         auto cloneBlock = block->clone_without_columns();
-        _mutableBlock = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
     }
-    size_t cursor_in_mutableblock = _mutableBlock.rows();
-    _mutableBlock.add_rows(block, row_pos, row_pos + num_rows);
+    size_t cursor_in_mutableblock = _input_mutable_block.rows();
+    _input_mutable_block.add_rows(block, row_pos, row_pos + num_rows);
     for(int i = 0; i < num_rows; i++){       
-        insert_one_row_from_block(RowInBlock(&_mutableBlock, cursor_in_mutableblock + i));
+        insert_one_row_from_block(RowInBlock(&_input_mutable_block, cursor_in_mutableblock + i));
     }   
 }
+
 void MemTable::insert_one_row_from_block(struct RowInBlock row_in_block)
 {
     _rows++;
@@ -189,6 +191,35 @@ void MemTable::_aggregate_two_rowInBlock(RowInBlock new_row, RowInBlock row_in_s
     }
     
 }
+vectorized::Block MemTable::to_block()
+{
+    VecTable::Iterator it(_vec_skip_list);
+    vectorized::Block in_block = _input_mutable_block.to_block();
+    for (it.SeekToFirst(); it.Valid(); it.Next()) {
+        _output_mutable_block.add_row(&in_block, it.key()._row_pos);
+    }
+    return _output_mutable_block.to_block();
+}
+
+OLAPStatus MemTable::vflush(){
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
+                  << ", memsize: " << memory_usage() << ", rows: " << _rows;
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        vectorized::Block block = to_block();
+        OLAPStatus st = _rowset_writer->add_block(&block);
+        RETURN_NOT_OK(st);
+    }
+    DorisMetrics::instance()->memtable_flush_total->increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    
+    return OLAP_SUCCESS;
+}
+OLAPStatus MemTable::vclose() {
+    return vflush();
+}
+
 OLAPStatus MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;

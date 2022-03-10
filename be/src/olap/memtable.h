@@ -36,7 +36,8 @@ class SlotDescriptor;
 class TabletSchema;
 class Tuple;
 class TupleDescriptor;
-
+class RowInBlock;
+class VecRowComparator;
 class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
@@ -49,7 +50,7 @@ public:
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void insert(const Tuple* tuple);
     //insert tuple from (row_pos) to (row_pos+num_rows)
-    void insert(const vectorized::Block* block, size_t row_pos, size_t& num_rows);
+    void insert(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     
     /// Flush
     OLAPStatus flush();
@@ -57,6 +58,9 @@ public:
 
     int64_t flush_size() const { return _flush_size; }
 
+    //flush for vectorized
+    OLAPStatus vflush();
+    OLAPStatus vclose();
 private:
     class RowCursorComparator : public RowComparator {
     public:
@@ -67,23 +71,6 @@ private:
         const Schema* _schema;
     };
 
-    struct RowInBlock{
-        vectorized::MutableBlock* _block;
-        size_t _row_pos;
-        RowInBlock(int i):_block(0), _row_pos(0){} //this constructor is for SkipList::NewNode(0, ...)
-        RowInBlock(vectorized::MutableBlock* block, size_t row_pos):_block(block), _row_pos(row_pos){}
-        RowCursorCell cell(int cid){
-            StringRef ref = _block->mutable_columns()[cid]->get_data_at(_row_pos);
-            return RowCursorCell(ref.data);
-        }
-    };
-    class VecRowComparator {
-    public:
-        VecRowComparator(const Schema* schema):_schema(schema){};
-        int operator()(const RowInBlock left, const RowInBlock right) const;
-    private:
-        const Schema* _schema;
-    };
 
 private:
     typedef SkipList<char*, RowComparator> Table;
@@ -109,6 +96,7 @@ public:
         Table::Iterator _it;
     };
 
+    
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
@@ -158,10 +146,36 @@ private:
     int64_t _rows = 0;
 
     //for vectorized 
-    vectorized::MutableBlock _mutableBlock;
-    
+    vectorized::MutableBlock _input_mutable_block;
+    vectorized::MutableBlock _output_mutable_block;
+    vectorized::Block to_block();
 
 }; // class MemTable
+
+
+struct RowInBlock{
+    vectorized::MutableBlock* _block;
+    size_t _row_pos;
+    RowInBlock(int i):_block(nullptr), _row_pos(0){} //this constructor is for SkipList::NewNode(0, ...)
+    RowInBlock(vectorized::MutableBlock* block, size_t row_pos):_block(block), _row_pos(row_pos){}
+    RowCursorCell cell(int cid){
+        StringRef ref = _block->mutable_columns()[cid]->get_data_at(_row_pos);
+        return RowCursorCell(ref.data);
+    }
+};
+class VecRowComparator {
+public:
+    VecRowComparator(const Schema* schema):_schema(schema){};
+    int operator()(const RowInBlock left, const RowInBlock right) const;
+private:
+    const Schema* _schema;
+};
+
+template <>
+inline bool SkipList<RowInBlock, VecRowComparator>::Iterator::Valid() const {
+    return node_->key._block != nullptr;
+}
+
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
     os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id()
