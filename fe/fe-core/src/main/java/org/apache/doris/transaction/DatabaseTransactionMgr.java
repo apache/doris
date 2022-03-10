@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import jdk.internal.joptsimple.internal.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -795,8 +797,11 @@ public class DatabaseTransactionMgr {
 
         Database db = catalog.getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        List<Table> tableList = db.getTablesOnIdOrderNullable(tableIdList);
+        tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
+        if (tableList.isEmpty()) {
+            throw new MetaNotFoundException("unknown table list, tableIdList=" + StringUtils.join(tableIdList, ","));
+        }
         try {
             boolean hasError = false;
             Iterator<TableCommitInfo> tableCommitInfoIterator = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1643,8 +1648,8 @@ public class DatabaseTransactionMgr {
         Database db = catalog.getDbOrMetaException(transactionState.getDbId());
         List<Table> tableList = null;
         if (shouldAddTableListLock) {
-            tableList = db.getTablesOnIdOrderOrThrowException(transactionState.getTableIdList());
-            MetaLockUtils.writeLockTables(tableList);
+            tableList = db.getTablesOnIdOrderNullable(transactionState.getTableIdList());
+            tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }
         writeLock();
         try {

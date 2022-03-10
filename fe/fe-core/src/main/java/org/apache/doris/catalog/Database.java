@@ -410,6 +410,20 @@ public class Database extends MetaObject implements Writable {
         return views;
     }
 
+    public List<Table> getTablesOnIdOrderNullable(List<Long> tableIdList) {
+        List<Table> tableList = Lists.newArrayList();
+        for (Long tableId : tableIdList) {
+            Table table = idToTable.get(tableId);
+            if (table != null) {
+                tableList.add(table);
+            }
+        }
+        if (tableList.size() > 1) {
+            return tableList.stream().sorted(Comparator.comparing(Table::getId)).collect(Collectors.toList());
+        }
+        return tableList;
+    }
+
     public List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
         List<Table> tableList = Lists.newArrayList();
         for (Long tableId : tableIdList) {
