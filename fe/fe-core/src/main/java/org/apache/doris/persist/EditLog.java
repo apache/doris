@@ -621,6 +621,11 @@ public class EditLog {
                     Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
                     break;
                 }
+                case OperationType.OP_BACKEND_REPLICAS_INFO: {
+                    BackendReplicasInfo backendReplicasInfo = (BackendReplicasInfo) journal.getData();
+                    Catalog.getCurrentCatalog().replayBackendReplicasInfo(backendReplicasInfo);
+                    break;
+                }
                 case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                     RoutineLoadJob routineLoadJob = (RoutineLoadJob) journal.getData();
                     Catalog.getCurrentCatalog().getRoutineLoadManager().replayCreateRoutineLoadJob(routineLoadJob);
@@ -722,7 +727,7 @@ public class EditLog {
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
                     ModifyTableDefaultDistributionBucketNumOperationLog modifyTableDefaultDistributionBucketNumOperationLog = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
-                    catalog.replayModifyTableDefaultDistributionBucketNum(opCode, modifyTableDefaultDistributionBucketNumOperationLog);
+                    catalog.replayModifyTableDefaultDistributionBucketNum(modifyTableDefaultDistributionBucketNumOperationLog);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
@@ -1253,8 +1258,13 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ENCRYPTKEY, desc);
     }
 
+    @Deprecated
     public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
+    }
+
+    public void logBackendReplicasInfo(BackendReplicasInfo backendReplicasInfo) {
+        logEdit(OperationType.OP_BACKEND_REPLICAS_INFO, backendReplicasInfo);
     }
 
     public void logCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {

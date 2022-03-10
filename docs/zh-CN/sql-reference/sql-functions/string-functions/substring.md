@@ -40,7 +40,7 @@ under the License.
 ## example
 
 ```
-mysql> select substring('abc1', -2);
+mysql> select substring('abc1', 2);
 +-----------------------------+
 | substring('abc1', 2)        |
 +-----------------------------+

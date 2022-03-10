@@ -50,6 +50,7 @@ Execute following command in source dir
 sh build.sh 2.3.4 2.11 ## spark 2.3.4 version, and scala 2.11
 sh build.sh 3.1.2 2.12 ## spark 3.1.2 version, and scala 2.12
 ```
+> Note: If you check out the source code from tag, you can just run sh build.sh --tag without specifying the spark and scala versions. This is because the version in the tag source code is fixed.
 
 After successful compilation, the file `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 

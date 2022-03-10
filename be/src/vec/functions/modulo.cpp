@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Modulo.cpp
 // and modified by Doris
 
+#include "runtime/decimalv2_value.h"
 #ifdef __SSE2__
 #define LIBDIVIDE_SSE2 1
 #endif
@@ -47,6 +48,7 @@ struct ModuloImpl {
         }
     }
 
+    template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map,
                                        size_t index) {
         null_map[index] = b == DecimalV2Value(0);
@@ -72,6 +74,7 @@ struct PModuloImpl {
         }
     }
 
+    template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map,
                                        size_t index) {
         null_map[index] = b == DecimalV2Value(0);

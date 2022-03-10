@@ -96,7 +96,6 @@ clean_fe() {
 OPTS=$(getopt \
   -n $0 \
   -o '' \
-  -o 'h' \
   -l 'be' \
   -l 'fe' \
   -l 'broker' \
@@ -104,7 +103,7 @@ OPTS=$(getopt \
   -l 'spark-dpp' \
   -l 'clean' \
   -l 'help' \
-  -o 'j:' \
+  -o 'hj:' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -121,6 +120,8 @@ BUILD_UI=
 BUILD_SPARK_DPP=
 CLEAN=
 HELP=0
+PARAMETER_COUNT=$#
+PARAMETER_FLAG=0
 if [ $# == 1 ] ; then
     # default
     BUILD_BE=1
@@ -146,11 +147,20 @@ else
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
-            -j) PARALLEL=$2; shift 2 ;;
+            -j) PARALLEL=$2; PARAMETER_FLAG=1; shift 2 ;;
             --) shift ;  break ;;
             *) echo "Internal error" ; exit 1 ;;
         esac
     done
+    #only ./build.sh -j xx then build all 
+    if [[ ${PARAMETER_COUNT} -eq 3 ]] && [[ ${PARAMETER_FLAG} -eq 1 ]];then
+        BUILD_BE=1
+        BUILD_FE=1
+        BUILD_BROKER=1
+        BUILD_UI=1
+        BUILD_SPARK_DPP=1
+        CLEAN=0
+    fi
 fi
 
 if [[ ${HELP} -eq 1 ]]; then

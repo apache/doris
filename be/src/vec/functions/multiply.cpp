@@ -34,6 +34,7 @@ struct MultiplyImpl {
         return static_cast<Result>(a) * b;
     }
 
+    template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
         return a * b;
     }

@@ -45,17 +45,19 @@ public class Replica implements Writable {
         SCHEMA_CHANGE,
         CLONE,
         ALTER, // replica is under rollup or schema change
-        DECOMMISSION; // replica is ready to be deleted
+        DECOMMISSION, // replica is ready to be deleted
+        COMPACTION_TOO_SLOW; // replica version count is too large
+
 
         public boolean canLoad() {
-            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER;
+            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER || this == COMPACTION_TOO_SLOW;
         }
 
         public boolean canQuery() {
             return this == NORMAL || this == SCHEMA_CHANGE;
         }
     }
-    
+
     public enum ReplicaStatus {
         OK, // health
         DEAD, // backend is not available
@@ -64,7 +66,7 @@ public class Replica implements Writable {
         SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
         BAD // replica is broken.
     }
-    
+
     @SerializedName(value = "id")
     private long id;
     @SerializedName(value = "backendId")
@@ -98,7 +100,7 @@ public class Replica implements Writable {
     @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
 
-	private volatile long versionCount = -1;
+    private volatile long versionCount = -1;
 
     private long pathHash = -1;
 
@@ -112,7 +114,7 @@ public class Replica implements Writable {
      * So this replica need a further repair.
      * If we do not do this, this replica will be treated as version stale, and will be removed,
      * so that the balance task is failed, which is unexpected.
-     * 
+     *
      * furtherRepairSetTime set alone with needFurtherRepair.
      * This is an insurance, in case that further repair task always fail. If 20 min passed
      * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
@@ -127,13 +129,13 @@ public class Replica implements Writable {
 
     public Replica() {
     }
-    
+
     // for rollup
     // the new replica's version is -1 and last failed version is -1
     public Replica(long replicaId, long backendId, int schemaHash, ReplicaState state) {
         this(replicaId, backendId, -1, schemaHash, 0L, 0L, state, -1, -1);
     }
-    
+
     // for create tablet and restore
     public Replica(long replicaId, long backendId, ReplicaState state, long version, int schemaHash) {
         this(replicaId, backendId, version, schemaHash, 0L, 0L, state, -1L, version);
@@ -164,7 +166,7 @@ public class Replica implements Writable {
             this.lastSuccessVersion = lastSuccessVersion;
         }
     }
-    
+
     public long getVersion() {
         return this.version;
     }
@@ -185,7 +187,7 @@ public class Replica implements Writable {
     public long getBackendId() {
         return this.backendId;
     }
-    
+
     public long getDataSize() {
         return dataSize;
     }
@@ -197,11 +199,11 @@ public class Replica implements Writable {
     public long getLastFailedVersion() {
         return lastFailedVersion;
     }
-    
+
     public long getLastFailedTimestamp() {
         return lastFailedTimestamp;
     }
-    
+
     public long getLastSuccessVersion() {
         return lastSuccessVersion;
     }
@@ -238,10 +240,16 @@ public class Replica implements Writable {
         this.furtherRepairSetTime = System.currentTimeMillis();
     }
 
-    // only update data size and row num
+    // for compatibility
     public synchronized void updateStat(long dataSize, long rowNum) {
         this.dataSize = dataSize;
         this.rowCount = rowNum;
+    }
+
+    public synchronized void updateStat(long dataSize, long rowNum, long versionCount) {
+        this.dataSize = dataSize;
+        this.rowCount = rowNum;
+        this.versionCount = versionCount;
     }
 
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRowCount) {
@@ -251,7 +259,7 @@ public class Replica implements Writable {
     public synchronized void updateVersionWithFailedInfo(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, rowCount);
     }
-    
+
     public void updateVersionInfoForRecovery(
             long newVersion,
             long lastFailedVersion,
@@ -271,26 +279,26 @@ public class Replica implements Writable {
     /* last failed version:  LFV
      * last success version: LSV
      * version:              V
-     * 
+     *
      * Case 1:
      *      If LFV > LSV, set LSV back to V, which indicates that version between LSV and LFV is invalid.
      *      Clone task will clone the version between LSV and LFV
-     *      
+     *
      * Case 2:
      *      LFV changed, set LSV back to V. This is just same as Case 1. Cause LFV must large than LSV.
-     * 
+     *
      * Case 3:
      *      LFV remains unchanged, just update LSV, and then check if it falls into Case 1.
-     *      
+     *
      * Case 4:
      *      V is larger or equal to LFV, reset LFV. And if V is less than LSV, just set V to LSV. This may
      *      happen when a clone task finished and report version V, but the LSV is already larger than V,
      *      And we know that version between V and LSV is valid, so move V forward to LSV.
-     *    
+     *
      * Case 5:
      *      This is a bug case, I don't know why, may be some previous version introduce it. It looks like
      *      the V(hash) equals to LSV(hash), and V equals to LFV, but LFV hash is 0 or some unknown number.
-     *      We just reset the LFV(hash) to recovery this replica. 
+     *      We just reset the LFV(hash) to recovery this replica.
      */
     private void updateReplicaInfo(long newVersion, 
             long lastFailedVersion, long lastSuccessVersion, 
@@ -327,14 +335,14 @@ public class Replica implements Writable {
         if (this.lastSuccessVersion <= this.lastFailedVersion) {
             this.lastSuccessVersion = this.version;
         }
-        
+
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
             LOG.debug("current version {} is larger than last failed version {}, "
                         + "maybe a fatal error or be report version, print a stack here ", 
                     this.version, lastFailedVersion, new Exception());
         }
-        
+
         if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
             if (lastFailedVersion > this.lastFailedVersion) {
@@ -352,7 +360,7 @@ public class Replica implements Writable {
                 this.lastSuccessVersion = this.version;
             }
         }
-        
+
         // Case 4:
         if (this.version >= this.lastFailedVersion) {
             this.lastFailedVersion = -1;
@@ -398,22 +406,30 @@ public class Replica implements Writable {
         return true;
     }
 
+    public void setLastFailedVersion(long lastFailedVersion) {
+        this.lastFailedVersion = lastFailedVersion;
+    }
+
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
     }
-    
+
     public ReplicaState getState() {
         return this.state;
     }
 
+    public boolean tooSlow() {
+        return state == ReplicaState.COMPACTION_TOO_SLOW;
+    }
+
     public long getVersionCount() {
-		return versionCount;
-	}
+        return versionCount;
+    }
 
     public void setVersionCount(long versionCount) {
-		this.versionCount = versionCount;
-	}
-    
+        this.versionCount = versionCount;
+    }
+
     @Override
     public String toString() {
         StringBuffer strBuffer = new StringBuffer("[replicaId=");
@@ -449,13 +465,13 @@ public class Replica implements Writable {
         out.writeLong(dataSize);
         out.writeLong(rowCount);
         Text.writeString(out, state.name());
-        
+
         out.writeLong(lastFailedVersion);
         out.writeLong(lastFailedVersionHash);
         out.writeLong(lastSuccessVersion);
         out.writeLong(lastSuccessVersionHash);
     }
-     
+
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         backendId = in.readLong();
@@ -469,13 +485,13 @@ public class Replica implements Writable {
         lastSuccessVersion = in.readLong();
         lastSuccessVersionHash = in.readLong();
     }
-    
+
     public static Replica read(DataInput in) throws IOException {
         Replica replica = new Replica();
         replica.readFields(in);
         return replica;
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -484,13 +500,13 @@ public class Replica implements Writable {
         if (!(obj instanceof Replica)) {
             return false;
         }
-        
+
         Replica replica = (Replica) obj;
-        return (id == replica.id) 
-                && (backendId == replica.backendId) 
+        return (id == replica.id)
+                && (backendId == replica.backendId)
                 && (version == replica.version)
                 && (dataSize == replica.dataSize)
-                && (rowCount == replica.rowCount) 
+                && (rowCount == replica.rowCount)
                 && (state.equals(replica.state))
                 && (lastFailedVersion == replica.lastFailedVersion)
                 && (lastSuccessVersion == replica.lastSuccessVersion);

@@ -161,6 +161,7 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -187,6 +188,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -258,11 +260,15 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
+import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.NetworkRestore;
+import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.DataInputStream;
@@ -291,12 +297,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
-
-import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
-
-import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -746,12 +746,15 @@ public class Catalog {
     public StatisticsManager getStatisticsManager() {
         return statisticsManager;
     }
+
     public StatisticsJobManager getStatisticsJobManager() {
         return statisticsJobManager;
     }
+
     public StatisticsJobScheduler getStatisticsJobScheduler() {
         return statisticsJobScheduler;
     }
+
     public StatisticsTaskScheduler getStatisticsTaskScheduler() {
         return statisticsTaskScheduler;
     }
@@ -1748,6 +1751,10 @@ public class Catalog {
                 // LABEL_KEEP_MAX_MS
                 // This job must be FINISHED or CANCELLED
                 if (!job.isExpired(currentTimeMs)) {
+                    if (job.getEtlJobType() != EtlJobType.HADOOP) {
+                        LOG.warn("job {} with type is deprecated, skip it", job.getId(), job.getEtlJobType());
+                        continue;
+                    }
                     load.unprotectAddLoadJob(job, true /* replay */);
                 }
             }
@@ -5774,33 +5781,26 @@ public class Catalog {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
 
-            DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
-            if (defaultDistributionInfo.getType() != DistributionInfoType.HASH) {
-                throw new DdlException("Cannot change default bucket number of distribution type " + defaultDistributionInfo.getType());
-            }
-
             DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
-
-            DistributionInfo distributionInfo = null;
-
-            List<Column> baseSchema = olapTable.getBaseSchema();
-
             if (distributionDesc != null) {
-                distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+                DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+                List<Column> baseSchema = olapTable.getBaseSchema();
+                DistributionInfo distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                 // for now. we only support modify distribution's bucket num
-                if (distributionInfo.getType() != DistributionInfoType.HASH) {
-                    throw new DdlException("Cannot change distribution type to " + distributionInfo.getType());
+                if (distributionInfo.getType() != defaultDistributionInfo.getType()) {
+                    throw new DdlException("Cannot change distribution type when modify default distribution bucket num");
+                }
+                if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                    List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
+                    List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
+                    if (!newDistriCols.equals(defaultDistriCols)) {
+                        throw new DdlException("Cannot assign hash distribution with different distribution cols. "
+                                + "default is: " + defaultDistriCols);
+                    }
                 }
 
-                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
-                List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
-                if (!newDistriCols.equals(defaultDistriCols)) {
-                    throw new DdlException("Cannot assign hash distribution with different distribution cols. "
-                            + "default is: " + defaultDistriCols);
-                }
-
-                int bucketNum = hashDistributionInfo.getBucketNum();
+                int bucketNum = distributionInfo.getBucketNum();
                 if (bucketNum <= 0) {
                     throw new DdlException("Cannot assign hash distribution buckets less than 1");
                 }
@@ -5816,7 +5816,7 @@ public class Catalog {
         }
     }
 
-    public void replayModifyTableDefaultDistributionBucketNum(short opCode, ModifyTableDefaultDistributionBucketNumOperationLog info) throws MetaNotFoundException {
+    public void replayModifyTableDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog info) throws MetaNotFoundException {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         int bucketNum = info.getBucketNum();
@@ -6933,6 +6933,35 @@ public class Catalog {
         }
     }
 
+    public void replayBackendReplicasInfo(BackendReplicasInfo backendReplicasInfo) {
+        long backendId = backendReplicasInfo.getBackendId();
+        List<BackendReplicasInfo.ReplicaReportInfo> replicaInfos = backendReplicasInfo.getReplicaReportInfos();
+
+        for (BackendReplicasInfo.ReplicaReportInfo info : replicaInfos) {
+            Replica replica = tabletInvertedIndex.getReplica(info.tabletId, backendId);
+            if (replica == null) {
+                LOG.warn("failed to find replica of tablet {} on backend {} when replaying backend report info",
+                        info.tabletId, backendId);
+                continue;
+            }
+
+            switch (info.type) {
+                case BAD:
+                    replica.setBad(true);
+                    break;
+                case MISSING_VERSION:
+                    // The absolute value is meaningless, as long as it is greater than 0.
+                    // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
+                    // it will be considered a version missing replica and will be handled accordingly.
+                    replica.setLastFailedVersion(1L);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    @Deprecated
     public void replayBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         List<Pair<Long, Integer>> tabletsWithSchemaHash = backendTabletsInfo.getTabletSchemaHash();
         if (!tabletsWithSchemaHash.isEmpty()) {
@@ -6987,17 +7016,16 @@ public class Catalog {
         }
     }
 
-    // Convert table's distribution type from random to hash.
-    // random distribution is no longer supported.
+    // Convert table's distribution type from hash to random.
     public void convertDistributionType(Database db, OlapTable tbl) throws DdlException {
         tbl.writeLockOrDdlException();
         try {
-            if (!tbl.convertRandomDistributionToHashDistribution()) {
-                throw new DdlException("Table " + tbl.getName() + " is not random distributed");
+            if (!tbl.convertHashDistributionToRandomDistribution()) {
+                throw new DdlException("Table " + tbl.getName() + " is not hash distributed");
             }
             TableInfo tableInfo = TableInfo.createForModifyDistribution(db.getId(), tbl.getId());
             editLog.logModifyDistributionType(tableInfo);
-            LOG.info("finished to modify distribution type of table: " + tbl.getName());
+            LOG.info("finished to modify distribution type of table from hash to random : " + tbl.getName());
         } finally {
             tbl.writeUnlock();
         }
@@ -7008,8 +7036,8 @@ public class Catalog {
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
-            olapTable.convertRandomDistributionToHashDistribution();
-            LOG.info("replay modify distribution type of table: " + olapTable.getName());
+            olapTable.convertHashDistributionToRandomDistribution();
+            LOG.info("replay modify distribution type of table from hash to random : " + olapTable.getName());
         } finally {
             olapTable.writeUnlock();
         }

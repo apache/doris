@@ -127,7 +127,8 @@ public:
     void set_abort();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel();
+    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
+                const std::string& msg = "");
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -207,6 +208,10 @@ private:
     // multithreaded access.
     std::shared_ptr<QueryStatistics> _query_statistics;
     bool _collect_query_statistics_with_every_batch;
+
+    // Record the cancel information when calling the cancel() method, return it to FE
+    PPlanFragmentCancelReason _cancel_reason;
+    std::string _cancel_msg;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 

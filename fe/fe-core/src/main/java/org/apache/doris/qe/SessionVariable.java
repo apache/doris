@@ -26,6 +26,8 @@ import org.apache.doris.thrift.TResourceLimit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,8 +36,6 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
-
-import org.json.JSONObject;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -48,6 +48,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RESOURCE_VARIABLE = "resource_group";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
+    public static final String TX_READ_ONLY = "tx_read_only";
+    public static final String TRANSACTION_READ_ONLY = "transaction_read_only";
+    public static final String TRANSACTION_ISOLATION = "transaction_isolation";
     public static final String CHARACTER_SET_CLIENT = "character_set_client";
     public static final String CHARACTER_SET_CONNNECTION = "character_set_connection";
     public static final String CHARACTER_SET_RESULTS = "character_set_results";
@@ -214,7 +217,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TX_READ_ONLY)
+    public boolean txReadonly = false;
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
+    public boolean transactionReadonly = false;
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
+    public String transactionIsolation = "REPEATABLE-READ";
+    
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -454,7 +469,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isAutoCommit() {
         return autoCommit;
     }
+    
+    public boolean isTxReadonly() {
+        return txReadonly;
+    }
 
+    public boolean isTransactionReadonly() {
+        return transactionReadonly;
+    }
+    
+    public String getTransactionIsolation() {
+        return transactionIsolation;
+    }
+    
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -949,13 +976,14 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, root.toString());
     }
 
+
     public void readFields(DataInput in) throws IOException {
         readFromJson(in);
     }
 
     private void readFromJson(DataInput in) throws IOException {
         String json = Text.readString(in);
-        JSONObject root = new JSONObject(json);
+        JSONObject root = (JSONObject) JSONValue.parse(json);
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
                 VarAttr attr = field.getAnnotation(VarAttr.class);
@@ -963,28 +991,29 @@ public class SessionVariable implements Serializable, Writable {
                     continue;
                 }
 
-                if (!root.has(attr.name())) {
+                if (!root.containsKey(attr.name())) {
                     continue;
                 }
 
                 switch (field.getType().getSimpleName()) {
                     case "boolean":
-                        field.set(this, root.getBoolean(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "int":
-                        field.set(this, root.getInt(attr.name()));
+                        // root.get(attr.name()) always return Long type, so need to convert it.
+                        field.set(this, Integer.valueOf(root.get(attr.name()).toString()));
                         break;
                     case "long":
-                        field.set(this, root.getLong(attr.name()));
+                        field.set(this, (Long) root.get(attr.name()));
                         break;
                     case "float":
-                        field.set(this, root.getFloat(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "double":
-                        field.set(this, root.getDouble(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "String":
-                        field.set(this, root.getString(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     default:
                         // Unsupported type variable.
@@ -1079,3 +1108,4 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 }
+

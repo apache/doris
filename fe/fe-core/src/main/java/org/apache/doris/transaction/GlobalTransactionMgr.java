@@ -438,6 +438,13 @@ public class GlobalTransactionMgr implements Writable {
                 continue;
             }
             info.add(db.getFullName());
+            long runningNum = 0;
+            try {
+                DatabaseTransactionMgr dbMgr = getDatabaseTransactionMgr(dbId);
+                runningNum = dbMgr.getRunningTxnNums();
+            } catch (AnalysisException e) {
+            }
+            info.add(runningNum);
             infos.add(info);
         }
         return infos;
@@ -456,6 +463,11 @@ public class GlobalTransactionMgr implements Writable {
     public List<List<String>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         return dbTransactionMgr.getTxnStateInfoList(running, limit);
+    }
+
+    public List<List<String>> getDbTransInfoByStatus(long dbId, TransactionStatus status) throws AnalysisException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        return dbTransactionMgr.getTxnStateInfoList(status);
     }
 
     // get show info of a specified txnId

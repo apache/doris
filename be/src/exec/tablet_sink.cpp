@@ -121,7 +121,6 @@ void NodeChannel::open() {
         ptablet->set_tablet_id(tablet.tablet_id);
     }
     request.set_num_senders(_parent->_num_senders);
-    request.set_need_gen_rollup(_parent->_need_gen_rollup);
     request.set_load_mem_limit(_parent->_load_mem_limit);
     request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
     request.set_is_high_priority(_parent->_is_high_priority);
@@ -668,7 +667,6 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _load_id.set_lo(table_sink.load_id.lo);
     _txn_id = table_sink.txn_id;
     _num_replicas = table_sink.num_replicas;
-    _need_gen_rollup = table_sink.need_gen_rollup;
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
@@ -902,7 +900,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
                         fmt::memory_buffer buf;
                         fmt::format_to(buf, "no partition for this tuple. tuple={}",
                                        Tuple::to_string(tuple, *_output_tuple_desc));
-                        return buf.data();
+                        return fmt::to_string(buf);
                     },
                     &stop_processing));
             _number_filtered_rows++;
@@ -1086,7 +1084,7 @@ Status OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch,
                                 fmt::memory_buffer buf;
                                 fmt::format_to(buf, "null value for not null column, column={}",
                                                slot_desc->col_name());
-                                return buf.data();
+                                return fmt::to_string(buf);
                             },
                             &stop_processing));
                     _number_filtered_rows++;
@@ -1221,7 +1219,7 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
             filter_bitmap->Set(row_no, true);
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
-                    [&]() -> std::string { return error_msg.data(); }, stop_processing));
+                    [&]() -> std::string { return fmt::to_string(error_msg); }, stop_processing));
         }
     }
     return Status::OK();

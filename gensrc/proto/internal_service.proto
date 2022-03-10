@@ -70,7 +70,7 @@ message PTabletWriterOpenRequest {
     required POlapTableSchemaParam schema = 4;
     repeated PTabletWithPartition tablets = 5;
     required int32 num_senders = 6;
-    required bool need_gen_rollup = 7;
+    required bool need_gen_rollup = 7;  //Deprecated, not used since alter job v2
     optional int64 load_mem_limit = 8;
     optional int64 load_channel_timeout_s = 9;
     optional bool is_high_priority = 10 [default = false];
@@ -135,14 +135,6 @@ message PExecPlanFragmentRequest {
 
 message PExecPlanFragmentResult {
     required PStatus status = 1;
-};
-
-enum PPlanFragmentCancelReason {
-    // 0 is reserved
-    LIMIT_REACH = 1;
-    USER_CANCEL = 2;
-    INTERNAL_ERROR = 3;
-    TIMEOUT = 4;
 };
 
 message PCancelPlanFragmentRequest {

@@ -56,6 +56,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -298,6 +299,10 @@ public class Coordinator {
 
     public void setQueryType(TQueryType type) {
         this.queryOptions.setQueryType(type);
+    }
+
+    public void setExecVecEngine(boolean vec) {
+        this.queryOptions.setEnableVectorizedEngine(vec);
     }
 
     public Status getExecStatus() {
@@ -610,7 +615,7 @@ public class Coordinator {
                         LOG.warn("exec plan fragment failed, errmsg={}, code: {}, fragmentId={}, backend={}:{}",
                                 errMsg, code, fragment.getFragmentId(),
                                 pair.first.address.hostname, pair.first.address.port);
-                        cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                        cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
                                 throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
@@ -741,7 +746,7 @@ public class Coordinator {
             queryStatus.setStatus(status);
             LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {}, query id: {}, instance id: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN");
-            cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
         } finally {
             lock.unlock();
         }
@@ -796,7 +801,7 @@ public class Coordinator {
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
-                cancelInternal(InternalService.PPlanFragmentCancelReason.LIMIT_REACH);
+                cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
             }
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
@@ -818,13 +823,13 @@ public class Coordinator {
                 queryStatus.setStatus(Status.CANCELLED);
             }
             LOG.warn("cancel execution of query, this is outside invoke");
-            cancelInternal(InternalService.PPlanFragmentCancelReason.USER_CANCEL);
+            cancelInternal(Types.PPlanFragmentCancelReason.USER_CANCEL);
         } finally {
             unlock();
         }
     }
 
-    private void cancelInternal(InternalService.PPlanFragmentCancelReason cancelReason) {
+    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
             receiver.cancel();
         }
@@ -836,7 +841,7 @@ public class Coordinator {
         }
     }
 
-    private void cancelRemoteFragmentsAsync(InternalService.PPlanFragmentCancelReason cancelReason) {
+    private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
         for (BackendExecState backendExecState : backendExecStates) {
             backendExecState.cancelFragmentInstance(cancelReason);
         }
@@ -1935,7 +1940,7 @@ public class Coordinator {
 
         // cancel the fragment instance.
         // return true if cancel success. Otherwise, return false
-        public synchronized boolean cancelFragmentInstance(InternalService.PPlanFragmentCancelReason cancelReason) {
+        public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {}, fragment instance id={}, reason: {}",
                         this.initiated, this.done, this.hasCanceled, backend.getId(),
@@ -2019,7 +2024,7 @@ public class Coordinator {
                     public InternalService.PExecPlanFragmentResult get() {
                         InternalService.PExecPlanFragmentResult result = InternalService.PExecPlanFragmentResult
                                 .newBuilder()
-                                .setStatus(org.apache.doris.proto.Types.PStatus.newBuilder()
+                                .setStatus(Types.PStatus.newBuilder()
                                         .addErrorMsgs(e.getMessage())
                                         .setStatusCode(TStatusCode.THRIFT_RPC_ERROR.getValue())
                                         .build())

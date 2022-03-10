@@ -49,6 +49,7 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
+import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
@@ -157,6 +158,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -329,6 +331,8 @@ public class ShowExecutor {
             handleShowColumnStats();
         } else if (stmt instanceof ShowTableCreationStmt) {
             handleShowTableCreation();
+        } else if (stmt instanceof ShowLastInsertStmt) {
+            handleShowLastInsert();
         } else {
             handleEmtpy();
         }
@@ -1861,16 +1865,21 @@ public class ShowExecutor {
         ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
         Database db = ctx.getCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
-        Long txnId = showStmt.getTxnId();
-        String label = showStmt.getLabel();
+        TransactionStatus status = showStmt.getStatus();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        if (!label.isEmpty()) {
-            txnId = transactionMgr.getTransactionId(db.getId(), label);
-            if (txnId == null) {
-                throw new AnalysisException("transaction with label " + label + " does not exist");
+        if (status != TransactionStatus.UNKNOWN) {
+            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+        } else {
+            Long txnId = showStmt.getTxnId();
+            String label = showStmt.getLabel();
+            if (!label.isEmpty()) {
+                txnId = transactionMgr.getTransactionId(db.getId(), label);
+                if (txnId == null) {
+                    throw new AnalysisException("transaction with label " + label + " does not exist");
+                }
             }
+            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
         }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
     }
 
     private void handleShowPlugins() throws AnalysisException {
@@ -2098,6 +2107,19 @@ public class ShowExecutor {
             keyNameSet.add(resultRow.get(0));
         }
 
+        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void handleShowLastInsert() {
+        ShowLastInsertStmt showStmt = (ShowLastInsertStmt) stmt;
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        if (ConnectContext.get() != null) {
+            InsertResult insertResult = ConnectContext.get().getInsertResult();
+            if (insertResult != null) {
+                resultRowSet.add(insertResult.toRow());
+            }
+        }
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }

@@ -369,9 +369,9 @@ under the License.
 
         ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
 
-    13. Change the bucketing mode of the table from Random Distribution to Hash Distribution
+    13. Change the bucketing mode of the table from Hash Distribution to Random Distribution
 
-        ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+        ALTER TABLE example_db.my_table set ("distribution_type" = "random");
     
     14. Modify the dynamic partition properties of the table (support adding dynamic partition properties to tables without dynamic partition properties)
     

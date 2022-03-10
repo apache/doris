@@ -62,22 +62,24 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     _total_assign_num = 0;
     _nice = 18 + std::max(0, 2 - (int)_volap_scanners.size() / 5);
 
-    auto doris_scanner_row_num = _limit == -1 ? config::doris_scanner_row_num :
-            std::min(static_cast<int64_t>(config::doris_scanner_row_num), _limit);
-    auto block_size = _limit == -1 ? state->batch_size() :
-            std::min(static_cast<int64_t>(state->batch_size()), _limit);
+    auto doris_scanner_row_num =
+            _limit == -1 ? config::doris_scanner_row_num
+                         : std::min(static_cast<int64_t>(config::doris_scanner_row_num), _limit);
+    auto block_size = _limit == -1 ? state->batch_size()
+                                   : std::min(static_cast<int64_t>(state->batch_size()), _limit);
     auto block_per_scanner = (doris_scanner_row_num + (block_size - 1)) / block_size;
     auto pre_block_count =
-            std::min(_volap_scanners.size(), static_cast<size_t>(config::doris_scanner_thread_pool_thread_num)) * block_per_scanner;
+            std::min(_volap_scanners.size(),
+                     static_cast<size_t>(config::doris_scanner_thread_pool_thread_num)) *
+            block_per_scanner;
 
     for (int i = 0; i < pre_block_count; ++i) {
         auto block = new Block;
         for (const auto slot_desc : _tuple_desc->slots()) {
             auto column_ptr = slot_desc->get_empty_mutable_column();
             column_ptr->reserve(block_size);
-            block->insert(ColumnWithTypeAndName(std::move(column_ptr),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
+            block->insert(ColumnWithTypeAndName(
+                    std::move(column_ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
         }
         _free_blocks.emplace_back(block);
         _buffered_bytes += block->allocated_bytes();
@@ -219,7 +221,14 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(block);
         } else {
-            blocks.push_back(block);
+            if (!blocks.empty() && blocks.back()->rows() + block->rows() <= _runtime_state->batch_size()) {
+                MutableBlock(blocks.back()).merge(*block);
+                block->clear_column_data();
+                std::lock_guard<std::mutex> l(_free_blocks_lock);
+                _free_blocks.emplace_back(block);
+            } else {
+                blocks.push_back(block);
+            }
         }
         raw_rows_read = scanner->raw_rows_read();
     }
@@ -247,7 +256,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             _scan_blocks.insert(_scan_blocks.end(), blocks.begin(), blocks.end());
         }
         // If eos is true, we will process out of this lock block.
-        if (eos) { scanner->mark_to_need_to_close(); }
+        if (eos) {
+            scanner->mark_to_need_to_close();
+        }
         std::lock_guard<std::mutex> l(_volap_scanners_lock);
         _volap_scanners.push_front(scanner);
     }
@@ -301,43 +312,45 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     if (cond_ranges.empty()) {
         cond_ranges.emplace_back(new OlapScanRange());
     }
-
-    bool need_split = true;
-    // If we have ranges more than 64, there is no need to call
-    // ShowHint to split ranges
-    if (limit() != -1 || cond_ranges.size() > 64) {
-        need_split = false;
-    }
-
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
     std::unordered_set<std::string> disk_set;
     for (auto& scan_range : _scan_ranges) {
-        std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
-        std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
-        if (need_split) {
-            auto st = OlapScanNode::get_hints(*scan_range, config::doris_scan_range_row_count,
-                                              _scan_keys.begin_include(), _scan_keys.end_include(),
-                                              cond_ranges, &split_ranges, _runtime_profile.get());
-            if (st.ok()) {
-                ranges = &split_ranges;
-            }
+        auto tablet_id = scan_range->tablet_id;
+        int32_t schema_hash = strtoul(scan_range->schema_hash.c_str(), nullptr, 10);
+        std::string err;
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                tablet_id, schema_hash, true, &err);
+        if (tablet == nullptr) {
+            std::stringstream ss;
+            ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
+               << ", reason: " << err;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
         }
 
-        int ranges_per_scanner = std::max(1, (int)ranges->size() / scanners_per_tablet);
-        int num_ranges = ranges->size();
+        int size_based_scanners_per_tablet = 1;
+
+        if (config::doris_scan_range_max_mb > 0) {
+            size_based_scanners_per_tablet = std::max(
+                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+        }
+
+        int ranges_per_scanner =
+                std::max(1, (int)cond_ranges.size() /
+                                    std::min(scanners_per_tablet, size_based_scanners_per_tablet));
+        int num_ranges = cond_ranges.size();
         for (int i = 0; i < num_ranges;) {
             std::vector<OlapScanRange*> scanner_ranges;
-            scanner_ranges.push_back((*ranges)[i].get());
+            scanner_ranges.push_back(cond_ranges[i].get());
             ++i;
             for (int j = 1; i < num_ranges && j < ranges_per_scanner &&
-                            (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
+                            cond_ranges[i]->end_include == cond_ranges[i - 1]->end_include;
                  ++j, ++i) {
-                scanner_ranges.push_back((*ranges)[i].get());
+                scanner_ranges.push_back(cond_ranges[i].get());
             }
-            VOlapScanner* scanner =
-                    new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                     _need_agg_finalize, *scan_range);
+            VOlapScanner* scanner = new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
+                                                     _need_agg_finalize, *scan_range);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -383,7 +396,8 @@ Status VOlapScanNode::close(RuntimeState* state) {
     // clear some block in queue
     // TODO: The presence of transfer_thread here may cause Block's memory alloc and be released not in a thread,
     // which may lead to potential performance problems. we should rethink whether to delete the transfer thread
-    std::for_each(_materialized_blocks.begin(), _materialized_blocks.end(), std::default_delete<Block>());
+    std::for_each(_materialized_blocks.begin(), _materialized_blocks.end(),
+                  std::default_delete<Block>());
     std::for_each(_scan_blocks.begin(), _scan_blocks.end(), std::default_delete<Block>());
     std::for_each(_free_blocks.begin(), _free_blocks.end(), std::default_delete<Block>());
     _mem_tracker->Release(_buffered_bytes);
@@ -565,6 +579,5 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
 
     return assigned_thread_num;
 }
-
 
 } // namespace doris::vectorized

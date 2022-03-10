@@ -109,7 +109,7 @@ public:
 
     doris_udf::DoubleVal terminate(double quantile) const {
         if (_counts.empty()) {
-            return doris_udf::DoubleVal();
+            return doris_udf::DoubleVal::null();
         }
 
         std::vector<std::pair<int64_t, uint32_t>> elems(_counts.begin(), _counts.end());

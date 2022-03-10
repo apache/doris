@@ -46,7 +46,9 @@ set(RUNTIME_FILES
     runtime_state.cpp
     runtime_filter_mgr.cpp
     string_value.cpp
+    thread_context.cpp
     thread_resource_mgr.cpp
+    threadlocal.cc
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
@@ -57,7 +59,6 @@ set(RUNTIME_FILES
     qsorter.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
-    dpp_sink.cpp
     etl_job_mgr.cpp
     load_path_mgr.cpp
     types.cpp

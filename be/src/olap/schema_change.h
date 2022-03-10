@@ -201,11 +201,12 @@ public:
     OLAPStatus process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
 private:
-    // 检查schema_change相关的状态:清理"一对"schema_change table间的信息
-    // 由于A->B的A的schema_change信息会在后续处理过程中覆盖（这里就没有额外清除）
+
+    // Check the status of schema change and clear information between "a pair" of Schema change tables
+    // Since A->B's schema_change information for A will be overwritten in subsequent processing (no extra cleanup here)
     // Returns:
-    //  成功：如果存在历史信息，没有问题的就清空；或者没有历史信息
-    //  失败：否则如果有历史信息且无法清空的（有version还没有完成）
+    //  Success: If there is historical information, then clear it if there is no problem; or no historical information
+    //  Failure: otherwise, if there is history information and it cannot be emptied (version has not been completed)
     OLAPStatus _check_and_clear_schema_change_info(TabletSharedPtr tablet,
                                                    const TAlterTabletReq& request);
 
@@ -239,7 +240,7 @@ private:
             const std::unordered_map<std::string, AlterMaterializedViewParam>&
                     materialized_function_map);
 
-    // 需要新建default_value时的初始化设置
+    // Initialization Settings for creating a default value
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,
                                            const TabletColumn& column_schema,
                                            const std::string& value);

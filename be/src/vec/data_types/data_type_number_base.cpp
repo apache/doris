@@ -23,6 +23,7 @@
 #include <type_traits>
 
 #include "gen_cpp/data.pb.h"
+#include "gutil/strings/numbers.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -40,6 +41,16 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
                 assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
                         .get_data()[row_num]);
         ostr.write(hex.data(), hex.size());
+    } else if constexpr (std::is_same_v<T, float>) {
+        // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
+        char buf[MAX_FLOAT_STR_LENGTH + 2];
+
+        int len = FloatToBuffer(
+                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
+                        .get_data()[row_num],
+                MAX_FLOAT_STR_LENGTH + 2, buf);
+
+        ostr.write(buf, len);
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
         ostr.write_number(
                 assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
@@ -79,8 +90,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf) const {
     buf += sizeof(uint32_t);
     // column data
     auto ptr = column.convert_to_full_column_if_const();
-    const auto* origin_data =
-            assert_cast<const ColumnVector<T>&>(*ptr.get()).get_data().data();
+    const auto* origin_data = assert_cast<const ColumnVector<T>&>(*ptr.get()).get_data().data();
     memcpy(buf, origin_data, column_num * sizeof(FieldType));
     buf += column_num * sizeof(FieldType);
 

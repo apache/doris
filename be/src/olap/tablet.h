@@ -115,11 +115,16 @@ public:
     /// need to delete flag.
     void delete_expired_stale_rowset();
 
+    // Given spec_version, find a continuous version path and store it in version_path.
+    // If quiet is true, then only "does this path exist" is returned.
     OLAPStatus capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path) const;
-    OLAPStatus check_version_integrity(const Version& version);
+                                           std::vector<Version>* version_path,
+                                           bool quiet = false) const;
+    // if quiet is true, no error log will be printed if there are missing versions
+    OLAPStatus check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
-    void acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
+    void acquire_version_and_rowsets(
+            std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const;
@@ -259,6 +264,8 @@ public:
     std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy() {
         return _cumulative_compaction_policy;
     }
+
+    inline bool all_beta() const { return _tablet_meta->all_beta(); }
 
 private:
     OLAPStatus _init_once_action();
