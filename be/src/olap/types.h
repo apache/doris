@@ -44,6 +44,8 @@
 namespace doris {
 class TabletColumn;
 
+extern bool is_olap_string_type(FieldType field_type);
+
 class TypeInfo {
 public:
     virtual ~TypeInfo() = default;
@@ -254,6 +256,11 @@ public:
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
+        if (src_value->length() == 0) {
+            new (dest_value) CollectionValue(src_value->length());
+            return;
+        }
+
         dest_value->set_length(src_value->length());
 
         size_t item_size = src_value->length() * _item_size;
@@ -284,20 +291,49 @@ public:
 
     inline void direct_copy(void* dest, const void* src) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        // NOTICE: The address pointed by null_signs of the dest_value can NOT be modified here.
+        auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_null_signs());
+        direct_copy(&base, dest, src);
+    }
+
+    inline void direct_copy(uint8_t** base, void* dest, const void* src) const {
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
+
+        auto nulls_size = src_value->has_null() ? src_value->length() : 0;
+        dest_value->set_data(src_value->length() ? (*base + nulls_size) : nullptr);
         dest_value->set_length(src_value->length());
         dest_value->set_has_null(src_value->has_null());
         if (src_value->has_null()) {
             // direct copy null_signs
+            dest_value->set_null_signs(reinterpret_cast<bool*>(*base));
             memory_copy(dest_value->mutable_null_signs(), src_value->null_signs(),
                         src_value->length());
         }
 
-        // direct opy item
-        for (uint32_t i = 0; i < src_value->length(); ++i) {
-            if (dest_value->is_null_at(i)) continue;
-            _item_type_info->direct_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
-                                         (uint8_t*)(src_value->data()) + i * _item_size);
+        *base += nulls_size + src_value->length() * _item_type_info->size();
+        // direct copy item
+        if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
+            for (uint32_t i = 0; i < src_value->length(); ++i) {
+                if (dest_value->is_null_at(i)) continue;
+                dynamic_cast<const ArrayTypeInfo*>(_item_type_info.get())
+                        ->direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
+                                      (uint8_t*)(src_value->data()) + i * _item_size);
+            }
+        } else {
+            for (uint32_t i = 0; i < src_value->length(); ++i) {
+                if (dest_value->is_null_at(i)) continue;
+                auto dest_address = (uint8_t*)(dest_value->mutable_data()) + i * _item_size;
+                auto src_address = (uint8_t*)(src_value->data()) + i * _item_size;
+                if (is_olap_string_type(_item_type_info->type())) {
+                    auto dest_slice = reinterpret_cast<Slice*>(dest_address);
+                    auto src_slice = reinterpret_cast<const Slice*>(src_address);
+                    dest_slice->data = reinterpret_cast<char*>(*base);
+                    dest_slice->size = src_slice->size;
+                    *base += src_slice->size;
+                }
+                _item_type_info->direct_copy(dest_address, src_address);
+            }
         }
     }
 
@@ -1075,8 +1111,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         case OLAP_FIELD_TYPE_DOUBLE:
         case OLAP_FIELD_TYPE_DECIMAL: {
             auto result = src_type->to_string(src);
-            if (result.size() > variable_len)
-                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            if (result.size() > variable_len) return OLAP_ERR_INPUT_PARAMETER_ERROR;
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
