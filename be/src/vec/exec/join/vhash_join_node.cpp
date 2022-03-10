@@ -65,12 +65,12 @@ struct ProcessHashTableBuild {
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
         }};
 
-        KeyGetter key_getter(_build_raw_ptrs, *_join_node->_shared_hash_table_ctx._build_key_sz, nullptr);
+        KeyGetter key_getter(_build_raw_ptrs, _join_node->_shared_hash_table_ctx._shared_structure->_build_key_sz, nullptr);
 
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
         hash_table_ctx.hash_table.reset_resize_timer();
 
-        vector<int>& inserted_rows = (*_join_node->_shared_hash_table_ctx._inserted_rows)[&_acquired_block];
+        vector<int>& inserted_rows = _join_node->_shared_hash_table_ctx._shared_structure->_inserted_rows[&_acquired_block];
         if (has_runtime_filter) {
             inserted_rows.reserve(_batch_size);
         }
@@ -83,9 +83,9 @@ struct ProcessHashTableBuild {
             }
 
             auto emplace_result =
-                    key_getter.emplace_key(hash_table_ctx.hash_table, k, *_join_node->_shared_hash_table_ctx._arena);
+                    key_getter.emplace_key(hash_table_ctx.hash_table, k, _join_node->_shared_hash_table_ctx._shared_structure->_arena);
             if (k + 1 < _rows) {
-                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, *_join_node->_shared_hash_table_ctx._arena);
+                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, _join_node->_shared_hash_table_ctx._shared_structure->_arena);
             }
 
             if (emplace_result.is_inserted()) {
@@ -96,7 +96,7 @@ struct ProcessHashTableBuild {
             } else {
                 if constexpr (!build_unique) {
                     /// The first element of the list is stored in the value of the hash table, the rest in the pool.
-                    emplace_result.get_mapped().insert({k, _offset}, *_join_node->_shared_hash_table_ctx._arena);
+                    emplace_result.get_mapped().insert({k, _offset}, _join_node->_shared_hash_table_ctx._shared_structure->_arena);
                     if (has_runtime_filter) {
                         inserted_rows.push_back(k);
                     }
@@ -136,10 +136,10 @@ struct ProcessRuntimeFilterBuild {
 
         RETURN_IF_ERROR(runtime_filter_slots->init(state, hash_table_ctx.hash_table.get_size()));
 
-        if (!runtime_filter_slots->empty() && !_join_node->_shared_hash_table_ctx._inserted_rows->empty()) {
+        if (!runtime_filter_slots->empty() && !_join_node->_shared_hash_table_ctx._shared_structure->_inserted_rows.empty()) {
             {
                 SCOPED_TIMER(_join_node->_push_compute_timer);
-                runtime_filter_slots->insert(*_join_node->_shared_hash_table_ctx._inserted_rows);
+                runtime_filter_slots->insert(_join_node->_shared_hash_table_ctx._shared_structure->_inserted_rows);
             }
         }
         {
@@ -160,7 +160,7 @@ struct ProcessHashTableProbe {
             : _join_node(join_node),
               _batch_size(batch_size),
               _probe_rows(probe_rows),
-              _build_blocks(*join_node->_shared_hash_table_ctx._build_blocks),
+              _build_blocks(join_node->_shared_hash_table_ctx._shared_structure->_build_blocks),
               _probe_block(join_node->_probe_block),
               _probe_index(join_node->_probe_index),
               _probe_raw_ptrs(join_node->_probe_columns),
@@ -245,7 +245,7 @@ struct ProcessHashTableProbe {
                 _join_node->_left_table_data_types.size();
         int right_col_len = _join_node->_right_table_data_types.size();
 
-        KeyGetter key_getter(_probe_raw_ptrs, *_join_node->_shared_hash_table_ctx._probe_key_sz, nullptr);
+        KeyGetter key_getter(_probe_raw_ptrs, _join_node->_shared_hash_table_ctx._shared_structure->_probe_key_sz, nullptr);
         auto& mcol = mutable_block.mutable_columns();
         int current_offset = 0;
 
@@ -363,7 +363,7 @@ struct ProcessHashTableProbe {
                                                MutableBlock& mutable_block, Block* output_block) {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
-        KeyGetter key_getter(_probe_raw_ptrs, *_join_node->_shared_hash_table_ctx._probe_key_sz, nullptr);
+        KeyGetter key_getter(_probe_raw_ptrs, _join_node->_shared_hash_table_ctx._shared_structure->_probe_key_sz, nullptr);
 
         int right_col_idx = _join_node->_left_table_data_types.size();
         int right_col_len = _join_node->_right_table_data_types.size();
@@ -800,16 +800,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _left_table_data_types = VectorizedUtils::get_data_types(child(0)->row_desc());
 
     // Hash Table Init
-    if (!_shared_hash_table_ctx._use_shared_hash_table) {
-        _hash_table_init();
-    } else {
-        RETURN_IF_ERROR(state->exec_env()->fragment_mgr()->get_shared_hash_table_callback(
-                                            state->query_id(), _shared_hash_table_ctx._shared_hash_table_id,
-                                            &_shared_hash_table_ctx._hash_table_operator, &_shared_hash_table_ctx._hash_table_barrier));
-        if (_shared_hash_table_ctx._is_leader) {
-            _hash_table_init();
-        }
-    }
+    RETURN_IF_ERROR(_hash_table_init(state));
 
     _build_block_offsets.resize(state->batch_size());
     _build_block_rows.resize(state->batch_size());
@@ -880,7 +871,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                         }
                         __builtin_unreachable();
                     },
-                    *_shared_hash_table_ctx._hash_table_variants);
+                    _shared_hash_table_ctx._shared_structure->_hash_table_variants);
 
             RETURN_IF_ERROR(st);
         }
@@ -920,7 +911,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                         LOG(FATAL) << "FATAL: uninited hash table";
                     }
                 }
-            }, *_shared_hash_table_ctx._hash_table_variants,
+            }, _shared_hash_table_ctx._shared_structure->_hash_table_variants,
                _join_op_variants,
                 make_bool_variant(_have_other_join_conjunct),
                 make_bool_variant(_probe_ignore_null));
@@ -941,7 +932,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                             LOG(FATAL) << "FATAL: uninited hash table";
                         }
                     },
-                    *_shared_hash_table_ctx._hash_table_variants,
+                    _shared_hash_table_ctx._shared_structure->_hash_table_variants,
                     _join_op_variants);
         } else {
             *eos = true;
@@ -970,21 +961,8 @@ Status HashJoinNode::open(RuntimeState* state) {
     if (_vother_join_conjunct_ptr) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
-    if (!_shared_hash_table_ctx._use_shared_hash_table) {
-        RETURN_IF_ERROR(_hash_table_build(state));
-    } else {
-        if (_shared_hash_table_ctx._is_leader) {
-            RETURN_IF_ERROR(_hash_table_build(state));
-            LOG(INFO) << "HashJoinNode::open: leader have build hash table";
-            _shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx);
-        } else {
-            // wait for leader build shared hash table.
-            while (!_shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx)) {
-                RETURN_IF_CANCELLED(state);
-            }
-            LOG(INFO) << "HashJoinNode::open: follow get hash table";
-        }
-    }
+
+    RETURN_IF_ERROR(_hash_table_build(state));
     RETURN_IF_ERROR(_runtime_filter_build(state));
     RETURN_IF_ERROR(child(0)->open(state));
 
@@ -992,6 +970,15 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
+    // follower waits for leader to build shared hash table.
+    if (_shared_hash_table_ctx._use_shared_hash_table && !_shared_hash_table_ctx._is_leader) {
+        while (!_shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx._is_leader, _shared_hash_table_ctx._shared_structure)) {
+            RETURN_IF_CANCELLED(state);
+        }
+        LOG(INFO) << "HashJoinNode::open: follow get hash table";
+        return Status::OK();
+    }
+
     RETURN_IF_ERROR(child(1)->open(state));
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Hash join, while constructing the hash table.");
     SCOPED_TIMER(_build_timer);
@@ -1015,10 +1002,11 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         // make one block for each 4 gigabytes
         constexpr static auto BUILD_BLOCK_MAX_SIZE =  4 * 1024UL * 1024UL * 1024UL;
         if (_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE) {
-            _shared_hash_table_ctx._build_blocks->emplace_back(mutable_block.to_block());
+            _shared_hash_table_ctx._shared_structure->_build_blocks.emplace_back(mutable_block.to_block());
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
-            RETURN_IF_ERROR(_process_build_block(state, (*_shared_hash_table_ctx._build_blocks)[index], index));
+            RETURN_IF_ERROR(_process_build_block(state, _shared_hash_table_ctx._shared_structure->_build_blocks[index], index));
+            RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
             mutable_block = MutableBlock();
             ++index;
@@ -1026,8 +1014,14 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         }
     }
 
-    _shared_hash_table_ctx._build_blocks->emplace_back(mutable_block.to_block());
-    RETURN_IF_ERROR(_process_build_block(state, (*_shared_hash_table_ctx._build_blocks)[index], index));
+    _shared_hash_table_ctx._shared_structure->_build_blocks.emplace_back(mutable_block.to_block());
+    RETURN_IF_ERROR(_process_build_block(state, _shared_hash_table_ctx._shared_structure->_build_blocks[index], index));
+
+    // Leader set shared hash table.
+    if (_shared_hash_table_ctx._use_shared_hash_table && _shared_hash_table_ctx._is_leader) {
+        LOG(INFO) << "HashJoinNode::open: leader have build hash table";
+        _shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx._is_leader, _shared_hash_table_ctx._shared_structure);
+    }
     return Status::OK();
 }
 
@@ -1042,7 +1036,7 @@ Status HashJoinNode::_runtime_filter_build(RuntimeState* state) {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
             },
-            *_shared_hash_table_ctx._hash_table_variants);
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants);
 }
 
 // TODO:: unify the code of extract probe join column
@@ -1156,7 +1150,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                 }
                 __builtin_unreachable();
             },
-            *_shared_hash_table_ctx._hash_table_variants);
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants);
 
     bool has_runtime_filter = !_runtime_filter_descs.empty();
 
@@ -1181,54 +1175,58 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
             },
-            *_shared_hash_table_ctx._hash_table_variants);
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants);
 
     return st;
 }
 
-void HashJoinNode::_hash_table_init() {
-    _shared_hash_table_ctx._hash_table_variants.reset(new HashTableVariants);
-    _shared_hash_table_ctx._build_blocks.reset(new std::vector<Block>);
-    _shared_hash_table_ctx._inserted_rows.reset(new std::unordered_map<const Block*, std::vector<int>>);
-    _shared_hash_table_ctx._arena.reset(new Arena);
-    _shared_hash_table_ctx._probe_key_sz.reset(new Sizes);
-    _shared_hash_table_ctx._build_key_sz.reset(new Sizes);
+Status HashJoinNode::_hash_table_init(RuntimeState* state) {
+    if (_shared_hash_table_ctx._use_shared_hash_table) {
+        RETURN_IF_ERROR(state->exec_env()->fragment_mgr()->get_shared_hash_table_callback(
+                                            state->query_id(), _shared_hash_table_ctx._shared_hash_table_id,
+                                            &_shared_hash_table_ctx._hash_table_operator, &_shared_hash_table_ctx._hash_table_barrier));
+        // follower not need initialize hash table.
+        if (!_shared_hash_table_ctx._is_leader) {
+            return Status::OK();
+        }
+    }
+    _shared_hash_table_ctx._shared_structure.reset(new SharedStructure);
     if (_build_expr_ctxs.size() == 1 && !_build_not_ignore_null[0]) {
         // Single column optimization
         switch (_build_expr_ctxs[0]->root()->result_type()) {
         case TYPE_BOOLEAN:
         case TYPE_TINYINT:
-            _shared_hash_table_ctx._hash_table_variants->emplace<I8HashTableContext>();
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I8HashTableContext>();
             break;
         case TYPE_SMALLINT:
-            _shared_hash_table_ctx._hash_table_variants->emplace<I16HashTableContext>();
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I16HashTableContext>();
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
-            _shared_hash_table_ctx._hash_table_variants->emplace<I32HashTableContext>();
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I32HashTableContext>();
             break;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATETIME:
         case TYPE_DATE:
-            _shared_hash_table_ctx._hash_table_variants->emplace<I64HashTableContext>();
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I64HashTableContext>();
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
-            _shared_hash_table_ctx._hash_table_variants->emplace<I128HashTableContext>();
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I128HashTableContext>();
             break;
         default:
-            _shared_hash_table_ctx._hash_table_variants->emplace<SerializedHashTableContext>();
+            _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<SerializedHashTableContext>();
         }
-        return;
+        return Status::OK();
     }
 
     bool use_fixed_key = true;
     bool has_null = false;
     int key_byte_size = 0;
 
-    _shared_hash_table_ctx._probe_key_sz->resize(_probe_expr_ctxs.size());
-    _shared_hash_table_ctx._build_key_sz->resize(_build_expr_ctxs.size());
+    _shared_hash_table_ctx._shared_structure->_probe_key_sz.resize(_probe_expr_ctxs.size());
+    _shared_hash_table_ctx._shared_structure->_build_key_sz.resize(_build_expr_ctxs.size());
 
     for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
         const auto vexpr = _build_expr_ctxs[i]->root();
@@ -1241,9 +1239,9 @@ void HashJoinNode::_hash_table_init() {
 
         auto is_null = data_type->is_nullable();
         has_null |= is_null;
-        (*_shared_hash_table_ctx._build_key_sz)[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-        (*_shared_hash_table_ctx._probe_key_sz)[i] = (*_shared_hash_table_ctx._build_key_sz)[i];
-        key_byte_size += (*_shared_hash_table_ctx._probe_key_sz)[i];
+        _shared_hash_table_ctx._shared_structure->_build_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
+        _shared_hash_table_ctx._shared_structure->_probe_key_sz[i] = _shared_hash_table_ctx._shared_structure->_build_key_sz[i];
+        key_byte_size += _shared_hash_table_ctx._shared_structure->_probe_key_sz[i];
     }
 
     if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
@@ -1254,25 +1252,26 @@ void HashJoinNode::_hash_table_init() {
         // TODO: may we should support uint256 in the future
         if (has_null) {
             if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                _shared_hash_table_ctx._hash_table_variants->emplace<I64FixedKeyHashTableContext<true>>();
+                _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I64FixedKeyHashTableContext<true>>();
             } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                        sizeof(UInt128)) {
-                _shared_hash_table_ctx._hash_table_variants->emplace<I128FixedKeyHashTableContext<true>>();
+                _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I128FixedKeyHashTableContext<true>>();
             } else {
-                _shared_hash_table_ctx._hash_table_variants->emplace<I256FixedKeyHashTableContext<true>>();
+                _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I256FixedKeyHashTableContext<true>>();
             }
         } else {
             if (key_byte_size <= sizeof(UInt64)) {
-                _shared_hash_table_ctx._hash_table_variants->emplace<I64FixedKeyHashTableContext<false>>();
+                _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I64FixedKeyHashTableContext<false>>();
             } else if (key_byte_size <= sizeof(UInt128)) {
-                _shared_hash_table_ctx._hash_table_variants->emplace<I128FixedKeyHashTableContext<false>>();
+                _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I128FixedKeyHashTableContext<false>>();
             } else {
-                _shared_hash_table_ctx._hash_table_variants->emplace<I256FixedKeyHashTableContext<false>>();
+                _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<I256FixedKeyHashTableContext<false>>();
             }
         }
     } else {
-        _shared_hash_table_ctx._hash_table_variants->emplace<SerializedHashTableContext>();
+        _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<SerializedHashTableContext>();
     }
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

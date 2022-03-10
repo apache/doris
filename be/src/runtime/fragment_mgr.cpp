@@ -890,7 +890,7 @@ Status FragmentMgr::get_shared_hash_table_callback(const TUniqueId& query_id,
     RETURN_IF_ERROR(_shared_hash_table_controller.acquire(query_id, &shared_hash_table_entity));
     SharedHashTableVal* shared_hash_table_val = nullptr;
     RETURN_IF_ERROR(shared_hash_table_entity->find_hash_table_val(shared_hash_table_id, shared_hash_table_val));
-    RETURN_IF_ERROR(shared_hash_table_val->get_callback(hash_table_operator, hash_table_releaser));
+    shared_hash_table_val->get_callback(hash_table_operator, hash_table_releaser);
     return Status::OK();
 }
 

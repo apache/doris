@@ -142,9 +142,19 @@ using JoinOpVariants = std::variant<std::integral_constant<TJoinOp::type, TJoinO
 
 class VExprContext;
 class SharedHashTableContext;
+struct SharedStructure;
 
-using shared_hash_table_operator = std::function<bool(SharedHashTableContext&)>;
+using shared_hash_table_operator = std::function<bool(bool, std::shared_ptr<vectorized::SharedStructure>&)>;
 using shared_hash_table_barrier = std::function<bool()>;
+
+struct SharedStructure {
+    HashTableVariants _hash_table_variants;
+    std::vector<Block> _build_blocks;
+    std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
+    Arena _arena;
+    Sizes _probe_key_sz;
+    Sizes _build_key_sz;
+};
 
 class SharedHashTableContext {
 public:
@@ -157,12 +167,7 @@ public:
     shared_hash_table_operator _hash_table_operator;
     shared_hash_table_barrier _hash_table_barrier;
 
-    std::shared_ptr<HashTableVariants> _hash_table_variants;
-    std::shared_ptr<std::vector<Block>> _build_blocks;
-    std::shared_ptr<std::unordered_map<const Block*, std::vector<int>>> _inserted_rows;
-    std::shared_ptr<Arena> _arena;
-    std::shared_ptr<Sizes> _probe_key_sz;
-    std::shared_ptr<Sizes> _build_key_sz;
+    std::shared_ptr<SharedStructure> _shared_structure;
 };
 
 class HashJoinNode : public ::doris::ExecNode {
@@ -176,7 +181,6 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     virtual Status close(RuntimeState* state) override;
-    std::shared_ptr<HashTableVariants>& get_hash_table_variants() { return _shared_hash_table_ctx._hash_table_variants; }
     void init_join_op();
 
 private:
@@ -263,7 +267,7 @@ private:
     Status extract_probe_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
                                      bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);
 
-    void _hash_table_init();
+    Status _hash_table_init(RuntimeState* state);
 
     template <class HashTableContext, bool ignore_null, bool build_unique>
     friend struct ProcessHashTableBuild;
