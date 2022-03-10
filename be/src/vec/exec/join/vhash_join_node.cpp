@@ -601,6 +601,11 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _is_outer_join(_match_all_build || _match_all_probe) {
     _runtime_filter_descs = tnode.runtime_filters;
     init_join_op();
+
+    // avoid vector expand change block address.
+    // one block can store 4g data, _build_blocks can store 128*4g data.
+    // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
+    _build_blocks.reserve(128);
 }
 
 HashJoinNode::~HashJoinNode() = default;
