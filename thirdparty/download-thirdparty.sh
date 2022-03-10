@@ -302,3 +302,28 @@ if [ $ROCKSDB_SOURCE == "rocksdb-5.14.2" ]; then
     cd -
 fi
 echo "Finished patching $ROCKSDB_SOURCE"
+
+# patch librdkafka to avoid crash
+if [ $LIBRDKAFKA_SOURCE = "librdkafka-1.8.2" ]; then
+    cd $TP_SOURCE_DIR/$LIBRDKAFKA_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p0 < $TP_PATCH_DIR/librdkafka-1.8.2.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+fi
+echo "Finished patching $LIBRDKAFKA_SOURCE"
+
+cd $TP_SOURCE_DIR/$AWS_SDK_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    if [ $AWS_SDK_SOURCE == "aws-sdk-cpp-1.9.211" ]; then
+         curl -L https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz | tar -zx 
+    else
+        bash ./prefetch_crt_dependency.sh
+    fi
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $AWS_SDK_SOURCE"
+
+
