@@ -48,8 +48,9 @@ public:
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void insert(const Tuple* tuple);
+    //insert tuple from (row_pos) to (row_pos+num_rows)
     void insert(const vectorized::Block* block, size_t row_pos, size_t& num_rows);
-    void insert(const vectorized::Block* block, const size_t row_pos, const size_t num_rows);//insert tuple from (row_pos) to (row_pos+num_rows)
+    
     /// Flush
     OLAPStatus flush();
     OLAPStatus close();

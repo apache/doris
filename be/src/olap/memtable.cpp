@@ -77,7 +77,7 @@ int MemTable::VecRowComparator::operator()(const RowInBlock left, const RowInBlo
            //nan_direction_hint == -1, NaN and NULLs are considered as least than everything other;
 }
 
-void MemTable::insert(const vectorized::Block* block, const size_t row_pos, const size_t num_rows)
+void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num_rows)
 {
     if (_mutableBlock.columns() == 0)
     {
@@ -85,12 +85,8 @@ void MemTable::insert(const vectorized::Block* block, const size_t row_pos, cons
         _mutableBlock = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
     }
     size_t cursor_in_mutableblock = _mutableBlock.rows();
-    _mutableBlock.add_rows(block, row_pos, num_rows);
-    for(int i = 0; i < num_rows; i++){
-
-
-
-        
+    _mutableBlock.add_rows(block, row_pos, row_pos + num_rows);
+    for(int i = 0; i < num_rows; i++){       
         insert_one_row_from_block(RowInBlock(&_mutableBlock, cursor_in_mutableblock + i));
     }   
 }
@@ -150,9 +146,6 @@ void MemTable::insert(const Tuple* tuple) {
     _agg_buffer_pool.clear();
 }
 
-void  MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t& num_rows) {
-    // TODO:
-}
 void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
     for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row->cell(i);
