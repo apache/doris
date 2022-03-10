@@ -800,6 +800,7 @@ public class DatabaseTransactionMgr {
         // while just ignore tables which have been dropped forcefully.
         // case 3 Database exist and all tables already been dropped, this case is same with case1, just abort the transaction
         // only three cases mentioned above may happen, because user cannot drop table without force while there are committed transactions on table
+        // and writeLockTablesIfExist is a blocking function, the returned result would be the existed table list which hold write lock
         Database db = catalog.getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
         List<Table> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
