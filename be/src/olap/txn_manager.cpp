@@ -357,7 +357,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                                   SchemaHash schema_hash, TabletUid tablet_uid) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
-    WriteLock txn_wlock(_get_txn_map_lock(transaction_id));
+    WriteLock txn_wrlock(_get_txn_map_lock(transaction_id));
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
     auto it = txn_tablet_map.find(key);
     if (it == txn_tablet_map.end()) {

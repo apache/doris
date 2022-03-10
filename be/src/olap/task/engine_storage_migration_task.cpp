@@ -42,7 +42,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
 
     // try hold migration lock first
     OLAPStatus res = OLAP_SUCCESS;
-    WriteLock migration_wlock(_tablet->get_migration_lock(), std::try_to_lock);
+    UniqueWriteLock migration_wlock(_tablet->get_migration_lock(), std::try_to_lock);
     if (!migration_wlock.owns_lock()) {
         return OLAP_ERR_RWLOCK_ERROR;
     }

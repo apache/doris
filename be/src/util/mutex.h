@@ -24,7 +24,8 @@
 namespace doris {
 
 using ReadLock = std::shared_lock<std::shared_mutex>;
-using WriteLock = std::unique_lock<std::shared_mutex>;
+using WriteLock = std::lock_guard<std::shared_mutex>;
+using UniqueWriteLock = std::unique_lock<std::shared_mutex>;
 
 #define TRY_LOCK true
 
