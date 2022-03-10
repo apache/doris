@@ -45,7 +45,7 @@ struct AggregateFunctionBitmapIntersectOp {
     static constexpr auto name = "bitmap_intersect";
 
     static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) {
-        if (is_first) {
+        if (UNLIKELY(is_first)) {
             res = data;
             is_first = false;
         } else {
