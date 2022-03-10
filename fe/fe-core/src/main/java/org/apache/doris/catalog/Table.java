@@ -169,10 +169,11 @@ public class Table extends MetaObject implements Writable {
     }
 
     public boolean writeLockIfExist() {
+        this.rwLock.writeLock().lock();
         if (!isDropped) {
-            this.rwLock.writeLock().lock();
             return true;
         }
+        this.rwLock.writeLock().unlock();
         return false;
     }
 
