@@ -793,19 +793,7 @@ public class DatabaseTransactionMgr {
             errorReplicaIds.addAll(originalErrorReplicas);
         }
 
-        Database db = catalog.getDbNullable(transactionState.getDbId());
-        if (db == null) {
-            writeLock();
-            try {
-                transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-                transactionState.setReason("db is dropped");
-                LOG.warn("db is dropped during transaction, abort transaction {}", transactionState);
-                unprotectUpsertTransactionState(transactionState, false);
-                return;
-            } finally {
-                writeUnlock();
-            }
-        }
+        Database db = catalog.getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
@@ -1650,11 +1638,18 @@ public class DatabaseTransactionMgr {
     }
 
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
+        boolean shouldAddTableListLock  = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED ||
+                transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
+        Database db = catalog.getDbOrMetaException(transactionState.getDbId());
+        List<Table> tableList = null;
+        if (shouldAddTableListLock) {
+            tableList = db.getTablesOnIdOrderOrThrowException(transactionState.getTableIdList());
+            MetaLockUtils.writeLockTables(tableList);
+        }
         writeLock();
         try {
             // set transaction status will call txn state change listener
             transactionState.replaySetTransactionStatus();
-            Database db = catalog.getDbOrMetaException(transactionState.getDbId());
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 LOG.info("replay a committed transaction {}", transactionState);
                 updateCatalogAfterCommitted(transactionState, db);
@@ -1665,6 +1660,9 @@ public class DatabaseTransactionMgr {
             unprotectUpsertTransactionState(transactionState, true);
         } finally {
             writeUnlock();
+            if (shouldAddTableListLock) {
+                MetaLockUtils.writeUnlockTables(tableList);
+            }
         }
     }
 
