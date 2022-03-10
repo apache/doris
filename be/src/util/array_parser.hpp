@@ -92,7 +92,7 @@ private:
             } else if (!_is_type_valid<Encoding>(it, item_type)) {
                 return Status::RuntimeError("Failed to parse the json to array.");
             }
-            AnyVal* val;
+            AnyVal* val = nullptr;
             Status status = _parse<Encoding>(&val, context, it, child_type_desc);
             if (!status.ok()) {
                 return status;
