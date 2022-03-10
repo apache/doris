@@ -149,6 +149,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
         DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
+        // This means the chunk's memory ownership is transferred from ChunkAllocator to MemPool.
         if (tracker) _mem_tracker->release_cache(size);
         return Status::OK();
     }
@@ -162,6 +163,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
+                // This means the chunk's memory ownership is transferred from ChunkAllocator to MemPool.
                 if (tracker) _mem_tracker->release_cache(size);
                 return Status::OK();
             }
@@ -184,7 +186,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
     return Status::OK();
 }
 
-void ChunkAllocator::free(Chunk& chunk, MemTracker* tracker) {
+void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
     if (chunk.core_id == -1) {
         return;
     }

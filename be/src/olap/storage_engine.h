@@ -326,11 +326,17 @@ private:
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
+    // Count the memory consumption of all Base and Cumulative tasks.
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    // Count the memory consumption of all Segment read.
     std::shared_ptr<MemTracker> _tablet_mem_tracker;
+    // Count the memory consumption of all SchemaChange tasks.
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
+    // Count the memory consumption of all EngineCloneTask.
     std::shared_ptr<MemTracker> _clone_mem_tracker;
+    // Count the memory consumption of all EngineBatchLoadTask.
     std::shared_ptr<MemTracker> _batch_load_mem_tracker;
+    // Count the memory consumption of all EngineChecksumTask.
     std::shared_ptr<MemTracker> _consistency_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;

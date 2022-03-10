@@ -91,7 +91,7 @@ class MemPool {
 public:
     // 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
     MemPool(MemTracker* mem_tracker);
-    MemPool(std::string label);
+    MemPool(const std::string& label);
     MemPool();
 
     /// Frees all chunks of memory and subtracts the total allocated bytes
@@ -208,7 +208,7 @@ private:
         return chunks_[current_chunk_idx_].allocated_bytes;
     }
 
-    uint8_t * allocate_from_current_chunk(int64_t size, int alignment) {
+    uint8_t* allocate_from_current_chunk(int64_t size, int alignment) {
         // Manually ASAN poisoning is complicated and it is hard to make
         // it work right. There are illustrated examples in
         // http://blog.hostilefork.com/poison-memory-without-asan/.
@@ -249,7 +249,7 @@ private:
             uint8_t* result = allocate_from_current_chunk(size, alignment);
             if (result != nullptr) {
                 return result;
-	        }
+            }
         }
 
         // If we couldn't allocate a new chunk, return nullptr. malloc() guarantees alignment
@@ -258,7 +258,8 @@ private:
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
         if (rst == nullptr) {
-            if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST))) return nullptr;
+            if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST)))
+                return nullptr;
         } else {
             *rst = find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST);
             if (UNLIKELY(!*rst)) return nullptr;

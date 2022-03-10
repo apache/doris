@@ -184,6 +184,7 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
+        // TODO(zxy) There may be a problem here, pay attention later
         // When the batch queue reaches the upper limit of memory, calling run to let
         // brpc send data packets may cause additional memory to be released
         closure_pair.first->Run();

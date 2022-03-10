@@ -72,7 +72,7 @@ public:
                           bool check_limits = false);
 
     // Free chunk allocated from this allocator
-    void free(Chunk& chunk, MemTracker* tracker = nullptr);
+    void free(const Chunk& chunk, MemTracker* tracker = nullptr);
 
 private:
     static ChunkAllocator* _s_instance;

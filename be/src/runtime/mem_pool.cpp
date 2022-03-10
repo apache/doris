@@ -45,7 +45,7 @@ MemPool::MemPool(MemTracker* mem_tracker)
           peak_allocated_bytes_(0),
           _mem_tracker(mem_tracker) {}
 
-MemPool::MemPool(std::string label)
+MemPool::MemPool(const std::string& label)
         : current_chunk_idx_(-1),
           next_chunk_size_(INITIAL_CHUNK_SIZE),
           total_allocated_bytes_(0),
@@ -134,7 +134,8 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits) {
 
     // Allocate a new chunk. Return early if allocate fails.
     Chunk chunk;
-    RETURN_IF_ERROR(ChunkAllocator::instance()->allocate(chunk_size, &chunk, _mem_tracker, check_limits));
+    RETURN_IF_ERROR(
+            ChunkAllocator::instance()->allocate(chunk_size, &chunk, _mem_tracker, check_limits));
     ASAN_POISON_MEMORY_REGION(chunk.data, chunk_size);
     // Put it before the first free chunk. If no free chunks, it goes at the end.
     if (first_free_idx == static_cast<int>(chunks_.size())) {

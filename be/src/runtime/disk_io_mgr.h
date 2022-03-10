@@ -657,10 +657,6 @@ public:
     // Returns the number of buffers currently owned by all readers.
     int num_buffers_in_readers() const { return _num_buffers_in_readers; }
 
-    std::shared_ptr<MemTracker> cached_buffers_mem_tracker() const {
-        return _cached_buffers_mem_tracker;
-    }
-
     // Dumps the disk IoMgr queues (for readers and disks)
     std::string debug_string();
 
@@ -696,8 +692,6 @@ private:
     ObjectPool _pool;
 
     std::shared_ptr<MemTracker> _mem_tracker;
-    // account for io buffers.
-    std::shared_ptr<MemTracker> _cached_buffers_mem_tracker;
 
     // Number of worker(read) threads per disk. Also the max depth of queued
     // work to the disk.

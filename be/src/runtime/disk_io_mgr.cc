@@ -365,10 +365,10 @@ DiskIoMgr::~DiskIoMgr() {
 
 Status DiskIoMgr::init(const int64_t mem_limit) {
     _mem_tracker->set_limit(mem_limit);
-    _cached_buffers_mem_tracker = MemTracker::create_tracker(
-            mem_limit, "DiskIO:CachedBuffers", _mem_tracker, MemTrackerLevel::OVERVIEW);
     // If we hit the process limit, see if we can reclaim some memory by removing
     // previously allocated (but unused) io buffers.
+    // TODO(zxy) After clearing the free buffer, how much impact will it have on subsequent
+    // queries may need to be verified.
     MemTracker::get_process_tracker()->add_gc_function(
             std::bind<void>(&DiskIoMgr::gc_io_buffers, this, std::placeholders::_1));
 
@@ -719,7 +719,7 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
         ++_num_allocated_buffers;
         // Update the disk io mem usage.  This is checked the next time we start
         // a read for the next reader (DiskIoMgr::GetNextScanRange)
-        _cached_buffers_mem_tracker->consume(*buffer_size);
+        _mem_tracker->consume(*buffer_size);
         buffer = new char[*buffer_size];
     } else {
         buffer = _free_buffers[idx].front();
@@ -736,7 +736,7 @@ void DiskIoMgr::gc_io_buffers(int64_t bytes_to_free) {
         for (list<char*>::iterator iter = _free_buffers[idx].begin();
              iter != _free_buffers[idx].end(); ++iter) {
             int64_t buffer_size = (1 << idx) * _min_buffer_size;
-            _cached_buffers_mem_tracker->release(buffer_size);
+            _mem_tracker->release(buffer_size);
             --_num_allocated_buffers;
             delete[] * iter;
 
@@ -765,7 +765,7 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size) {
     if (!config::disable_mem_pools && _free_buffers[idx].size() < config::max_free_io_buffers) {
         _free_buffers[idx].push_back(buffer);
     } else {
-        _cached_buffers_mem_tracker->release(buffer_size);
+        _mem_tracker->release(buffer_size);
         --_num_allocated_buffers;
         delete[] buffer;
     }

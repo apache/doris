@@ -67,7 +67,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
     for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end(); it++) {
         // No RuntimeState uses this task MemTracker, it is only referenced by this map, delete it
         if (it->second.use_count() == 1) {
-            if (!config::memory_leak_detection || it->second->consumption() == 0) {
+            if (config::memory_leak_detection && it->second->consumption() == 0) {
                 // If consumption is not equal to 0 before query mem tracker is destructed,
                 // there are two possibilities in theory.
                 // 1. A memory leak occurs.
@@ -80,13 +80,11 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
                 // In order to ensure that the query pool mem tracker is the sum of all currently running query mem trackers,
                 // the effect of the ended query mem tracker on the query pool mem tracker should be cleared, that is,
                 // the negative number of the current value of consume.
-                it->second->parent()->consume(-it->second->consumption(),
-                                              MemTracker::get_process_tracker().get());
-                expired_tasks.emplace_back(it->first);
-            } else {
-                LOG(WARNING) << "Memory tracker " << it->second->debug_string() << " Memory leak "
-                             << it->second->consumption();
+                LOG(WARNING) << "Task memory tracker memory leak:" << it->second->debug_string();
             }
+            it->second->parent()->consume(-it->second->consumption(),
+                                          MemTracker::get_process_tracker().get());
+            expired_tasks.emplace_back(it->first);
         }
     }
     for (auto tid : expired_tasks) {

@@ -311,7 +311,6 @@ Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
 
     int mem_usage = MemUsage(capacity_, expr_values_bytes_per_row_, num_exprs_);
     Status st = tracker->check_limit(mem_usage);
-    WARN_IF_ERROR(st, "PartitionedHashTableCtx::ExprValuesCache failed");
     if (UNLIKELY(!st)) {
         capacity_ = 0;
         string details = Substitute(
