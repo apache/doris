@@ -98,6 +98,19 @@ bool is_scalar_type(FieldType field_type) {
     }
 }
 
+bool is_olap_string_type(FieldType field_type) {
+    switch (field_type) {
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_HLL:
+    case OLAP_FIELD_TYPE_OBJECT:
+    case OLAP_FIELD_TYPE_STRING:
+        return true;
+    default:
+        return false;
+    }
+}
+
 std::shared_ptr<const TypeInfo> get_scalar_type_info(FieldType field_type) {
     return ScalarTypeInfoResolver::instance()->get_type_info(field_type);
 }
