@@ -603,6 +603,8 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     init_join_op();
 
     // avoid vector expand change block address.
+    // one block can store 4g data, _build_blocks can store 128*4g data.
+    // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
     _build_blocks.reserve(128);
 }
 
