@@ -212,6 +212,7 @@ module.exports = [
       "broker",
       "colocation-join",
       "bucket-shuffle-join",
+      "vectorized-execution-engine",
       "dynamic-partition",
       "export-manual",
       "export_with_mysql_dump",
