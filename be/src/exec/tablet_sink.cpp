@@ -121,6 +121,7 @@ void NodeChannel::open() {
         ptablet->set_tablet_id(tablet.tablet_id);
     }
     request.set_num_senders(_parent->_num_senders);
+    request.set_need_gen_rollup(false); // Useless but it is a required field in pb
     request.set_load_mem_limit(_parent->_load_mem_limit);
     request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
     request.set_is_high_priority(_parent->_is_high_priority);
