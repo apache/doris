@@ -118,7 +118,7 @@ public class Function implements Writable {
 
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
-    private boolean vectorized = false;
+    protected boolean vectorized = false;
 
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
