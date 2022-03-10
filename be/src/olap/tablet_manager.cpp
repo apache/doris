@@ -85,6 +85,7 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
 }
 
 TabletManager::~TabletManager() {
+    _mem_tracker->release(_mem_tracker->consumption());
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 

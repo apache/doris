@@ -598,7 +598,6 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
         _mem_tracker->release(buffer->len);
         delete[] buffer->buffer;
     }
-    MemTracker::memory_leak_check(_mem_tracker.get());
     _mem_tracker.reset();
 }
 

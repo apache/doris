@@ -465,6 +465,7 @@ ShardedLRUCache::~ShardedLRUCache() {
     }
     _entity->deregister_hook(_name);
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+    _mem_tracker->release(_mem_tracker->consumption());
 }
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
