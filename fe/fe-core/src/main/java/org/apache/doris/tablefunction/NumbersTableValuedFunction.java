@@ -17,14 +17,13 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNumbersTVFScanRange;
 import org.apache.doris.thrift.TScanRange;
 
 import com.google.common.collect.Lists;
@@ -40,6 +39,7 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
     public static final String NAME = "numbers";
 
     private long totalNumbers;
+    private int tabletsNum;
 
     public NumbersTableValuedFunction(List<String> params) throws UserException {
         if (params.size() < 1 || params.size() > 2) {
@@ -70,7 +70,7 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
     }
 
     @Override
-    public List<TableValuedFunctionTask> getTasks() {
+    public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
         List<Backend> backendList = Lists.newArrayList();
         for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
@@ -78,15 +78,17 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
             }
         }
         if (backendList.isEmpty()) {
-            throw new UserException("No Alive backends");
+            throw new AnalysisException("No Alive backends");
         }
         Collections.shuffle(backendList);
         List<TableValuedFunctionTask> res = Lists.newArrayList();
-        TScanRange scanRange = new TScanRange();
-        TNumbersTVFScanRange numbers_tvf_scan_range = new TNumbersTVFScanRange();
-        numbers_tvf_scan_range.set
-        scanRange.setNumbers_tvf_scan_range(numbers_tvf_scan_range);
-        res.add(new TableValuedFunctionTask(backendList.get(0), scanRange));
+        for (int i = 0; i < tabletsNum; ++i) {
+            TScanRange scanRange = new TScanRange();
+            TNumbersTVFScanRange numbers_tvf_scan_range = new TNumbersTVFScanRange();
+            numbers_tvf_scan_range.setTotalNumbers(totalNumbers);
+            scanRange.setNumbersTvfScanRange(numbers_tvf_scan_range);
+            res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
+        }
         return null;
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import java.util.List;
@@ -45,5 +46,5 @@ public abstract class TableValuedFunctionInf {
 
     public abstract List<Column> getTableColumns();
     
-    public abstract List<TableValuedFunctionTask> getTasks();
+    public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
 }

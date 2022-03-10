@@ -17,25 +17,20 @@
 
 package org.apache.doris.planner;
 
-import java.util.Collections;
 import java.util.List;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.TableValuedFunctionInf;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.thrift.TTableValuedFunctionScanNode;
 
 import com.google.common.collect.Lists;
 
@@ -85,11 +80,11 @@ public class TableValuedFunctionScanNode extends ScanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.TABLE_VALUED_FUNCTION_SCAN_NODE;
         TTableValuedFunctionScanNode tvfScanNode = new TTableValuedFunctionScanNode();
-        tvfScanNode.setFunc_name(tvf.getFuncName());
+        tvfScanNode.setFuncName(tvf.getFuncName());
         msg.table_valued_func_scan_node = tvfScanNode;
     }
 
-    private List<TScanRangeLocations> getShardLocations() throws UserException {
+    private List<TScanRangeLocations> getShardLocations() throws AnalysisException {
         List<TScanRangeLocations> result = Lists.newArrayList();
         
         for (TableValuedFunctionTask task : tvf.getTasks()) {
