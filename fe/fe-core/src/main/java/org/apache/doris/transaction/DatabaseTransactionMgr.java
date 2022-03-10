@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -62,6 +61,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -794,9 +794,15 @@ public class DatabaseTransactionMgr {
             errorReplicaIds.addAll(originalErrorReplicas);
         }
 
+        // case 1 If database is dropped, then we just throw MetaNotFoundException, because all related tables are already force dropped,
+        // it is safe to abort the transaction with all tables been force dropped.
+        // case 2 If at least one table lock successfully, which means that the transaction should be finished for the existed tables
+        // while just ignore tables force dropped.
+        // case 3 Database exist and all tables already been dropped, this case is same with case1, just abort the transaction
+        // only 3 cases mentioned above may happen, because user cannot drop table without force while there are committed transaction on table list
         Database db = catalog.getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = db.getTablesOnIdOrderNullable(tableIdList);
+        List<Table> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         if (tableList.isEmpty()) {
             throw new MetaNotFoundException("unknown table list, tableIdList=" + StringUtils.join(tableIdList, ","));
@@ -1647,7 +1653,7 @@ public class DatabaseTransactionMgr {
         Database db = catalog.getDbOrMetaException(transactionState.getDbId());
         List<Table> tableList = null;
         if (shouldAddTableListLock) {
-            tableList = db.getTablesOnIdOrderNullable(transactionState.getTableIdList());
+            tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
             tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }
         writeLock();

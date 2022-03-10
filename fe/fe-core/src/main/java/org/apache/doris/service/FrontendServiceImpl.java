@@ -918,7 +918,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = database.getTablesOnIdOrderNullable(tableIdList);
+        List<Table> tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
         for (Table table : tableList) {
             // check auth
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),

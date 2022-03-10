@@ -410,7 +410,10 @@ public class Database extends MetaObject implements Writable {
         return views;
     }
 
-    public List<Table> getTablesOnIdOrderNullable(List<Long> tableIdList) {
+    /**
+     *  this method is used for get existed table list by table id list, if table not exist, just ignore it.
+     */
+    public List<Table> getTablesOnIdOrderIfExist(List<Long> tableIdList) {
         List<Table> tableList = Lists.newArrayListWithCapacity(tableIdList.size());
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
