@@ -29,6 +29,7 @@ import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.junit.jupiter.api.Assertions
+import org.slf4j.Logger
 
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
@@ -37,6 +38,7 @@ abstract class Suite extends Script implements GroovyInterceptable {
     SuiteContext context
     String name
     String group
+    Logger logger = log
 
     void init(String name, String group, SuiteContext context) {
         this.name = name
