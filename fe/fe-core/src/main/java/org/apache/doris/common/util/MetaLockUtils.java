@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
@@ -63,7 +63,7 @@ public class MetaLockUtils {
     }
 
     public static List<Table> writeLockTablesIfExist(List<Table> tableList) {
-        List<Table> lockedTablesList = Lists.newArrayList();
+        List<Table> lockedTablesList = Lists.newArrayListWithCapacity(tableList.size());
         for (Table table : tableList) {
             if (table.writeLockIfExist()) {
                 lockedTablesList.add(table);

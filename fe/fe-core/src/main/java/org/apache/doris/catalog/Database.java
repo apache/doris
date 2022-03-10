@@ -411,7 +411,7 @@ public class Database extends MetaObject implements Writable {
     }
 
     public List<Table> getTablesOnIdOrderNullable(List<Long> tableIdList) {
-        List<Table> tableList = Lists.newArrayList();
+        List<Table> tableList = Lists.newArrayListWithCapacity(tableIdList.size());
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table != null) {
@@ -425,27 +425,11 @@ public class Database extends MetaObject implements Writable {
     }
 
     public List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
-        List<Table> tableList = Lists.newArrayList();
+        List<Table> tableList = Lists.newArrayListWithCapacity(tableIdList.size());
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table == null) {
                 throw new MetaNotFoundException("unknown table, tableId=" + tableId);
-            }
-            tableList.add(table);
-        }
-        if (tableList.size() > 1) {
-            return tableList.stream().sorted(Comparator.comparing(Table::getId)).collect(Collectors.toList());
-        }
-        return tableList;
-    }
-
-    public List<Table> getTablesOnIdOrderWithIgnoringWrongTableId(List<Long> tableIdList) {
-        List<Table> tableList = Lists.newArrayList();
-        for (Long tableId : tableIdList) {
-            Table table = idToTable.get(tableId);
-            if (table == null) {
-                LOG.warn("unknown table, tableId=" + tableId);
-                continue;
             }
             tableList.add(table);
         }

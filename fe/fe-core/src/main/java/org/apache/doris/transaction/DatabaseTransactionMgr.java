@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import jdk.internal.joptsimple.internal.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
