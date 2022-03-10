@@ -28,10 +28,10 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
-
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer)
+                   KeysType keys_type, RowsetWriter* rowset_writer,
+                   bool support_vec)
         : _tablet_id(tablet_id),
           _schema(schema),
           _tablet_schema(tablet_schema),
@@ -41,8 +41,9 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
-          _rowset_writer(rowset_writer) {
-    if (config::enable_storage_vectorization){
+          _rowset_writer(rowset_writer),
+          _is_first_insertion(true) {
+    if (support_vec){
         _vec_row_comparator = std::make_shared<VecRowComparator>(_schema);
         _vec_skip_list = new VecTable(_vec_row_comparator.get(), _table_mem_pool.get(),
                                 _keys_type == KeysType::DUP_KEYS);
@@ -79,14 +80,19 @@ int VecRowComparator::operator()(const RowInBlock left, const RowInBlock right) 
 
 void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num_rows)
 {
-    if (_input_mutable_block.columns() == 0)
+    if (_is_first_insertion)
     {
+        _is_first_insertion = false;
         auto cloneBlock = block->clone_without_columns();
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
     }
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
+    size_t oldsize = block->allocated_bytes();
     _input_mutable_block.add_rows(block, row_pos, row_pos + num_rows);
+    size_t newsize = block->allocated_bytes();
+    _mem_tracker->Consume(newsize - oldsize);
+
     for(int i = 0; i < num_rows; i++){       
         insert_one_row_from_block(RowInBlock(&_input_mutable_block, cursor_in_mutableblock + i));
     }   
@@ -204,16 +210,19 @@ vectorized::Block MemTable::to_block()
 OLAPStatus MemTable::vflush(){
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
+    size_t _flush_size = 0;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
         vectorized::Block block = to_block();
         OLAPStatus st = _rowset_writer->add_block(&block);
         RETURN_NOT_OK(st);
+        _flush_size = block.allocated_bytes();
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    
+    VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
+                  << ", flushsize: " << _flush_size;
     return OLAP_SUCCESS;
 }
 OLAPStatus MemTable::vclose() {

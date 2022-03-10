@@ -952,4 +952,13 @@ void Block::shrink_char_type_column_suffix_zero(std::vector<size_t> char_type_id
         }
     }
 }
+size_t MutableBlock::allocated_bytes() const {
+    size_t res = 0;
+    for (const auto& col : _columns) {
+        res += col->allocated_bytes();
+    }
+
+    return res;
+}
+
 } // namespace doris::vectorized
