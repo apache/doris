@@ -54,7 +54,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bitmap(instance);
         register_aggregate_function_combinator_distinct(instance);
-        register_aggregate_function_HLL_union_agg(instance);
         register_aggregate_function_reader(instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
         register_aggregate_function_stddev_variance(instance);
@@ -68,6 +67,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
 
         register_aggregate_function_reader_no_spread(instance);
         register_aggregate_function_window_lead_lag(instance);
+        register_aggregate_function_HLL_union_agg(instance);
     });
     return instance;
 }
