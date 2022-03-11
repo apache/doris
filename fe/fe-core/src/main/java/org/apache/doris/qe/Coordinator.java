@@ -273,14 +273,29 @@ public class Coordinator {
     }
 
     private void setFromUserProperty(Analyzer analyzer) {
-        // set cpu resource limit
         String qualifiedUser = analyzer.getQualifiedUser();
-        int limit = Catalog.getCurrentCatalog().getAuth().getCpuResourceLimit(qualifiedUser);
-        if (limit > 0) {
+        // set cpu resource limit
+        int cpuLimit = Catalog.getCurrentCatalog().getAuth().getCpuResourceLimit(qualifiedUser);
+        if (cpuLimit > 0) {
             // overwrite the cpu resource limit from session variable;
             TResourceLimit resourceLimit = new TResourceLimit();
-            resourceLimit.setCpuLimit(limit);
+            resourceLimit.setCpuLimit(cpuLimit);
             this.queryOptions.setResourceLimit(resourceLimit);
+        }
+        // set exec mem limit
+        long memLimit = Catalog.getCurrentCatalog().getAuth().getExecMemLimit(qualifiedUser);
+        if (memLimit > 0) {
+            // overwrite the exec_mem_limit from session variable;
+            this.queryOptions.setMemLimit(memLimit);
+            this.queryOptions.setMaxReservation(memLimit);
+            this.queryOptions.setInitialReservationTotalClaims(memLimit);
+            this.queryOptions.setBufferPoolLimit(memLimit);
+        }
+        // set load mem limit
+        memLimit = Catalog.getCurrentCatalog().getAuth().getLoadMemLimit(qualifiedUser);
+        if (memLimit > 0) {
+            // overwrite the load_mem_limit from session variable;
+            this.queryOptions.setLoadMemLimit(memLimit);
         }
     }
 
