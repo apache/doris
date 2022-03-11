@@ -183,6 +183,7 @@ public:
 
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
+    UIntGauge* load_channel_mem_consumption;
     UIntGauge* query_mem_consumption;
     UIntGauge* schema_change_mem_consumption;
     UIntGauge* tablet_meta_mem_consumption;

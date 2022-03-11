@@ -27,7 +27,6 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -91,7 +90,6 @@ private:
     std::shared_ptr<const TypeInfo> _typeinfo;
     fs::WritableBlock* _wblock;
     // only used for `_first_value`
-    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool _mem_pool;
 
     ordinal_t _num_values;

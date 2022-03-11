@@ -1449,10 +1449,24 @@ webserver默认工作线程数
 * 类型: int16
 * 描述: MemTracker在Web页面上展示的级别，等于或低于这个级别的MemTracker会在Web页面上展示
   ```
-    RELEASE = 0
-    DEBUG = 1
+    OVERVIEW = 0
+    TASK = 1
+    INSTANCE = 2
+    VERBOSE = 3
   ```
 * 默认值: 0
+
+### `mem_tracker_consume_min_size_bytes`
+
+* 类型: int32
+* 描述: TCMalloc Hook consume/release MemTracker时的最小长度，小于该值的consume size会持续累加，避免频繁调用MemTracker的consume/release，减小该值会增加consume/release的频率，增大该值会导致MemTracker统计不准，理论上一个MemTracker的统计值与真实值相差 = (mem_tracker_consume_min_size_bytes * 这个MemTracker所在的BE线程数)。
+* 默认值: 1048576
+
+### `memory_leak_detection`
+
+* 类型: bool
+* 描述: 是否启动内存泄漏检测，当 MemTracker 为负值时认为发生了内存泄漏，但实际 MemTracker 记录不准确时也会导致负值，所以这个功能处于实验阶段。
+* 默认值: false
 
 ### `max_segment_num_per_rowset`
 

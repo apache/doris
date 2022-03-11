@@ -97,11 +97,9 @@ class BloomFilterFuncBase : public IBloomFilterFuncBase {
 public:
     BloomFilterFuncBase(MemTracker* tracker) : _tracker(tracker), _inited(false) {}
 
-    virtual ~BloomFilterFuncBase() {
-        if (_tracker != nullptr) {
-            _tracker->Release(_bloom_filter_alloced);
-        }
-    }
+    // Do not release _bloom_filter_alloced, this does not affect the final statistic.
+    // RuntimeFilterMgr._tracker will be destructed first in ~RuntimeState.
+    virtual ~BloomFilterFuncBase() {}
 
     Status init(int64_t expect_num, double fpp) override {
         size_t filter_size = BloomFilterAdaptor::optimal_bit_num(expect_num, fpp);
@@ -115,7 +113,7 @@ public:
         _bloom_filter_alloced = bloom_filter_length;
         _bloom_filter.reset(BloomFilterAdaptor::create());
         RETURN_IF_ERROR(_bloom_filter->init(bloom_filter_length));
-        _tracker->Consume(_bloom_filter_alloced);
+        _tracker->consume(_bloom_filter_alloced);
         _inited = true;
         return Status::OK();
     }
@@ -138,7 +136,7 @@ public:
         }
 
         _bloom_filter_alloced = len;
-        _tracker->Consume(_bloom_filter_alloced);
+        _tracker->consume(_bloom_filter_alloced);
         return _bloom_filter->init(data, len);
     }
 

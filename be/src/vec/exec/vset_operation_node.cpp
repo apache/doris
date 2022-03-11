@@ -40,7 +40,7 @@ struct HashTableBuild {
         
         Defer defer {[&]() {
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _operation_node->_mem_tracker->Consume(bucket_bytes - old_bucket_bytes);
+            _operation_node->_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
             _operation_node->_mem_used += bucket_bytes - old_bucket_bytes;
         }};
 
@@ -85,7 +85,7 @@ Status VSetOperationNode::close(RuntimeState* state) {
     for (auto& exprs : _child_expr_lists) {
         VExpr::close(exprs, state);
     }
-    _mem_tracker->Release(_mem_used);
+    _mem_tracker->release(_mem_used);
     return ExecNode::close(state);
 }
 
@@ -240,10 +240,10 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));
 
         size_t allocated_bytes = block.allocated_bytes();
-        _mem_tracker->Consume(allocated_bytes);
+        _mem_tracker->consume(allocated_bytes);
         _mem_used += allocated_bytes;
 
-        RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while getting next from the child 0.");
+        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Set Operation Node, while getting next from the child 0.");
         if (block.rows() != 0) { mutable_block.merge(block); }
 
         // make one block for each 4 gigabytes
@@ -253,7 +253,7 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
             RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
-            RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
+            RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
             mutable_block = MutableBlock();
             ++index;
             last_mem_used = _mem_used;
@@ -262,7 +262,7 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
 
     _build_blocks.emplace_back(mutable_block.to_block());
     RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
-    RETURN_IF_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
+    RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
     return Status::OK();
 }
 

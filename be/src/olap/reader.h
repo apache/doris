@@ -185,7 +185,6 @@ protected:
 
     TabletSharedPtr tablet() { return _tablet; }
 
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::set<uint32_t> _load_bf_columns;
     std::set<uint32_t> _load_bf_all_columns;

@@ -91,6 +91,7 @@ void ArrowWorkFlowTest::init_runtime_state() {
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     _exec_env->_thread_mgr = new ThreadResourceMgr();
     _exec_env->_buffer_reservation = new ReservationTracker();
+    _exec_env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;
@@ -99,7 +100,7 @@ void ArrowWorkFlowTest::init_runtime_state() {
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
     _mem_tracker =
-            MemTracker::CreateTracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
+            MemTracker::create_tracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());

@@ -39,7 +39,7 @@ RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity, std::shared_ptr<
         : _schema(schema),
           _capacity(capacity),
           _column_vector_batches(_schema.num_columns()),
-          _tracker(MemTracker::CreateTracker(-1, "RowBlockV2", std::move(parent))),
+          _tracker(MemTracker::create_tracker(-1, "RowBlockV2", std::move(parent))),
           _pool(new MemPool(_tracker.get())),
           _selection_vector(nullptr) {
     for (auto cid : _schema.column_ids()) {

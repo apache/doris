@@ -301,12 +301,12 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 
     RuntimeState* runtime_state = _executor.runtime_state();
     DCHECK(runtime_state != nullptr);
-    if (runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
+    if (runtime_state->query_type() == TQueryType::LOAD && !done && status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(runtime_state->num_rows_load_total());
         params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
     } else {
-        if (runtime_state->query_options().query_type == TQueryType::LOAD) {
+        if (runtime_state->query_type() == TQueryType::LOAD) {
             params.__set_loaded_rows(runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
         }

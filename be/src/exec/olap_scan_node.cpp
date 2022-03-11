@@ -178,6 +178,9 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
+    _scanner_mem_tracker = MemTracker::create_tracker(state->instance_mem_tracker()->limit(),
+                                                             "Scanners", mem_tracker());
+
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -345,8 +348,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                          << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
             }
         }
-        __sync_fetch_and_sub(&_buffered_bytes,
-                             row_batch->tuple_data_pool()->total_reserved_bytes());
 
         delete materialized_batch;
         return Status::OK();
@@ -805,8 +806,9 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                  ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
-            OlapScanner* scanner = new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                                   _need_agg_finalize, *scan_range);
+            OlapScanner* scanner =
+                    new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
+                                    _need_agg_finalize, *scan_range, _scanner_mem_tracker);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -1369,13 +1371,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     _nice = 18 + std::max(0, 2 - (int)_olap_scanners.size() / 5);
     std::list<OlapScanner*> olap_scanners;
 
-    int64_t mem_limit = 512 * 1024 * 1024;
-    // TODO(zc): use memory limit
-    int64_t mem_consume = __sync_fetch_and_add(&_buffered_bytes, 0);
-    if (state->fragment_mem_tracker() != nullptr) {
-        mem_limit = state->fragment_mem_tracker()->limit();
-        mem_consume = state->fragment_mem_tracker()->consumption();
-    }
+    int64_t mem_limit = _scanner_mem_tracker->limit();
+    int64_t mem_consume = _scanner_mem_tracker->consumption();
     int max_thread = _max_materialized_row_batches;
     if (config::doris_scanner_row_num > state->batch_size()) {
         max_thread /= config::doris_scanner_row_num / state->batch_size();
@@ -1394,13 +1391,9 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         {
             std::unique_lock<std::mutex> l(_scan_batches_lock);
             assigned_thread_num = _running_thread;
-            // int64_t buf_bytes = __sync_fetch_and_add(&_buffered_bytes, 0);
             // How many thread can apply to this query
             size_t thread_slot_num = 0;
-            mem_consume = __sync_fetch_and_add(&_buffered_bytes, 0);
-            if (state->fragment_mem_tracker() != nullptr) {
-                mem_consume = state->fragment_mem_tracker()->consumption();
-            }
+            mem_consume = _scanner_mem_tracker->consumption();
             if (mem_consume < (mem_limit * 6) / 10) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {
@@ -1593,7 +1586,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             break;
         }
         RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size(),
-                                           _runtime_state->fragment_mem_tracker().get());
+                                           _scanner_mem_tracker.get());
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {
@@ -1608,8 +1601,6 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             row_batch = nullptr;
         } else {
             row_batchs.push_back(row_batch);
-            __sync_fetch_and_add(&_buffered_bytes,
-                                 row_batch->tuple_data_pool()->total_reserved_bytes());
         }
         raw_rows_read = scanner->raw_rows_read();
     }

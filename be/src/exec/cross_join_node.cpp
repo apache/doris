@@ -64,7 +64,7 @@ Status CrossJoinNode::construct_build_side(RuntimeState* state) {
         RETURN_IF_ERROR(child(1)->get_next(state, batch, &eos));
 
         // to prevent use too many memory
-        RETURN_IF_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
+        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         SCOPED_TIMER(_build_timer);
         _build_batches.add_row_batch(batch);

@@ -48,7 +48,7 @@ TEST(TEST_VEXPR, ABSTEST) {
 
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
     doris::RowDescriptor row_desc(tuple_desc, false);
-    auto tracker_ptr = doris::MemTracker::CreateTracker(-1, "BlockTest", nullptr, false);
+    auto tracker_ptr = doris::MemTracker::create_tracker(-1, "BlockTest", nullptr);
     doris::RowBatch row_batch(row_desc, 1024, tracker_ptr.get());
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
@@ -72,7 +72,7 @@ TEST(TEST_VEXPR, ABSTEST) {
                                      doris::TQueryGlobals(), nullptr);
     runtime_stat.init_instance_mem_tracker();
     runtime_stat.set_desc_tbl(desc_tbl);
-    std::shared_ptr<doris::MemTracker> tracker = doris::MemTracker::CreateTracker();
+    std::shared_ptr<doris::MemTracker> tracker = doris::MemTracker::create_tracker();
     context->prepare(&runtime_stat, row_desc, tracker);
     context->open(&runtime_stat);
 
@@ -96,7 +96,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     schema_scanner.init(&param, &object_pool);
     auto tuple_desc = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc());
     RowDescriptor row_desc(tuple_desc, false);
-    auto tracker_ptr = MemTracker::CreateTracker(-1, "BlockTest", nullptr, false);
+    auto tracker_ptr = MemTracker::create_tracker(-1, "BlockTest", nullptr);
     RowBatch row_batch(row_desc, 1024, tracker_ptr.get());
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
@@ -123,7 +123,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     DescriptorTbl desc_tbl;
     desc_tbl._slot_desc_map[0] = tuple_desc->slots()[0];
     runtime_stat.set_desc_tbl(&desc_tbl);
-    std::shared_ptr<doris::MemTracker> tracker = doris::MemTracker::CreateTracker();
+    std::shared_ptr<doris::MemTracker> tracker = doris::MemTracker::create_tracker();
     context->prepare(&runtime_stat, row_desc, tracker);
     context->open(&runtime_stat);
 

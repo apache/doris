@@ -44,6 +44,7 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/mem_tracker_task_pool.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -73,6 +74,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
                                    Labels({{"type", "query"}}));
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
+                                   Labels({{"type", "load"}}));
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -99,7 +102,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _extdatasource_client_cache =
             new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
-    _pool_mem_trackers = new PoolMemTrackerRegistry();
+    _task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
     _thread_mgr = new ThreadResourceMgr();
     if (config::doris_enable_scanner_thread_pool_per_disk &&
         config::doris_scanner_thread_pool_thread_num >= store_paths.size() &&
@@ -163,7 +166,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
 
-    RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
+    RETURN_IF_ERROR(_load_channel_mgr->init(MemTracker::get_process_tracker()->limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
     _is_init = true;
@@ -190,10 +193,16 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "Process",
-                                             MemTracker::GetRootTracker(), false, false,
-                                             MemTrackerLevel::OVERVIEW);
-    REGISTER_HOOK_METRIC(query_mem_consumption, [this]() { return _mem_tracker->consumption(); });
+    MemTracker::get_process_tracker()->set_limit(global_memory_limit_bytes);
+    _query_pool_mem_tracker =
+            MemTracker::create_tracker(global_memory_limit_bytes, "QueryPool", MemTracker::get_process_tracker(),
+                                       MemTrackerLevel::OVERVIEW);
+    REGISTER_HOOK_METRIC(query_mem_consumption,
+                         [this]() { return _query_pool_mem_tracker->consumption(); });
+    _load_pool_mem_tracker = MemTracker::create_tracker(
+            global_memory_limit_bytes, "LoadPool", MemTracker::get_process_tracker(), MemTrackerLevel::OVERVIEW);
+    REGISTER_HOOK_METRIC(load_mem_consumption,
+                         [this]() { return _load_pool_mem_tracker->consumption(); });
     LOG(INFO) << "Using global memory limit: "
               << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
               << ", origin config value: " << config::mem_limit;
@@ -258,7 +267,7 @@ Status ExecEnv::_init_mem_tracker() {
     SegmentLoader::create_global_instance(config::segment_cache_capacity);
 
     // 4. init other managers
-    RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
+    RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
 
     // TODO(zc): The current memory usage configuration is a bit confusing,
@@ -317,7 +326,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
-    SAFE_DELETE(_pool_mem_trackers);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_extdatasource_client_cache);
     SAFE_DELETE(_frontend_client_cache);
@@ -331,6 +339,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_heartbeat_flags);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);
+    DEREGISTER_HOOK_METRIC(load_mem_consumption);
 
     _is_init = false;
 }

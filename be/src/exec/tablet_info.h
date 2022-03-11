@@ -36,7 +36,6 @@
 namespace doris {
 
 class MemPool;
-class MemTracker;
 class RowBatch;
 
 struct OlapTableIndexSchema {
@@ -201,7 +200,6 @@ private:
     std::vector<SlotDescriptor*> _distributed_slot_descs;
 
     ObjectPool _obj_pool;
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::vector<OlapTablePartition*> _partitions;
     std::unique_ptr<std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>>
