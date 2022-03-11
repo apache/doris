@@ -32,6 +32,9 @@ public:
 
     virtual OLAPStatus write_block(const vectorized::Block* block, const std::vector<int>& row_idxs) override;
 
+protected:
+    virtual void _reset_mem_table() override;
+
 private:
     VDeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
                  StorageEngine* storage_engine);

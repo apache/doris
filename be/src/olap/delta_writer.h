@@ -100,7 +100,7 @@ private:
 
     void _garbage_collection();
 
-    void _reset_mem_table();
+    virtual void _reset_mem_table();
 
 protected:
     bool _is_init = false;
