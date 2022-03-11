@@ -102,7 +102,7 @@ static void exectue_result(std::vector<const ColumnString::Offsets*>& offsets_li
     int key_size = (*offsets_list[1])[i] - (*offsets_list[1])[i - 1] - 1;
     const auto key_raw =
             reinterpret_cast<const char*>(&(*chars_list[1])[(*offsets_list[1])[i - 1]]);
-    if (*src_raw == '\0' || src_size == 0) {
+    if (*src_raw == '\0' && src_size == 0) {
         StringOP::push_null_string(i, result_data, result_offset, null_map);
         return;
     }
