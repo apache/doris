@@ -18,6 +18,7 @@
 #include "olap/task/engine_alter_tablet_task.h"
 
 #include "olap/schema_change.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 

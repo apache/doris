@@ -142,9 +142,6 @@ public:
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
-
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class FlushPageCallback {

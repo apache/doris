@@ -156,7 +156,7 @@ Status SetOperationNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(child(0)->get_next(state, &build_batch, &eos));
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch.tuple_data_pool(), false);
-        RETURN_IF_LIMIT_EXCEEDED(state, " SetOperation, while constructing the hash table.");
+        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, " SetOperation, while constructing the hash table.");
         // build hash table and remove duplicate items
         RETURN_IF_ERROR(_hash_tbl->resize_buckets_ahead(build_batch.num_rows()));
         for (int i = 0; i < build_batch.num_rows(); ++i) {

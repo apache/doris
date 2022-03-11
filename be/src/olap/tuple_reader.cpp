@@ -30,7 +30,6 @@
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/date_func.h"
 
 using std::nothrow;

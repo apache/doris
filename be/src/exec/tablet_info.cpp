@@ -18,7 +18,6 @@
 #include "exec/tablet_info.h"
 
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "util/random.h"
@@ -164,8 +163,7 @@ OlapTablePartitionParam::OlapTablePartitionParam(std::shared_ptr<OlapTableSchema
                                                  const TOlapTablePartitionParam& t_param)
         : _schema(schema),
           _t_param(t_param),
-          _mem_tracker(MemTracker::CreateTracker(-1, "OlapTablePartitionParam")),
-          _mem_pool(new MemPool(_mem_tracker.get())) {}
+          _mem_pool(new MemPool("OlapTablePartitionParam")) {}
 
 OlapTablePartitionParam::~OlapTablePartitionParam() {}
 
@@ -418,14 +416,14 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
         : _schema(schema),
           _t_param(t_param),
           _slots(_schema->tuple_desc()->slots()),
-          _mem_tracker(MemTracker::CreateTracker(-1, "OlapTablePartitionParam")) {
+          _mem_tracker(MemTracker::create_tracker(-1, "OlapTablePartitionParam")) {
     for (auto slot : _slots) {
         _partition_block.insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});
     }
 }
 
 VOlapTablePartitionParam::~VOlapTablePartitionParam() {
-    _mem_tracker->Release(_mem_usage);
+    _mem_tracker->release(_mem_usage);
 }
 
 Status VOlapTablePartitionParam::init() {
@@ -539,7 +537,7 @@ Status VOlapTablePartitionParam::init() {
     }
 
     _mem_usage = _partition_block.allocated_bytes();
-    _mem_tracker->Consume(_mem_usage);
+    _mem_tracker->consume(_mem_usage);
     return Status::OK();
 }
 

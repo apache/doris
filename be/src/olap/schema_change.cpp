@@ -745,7 +745,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
 RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema,
                                      std::shared_ptr<MemTracker> parent, size_t memory_limitation)
         : _tablet_schema(tablet_schema),
-          _mem_tracker(MemTracker::CreateTracker(-1, "RowBlockAllocator", parent, false)),
+          _mem_tracker(MemTracker::create_tracker(-1, "RowBlockAllocator", parent)),
           _row_len(tablet_schema.row_size()),
           _memory_limitation(memory_limitation) {
     VLOG_NOTICE << "RowBlockAllocator(). row_len=" << _row_len;
@@ -784,7 +784,7 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
     row_block_info.null_supported = null_supported;
     (*row_block)->init(row_block_info);
 
-    _mem_tracker->Consume(row_block_size);
+    _mem_tracker->consume(row_block_size);
     VLOG_NOTICE << "RowBlockAllocator::allocate() this=" << this << ", num_rows=" << num_rows
                 << ", m_memory_allocated=" << _mem_tracker->consumption()
                 << ", row_block_addr=" << *row_block;
@@ -797,7 +797,7 @@ void RowBlockAllocator::release(RowBlock* row_block) {
         return;
     }
 
-    _mem_tracker->Release(row_block->capacity() * _row_len);
+    _mem_tracker->release(row_block->capacity() * _row_len);
 
     VLOG_NOTICE << "RowBlockAllocator::release() this=" << this
                 << ", num_rows=" << row_block->capacity()
@@ -824,7 +824,7 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
     std::shared_ptr<MemTracker> tracker(
-            MemTracker::CreateTracker(-1, "RowBlockMerger", parent, false));
+            MemTracker::create_tracker(-1, "RowBlockMerger", parent));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
@@ -1420,7 +1420,7 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
 }
 
 SchemaChangeHandler::SchemaChangeHandler()
-        : _mem_tracker(MemTracker::CreateTracker(-1, "SchemaChange", StorageEngine::instance()->schema_change_mem_tracker())) {
+        : _mem_tracker(MemTracker::create_tracker(-1, "SchemaChangeHandler", StorageEngine::instance()->schema_change_mem_tracker())) {
     REGISTER_HOOK_METRIC(schema_change_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
 }
@@ -1532,8 +1532,11 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
 
-        auto mem_tracker = MemTracker::CreateTracker(-1, "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-"
-                                                         + std::to_string(new_tablet->tablet_id()), _mem_tracker, true, false, MemTrackerLevel::TASK);
+        auto mem_tracker = MemTracker::create_tracker(
+                -1,
+                "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-" +
+                        std::to_string(new_tablet->tablet_id()),
+                _mem_tracker, MemTrackerLevel::TASK);
 
         do {
             // get history data to be converted and it will check if there is hold in base tablet

@@ -61,7 +61,6 @@ public:
     OLAPStatus init(RowsetReaderContext* read_context) override;
 
     // read next block data
-    // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
     // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
 

@@ -822,8 +822,7 @@ void Expr::assign_fn_ctx_idx(int* next_fn_ctx_idx) {
 }
 
 Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                    ObjectPool* pool, Expr** scalar_expr,
-                    const std::shared_ptr<MemTracker>& tracker) {
+                    ObjectPool* pool, Expr** scalar_expr) {
     *scalar_expr = nullptr;
     Expr* root;
     RETURN_IF_ERROR(create_expr(pool, texpr.nodes[0], &root));
@@ -846,12 +845,11 @@ Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeSt
 }
 
 Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                    RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs,
-                    const std::shared_ptr<MemTracker>& tracker) {
+                    RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs) {
     exprs->clear();
     for (const TExpr& texpr : texprs) {
         Expr* expr;
-        RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr, tracker));
+        RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr));
         DCHECK(expr != nullptr);
         exprs->push_back(expr);
     }
@@ -859,14 +857,13 @@ Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_d
 }
 
 Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                    Expr** scalar_expr, const std::shared_ptr<MemTracker>& tracker) {
-    return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr, tracker);
+                    Expr** scalar_expr) {
+    return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr);
 }
 
 Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                    RuntimeState* state, std::vector<Expr*>* exprs,
-                    const std::shared_ptr<MemTracker>& tracker) {
-    return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs, tracker);
+                    RuntimeState* state, std::vector<Expr*>* exprs) {
+    return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs);
 }
 
 Status Expr::create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root) {

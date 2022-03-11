@@ -59,7 +59,7 @@ struct ProcessHashTableBuild {
         Defer defer {[&]() {
             int64_t bucket_size = hash_table_ctx.hash_table.get_buffer_size_in_cells();
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _join_node->_mem_tracker->Consume(bucket_bytes - old_bucket_bytes);
+            _join_node->_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
             _join_node->_mem_used += bucket_bytes - old_bucket_bytes;
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
         }};
@@ -732,7 +732,7 @@ Status HashJoinNode::close(RuntimeState* state) {
 
     if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
 
-    _mem_tracker->Release(_mem_used);
+    _mem_tracker->release(_mem_used);
     return ExecNode::close(state);
 }
 
@@ -899,9 +899,9 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
 
         RETURN_IF_ERROR(child(1)->get_next(state, &block, &eos));
-        _mem_tracker->Consume(block.allocated_bytes());
+        _mem_tracker->consume(block.allocated_bytes());
         _mem_used += block.allocated_bytes();
-        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while getting next from the child 1.");
+        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while getting next from the child 1.");
 
         if (block.rows() != 0) { mutable_block.merge(block); }
 
@@ -912,7 +912,7 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
             RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
-            RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
+            RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
             mutable_block = MutableBlock();
             ++index;
@@ -922,7 +922,7 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
 
     _build_blocks.emplace_back(mutable_block.to_block());
     RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
-    RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
+    RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
     return std::visit(
             [&](auto&& arg) -> Status {

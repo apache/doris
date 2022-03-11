@@ -33,8 +33,9 @@
 namespace doris::vectorized {
 
 VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
-                           bool need_agg_finalize, const TPaloScanRange& scan_range)
-        : OlapScanner(runtime_state, parent, aggregation, need_agg_finalize, scan_range) {}
+                           bool need_agg_finalize, const TPaloScanRange& scan_range,
+                           std::shared_ptr<MemTracker> tracker)
+        : OlapScanner(runtime_state, parent, aggregation, need_agg_finalize, scan_range, tracker) {}
 
 Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bool* eof) {
     // only empty block should be here

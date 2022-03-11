@@ -542,7 +542,7 @@ public:
     ~DiskIoMgr();
 
     // Initialize the IoMgr. Must be called once before any of the other APIs.
-    Status init(const std::shared_ptr<MemTracker>& process_mem_tracker);
+    Status init(const int64_t mem_limit);
 
     // Allocates tracking structure for a request context.
     // Register a new request context which is returned in *request_context.
@@ -691,8 +691,7 @@ private:
     // Pool to allocate BufferDescriptors.
     ObjectPool _pool;
 
-    // Process memory tracker; needed to account for io buffers.
-    std::shared_ptr<MemTracker> _process_mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // Number of worker(read) threads per disk. Also the max depth of queued
     // work to the disk.
@@ -787,10 +786,9 @@ private:
     char* get_free_buffer(int64_t* buffer_size);
 
     // Garbage collect all unused io buffers. This is currently only triggered when the
-    // process wide limit is hit. This is not good enough. While it is sufficient for
-    // the IoMgr, other components do not trigger this GC.
+    // process wide limit is hit.
     // TODO: make this run periodically?
-    void gc_io_buffers();
+    void gc_io_buffers(int64_t bytes_to_free = INT_MAX);
 
     // Returns a buffer to the free list. buffer_size / _min_buffer_size should be a power
     // of 2, and buffer_size should be <= _max_buffer_size. These constraints will be met

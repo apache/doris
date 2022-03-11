@@ -30,7 +30,6 @@
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h" // for PlanNodeId
-#include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
 

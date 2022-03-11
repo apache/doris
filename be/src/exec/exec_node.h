@@ -196,8 +196,6 @@ public:
 
     std::shared_ptr<MemTracker> expr_mem_tracker() const { return _expr_mem_tracker; }
 
-    MemPool* expr_mem_pool() const { return _expr_mem_pool.get(); }
-
     // Extract node id from p->name().
     static int get_node_id_from_profile(RuntimeProfile* p);
 
@@ -306,13 +304,8 @@ protected:
 
     /// Account for peak memory used by this node
     std::shared_ptr<MemTracker> _mem_tracker;
-
-    /// MemTracker used by 'expr_mem_pool_'.
+    // MemTracker used by all Expr.
     std::shared_ptr<MemTracker> _expr_mem_tracker;
-
-    /// MemPool for allocating data structures used by expression evaluators in this node.
-    /// Created in Prepare().
-    std::unique_ptr<MemPool> _expr_mem_pool;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
@@ -377,25 +370,6 @@ private:
     bool _is_closed;
 };
 
-#define LIMIT_EXCEEDED(tracker, state, msg)                                                   \
-    do {                                                                                      \
-        stringstream str;                                                                     \
-        str << "Memory exceed limit. " << msg << " ";                                         \
-        str << "Backend: " << BackendOptions::get_localhost() << ", ";                        \
-        str << "fragment: " << print_id(state->fragment_instance_id()) << " ";                \
-        str << "Used: " << tracker->consumption() << ", Limit: " << tracker->limit() << ". "; \
-        str << "You can change the limit by session variable exec_mem_limit.";                \
-        return Status::MemoryLimitExceeded(str.str());                                        \
-    } while (false)
-
-#define RETURN_IF_LIMIT_EXCEEDED(state, msg)                                                \
-    do {                                                                                    \
-        /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */         \
-        MemTracker* tracker = state->instance_mem_tracker()->find_limit_exceeded_tracker(); \
-        if (tracker != nullptr) {                                                           \
-            LIMIT_EXCEEDED(tracker, state, msg);                                            \
-        }                                                                                   \
-    } while (false)
 } // namespace doris
 
 #endif

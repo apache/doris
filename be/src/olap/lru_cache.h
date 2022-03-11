@@ -56,11 +56,9 @@ enum LRUCacheType {
 
 // Create a new cache with a specified name and a fixed SIZE capacity.
 // This implementation of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity,
-                            std::shared_ptr<MemTracker> parent_tracekr = nullptr);
+extern Cache* new_lru_cache(const std::string& name, size_t capacity);
 
-extern Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-                                  std::shared_ptr<MemTracker> parent_tracekr = nullptr);
+extern Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type);
 
 class CacheKey {
 public:
@@ -362,8 +360,7 @@ static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             std::shared_ptr<MemTracker> parent);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,

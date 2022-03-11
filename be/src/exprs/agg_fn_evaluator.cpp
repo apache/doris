@@ -269,7 +269,7 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
 void AggFnEvaluator::close(RuntimeState* state) {
     Expr::close(_input_exprs_ctxs, state);
     if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->Release(_total_mem_consumption);
+        _mem_tracker->release(_total_mem_consumption);
     }
 }
 
@@ -440,7 +440,7 @@ void AggFnEvaluator::update_mem_limlits(int len) {
     _accumulated_mem_consumption += len;
     // per 16M , update mem_tracker one time
     if (UNLIKELY(_accumulated_mem_consumption > 16777216)) {
-        _mem_tracker->Consume(_accumulated_mem_consumption);
+        _mem_tracker->consume(_accumulated_mem_consumption);
         _total_mem_consumption += _accumulated_mem_consumption;
         _accumulated_mem_consumption = 0;
     }

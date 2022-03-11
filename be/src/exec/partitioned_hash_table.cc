@@ -310,13 +310,12 @@ Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
                                      MAX_EXPR_VALUES_ARRAY_SIZE / expr_values_bytes_per_row_));
 
     int mem_usage = MemUsage(capacity_, expr_values_bytes_per_row_, num_exprs_);
-    Status st = tracker->TryConsume(mem_usage);
-    WARN_IF_ERROR(st, "PartitionedHashTableCtx::ExprValuesCache failed");
+    Status st = tracker->check_limit(mem_usage);
     if (UNLIKELY(!st)) {
         capacity_ = 0;
         string details = Substitute(
-                "PartitionedHashTableCtx::ExprValuesCache failed to allocate $0 bytes.", mem_usage);
-        return tracker->MemLimitExceeded(state, details, mem_usage);
+                "PartitionedHashTableCtx::ExprValuesCache failed to allocate $0 bytes", mem_usage);
+        RETURN_LIMIT_EXCEEDED(tracker, state, details, mem_usage, st);
     }
 
     int expr_values_size = expr_values_bytes_per_row_ * capacity_;
@@ -349,7 +348,7 @@ void PartitionedHashTableCtx::ExprValuesCache::Close(const std::shared_ptr<MemTr
     expr_values_hash_array_.reset();
     null_bitmap_.Reset(0);
     int mem_usage = MemUsage(capacity_, expr_values_bytes_per_row_, num_exprs_);
-    tracker->Release(mem_usage);
+    tracker->release(mem_usage);
 }
 
 int PartitionedHashTableCtx::ExprValuesCache::MemUsage(int capacity, int expr_values_bytes_per_row,

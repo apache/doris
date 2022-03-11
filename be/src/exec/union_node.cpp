@@ -27,8 +27,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "util/runtime_profile.h"
 
-//
-
 namespace doris {
 
 UnionNode::UnionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)

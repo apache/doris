@@ -39,7 +39,8 @@
 namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                         bool need_agg_finalize, const TPaloScanRange& scan_range)
+                         bool need_agg_finalize, const TPaloScanRange& scan_range,
+                         const std::shared_ptr<MemTracker>& tracker)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -48,10 +49,8 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
-          _mem_tracker(MemTracker::CreateTracker(
-                  runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
-                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::VERBOSE)) {
-}
+          _mem_tracker(MemTracker::create_tracker(tracker->limit(),
+                                                  tracker->label() + ":OlapScanner", tracker)) {}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
