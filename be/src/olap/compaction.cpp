@@ -94,7 +94,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
-    auto res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+    auto res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
                                      _output_rs_writer.get(), &stats);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
