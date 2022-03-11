@@ -212,6 +212,12 @@ struct TEsScanRange {
   4: required i32 shard_id
 }
 
+enum TTVFunctionName {
+    NUMBERS = 0,
+}
+
+// Every table function should have a scan range definition to save its running 
+// parameters
 struct TNumbersTVFScanRange {
 	1: optional i64 totalNumbers
 }
@@ -748,7 +754,8 @@ struct TRuntimeFilterDesc {
 }
 
 struct TTableValuedFunctionScanNode {
-  	1: optional string func_name
+	1: optional Types.TTupleId tuple_id
+  	2: optional TTVFunctionName func_name
 }
 
 // This is essentially a union of all messages corresponding to subclasses

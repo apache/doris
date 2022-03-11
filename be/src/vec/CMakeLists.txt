@@ -93,7 +93,8 @@ set(VEC_FILES
   exec/vassert_num_rows_node.cpp
   exec/vrepeat_node.cpp
   exec/join/vhash_join_node.cpp
-  exec/tablefunction/vnumbers_tbf_scannode.cpp
+  exec/tablefunction/vnumbers_tbf.cpp
+  exec/vtable_valued_function_scannode.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
   exprs/vexpr.cpp

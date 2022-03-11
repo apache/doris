@@ -61,7 +61,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/tablefunction/vnumbers_tbf_scannode.h"
+#include "vec/exec/vtable_valued_function_scannode.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -388,7 +388,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::ANALYTIC_EVAL_NODE:
         case TPlanNodeType::SELECT_NODE:
         case TPlanNodeType::REPEAT_NODE:
-        case TPlanNodeType::NUMBERS_SCAN_NODE:
+        case TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -575,7 +575,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new TableFunctionNode(pool, tnode, descs));
         return Status::OK();
     
-    case TPlanNodeType::NUMBERS_SCAN_NODE:
+    case TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VNumbersTBFScanNode(pool, tnode, descs));
             return Status::OK();
@@ -660,7 +660,7 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::ES_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
-    collect_nodes(TPlanNodeType::NUMBERS_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE, nodes);
 }
 
 void ExecNode::try_do_aggregate_serde_improve() {

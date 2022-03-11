@@ -80,6 +80,7 @@ public class TableValuedFunctionScanNode extends ScanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.TABLE_VALUED_FUNCTION_SCAN_NODE;
         TTableValuedFunctionScanNode tvfScanNode = new TTableValuedFunctionScanNode();
+        tvfScanNode.setTupleId(desc.getId().asInt());
         tvfScanNode.setFuncName(tvf.getFuncName());
         msg.table_valued_func_scan_node = tvfScanNode;
     }
