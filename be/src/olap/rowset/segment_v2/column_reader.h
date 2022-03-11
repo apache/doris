@@ -385,8 +385,7 @@ public:
               _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
-              _tracker(new MemTracker()),
-              _pool(new MemPool(_tracker.get())) {}
+              _pool(new MemPool("DefaultValueColumnIterator")) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -422,7 +421,6 @@ private:
     bool _is_default_value_null;
     size_t _type_size;
     void* _mem_value = nullptr;
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 
     // current rowid

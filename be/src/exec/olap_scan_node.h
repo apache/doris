@@ -244,6 +244,8 @@ protected:
     TResourceInfo* _resource_info;
 
     int64_t _buffered_bytes;
+    // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
+    std::shared_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;

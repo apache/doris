@@ -88,19 +88,13 @@ typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
 typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
 typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
-NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool,
-                                     const std::shared_ptr<MemTracker>& tracker, bool is_clone)
-        : _total_mem_consumption(0),
-          _accumulated_mem_consumption(0),
+NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, bool is_clone)
+        : _accumulated_mem_consumption(0),
           is_clone_(is_clone),
           agg_fn_(agg_fn),
-          mem_pool_(mem_pool),
-          _mem_tracker(tracker) {}
+          mem_pool_(mem_pool) {}
 
 NewAggFnEvaluator::~NewAggFnEvaluator() {
-    if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->Release(_total_mem_consumption);
-    }
     DCHECK(closed_);
 }
 
@@ -120,7 +114,7 @@ Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, Objec
 
     // Create a new AggFn evaluator.
     NewAggFnEvaluator* agg_fn_eval =
-            pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, tracker, false));
+            pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, false));
 
     agg_fn_eval->agg_fn_ctx_.reset(FunctionContextImpl::create_context(
             state, mem_pool, agg_fn.GetIntermediateTypeDesc(), agg_fn.GetOutputTypeDesc(),
@@ -631,7 +625,7 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& ds
 void NewAggFnEvaluator::ShallowClone(ObjectPool* pool, MemPool* mem_pool,
                                      NewAggFnEvaluator** cloned_eval) const {
     DCHECK(opened_);
-    *cloned_eval = pool->add(new NewAggFnEvaluator(agg_fn_, mem_pool, _mem_tracker, true));
+    *cloned_eval = pool->add(new NewAggFnEvaluator(agg_fn_, mem_pool, true));
     (*cloned_eval)->agg_fn_ctx_.reset(agg_fn_ctx_->impl()->clone(mem_pool));
     DCHECK_EQ((*cloned_eval)->input_evals_.size(), 0);
     (*cloned_eval)->input_evals_ = input_evals_;

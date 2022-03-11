@@ -84,7 +84,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
         _free_blocks.emplace_back(block);
         _buffered_bytes += block->allocated_bytes();
     }
-    _mem_tracker->Consume(_buffered_bytes);
+    _mem_tracker->consume(_buffered_bytes);
 
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -349,8 +349,9 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
                  ++j, ++i) {
                 scanner_ranges.push_back(cond_ranges[i].get());
             }
-            VOlapScanner* scanner = new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                                     _need_agg_finalize, *scan_range);
+            VOlapScanner* scanner =
+                    new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
+                                     _need_agg_finalize, *scan_range, _scanner_mem_tracker);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -400,7 +401,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
                   std::default_delete<Block>());
     std::for_each(_scan_blocks.begin(), _scan_blocks.end(), std::default_delete<Block>());
     std::for_each(_free_blocks.begin(), _free_blocks.end(), std::default_delete<Block>());
-    _mem_tracker->Release(_buffered_bytes);
+    _mem_tracker->release(_buffered_bytes);
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner

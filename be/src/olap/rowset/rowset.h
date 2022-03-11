@@ -32,7 +32,6 @@
 namespace doris {
 
 class DataDir;
-class MemTracker;
 class OlapTuple;
 class RowCursor;
 class Rowset;

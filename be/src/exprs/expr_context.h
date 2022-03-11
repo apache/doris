@@ -170,6 +170,9 @@ private:
     /// TODO: revisit this
     FunctionContext** _fn_contexts_ptr;
 
+    // Used to create _pool, if change to raw pointer later, be careful about tracker's life cycle.
+    std::shared_ptr<MemTracker> _mem_tracker;
+
     /// Pool backing fn_contexts_. Counts against the runtime state's UDF mem tracker.
     std::unique_ptr<MemPool> _pool;
 

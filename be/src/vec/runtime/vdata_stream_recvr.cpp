@@ -123,7 +123,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         SCOPED_TIMER(_recvr->_deserialize_row_batch_timer);
         block = new Block(pblock);
     }
-    _recvr->_mem_tracker->Consume(block->bytes());
+    _recvr->_mem_tracker->consume(block->bytes());
 
     VLOG_ROW << "added #rows=" << block->rows() << " batch_size=" << block_byte_size << "\n";
     _block_queue.emplace_back(block_byte_size, block);
@@ -162,7 +162,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     std::unique_lock<std::mutex> l(_lock);
     size_t block_size = nblock->bytes();
     _block_queue.emplace_back(block_size, nblock);
-    _recvr->_mem_tracker->Consume(nblock->bytes());
+    _recvr->_mem_tracker->consume(nblock->bytes());
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_size)) {
@@ -260,8 +260,9 @@ VDataStreamRecvr::VDataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = MemTracker::CreateTracker(
-            _profile, -1, "VDataStreamRecvr:" + print_id(_fragment_instance_id), parent_tracker);
+    _mem_tracker =
+            MemTracker::create_tracker(-1, "VDataStreamRecvr:" + print_id(_fragment_instance_id),
+                                       parent_tracker, MemTrackerLevel::VERBOSE, _profile);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
@@ -330,9 +331,9 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 
     if (LIKELY(_mem_tracker->consumption() >= block->bytes())) {
-        _mem_tracker->Release(block->bytes());
+        _mem_tracker->release(block->bytes());
     } else {
-        _mem_tracker->Release(_mem_tracker->consumption());
+        _mem_tracker->release(_mem_tracker->consumption());
     }
     return Status::OK();
 }
@@ -362,7 +363,7 @@ void VDataStreamRecvr::close() {
     _mgr = nullptr;
 
     _merger.reset();
-    _mem_tracker->Release(_mem_tracker->consumption());
+    _mem_tracker->release(_mem_tracker->consumption());
 }
 
 } // namespace doris::vectorized

@@ -28,11 +28,8 @@
 namespace doris {
 
 OdbcTableSink::OdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& t_exprs)
-        : _pool(pool),
-          _row_desc(row_desc),
-          _t_output_expr(t_exprs),
-          _mem_tracker(MemTracker::CreateTracker(-1, "OdbcTableSink")) {
+                             const std::vector<TExpr>& t_exprs)
+        : _pool(pool), _row_desc(row_desc), _t_output_expr(t_exprs) {
     _name = "OOBC_TABLE_SINK";
 }
 
@@ -56,7 +53,7 @@ Status OdbcTableSink::init(const TDataSink& t_sink) {
 Status OdbcTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
     std::stringstream title;
     title << "ODBC_TABLE_SINK (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
@@ -100,4 +97,4 @@ Status OdbcTableSink::close(RuntimeState* state, Status exec_status) {
     return Status::OK();
 }
 
-}
+} // namespace doris
