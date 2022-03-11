@@ -174,7 +174,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                 block->get_by_position(i).column->convert_to_full_column_if_const();
         const auto& column = block->get_by_position(i).column;
 
-        if (desc->is_nullable() && desc->type() == TYPE_OBJECT) {
+        if (desc->type() == TYPE_OBJECT && column->is_nullable()) {
             const auto& null_map =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)
                             ->get_null_map_data();
