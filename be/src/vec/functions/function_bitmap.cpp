@@ -26,6 +26,7 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/function_always_not_nullable.h"
 
 namespace doris::vectorized {
 
@@ -36,18 +37,11 @@ struct BitmapEmpty {
     static auto init_value() { return BitmapValue {}; }
 };
 
-struct NameToBitmap {
+struct ToBitmap {
     static constexpr auto name = "to_bitmap";
-};
-
-struct ToBitmapImpl {
-    using ReturnType = DataTypeBitMap;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
-    using Type = String;
-    using ReturnColumnType = ColumnBitmap;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res) {
+                         std::vector<BitmapValue>& res, NullMap& null_map) {
         auto size = offsets.size();
         res.reserve(size);
         for (size_t i = 0; i < size; ++i) {
@@ -56,15 +50,11 @@ struct ToBitmapImpl {
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
                                                                                 &parse_result);
-
-            // TODO: which where cause problem in to_bitmap(null), rethink how to slove the problem
-            // of null
-            //            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-            //                return Status::RuntimeError(
-            //                        fmt::format("The input: {:.{}} is not valid, to_bitmap only support bigint "
-            //                                    "value from 0 to 18446744073709551615 currently",
-            //                                    raw_str, str_size));
-            //            }
+            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
             res.emplace_back();
             res.back().add(int_value);
         }
@@ -72,76 +62,154 @@ struct ToBitmapImpl {
     }
 };
 
-struct NameBitmapFromString {
-    static constexpr auto name = "bitmap_from_string";
-};
-
 struct BitmapFromString {
-    using ReturnType = DataTypeBitMap;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
-    using Type = String;
-    using ReturnColumnType = ColumnBitmap;
+    static constexpr auto name = "bitmap_from_string";
+
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res) {
+                         std::vector<BitmapValue>& res, NullMap& null_map) {
         auto size = offsets.size();
         res.reserve(size);
         std::vector<uint64_t> bits;
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1] - 1;
-            if (SplitStringAndParse({raw_str, str_size}, ",", &safe_strtou64, &bits)) {
-                res.emplace_back(bits);
-            } else {
+            int64_t str_size = offsets[i] - offsets[i - 1] - 1;
+
+            if ((str_size > INT32_MAX) ||
+                !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
                 res.emplace_back();
+                null_map[i] = 1;
+                continue;
             }
+            res.emplace_back(bits);
             bits.clear();
         }
         return Status::OK();
     }
 };
 
-struct NameBitmapHash {
-    static constexpr auto name = "bitmap_hash";
-};
+template <typename Impl>
+class FunctionBitmapAlwaysNull : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
 
-struct BitmapHash {
-    using ReturnType = DataTypeBitMap;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
-    using Type = String;
-    using ReturnColumnType = ColumnBitmap;
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res) {
-        auto size = offsets.size();
-        res.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1] - 1;
-            uint32_t hash_value =
-                    HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
-            res.emplace_back();
-            res.back().add(hash_value);
-        }
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapAlwaysNull>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeBitMap>());
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto res_data_column = ColumnBitmap::create();
+        auto& null_map = res_null_map->get_data();
+        auto& res = res_data_column->get_data();
+
+        ColumnPtr argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnString* str_column = check_and_get_column<ColumnString>(argument_column.get());
+        const ColumnString::Chars& data = str_column->get_chars();
+        const ColumnString::Offsets& offsets = str_column->get_offsets();
+
+        Impl::vector(data, offsets, res, null_map);
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
         return Status::OK();
     }
 };
 
-struct NameBitmapCount {
-    static constexpr auto name = "bitmap_count";
+struct BitmapHash {
+    static constexpr auto name = "bitmap_hash";
+
+    using ReturnType = DataTypeBitMap;
+
+    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                       MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t str_size = offsets[i] - offsets[i - 1] - 1;
+            uint32_t hash_value =
+                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+            res_data[i].add(hash_value);
+        }
+    }
+
+    static void vector_nullable(const ColumnString::Chars& data,
+                                const ColumnString::Offsets& offsets, const NullMap& nullmap,
+                                MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
+        for (size_t i = 0; i < size; ++i) {
+            if (nullmap[i]) {
+                continue;
+            } else {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                uint32_t hash_value =
+                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                res_data[i].add(hash_value);
+            }
+        }
+    }
 };
 
-struct BitmapCount {
-    using ReturnType = DataTypeInt64;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
-    using Type = DataTypeBitMap::FieldType;
-    using ReturnColumnType = ColumnVector<Int64>;
-    using ReturnColumnContainer = ColumnVector<Int64>::Container;
+class FunctionBitmapCount : public IFunction {
+public:
+    static constexpr auto name = "bitmap_count";
 
-    static Status vector(const std::vector<BitmapValue>& data, ReturnColumnContainer& res) {
-        size_t size = data.size();
-        res.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
-            res.push_back(data[i].cardinality());
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapCount>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto res_data_column = ColumnInt64::create();
+        auto& res = res_data_column->get_data();
+        auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_map = data_null_map->get_data();
+
+        auto column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
+            VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
+            column = nullable->get_nested_column_ptr();
         }
+        auto str_col = assert_cast<const ColumnBitmap*>(column.get());
+        const auto& col_data = str_col->get_data();
+
+        res.reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                res.push_back(0);
+                continue;
+            }
+            res.push_back(col_data[i].cardinality());
+        }
+        block.replace_by_position(result, std::move(res_data_column));
         return Status::OK();
     }
 };
@@ -428,10 +496,9 @@ public:
 };
 
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
-using FunctionToBitmap = FunctionUnaryToType<ToBitmapImpl, NameToBitmap>;
-using FunctionBitmapFromString = FunctionUnaryToType<BitmapFromString, NameBitmapFromString>;
-using FunctionBitmapHash = FunctionUnaryToType<BitmapHash, NameBitmapHash>;
-using FunctionBitmapCount = FunctionUnaryToType<BitmapCount, NameBitmapCount>;
+using FunctionToBitmap = FunctionBitmapAlwaysNull<ToBitmap>;
+using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
+using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash>;
 
 using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
 using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;

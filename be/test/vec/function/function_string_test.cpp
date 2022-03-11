@@ -1017,6 +1017,21 @@ TEST(function_string_test, function_replace) {
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_bit_length_test) {
+    std::string func_name = "bit_length";
+    InputTypeSet input_types = {TypeIndex::String};
+    DataSet data_set = {{{Null()}, {Null()}},
+                        {{std::string("@!#")}, 24},
+                        {{std::string("")}, 0},
+                        {{std::string("ò&ø")}, 40},
+                        {{std::string("@@")}, 16},
+                        {{std::string("你好")}, 48},
+                        {{std::string("hello你好")}, 88},
+                        {{std::string("313233")}, 48},
+                        {{std::string("EFBC9F")}, 48}};
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris::vectorized
 
 int main(int argc, char** argv) {

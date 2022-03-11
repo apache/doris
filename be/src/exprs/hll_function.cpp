@@ -99,7 +99,7 @@ BigIntVal HllFunctions::hll_get_value(FunctionContext*, const StringVal& src) {
 
 BigIntVal HllFunctions::hll_cardinality(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {
-        return BigIntVal::null();
+        return BigIntVal();
     }
     StringVal dst;
     hll_init(ctx, &dst);
