@@ -345,7 +345,6 @@ module.exports = [
               "ascii",
               "bit_length",
               "char_length",
-              "coalesce",
               "concat",
               "concat_ws",
               "ends_with",

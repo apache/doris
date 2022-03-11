@@ -190,7 +190,7 @@ public class CreateFunctionStmt extends DdlStmt {
             try {
                 computeObjectChecksum();
             } catch (IOException | NoSuchAlgorithmException e) {
-                throw new AnalysisException("cannot to compute object's checksum");
+                throw new AnalysisException("cannot to compute object's checksum. err: " + e.getMessage());
             }
             String md5sum = properties.get(MD5_CHECKSUM);
             if (md5sum != null && !md5sum.equalsIgnoreCase(checksum)) {

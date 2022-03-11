@@ -203,7 +203,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                             fmt::format_to(error_msg, "{}",
                                            "the length of input is too long than schema. ");
                             fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_string());
+                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
                             fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
                             fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                         } else if (str_val.size > MAX_SIZE_OF_VEC_STRING) {
@@ -211,9 +211,9 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                                     error_msg, "{}",
                                     "the length of input string is too long than vec schema. ");
                             fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_string());
-                            fmt::format_to(error_msg, "schema length: {}; ",
-                                           MAX_SIZE_OF_VEC_STRING);
+                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                            fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
+                            fmt::format_to(error_msg, "limit length: {}; ", MAX_SIZE_OF_VEC_STRING);
                             fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                         }
 
