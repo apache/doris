@@ -547,12 +547,12 @@ OLAPStatus DataDir::load() {
 }
 
 void DataDir::add_pending_ids(const std::string& id) {
-    WriteLock wr_lock(&_pending_path_mutex);
+    WriteLock wr_lock(_pending_path_mutex);
     _pending_path_ids.insert(id);
 }
 
 void DataDir::remove_pending_ids(const std::string& id) {
-    WriteLock wr_lock(&_pending_path_mutex);
+    WriteLock wr_lock(_pending_path_mutex);
     _pending_path_ids.erase(id);
 }
 
@@ -719,7 +719,7 @@ void DataDir::_process_garbage_path(const std::string& path) {
 }
 
 bool DataDir::_check_pending_ids(const std::string& id) {
-    ReadLock rd_lock(&_pending_path_mutex);
+    ReadLock rd_lock(_pending_path_mutex);
     return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 

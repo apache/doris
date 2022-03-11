@@ -142,10 +142,7 @@ public:
     bool version_for_load_deletion(const Version& version);
 
     // meta lock
-    inline void obtain_header_rdlock() { _meta_lock.rdlock(); }
-    inline void obtain_header_wrlock() { _meta_lock.wrlock(); }
-    inline void release_header_lock() { _meta_lock.unlock(); }
-    inline RWMutex* get_header_lock_ptr() { return &_meta_lock; }
+    inline std::shared_mutex& get_header_lock() { return _meta_lock; }
 
     // ingest lock
     inline void obtain_push_lock() { _ingest_lock.lock(); }
@@ -162,7 +159,7 @@ public:
     inline void release_cumulative_lock() { _cumulative_lock.unlock(); }
     inline Mutex* get_cumulative_lock() { return &_cumulative_lock; }
 
-    inline RWMutex* get_migration_lock_ptr() { return &_migration_lock; }
+    inline std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
@@ -302,15 +299,15 @@ private:
     DorisCallOnce<OLAPStatus> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
     // it will be used in econ-mode in the future
-    RWMutex _meta_store_lock;
+    std::shared_mutex _meta_store_lock;
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
-    RWMutex _migration_lock;
+    std::shared_mutex _migration_lock;
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
-    mutable RWMutex _meta_lock;
+    mutable std::shared_mutex _meta_lock;
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
@@ -392,14 +389,14 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
 inline size_t Tablet::tablet_footprint() {
-    ReadLock rdlock(&_meta_lock);
+    ReadLock rdlock(_meta_lock);
     return _tablet_meta->tablet_footprint();
 }
 
 // TODO(lingbin): Why other methods which need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
 inline size_t Tablet::num_rows() {
-    ReadLock rdlock(&_meta_lock);
+    ReadLock rdlock(_meta_lock);
     return _tablet_meta->num_rows();
 }
 

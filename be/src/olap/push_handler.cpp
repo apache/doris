@@ -86,8 +86,9 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     if (tablet == nullptr) {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
-    ReadLock base_migration_rlock(tablet->get_migration_lock_ptr(), TRY_LOCK);
-    if (!base_migration_rlock.own_lock()) {
+
+    ReadLock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
+    if (!base_migration_rlock.owns_lock()) {
         return OLAP_ERR_RWLOCK_ERROR;
     }
     tablet->obtain_push_lock();
@@ -116,11 +117,12 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
 
             DeletePredicatePB del_pred;
             DeleteConditionHandler del_cond_handler;
-            tablet_var.tablet->obtain_header_rdlock();
-            res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
-                                                             request.delete_conditions, &del_pred);
-            del_preds.push(del_pred);
-            tablet_var.tablet->release_header_lock();
+            {
+                ReadLock rdlock(tablet_var.tablet->get_header_lock());
+                res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
+                                                                 request.delete_conditions, &del_pred);
+                del_preds.push(del_pred);
+            }
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to generate delete condition. res=" << res
                              << ", tablet=" << tablet_var.tablet->full_name();

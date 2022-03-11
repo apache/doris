@@ -1012,20 +1012,18 @@ void StorageEngine::notify_listeners() {
 }
 
 OLAPStatus StorageEngine::execute_task(EngineTask* task) {
-    // 1. add wlock to related tablets
-    // 2. do prepare work
-    // 3. release wlock
     {
         std::vector<TabletInfo> tablet_infos;
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
+        std::vector<UniqueWriteLock> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
                     _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                tablet->obtain_header_wrlock();
+                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before prepare tabletid: "
                              << tablet_info.tablet_id;
@@ -1033,9 +1031,6 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         }
         // add write lock to all related tablets
         OLAPStatus prepare_status = task->prepare();
-        for (TabletSharedPtr& tablet : related_tablets) {
-            tablet->release_header_lock();
-        }
         if (prepare_status != OLAP_SUCCESS) {
             return prepare_status;
         }
@@ -1047,21 +1042,19 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         return exec_status;
     }
 
-    // 1. add wlock to related tablets
-    // 2. do finish work
-    // 3. release wlock
     {
         std::vector<TabletInfo> tablet_infos;
         // related tablets may be changed after execute task, so that get them here again
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
+        std::vector<UniqueWriteLock> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
                     _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                tablet->obtain_header_wrlock();
+                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before finish tabletid: "
                              << tablet_info.tablet_id;
@@ -1069,9 +1062,6 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         }
         // add write lock to all related tablets
         OLAPStatus fin_status = task->finish();
-        for (TabletSharedPtr& tablet : related_tablets) {
-            tablet->release_header_lock();
-        }
         return fin_status;
     }
 }

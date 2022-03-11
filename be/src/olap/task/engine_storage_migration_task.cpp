@@ -42,8 +42,8 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
 
     // try hold migration lock first
     OLAPStatus res = OLAP_SUCCESS;
-    WriteLock migration_wlock(_tablet->get_migration_lock_ptr(), TRY_LOCK);
-    if (!migration_wlock.own_lock()) {
+    UniqueWriteLock migration_wlock(_tablet->get_migration_lock(), std::try_to_lock);
+    if (!migration_wlock.owns_lock()) {
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
@@ -62,28 +62,26 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
 
     // TODO(ygl): the tablet should not under schema change or rollup or load
     do {
-        // get all versions to be migrate
-        _tablet->obtain_header_rdlock();
-        const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
-        if (last_version == nullptr) {
-            _tablet->release_header_lock();
-            res = OLAP_ERR_VERSION_NOT_EXIST;
-            LOG(WARNING) << "failed to get rowset with max version, tablet="
-                         << _tablet->full_name();
-            break;
-        }
-
-        int32_t end_version = last_version->end_version();
         std::vector<RowsetSharedPtr> consistent_rowsets;
-        res = _tablet->capture_consistent_rowsets(Version(0, end_version), &consistent_rowsets);
-        if (consistent_rowsets.empty()) {
-            _tablet->release_header_lock();
-            res = OLAP_ERR_VERSION_NOT_EXIST;
-            LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
-                         << ", version=" << end_version;
-            break;
+        {
+            ReadLock rdlock(_tablet->get_header_lock());
+            // get all versions to be migrate
+            const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
+            if (last_version == nullptr) {
+                res = OLAP_ERR_VERSION_NOT_EXIST;
+                LOG(WARNING) << "failed to get rowset with max version, tablet="
+                             << _tablet->full_name();
+                break;
+            }
+            int32_t end_version = last_version->end_version();
+            res = _tablet->capture_consistent_rowsets(Version(0, end_version), &consistent_rowsets);
+            if (consistent_rowsets.empty()) {
+                res = OLAP_ERR_VERSION_NOT_EXIST;
+                LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
+                             << ", version=" << end_version;
+                break;
+            }
         }
-        _tablet->release_header_lock();
 
         uint64_t shard = 0;
         res = _dest_store->get_shard(&shard);
@@ -123,9 +121,8 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         // generate new tablet meta and write to hdr file
         TabletMetaSharedPtr new_tablet_meta(new (std::nothrow) TabletMeta());
         {
-            _tablet->obtain_header_rdlock();
+            ReadLock rdlock(_tablet->get_header_lock());
             _generate_new_header(shard, consistent_rowsets, new_tablet_meta);
-            _tablet->release_header_lock();
         }
         std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
         res = new_tablet_meta->save(new_meta_file);
