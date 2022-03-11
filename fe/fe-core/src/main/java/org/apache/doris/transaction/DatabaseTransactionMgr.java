@@ -1647,9 +1647,10 @@ public class DatabaseTransactionMgr {
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         boolean shouldAddTableListLock  = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED ||
                 transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
-        Database db = catalog.getDbOrMetaException(transactionState.getDbId());
+        Database db = null;
         List<Table> tableList = null;
         if (shouldAddTableListLock) {
+            db = catalog.getDbOrMetaException(transactionState.getDbId());
             tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
             tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }
