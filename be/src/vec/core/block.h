@@ -415,7 +415,7 @@ public:
 
     void add_row(const Block* block, int row);
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
-    void add_rows(const Block* block, size_t row_begin, size_t row_end);
+    void add_rows(const Block* block, size_t row_begin, size_t length);
 
     std::string dump_data(size_t row_limit = 100) const;
 

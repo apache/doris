@@ -853,12 +853,12 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
     }
 }
 
-void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t row_end) {
+void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
-        dst->insert_range_from(src, row_begin, row_end);
+        dst->insert_range_from(src, row_begin, length);
     }
 }
 

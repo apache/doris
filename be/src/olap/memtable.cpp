@@ -44,10 +44,12 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _rowset_writer(rowset_writer),
           _is_first_insertion(true) {
     if (support_vec){
+        _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
         _vec_skip_list = new VecTable(_vec_row_comparator.get(), _table_mem_pool.get(),
                                 _keys_type == KeysType::DUP_KEYS);
     }else{
+        _vec_skip_list =nullptr;
         if (tablet_schema->sort_type() == SortType::ZORDER) {
             _row_comparator =
                     std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
@@ -60,7 +62,10 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
 }
 
 MemTable::~MemTable() {
-    delete _skip_list;
+    if (_skip_list)
+        delete _skip_list;
+    if (_vec_skip_list)
+        delete _vec_skip_list;
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -84,11 +89,12 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
         _is_first_insertion = false;
         auto cloneBlock = block->clone_without_columns();
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        _vec_row_comparator->set_block(&_input_mutable_block);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
     }
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
     size_t oldsize = block->allocated_bytes();
-    _input_mutable_block.add_rows(block, row_pos, row_pos + num_rows);
+    _input_mutable_block.add_rows(block, row_pos, num_rows);
     size_t newsize = block->allocated_bytes();
     _mem_tracker->Consume(newsize - oldsize);
 
@@ -205,7 +211,7 @@ vectorized::Block MemTable::collect_skiplist_results()
     return _output_mutable_block.to_block();
 }
 
-OLAPStatus MemTable::vflush(){
+OLAPStatus MemTable::_vflush(){
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     size_t _flush_size = 0;
@@ -224,19 +230,11 @@ OLAPStatus MemTable::vflush(){
     return OLAP_SUCCESS;
 }
 
-
-vectorized::Block MemTable::flush_to_block(){
-
-    return collect_skiplist_results();
-    
-}
-
-
-OLAPStatus MemTable::vclose() {
-    return vflush();
-}
-
 OLAPStatus MemTable::flush() {
+    if (_vec_skip_list) {
+        return _vflush();
+    }
+
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;

@@ -60,13 +60,10 @@ public:
 
     int64_t flush_size() const { return _flush_size; }
 
-    //flush for vectorized
-    OLAPStatus vflush();
-    OLAPStatus vclose();
-
-    //for test
-    vectorized::Block flush_to_block();
 private:
+    //flush for vectorized
+    OLAPStatus _vflush();
+
     class RowCursorComparator : public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
