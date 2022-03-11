@@ -27,8 +27,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -74,10 +72,10 @@ public class PublishVersionDaemon extends MasterDaemon {
         return true;
     }
     
-    private void publishVersion() throws UserException {
+    private void publishVersion() {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
-        if (readyTransactionStates == null || readyTransactionStates.isEmpty()) {
+        if (readyTransactionStates.isEmpty()) {
             return;
         }
 
@@ -241,13 +239,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // one transaction exception should not affect other transaction
                     globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
                 } catch (Exception e) {
-                    if (e instanceof MetaNotFoundException) {
-                        globalTransactionMgr.abortTransaction(transactionState.getDbId(), transactionState.getTransactionId(), e.getMessage(),
-                                transactionState.getTxnCommitAttachment());
-                        LOG.warn("abort transaction {}, error happens when finish transaction", transactionState.getTransactionId(), e);
-                    } else {
-                        LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
-                    }
+                    LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
                 }
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
