@@ -807,12 +807,12 @@ void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
     }
 }
 
-void Tablet::max_continuous_version_from_beginning(Version* version) {
+void Tablet::max_continuous_version_from_beginning(Version* version, Version* max_version) {
     ReadLock rdlock(&_meta_lock);
-    _max_continuous_version_from_beginning_unlocked(version);
+    _max_continuous_version_from_beginning_unlocked(version, max_version);
 }
 
-void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version) const {
+void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, Version* max_version) const {
     std::vector<Version> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
@@ -833,6 +833,9 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version) c
         max_continuous_version = existing_versions[i];
     }
     *version = max_continuous_version;
+    if (max_version != nullptr) {
+        *max_version = existing_versions.back();
+    }
 }
 
 void Tablet::calculate_cumulative_point() {
@@ -1247,9 +1250,15 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->row_count = _tablet_meta->num_rows();
     tablet_info->data_size = _tablet_meta->tablet_footprint();
 
-    tablet_info->__set_version_miss(false);
-    auto max_rowset = rowset_with_max_version();
-    if (max_rowset == nullptr) {
+    // Here we need to report to FE if there are any missing versions of tablet.
+    // We start from the initial version and traverse backwards until we meet a discontinuous version.
+    Version cversion;
+    Version max_version;
+    _max_continuous_version_from_beginning_unlocked(&cversion, &max_version);
+    tablet_info->__set_version_miss(cversion.second < max_version.second);
+    // find rowset with max version
+    auto iter = _rs_version_map.find(max_version);
+    if (iter == _rs_version_map.end()) {
         // If the tablet is in running state, it must not be doing schema-change. so if we can not
         // access its rowsets, it means that the tablet is bad and needs to be reported to the FE
         // for subsequent repairs (through the cloning task)
@@ -1260,10 +1269,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
         // still sets the state to normal when reporting. Note that every task has an timeout,
         // so if the task corresponding to this change hangs, when the task timeout, FE will know
         // and perform state modification operations.
-    } else {
-        tablet_info->__set_version_miss(check_version_integrity({0, max_rowset->version().second}, true));
     }
-    tablet_info->version = max_rowset->version().second;
+
+    // the report version is the largest continuous version, same logic as in FE side
+    tablet_info->version = cversion.second;
     // Useless but it is a required filed in TTabletInfo
     tablet_info->version_hash = 0;
     tablet_info->__set_partition_id(_tablet_meta->partition_id());

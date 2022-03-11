@@ -177,7 +177,8 @@ public:
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
-    void max_continuous_version_from_beginning(Version* version);
+    // 3 will be saved in "version", and 7 will be saved in "max_version", if max_version != nullptr
+    void max_continuous_version_from_beginning(Version* version, Version* max_version = nullptr);
 
     // operation for query
     OLAPStatus split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
@@ -275,7 +276,8 @@ private:
 
     // Returns:
     // version: the max continuous version from beginning
-    void _max_continuous_version_from_beginning_unlocked(Version* version) const;
+    // max_version: the max version of this tablet
+    void _max_continuous_version_from_beginning_unlocked(Version* version, Version* max_version) const;
     RowsetSharedPtr _rowset_with_largest_size();
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
