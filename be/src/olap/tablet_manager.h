@@ -23,6 +23,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -186,7 +187,7 @@ private:
 
     void _remove_tablet_from_partition(const Tablet& tablet);
 
-    RWMutex* _get_tablets_shard_lock(TTabletId tabletId);
+    std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
@@ -201,11 +202,16 @@ private:
         std::list<TabletSharedPtr> table_arr;
     };
     // tablet_id -> TabletInstances
-    typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
+    using tablet_map_t = std::unordered_map<int64_t, TableInstances>;
 
     struct tablets_shard {
+        tablets_shard() = default;
+        tablets_shard(tablets_shard&& shard) {
+            tablet_map = std::move(shard.tablet_map);
+            tablets_under_clone = std::move(shard.tablets_under_clone);
+        }
         // protect tablet_map, tablets_under_clone and tablets_under_restore
-        std::unique_ptr<RWMutex> lock;
+        mutable std::shared_mutex lock;
         tablet_map_t tablet_map;
         std::set<int64_t> tablets_under_clone;
     };
@@ -218,9 +224,9 @@ private:
     std::vector<tablets_shard> _tablets_shards;
 
     // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
-    RWMutex _partition_tablet_map_lock;
+    std::shared_mutex _partition_tablet_map_lock;
     // Protect _shutdown_tablets, should not be obtained before _tablet_map_lock to avoid dead lock
-    RWMutex _shutdown_tablets_lock;
+    std::shared_mutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     std::vector<TabletSharedPtr> _shutdown_tablets;

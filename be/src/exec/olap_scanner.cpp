@@ -79,7 +79,7 @@ Status OlapScanner::prepare(
             return Status::InternalError(ss.str());
         }
         {
-            ReadLock rdlock(_tablet->get_header_lock_ptr());
+            ReadLock rdlock(_tablet->get_header_lock());
             const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
             if (rowset == nullptr) {
                 std::stringstream ss;
