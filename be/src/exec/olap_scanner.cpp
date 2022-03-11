@@ -257,13 +257,19 @@ Status OlapScanner::_init_return_columns() {
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     // 2. Allocate Row's Tuple buf
+    const std::string mem_err_msg("OlapSanner::get_batch memory over limit, "
+                                  "please increase exec_mem_limit");
     uint8_t* tuple_buf =
-            batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
+            batch->tuple_data_pool()->try_allocate(state->batch_size() * _tuple_desc->byte_size());
+    if (tuple_buf == nullptr) {
+        return Status::MemoryLimitExceeded(mem_err_msg);
+    }
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
     std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
+    int64_t allocated_bytes = 0;
     {
         SCOPED_TIMER(_parent->_scan_timer);
         while (true) {
@@ -273,6 +279,13 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                 break;
             }
             // Read one row from reader
+            allocated_bytes = mem_pool->total_reserved_bytes() - allocated_bytes;
+            if (allocated_bytes > 1024 * 1024) {
+                if (_mem_tracker.get()->any_limit_exceeded()) {
+                    Status::MemoryLimitExceeded(mem_err_msg);
+                }
+                allocated_bytes = mem_pool->total_reserved_bytes();
+            }
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
                                                           batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {

@@ -1397,8 +1397,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             if (mem_consume < (mem_limit * 6) / 10) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {
-                // Memory already exceed
-                if (_scan_row_batches.empty()) {
+                // Memory already exceeds, start a scanner only if two lists are empty.
+                if (_scan_row_batches.empty() && _materialized_row_batches.empty()) {
                     // NOTE(zc): here need to lock row_batches_lock_
                     //  be worried about dead lock, so don't check here
                     // if (materialized_row_batches_.empty()) {
@@ -1406,10 +1406,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                     //         " are empty when memory exceed";
                     // }
                     // Just for notify if scan_row_batches_ is empty and no running thread
-                    if (assigned_thread_num == 0) {
-                        thread_slot_num = 1;
-                        // NOTE: if olap_scanners_ is empty, scanner_done_ should be true
-                    }
+                    // thread_slot_num must be zero dueto if else.
+                    thread_slot_num = 1;
                 }
             }
             thread_slot_num = std::min(thread_slot_num, _olap_scanners.size());
