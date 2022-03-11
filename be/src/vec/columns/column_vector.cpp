@@ -231,7 +231,8 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
             // Now Uint8 use to identify null and non null
             // 1. nullable column : offset == -1 means is null at the here, set true here
             // 2. real data column : offset == -1 what at is meaningless
-            data[origin_size + i] = (offset == -1) ? T{1} : src_vec.get_element(offset);
+            // 3. -1 only use in outer join to hint the null is produced by outer join
+            data[origin_size + i] = (offset == -1) ? UInt8(-1) : src_vec.get_element(offset);
         } else {
             data[origin_size + i] = (offset == -1) ? T{0} : src_vec.get_element(offset);
         }

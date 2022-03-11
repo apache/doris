@@ -291,7 +291,7 @@ struct ProcessHashTableProbe {
                         if constexpr (probe_all) {
                             if (_build_block_offsets[j] == -1) {
                                 DCHECK(mcol[i + right_col_idx]->is_nullable());
-                                assert_cast<ColumnNullable *>(mcol[i + right_col_idx].get())->insert_data(nullptr, 0);
+                                assert_cast<ColumnNullable *>(mcol[i + right_col_idx].get())->insert_join_null_data();
                             } else {
                                 auto& column = *_build_blocks[_build_block_offsets[j]].get_by_position(i).column;
                                 mcol[i + right_col_idx]->insert_from(column, _build_block_rows[j]);
@@ -383,7 +383,7 @@ struct ProcessHashTableProbe {
                               JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
                     for (size_t j = 0; j < right_col_len; ++j) {
                         DCHECK(mcol[j + right_col_idx]->is_nullable());
-                        assert_cast<ColumnNullable *>(mcol[j + right_col_idx].get())->insert_data(nullptr, 0);
+                        assert_cast<ColumnNullable *>(mcol[j + right_col_idx].get())->insert_join_null_data();
                     }
                 } else {
                     for (size_t j = 0; j < right_col_len; ++j) {
@@ -553,12 +553,11 @@ struct ProcessHashTableProbe {
 
         // right outer join / full join need insert data of left table
         if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
-                      JoinOpType::value == TJoinOp::FULL_OUTER_JOIN ||
                       JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
                       JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
             for (int i = 0; i < right_col_idx; ++i) {
                 for (int j = 0; j < block_size; ++j) {
-                    assert_cast<ColumnNullable *>(mcol[i].get())->insert_data(nullptr, 0);
+                    assert_cast<ColumnNullable *>(mcol[i].get())->insert_join_null_data();
                 }
             }
         }
