@@ -1172,6 +1172,24 @@ public class PaloAuth implements Writable {
         }
     }
 
+    public long getExecMemLimit(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getExecMemLimit(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getLoadMemLimit(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getLoadMemLimit(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {
