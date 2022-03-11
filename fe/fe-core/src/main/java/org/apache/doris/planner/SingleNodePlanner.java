@@ -60,7 +60,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -1367,8 +1366,8 @@ public class SingleNodePlanner {
         // inline view's plan.
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
-        // Vec exec engine not need the function of TupleIsNull, So here just skip wrap it
-        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
+
+        if (analyzer.isOuterJoined(inlineViewRef.getId())) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping

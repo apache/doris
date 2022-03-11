@@ -46,7 +46,7 @@ public class TupleIsNullPredicate extends Predicate {
     protected TupleIsNullPredicate(TupleIsNullPredicate other) {
         super(other);
         tupleIds.addAll(other.tupleIds);
-   }
+    }
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
@@ -54,11 +54,13 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
 
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
-        for (TupleId tid: tids) {
+        for (TupleId tid : tids) {
             if (tupleIds.contains(tid)) return true;
         }
         return false;
@@ -93,29 +95,29 @@ public class TupleIsNullPredicate extends Predicate {
         }
         TupleIsNullPredicate other = (TupleIsNullPredicate) o;
         return other.tupleIds.containsAll(tupleIds)
-            && tupleIds.containsAll(other.tupleIds);
+                && tupleIds.containsAll(other.tupleIds);
     }
 
     /**
      * Makes each input expr nullable, if necessary, by wrapping it as follows:
      * IF(TupleIsNull(tids), NULL, expr)
-     *
+     * <p>
      * The given tids must be materialized. The given inputExprs are expected to be bound
      * by tids once fully substituted against base tables. However, inputExprs may not yet
      * be fully substituted at this point.
-     *
+     * <p>
      * Returns a new list with the nullable exprs.
      */
     public static List<Expr> wrapExprs(List<Expr> inputExprs,
-        List<TupleId> tids, Analyzer analyzer) throws UserException {
+                                       List<TupleId> tids, Analyzer analyzer) throws UserException {
         // Assert that all tids are materialized.
-        for (TupleId tid: tids) {
+        for (TupleId tid : tids) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
             Preconditions.checkState(tupleDesc.getIsMaterialized());
         }
         // Perform the wrapping.
         List<Expr> result = Lists.newArrayListWithCapacity(inputExprs.size());
-        for (Expr e: inputExprs) {
+        for (Expr e : inputExprs) {
             result.add(wrapExpr(e, tids, analyzer));
         }
         return result;
@@ -166,7 +168,7 @@ public class TupleIsNullPredicate extends Predicate {
      * Recursive function that replaces all 'IF(TupleIsNull(), NULL, e)' exprs in
      * 'expr' with e and returns the modified expr.
      */
-    public static Expr unwrapExpr(Expr expr)  {
+    public static Expr unwrapExpr(Expr expr) {
         if (expr instanceof FunctionCallExpr) {
             FunctionCallExpr fnCallExpr = (FunctionCallExpr) expr;
             List<Expr> params = fnCallExpr.getParams().exprs();
@@ -180,5 +182,10 @@ public class TupleIsNullPredicate extends Predicate {
             expr.setChild(i, unwrapExpr(expr.getChild(i)));
         }
         return expr;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return false;
     }
 }
