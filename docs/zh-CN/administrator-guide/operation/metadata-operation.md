@@ -136,7 +136,7 @@ under the License.
 
 ### 添加 FE
 
-添加 FE 流程在 [部署和升级文档](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) 有详细介绍，不再赘述。这里主要说明一些注意事项，以及常见问题。
+添加 FE 流程在 [部署和升级文档](../../installing/install-deploy.md#增加%20FE%20节点) 有详细介绍，不再赘述。这里主要说明一些注意事项，以及常见问题。
 
 1. 注意事项
 
