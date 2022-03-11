@@ -32,7 +32,7 @@ class RuntimeProfile;
 class TupleRow;
 
 struct ResultFileOptions {
-    // deprecated
+    // [[deprecated]]
     bool is_local_file;
     std::string file_path;
     TFileFormatType::type file_format;
@@ -77,6 +77,7 @@ class BufferControlBlock;
 // write result to file
 class FileResultWriter final : public ResultWriter {
 public:
+    // [[deprecated]]
     FileResultWriter(const ResultFileOptions* file_option,
                      const std::vector<ExprContext*>& output_expr_ctxs,
                      RuntimeProfile* parent_profile, BufferControlBlock* sinker,
