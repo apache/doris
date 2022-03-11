@@ -24,6 +24,7 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -42,6 +43,10 @@ public:
     // referenced by `row`. That means callers are free to de-allocate memory for `row` after this method returns.
     virtual OLAPStatus add_row(const RowCursor& row) = 0;
     virtual OLAPStatus add_row(const ContiguousRow& row) = 0;
+
+    virtual OLAPStatus add_block(const vectorized::Block* block) {
+        return OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual OLAPStatus add_rowset(RowsetSharedPtr rowset) = 0;

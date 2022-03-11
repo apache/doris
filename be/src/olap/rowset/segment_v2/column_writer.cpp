@@ -191,6 +191,27 @@ Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* da
     return Status::OK();
 }
 
+Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num_rows) {
+    assert(data && num_rows > 0);
+    if (nullmap) {
+        size_t bitmap_size = BitmapSize(num_rows);
+        if (_null_bitmap.size() < bitmap_size) {
+            _null_bitmap.resize(bitmap_size);
+        }
+        uint8_t* bitmap_data = _null_bitmap.data();
+        memset(bitmap_data, 0, bitmap_size);
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (nullmap[i]) {
+                BitmapSet(bitmap_data, i);
+            }
+        }
+        return append_nullable(bitmap_data, data, num_rows);
+    } else {
+        const uint8_t* ptr = (const uint8_t*)data;
+        return append_data(&ptr, num_rows);
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,

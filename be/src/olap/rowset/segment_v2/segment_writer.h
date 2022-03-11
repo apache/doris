@@ -25,6 +25,8 @@
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "vec/core/block.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
 
@@ -34,6 +36,7 @@ class RowCursor;
 class TabletSchema;
 class TabletColumn;
 class ShortKeyIndexBuilder;
+class KeyCoder;
 
 namespace fs {
 class WritableBlock;
@@ -61,6 +64,8 @@ public:
     template <typename RowType>
     Status append_row(const RowType& row);
 
+    Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+
     uint64_t estimate_segment_size();
 
     uint32_t num_rows_written() { return _row_count; }
@@ -80,6 +85,9 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
 
+    std::string encode_short_keys(const std::vector<vectorized::OlapFieldData> key_column_fields,
+                                  bool null_first = true);
+
 private:
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
@@ -93,6 +101,11 @@ private:
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     std::shared_ptr<MemTracker> _mem_tracker;
     uint32_t _row_count = 0;
+
+    vectorized::OlapBlockDataConvertor _olap_data_convertor;
+    std::vector< const KeyCoder* > _short_key_coders;
+    std::vector< uint16_t > _short_key_index_size;
+    size_t _short_key_row_pos = 0;
 };
 
 } // namespace segment_v2

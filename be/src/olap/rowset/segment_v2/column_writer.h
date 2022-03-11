@@ -101,6 +101,8 @@ public:
         return append_nullable(&nullmap, data, 1);
     }
 
+    Status append(const uint8_t* nullmap, const void* data, size_t num_rows);
+
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
 
     virtual Status append_nulls(size_t num_rows) = 0;
@@ -141,6 +143,10 @@ public:
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
+    std::vector<uint8_t> _null_bitmap;
+
+protected:
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class FlushPageCallback {
