@@ -136,7 +136,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 
 ### Add FE
 
-Adding FE processes is described in detail in the [Deployment and Upgrade Documents](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) and will not be repeated. Here are some points for attention, as well as common problems.
+Adding FE processes is described in detail in the [Deployment and Upgrade Documents](../../installing/install-deploy.md#Adding%20FE%20nodes) and will not be repeated. Here are some points for attention, as well as common problems.
 
 1. Notes
 
