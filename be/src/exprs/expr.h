@@ -50,7 +50,6 @@ class RuntimeState;
 class TColumnValue;
 class TExpr;
 class TExprNode;
-class SetVar;
 class TupleIsNullPredicate;
 class VectorizedRowBatch;
 class Literal;
