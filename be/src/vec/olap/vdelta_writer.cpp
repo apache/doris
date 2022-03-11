@@ -54,10 +54,9 @@ OLAPStatus VDeltaWriter::write_block(const vectorized::Block* block, const std::
 
     const size_t num_rows = row_idxs.size();
     for (; start < num_rows;) {
-        auto delta = end + 1 - start;
-        if (end == num_rows - 1 || (row_idxs[end + 1] - row_idxs[start]) != delta) {
-            size_t count = delta;
-            _mem_table->insert(block, start, count);
+        auto count = end + 1 - start;
+        if (end == num_rows - 1 || (row_idxs[end + 1] - row_idxs[start]) != count) {
+            _mem_table->insert(block, row_idxs[start], count);
             start += count;
             end = start;
         } else {
