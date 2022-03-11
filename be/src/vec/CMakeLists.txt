@@ -99,6 +99,7 @@ set(VEC_FILES
   exprs/vexpr_context.cpp
   exprs/vliteral.cpp
   exprs/vin_predicate.cpp
+  exprs/vtuple_is_null_predicate.cpp
   exprs/vslot_ref.cpp
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
