@@ -44,7 +44,7 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _rowset_writer(rowset_writer),
           _is_first_insertion(true) {
     if (support_vec){
-        _vec_row_comparator = std::make_shared<VecRowComparator>(_schema);
+        _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
         _vec_skip_list = new VecTable(_vec_row_comparator.get(), _table_mem_pool.get(),
                                 _keys_type == KeysType::DUP_KEYS);
     }else{
@@ -71,11 +71,10 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
     return compare_row(lhs_row, rhs_row);
 }
 
-int VecRowComparator::operator()(const RowInBlock left, const RowInBlock right) const{
-    return left._block->compare_at(left._row_pos, right._row_pos, 
+int MemTable::RowInBlockComparator::operator()(const RowInBlock left, const RowInBlock right) const{
+    return _pblock->compare_at(left._row_pos, right._row_pos, 
                             _schema->num_key_columns(), 
-                            *(right._block), -1); 
-           //nan_direction_hint == -1, NaN and NULLs are considered as least than everything other;
+                            *_pblock, -1); 
 }
 
 void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num_rows)
@@ -94,7 +93,7 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
     _mem_tracker->Consume(newsize - oldsize);
 
     for(int i = 0; i < num_rows; i++){       
-        insert_one_row_from_block(RowInBlock(&_input_mutable_block, cursor_in_mutableblock + i));
+        insert_one_row_from_block(RowInBlock(cursor_in_mutableblock + i));
     }   
 }
 
@@ -178,26 +177,25 @@ void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_
 void MemTable::_aggregate_two_rowInBlock(RowInBlock new_row, RowInBlock row_in_skiplist){
     if (_tablet_schema->has_sequence_col()) {
         auto sequence_idx = _tablet_schema->sequence_col_idx();
-        auto seq_dst_cell = row_in_skiplist.cell(sequence_idx);
-        auto seq_src_cell = new_row.cell(sequence_idx);
+        auto seq_dst_cell = row_in_skiplist.cell(&_input_mutable_block, sequence_idx);
+        auto seq_src_cell = new_row.cell(&_input_mutable_block, sequence_idx);
         auto res = _schema->column(sequence_idx)->compare_cell(seq_dst_cell, seq_src_cell);
         // dst sequence column larger than src, don't need to update
         if (res > 0) {
             return;
         }
-    }
-                                
-    
+    }                       
+    //dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _schema->num_key_columns(); 
                     cid < _schema->num_columns();
                     ++cid) {
-        auto dst_cell = row_in_skiplist.cell(cid);
-        auto src_cell = new_row.cell(cid);
+        auto dst_cell = row_in_skiplist.cell(&_input_mutable_block, cid);
+        auto src_cell = new_row.cell(&_input_mutable_block, cid);
         _schema->column(cid)->agg_update(&dst_cell, &src_cell, _table_mem_pool.get());
     }
     
 }
-vectorized::Block MemTable::to_block()
+vectorized::Block MemTable::collect_skiplist_results()
 {
     VecTable::Iterator it(_vec_skip_list);
     vectorized::Block in_block = _input_mutable_block.to_block();
@@ -214,7 +212,7 @@ OLAPStatus MemTable::vflush(){
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        vectorized::Block block = to_block();
+        vectorized::Block block = collect_skiplist_results();
         OLAPStatus st = _rowset_writer->add_block(&block);
         RETURN_NOT_OK(st);
         _flush_size = block.allocated_bytes();
@@ -225,6 +223,15 @@ OLAPStatus MemTable::vflush(){
                   << ", flushsize: " << _flush_size;
     return OLAP_SUCCESS;
 }
+
+
+vectorized::Block MemTable::flush_to_block(){
+
+    return collect_skiplist_results();
+    
+}
+
+
 OLAPStatus MemTable::vclose() {
     return vflush();
 }
