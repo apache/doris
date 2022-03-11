@@ -29,10 +29,10 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
-#include "vec/exprs/vtuple_is_null_predicate.h"
+#include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/vtuple_is_null_predicate.h"
 
 namespace doris::vectorized {
 using doris::Status;
@@ -96,7 +96,8 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::DATE_LITERAL:
     case TExprNodeType::STRING_LITERAL:
-    case TExprNodeType::NULL_LITERAL: {
+    case TExprNodeType::NULL_LITERAL:
+    case TExprNodeType::ARRAY_LITERAL: {
         *expr = pool->add(new VLiteral(texpr_node));
         return Status::OK();
     }

@@ -96,7 +96,8 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
     return Status::OK();
 }
 
-Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColumnPtr& origin_column) {
+Status RowBlockV2::_copy_data_to_column(int cid,
+                                        doris::vectorized::MutableColumnPtr& origin_column) {
     auto* column = origin_column.get();
     bool nullable_mark_array[_selected_size];
 
@@ -174,7 +175,7 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
                 }
             }
         }
-        break;        
+        break;
     }
     case OLAP_FIELD_TYPE_MAP:
     case OLAP_FIELD_TYPE_VARCHAR: {
@@ -201,7 +202,8 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
                 if (LIKELY(slice->size <= MAX_SIZE_OF_VEC_STRING)) {
                     column_string->insert_data(slice->data, slice->size);
                 } else {
-                    return Status::NotSupported("Not support string len over than 1MB in vec engine.");
+                    return Status::NotSupported(
+                            "Not support string len over than 1MB in vec engine.");
                 }
             } else {
                 column_string->insert_default();
@@ -295,9 +297,12 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
             auto cv = reinterpret_cast<const CollectionValue*>(column_block(cid).cell_ptr(row_idx));
             if (!nullable_mark_array[j]) {
                 offset += cv->length();
-                _append_data_to_column(src_col->elements(), src_col->item_offset(row_idx), cv->length(), nested_col);
+                _append_data_to_column(src_col->elements(), src_col->item_offset(row_idx),
+                                       cv->length(), nested_col);
+                offsets_col.push_back(offset);
+            } else {
+                column_array->insert_default();
             }
-            offsets_col.emplace_back(offset);
         }
         break;
     }
@@ -349,11 +354,13 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
     return Status::OK();
 }
 
-Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16_t off, uint16_t len, doris::vectorized::MutableColumnPtr& origin_column) {
+Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t start,
+                                          uint32_t len,
+                                          doris::vectorized::MutableColumnPtr& origin_column) {
     constexpr auto MAX_SIZE_OF_VEC_STRING = 1024l * 1024;
 
     auto* column = origin_column.get();
-    uint16_t selected_size = len;
+    uint32_t selected_size = len;
     bool nullable_mark_array[selected_size];
 
     bool column_nullable = origin_column->is_nullable();
@@ -364,8 +371,8 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
         column = nullable_column->get_nested_column_ptr().get();
 
         if (origin_nullable) {
-            for (uint16_t i = 0; i < selected_size; ++i) {
-                uint16_t row_idx = i + off;
+            for (uint32_t i = 0; i < selected_size; ++i) {
+                uint32_t row_idx = i + start;
                 null_map.push_back(batch->is_null_at(row_idx));
                 nullable_mark_array[i] = null_map.back();
             }
@@ -377,12 +384,12 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
         memset(nullable_mark_array, false, selected_size * sizeof(bool));
     }
 
-    auto insert_data_directly = [&nullable_mark_array](auto& batch, auto& column, auto& off, auto& len) {
-        for (uint16_t j = 0; j < len; ++j) {
+    auto insert_data_directly = [&nullable_mark_array](auto& batch, auto& column, auto& start,
+                                                       auto& length) {
+        for (uint32_t j = 0; j < length; ++j) {
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
-                column->insert_data(
-                        reinterpret_cast<const char*>(batch->cell_ptr(row_idx)), 0);
+                uint32_t row_idx = j + start;
+                column->insert_data(reinterpret_cast<const char*>(batch->cell_ptr(row_idx)), 0);
             } else {
                 column->insert_default();
             }
@@ -392,10 +399,10 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
     switch (batch->type_info()->type()) {
     case OLAP_FIELD_TYPE_OBJECT: {
         auto column_bitmap = assert_cast<vectorized::ColumnBitmap*>(column);
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             column_bitmap->insert_default();
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto slice = reinterpret_cast<const Slice*>(batch->cell_ptr(row_idx));
 
                 BitmapValue* pvalue = &column_bitmap->get_element(column_bitmap->size() - 1);
@@ -413,10 +420,10 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
     }
     case OLAP_FIELD_TYPE_HLL: {
         auto column_hll = assert_cast<vectorized::ColumnHLL*>(column);
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             column_hll->insert_default();
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto slice = reinterpret_cast<const Slice*>(batch->cell_ptr(row_idx));
 
                 HyperLogLog* pvalue = &column_hll->get_element(column_hll->size() - 1);
@@ -436,9 +443,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
     case OLAP_FIELD_TYPE_VARCHAR: {
         auto column_string = assert_cast<vectorized::ColumnString*>(column);
 
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto slice = reinterpret_cast<const Slice*>(batch->cell_ptr(row_idx));
                 column_string->insert_data(slice->data, slice->size);
             } else {
@@ -450,14 +457,15 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
     case OLAP_FIELD_TYPE_STRING: {
         auto column_string = assert_cast<vectorized::ColumnString*>(column);
 
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto slice = reinterpret_cast<const Slice*>(batch->cell_ptr(row_idx));
                 if (LIKELY(slice->size <= MAX_SIZE_OF_VEC_STRING)) {
                     column_string->insert_data(slice->data, slice->size);
                 } else {
-                    return Status::NotSupported("Not support string len over than 1MB in vec engine.");
+                    return Status::NotSupported(
+                            "Not support string len over than 1MB in vec engine.");
                 }
             } else {
                 column_string->insert_default();
@@ -468,9 +476,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
     case OLAP_FIELD_TYPE_CHAR: {
         auto column_string = assert_cast<vectorized::ColumnString*>(column);
 
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto slice = reinterpret_cast<const Slice*>(batch->cell_ptr(row_idx));
                 column_string->insert_data(slice->data, strnlen(slice->data, slice->size));
             } else {
@@ -482,9 +490,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
     case OLAP_FIELD_TYPE_DATE: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column);
 
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto ptr = reinterpret_cast<const char*>(batch->cell_ptr(row_idx));
 
                 uint64_t value = 0;
@@ -504,9 +512,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
     case OLAP_FIELD_TYPE_DATETIME: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column);
 
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto ptr = reinterpret_cast<const char*>(batch->cell_ptr(row_idx));
 
                 uint64_t value = *reinterpret_cast<const uint64_t*>(ptr);
@@ -522,9 +530,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
         auto column_decimal =
                 assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
 
-        for (uint16_t j = 0; j < selected_size; ++j) {
+        for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
-                uint16_t row_idx = j + off;
+                uint32_t row_idx = j + start;
                 auto ptr = reinterpret_cast<const char*>(batch->cell_ptr(row_idx));
 
                 int64_t int_value = *(int64_t*)(ptr);
@@ -537,44 +545,65 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, uint16
         }
         break;
     }
+    case OLAP_FIELD_TYPE_ARRAY: {
+        auto array_batch = reinterpret_cast<const ArrayColumnVectorBatch*>(batch);
+        auto column_array = assert_cast<vectorized::ColumnArray*>(column);
+        auto nested_col = (*column_array->get_data_ptr()).assume_mutable();
+
+        auto& offsets_col = column_array->get_offsets();
+        uint32_t offset = offsets_col.back();
+        for (uint32_t j = 0; j < selected_size; ++j) {
+            if (!nullable_mark_array[j]) {
+                uint32_t row_idx = j + start;
+                auto cv = reinterpret_cast<const CollectionValue*>(batch->cell_ptr(row_idx));
+                offset += cv->length();
+                _append_data_to_column(array_batch->elements(), array_batch->item_offset(row_idx),
+                                       cv->length(), nested_col);
+                offsets_col.push_back(offset);
+            } else {
+                column_array->insert_default();
+            }
+        }
+        break;
+    }
     case OLAP_FIELD_TYPE_INT: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int32>*>(column);
-        insert_data_directly(batch, column_int, off, len);
+        insert_data_directly(batch, column_int, start, len);
         break;
     }
     case OLAP_FIELD_TYPE_BOOL: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(column);
-        insert_data_directly(batch, column_int, off, len);
+        insert_data_directly(batch, column_int, start, len);
         break;
     }
     case OLAP_FIELD_TYPE_TINYINT: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int8>*>(column);
-        insert_data_directly(batch, column_int, off, len);
+        insert_data_directly(batch, column_int, start, len);
         break;
     }
     case OLAP_FIELD_TYPE_SMALLINT: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int16>*>(column);
-        insert_data_directly(batch, column_int, off, len);
+        insert_data_directly(batch, column_int, start, len);
         break;
     }
     case OLAP_FIELD_TYPE_BIGINT: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column);
-        insert_data_directly(batch, column_int, off, len);
+        insert_data_directly(batch, column_int, start, len);
         break;
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int128>*>(column);
-        insert_data_directly(batch, column_int, off, len);
+        insert_data_directly(batch, column_int, start, len);
         break;
     }
     case OLAP_FIELD_TYPE_FLOAT: {
         auto column_float = assert_cast<vectorized::ColumnVector<vectorized::Float32>*>(column);
-        insert_data_directly(batch, column_float, off, len);
+        insert_data_directly(batch, column_float, start, len);
         break;
     }
     case OLAP_FIELD_TYPE_DOUBLE: {
         auto column_float = assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(column);
-        insert_data_directly(batch, column_float, off, len);
+        insert_data_directly(batch, column_float, start, len);
         break;
     }
     default: {

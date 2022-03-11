@@ -111,7 +111,8 @@ public:
 
 private:
     Status _copy_data_to_column(int cid, vectorized::MutableColumnPtr& mutable_column_ptr);
-    Status _append_data_to_column(const ColumnVectorBatch* batch, uint16_t off, uint16_t len, vectorized::MutableColumnPtr& mutable_column_ptr);
+    Status _append_data_to_column(const ColumnVectorBatch* batch, size_t start, uint32_t len,
+                                  vectorized::MutableColumnPtr& mutable_column_ptr);
 
     const Schema& _schema;
     size_t _capacity;

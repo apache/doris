@@ -17,31 +17,27 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
-#include "vec/columns/column_const.h"
-#include "vec/exprs/vexpr.h"
+#include <string>
+
+#include "udf/udf.h"
 
 namespace doris {
-class TExprNode;
 
-namespace vectorized {
-class VLiteral : public VExpr {
+class ColumnPB;
+class MemPool;
+class Status;
+struct CollectionValue;
+
+class ArrayUtils {
 public:
-    virtual ~VLiteral();
-    VLiteral(const TExprNode& node);
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                           VExprContext* context) override;
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) override;
-    virtual const std::string& expr_name() const override { return _expr_name; }
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VLiteral(*this));
-    }
+    using TypeDesc = FunctionContext::TypeDesc;
+    static void prepare_context(FunctionContext& context, MemPool& mem_pool,
+                                const ColumnPB& column_pb);
+    static Status create_collection_value(CollectionValue* collection_value,
+                                          FunctionContext* context, const std::string& json_string);
 
 private:
-    ColumnPtr _column_ptr;
-    std::string _expr_name;
+    static TypeDesc create_function_type_desc(const ColumnPB& column_pb);
 };
-} // namespace vectorized
 
 } // namespace doris
