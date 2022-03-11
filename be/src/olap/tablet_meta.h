@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_TABLET_META_H
 
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -204,7 +205,7 @@ private:
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
-    RWMutex _meta_lock;
+    std::shared_mutex _meta_lock;
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
