@@ -831,7 +831,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                              << " schema_hash=" << tablet_meta_info.schema_hash;
                 continue;
             }
-            WriteLock wrlock(tablet->get_header_lock_ptr());
+            WriteLock wrlock(tablet->get_header_lock());
             // update tablet meta
             if (!tablet_meta_info.__isset.meta_type) {
                 tablet->set_partition_id(tablet_meta_info.partition_id);
