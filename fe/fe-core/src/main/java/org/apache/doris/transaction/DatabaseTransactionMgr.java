@@ -794,10 +794,10 @@ public class DatabaseTransactionMgr {
         }
 
         // case 1 If database is dropped, then we just throw MetaNotFoundException, because all related tables are already force dropped,
-        // it is safe to abort the transaction with all tables been force dropped.
+        // we just ignore the transaction with all tables been force dropped.
         // case 2 If at least one table lock successfully, which means that the transaction should be finished for the existed tables
         // while just ignore tables which have been dropped forcefully.
-        // case 3 Database exist and all tables already been dropped, this case is same with case1, just abort the transaction
+        // case 3 Database exist and all tables already been dropped, this case is same with case1, just finish the transaction with empty commit info
         // only three cases mentioned above may happen, because user cannot drop table without force while there are committed transactions on table
         // and writeLockTablesIfExist is a blocking function, the returned result would be the existed table list which hold write lock
         Database db = catalog.getDbOrMetaException(transactionState.getDbId());
