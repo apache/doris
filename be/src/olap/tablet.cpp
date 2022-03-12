@@ -833,7 +833,8 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
         max_continuous_version = existing_versions[i];
     }
     *version = max_continuous_version;
-    if (max_version != nullptr) {
+    // tablet may not has rowset, eg, tablet has just been clear for restore.
+    if (max_version != nullptr && !existing_versions.empty()) {
         *max_version = existing_versions.back();
     }
 }
