@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.HdfsURI;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
@@ -77,7 +77,7 @@ public class ScalarFunction extends Function {
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes,
-                          Type retType, HdfsURI location, String symbolName, String initFnSymbol,
+                          Type retType, URI location, String symbolName, String initFnSymbol,
                           String closeFnSymbol) {
         super(fnName, argTypes, retType, false);
         setLocation(location);
@@ -315,13 +315,13 @@ public class ScalarFunction extends Function {
             TFunctionBinaryType binaryType,
             FunctionName name, Type[] args,
             Type returnType, boolean isVariadic,
-            String objectFile, String symbol, String prepareFnSymbol, String closeFnSymbol) {
+            URI location, String symbol, String prepareFnSymbol, String closeFnSymbol) {
         ScalarFunction fn = new ScalarFunction(name, Arrays.asList(args), returnType, isVariadic, binaryType,
                 true, false);
         fn.symbolName = symbol;
         fn.prepareFnSymbol = prepareFnSymbol;
         fn.closeFnSymbol = closeFnSymbol;
-        fn.setLocation(new HdfsURI(objectFile));
+        fn.setLocation(location);
         return fn;
     }
 

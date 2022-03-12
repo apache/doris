@@ -31,6 +31,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -42,8 +43,6 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -233,18 +232,18 @@ public class ExportStmt extends StatementBase {
             throw new AnalysisException("No dest path specified.");
         }
 
-        try {
-            URI uri = new URI(path);
-            String schema = uri.getScheme();
-            if (type == StorageBackend.StorageType.BROKER) {
-                if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
+        URI uri = URI.create(path);
+        String schema = uri.getScheme();
+        if (type == StorageBackend.StorageType.BROKER) {
+            if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
                     && !schema.equalsIgnoreCase("hdfs"))) {
-                    throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
-                }
-            } else if (type == StorageBackend.StorageType.S3) {
-                if (schema == null || !schema.equalsIgnoreCase("s3")) {
-                    throw new AnalysisException("Invalid export path. please use valid 'S3://' path.");
-                }
+                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' " +
+                        "path.");
+            }
+        } else if (type == StorageBackend.StorageType.S3) {
+            if (schema == null || !schema.equalsIgnoreCase("s3")) {
+                throw new AnalysisException("Invalid export path. please use valid 'S3://' path.");
+            }
             } else if (type == StorageBackend.StorageType.HDFS) {
                 if (schema == null || !schema.equalsIgnoreCase("hdfs")) {
                     throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
@@ -256,9 +255,6 @@ public class ExportStmt extends StatementBase {
                 }
                 path = path.substring(OutFileClause.LOCAL_FILE_PREFIX.length() - 1);
             }
-        } catch (URISyntaxException e) {
-            throw new AnalysisException("Invalid path format. " + e.getMessage());
-        }
         return path;
     }
 

@@ -30,6 +30,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.proto.FunctionService;
@@ -228,7 +229,7 @@ public class CreateFunctionStmt extends DdlStmt {
         AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
-                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).objectFile(objectFile);
+                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).location(URI.create(objectFile));
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null) {
             throw new AnalysisException("No 'init_fn' in properties");
@@ -288,10 +289,11 @@ public class CreateFunctionStmt extends DdlStmt {
                 throw new AnalysisException("check function [" + symbol + "] failed: " + response.getStatus());
             }
         }
+        URI location = URI.create(objectFile);
         function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
                 returnType.getType(), argsDef.isVariadic(),
-                objectFile, symbol, prepareFnSymbol, closeFnSymbol);
+                location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
     }
 
