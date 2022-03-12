@@ -67,7 +67,7 @@ Status VTupleIsNullPredicate::execute(VExprContext* context, Block* block, int* 
                 *block->get_by_position(col_id).column).get_null_map_column().get_data().data();
 
         for (int i = 0; i < target_rows; ++i) {
-            ans_map[i] &= null_map[i] == 2;
+            ans_map[i] &= null_map[i] == JOIN_NULL_HINT;
         }
     }
 

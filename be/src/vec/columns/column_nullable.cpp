@@ -114,7 +114,7 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
 
     void ColumnNullable::insert_join_null_data() {
         get_nested_column().insert_default();
-        get_null_map_data().push_back(2);
+        get_null_map_data().push_back(JOIN_NULL_HINT);
     }
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {

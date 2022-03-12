@@ -34,6 +34,8 @@ namespace doris::vectorized {
 
 class Arena;
 class Field;
+// TODO: Remove the trickly hint, after FE support better way to remove function tuple_is_null
+constexpr uint8_t JOIN_NULL_HINT = 2;
 
 /// Declares interface to store columns in memory.
 class IColumn : public COW<IColumn> {
@@ -164,7 +166,7 @@ public:
     /// indices_begin + indices_end represent the row indices of column src
     /// Warning:
     ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
-    ///       insert 2 in null map to hint the null is produced by outer join
+    ///       insert JOIN_NULL_HINT in null map to hint the null is produced by outer join
     virtual void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
