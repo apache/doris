@@ -499,7 +499,7 @@ build_mysql() {
     CFLAGS="-static -pthread -lrt" CXXFLAGS="-static -pthread -lrt" \
     ${CMAKE_CMD} -G "${GENERATOR}" ../ -DCMAKE_LINK_SEARCH_END_STATIC=1 \
     -DWITH_BOOST=`pwd`/$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
-    -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT=$TP_INSTALL_DIR \
+    -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT=$TP_INSTALL_DIR \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
     -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DENABLE_DTRACE=0
     ${BUILD_SYSTEM} -v -j $PARALLEL mysqlclient
@@ -644,6 +644,7 @@ build_arrow() {
     -Dzstd_SOURCE=SYSTEM \
     -DSnappy_LIB=$TP_INSTALL_DIR/lib/libsnappy.a -DSnappy_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DSnappy_SOURCE=SYSTEM \
+    -DBoost_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DThrift_ROOT=$TP_INSTALL_DIR ..
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
@@ -735,7 +736,7 @@ build_croaringbitmap() {
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" -DENABLE_ROARING_TESTS=OFF ..
+    -DENABLE_ROARING_TESTS=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -780,13 +781,11 @@ build_orc() {
     ${CMAKE_CMD} -G "${GENERATOR}" ../ -DBUILD_JAVA=OFF \
     -DPROTOBUF_HOME=$TP_INSTALL_DIR \
     -DSNAPPY_HOME=$TP_INSTALL_DIR \
-    -DGTEST_HOME=$TP_INSTALL_DIR \
     -DLZ4_HOME=$TP_INSTALL_DIR \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DZLIB_HOME=$TP_INSTALL_DIR \
     -DZSTD_HOME=$TP_INSTALL_DIR \
     -DZSTD_INCLUDE_DIR=$TP_INSTALL_DIR/include \
-    -DZSTD_LIBRARIES=$TP_INSTALL_DIR/lib/libzstd.a \
     -DBUILD_LIBHDFSPP=OFF \
     -DBUILD_CPP_TESTS=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR
@@ -828,76 +827,17 @@ build_tsan_header() {
     cp $TSAN_HEADER_FILE $TP_INSTALL_DIR/include/sanitizer/
 }
 
-# aws-c-common
-build_aws_c_common() {
-    check_if_source_exist $AWS_C_COMMON_SOURCE
-    cd $TP_SOURCE_DIR/$AWS_C_COMMON_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF -DCMAKE_C_FLAGS="$warning_uninitialized $warning_option_ignored"
-    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
-}
-
-# aws-c-event-stream
-build_aws_c_event_stream() {
-    check_if_source_exist $AWS_C_EVENT_STREAM_SOURCE
-    cd $TP_SOURCE_DIR/$AWS_C_EVENT_STREAM_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR  -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF -DCMAKE_C_FLAGS="$warning_option_ignored"
-    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
-}
-
-# aws-checksums
-build_aws_checksums() {
-    check_if_source_exist $AWS_CHECKSUMS_SOURCE
-    cd $TP_SOURCE_DIR/$AWS_CHECKSUMS_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF -DCMAKE_C_FLAGS="$warning_option_ignored"
-    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
-}
-
-# aws-c-io
-build_aws_c_io() {
-    check_if_source_exist $AWS_C_IO_SOURCE
-    cd $TP_SOURCE_DIR/$AWS_C_IO_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF -DCMAKE_C_FLAGS="$warning_option_ignored"
-    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
-}
-
-# aws-s2n
-build_aws_s2n() {
-    check_if_source_exist $AWS_S2N_SOURCE
-    cd $TP_SOURCE_DIR/$AWS_S2N_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF \
-    -DCMAKE_C_FLAGS="$warning_array_parameter"
-    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
-}
-
-# aws-c-cal
-build_aws_c_cal() {
-    check_if_source_exist $AWS_C_CAL_SOURCE
-    cd $TP_SOURCE_DIR/$AWS_C_CAL_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF -DCMAKE_C_FLAGS="$warning_option_ignored"
-    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
-}
-
 # aws_sdk
 build_aws_sdk() {
     check_if_source_exist $AWS_SDK_SOURCE
     cd $TP_SOURCE_DIR/$AWS_SDK_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    rm -rf $BUILD_DIR
     # -Wno-nonnull gcc-11
-    $CMAKE_CMD -G "${GENERATOR}" .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DBUILD_DEPS=OFF -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
-    -DCMAKE_MODULE_PATH=$TP_INSTALL_DIR/lib64/cmake -DBUILD_ONLY="s3" \
-    -DCMAKE_CXX_FLAGS="-Wno-nonnull"
+    $CMAKE_CMD -G "${GENERATOR}" -B$BUILD_DIR -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
+    -DCURL_LIBRARY_RELEASE=${TP_INSTALL_DIR}/lib/libcurl.a -DZLIB_LIBRARY_RELEASE=${TP_INSTALL_DIR}/lib/libz.a \
+    -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull" -DCPP_STANDARD=17
+    cd $BUILD_DIR
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -1033,12 +973,6 @@ build_orc
 build_cctz
 build_tsan_header
 build_mysql
-build_aws_c_common
-build_aws_s2n
-build_aws_c_cal
-build_aws_c_io
-build_aws_checksums
-build_aws_c_event_stream
 build_aws_sdk
 build_js_and_css
 build_lzma
