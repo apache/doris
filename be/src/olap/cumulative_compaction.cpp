@@ -33,8 +33,8 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
     }
 
-    MutexLock lock(_tablet->get_cumulative_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
         return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
     }
@@ -56,8 +56,8 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
 }
 
 OLAPStatus CumulativeCompaction::execute_compact_impl() {
-    MutexLock lock(_tablet->get_cumulative_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
         return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
     }

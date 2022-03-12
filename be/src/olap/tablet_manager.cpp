@@ -620,19 +620,19 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             }
 
             if (compaction_type == CompactionType::BASE_COMPACTION) {
-                MutexLock lock(tablet_ptr->get_base_lock(), TRY_LOCK);
-                if (!lock.own_lock()) {
+                std::unique_lock<std::mutex> lock(tablet_ptr->get_base_lock(), std::try_to_lock);
+                if (!lock.owns_lock()) {
                     LOG(INFO) << "can not get base lock: " << tablet_ptr->tablet_id();
                     continue;
                 }
             } else {
-                MutexLock lock(tablet_ptr->get_cumulative_lock(), TRY_LOCK);
-                if (!lock.own_lock()) {
+                std::unique_lock<std::mutex> lock(tablet_ptr->get_cumulative_lock(), std::try_to_lock);
+                if (!lock.owns_lock()) {
                     LOG(INFO) << "can not get cumu lock: " << tablet_ptr->tablet_id();
                     continue;
                 }
             }
-
+            
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
                     compaction_type, cumulative_compaction_policy);
 

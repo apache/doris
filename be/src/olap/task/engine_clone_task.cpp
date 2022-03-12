@@ -525,11 +525,11 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
     OLAPStatus res = OLAP_SUCCESS;
     std::vector<string> linked_success_files;
     // clone and compaction operation should be performed sequentially
-    tablet->obtain_base_compaction_lock();
-    tablet->obtain_cumulative_lock();
-    tablet->set_clone_occurred(true);
-    tablet->obtain_push_lock();
     {
+        std::lock_guard<std::mutex> base_lock(tablet->get_base_lock());
+        std::lock_guard<std::mutex> cumulative_lock(tablet->get_cumulative_lock());
+        tablet->set_clone_occurred(true);
+        std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
         WriteLock wrlock(tablet->get_header_lock());
         do {
             // check clone dir existed
@@ -618,10 +618,6 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
             FileUtils::remove_paths(linked_success_files);
         }
     }
-    tablet->release_push_lock();
-    tablet->release_cumulative_lock();
-    tablet->release_base_compaction_lock();
-
     // clear clone dir
     std::filesystem::path clone_dir_path(clone_dir);
     std::filesystem::remove_all(clone_dir_path);

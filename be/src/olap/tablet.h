@@ -141,21 +141,9 @@ public:
 
     // meta lock
     inline std::shared_mutex& get_header_lock() { return _meta_lock; }
-
-    // ingest lock
-    inline void obtain_push_lock() { _ingest_lock.lock(); }
-    inline void release_push_lock() { _ingest_lock.unlock(); }
-    inline Mutex* get_push_lock() { return &_ingest_lock; }
-
-    // base lock
-    inline void obtain_base_compaction_lock() { _base_lock.lock(); }
-    inline void release_base_compaction_lock() { _base_lock.unlock(); }
-    inline Mutex* get_base_lock() { return &_base_lock; }
-
-    // cumulative lock
-    inline void obtain_cumulative_lock() { _cumulative_lock.lock(); }
-    inline void release_cumulative_lock() { _cumulative_lock.unlock(); }
-    inline Mutex* get_cumulative_lock() { return &_cumulative_lock; }
+    inline std::mutex& get_push_lock() { return _ingest_lock; }
+    inline std::mutex& get_base_lock() { return _base_lock; }
+    inline std::mutex& get_cumulative_lock() { return _cumulative_lock; }
 
     inline std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
