@@ -193,11 +193,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-1.8.0
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.8.0.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-1.8.0.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-1.8.0
-LIBRDKAFKA_MD5SUM="f31bd3b7a91a486d65b740a720b925dc"
+# librdkafka-1.8.2
+LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/refs/tags/v1.8.2.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-1.8.2.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-1.8.2
+LIBRDKAFKA_MD5SUM="0abec0888d10c9553cdcbcbf9172d558"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/archive/v1.5.0.tar.gz"
@@ -218,10 +218,10 @@ FLATBUFFERS_SOURCE=flatbuffers-2.0.0
 FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-5.0.0.tar.gz"
-ARROW_NAME="arrow-apache-arrow-5.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-5.0.0"
-ARROW_MD5SUM="9caf5dbd36ef4972c3a591bcfeaf59c8"
+ARROW_DOWNLOAD="https://dlcdn.apache.org/arrow/arrow-7.0.0/apache-arrow-7.0.0.tar.gz"
+ARROW_NAME="apache-arrow-7.0.0.tar.gz"
+ARROW_SOURCE="apache-arrow-7.0.0"
+ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
 
 # S2
 S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
@@ -253,11 +253,11 @@ PARALLEL_HASHMAP_NAME="parallel-hashmap-1.33.tar.gz"
 PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.33"
 PARALLEL_HASHMAP_MD5SUM="7626b5215f745c4ce59b5a4e41d16235"
 
-# ORC
-ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.6.6/orc-1.6.6.tar.gz"
-ORC_NAME=orc-1.6.6.tar.gz
-ORC_SOURCE=orc-1.6.6
-ORC_MD5SUM="26c94135111d312fb1ea4fc80d776c5f"
+# orc
+ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.7.2/orc-1.7.2.tar.gz"
+ORC_NAME=orc-1.7.2.tar.gz
+ORC_SOURCE=orc-1.7.2
+ORC_MD5SUM="6cab37935eacdec7d078d327746a8578"
 
 # jemalloc
 JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
@@ -292,47 +292,11 @@ BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
-# aws-c-common
-AWS_C_COMMON_DOWNLOAD="https://github.com/awslabs/aws-c-common/archive/v0.4.63.tar.gz"
-AWS_C_COMMON_NAME="aws-c-common-0.4.63.tar.gz"
-AWS_C_COMMON_SOURCE="aws-c-common-0.4.63"
-AWS_C_COMMON_MD5SUM="8298e00a0fb64779b7cf660592d50ab6"
-
-# aws-c-event-stream
-AWS_C_EVENT_STREAM_DOWNLOAD="https://github.com/awslabs/aws-c-event-stream/archive/v0.2.6.tar.gz"
-AWS_C_EVENT_STREAM_NAME="aws-c-event-stream-0.2.6.tar.gz"
-AWS_C_EVENT_STREAM_SOURCE="aws-c-event-stream-0.2.6"
-AWS_C_EVENT_STREAM_MD5SUM="fceedde198ddbf38ffdaed08d1435f7f"
-
-# aws-checksums
-AWS_CHECKSUMS_DOWNLOAD="https://github.com/awslabs/aws-checksums/archive/v0.1.10.tar.gz"
-AWS_CHECKSUMS_NAME="aws-checksums-0.1.10.tar.gz"
-AWS_CHECKSUMS_SOURCE="aws-checksums-0.1.10"
-AWS_CHECKSUMS_MD5SUM="2383c66f6250fa0238edbd1d779b49d3"
-
-# aws-c-io
-AWS_C_IO_DOWNLOAD="https://github.com/awslabs/aws-c-io/archive/v0.7.0.tar.gz"
-AWS_C_IO_NAME="aws-c-io-0.7.0.tar.gz"
-AWS_C_IO_SOURCE="aws-c-io-0.7.0"
-AWS_C_IO_MD5SUM="b95a6f9d20500727231dd726c957276b"
-
-# aws-s2n
-AWS_S2N_DOWNLOAD="https://github.com/awslabs/s2n/archive/v0.10.0.tar.gz"
-AWS_S2N_NAME="s2n-0.10.0.tar.gz"
-AWS_S2N_SOURCE="s2n-tls-0.10.0"
-AWS_S2N_MD5SUM="345aa5d2f9e82347bb3e568c22104d0e"
-
-# aws-c-cal
-AWS_C_CAL_DOWNLOAD="https://github.com/awslabs/aws-c-cal/archive/v0.4.5.tar.gz"
-AWS_C_CAL_NAME="aws-c-cal-0.4.5.tar.gz"
-AWS_C_CAL_SOURCE="aws-c-cal-0.4.5"
-AWS_C_CAL_MD5SUM="317f3dbafae551a0fc7d70f31434e216"
-
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/1.8.108.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.8.108.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.8.108"
-AWS_SDK_MD5SUM="76d8855406e7da61f1f996c11c0b93d7"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.211.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.9.211.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.9.211"
+AWS_SDK_MD5SUM="667b8e08baf0b9967c19224198e33160"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -397,11 +361,11 @@ BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
 BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
 
 # xsimd
-# for arrow-5.0.0, if arrow upgrade, this version may also need to be changed
-XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/e9234cd6e6f4428fc260073b2c34ffe86fda1f34.tar.gz"
-XSIMD_NAME=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34.tar.gz
-XSIMD_SOURCE=xsimd-e9234cd6e6f4428fc260073b2c34ffe86fda1f34
-XSIMD_MD5SUM="9f230757cf4acd3d544c4a79a020c9dc"
+# for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz"
+XSIMD_NAME=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz
+XSIMD_SOURCE=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2
+XSIMD_MD5SUM="d024855f71c0a2837a6918c0f8f66245"
 
 # simdjson
 SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2.tar.gz"
@@ -450,13 +414,6 @@ DATATABLES
 BOOTSTRAP_TABLE_JS
 BOOTSTRAP_TABLE_CSS
 TSAN_HEADER
-AWS_C_COMMON
-AWS_C_EVENT_STREAM
-AWS_C_IO
-AWS_C_CAL
-AWS_C_IO
-AWS_CHECKSUMS
-AWS_S2N
 AWS_SDK
 LZMA
 XML2

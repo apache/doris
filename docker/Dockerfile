@@ -47,6 +47,9 @@ ENV REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/" \
     JAVA_HOME="/usr/lib/jvm/java-11" \
     PATH="/var/local/ldb-toolchain/bin/:$PATH"
 
+# disable auto enable ccache
+RUN rm -f /etc/profile.d/ccache.*
+
 # clone lastest source code, download and build third party
 COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
 RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \

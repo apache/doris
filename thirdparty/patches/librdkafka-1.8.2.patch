@@ -1,0 +1,13 @@
+--- src/rdkafka_broker.c	2021-10-12 04:15:44.000000000 +0800
++++ src/rdkafka_broker.c	2022-03-10 10:31:45.141882467 +0800
+@@ -5464,7 +5464,9 @@
+  */
+ void rd_kafka_broker_destroy_final (rd_kafka_broker_t *rkb) {
+ 
+-        rd_assert(thrd_is_current(rkb->rkb_thread));
++        // To avoid the error describe in https://github.com/edenhill/librdkafka/issues/3608
++        // comment this line to fix it temporarily.
++        // rd_assert(thrd_is_current(rkb->rkb_thread));
+         rd_assert(TAILQ_EMPTY(&rkb->rkb_monitors));
+         rd_assert(TAILQ_EMPTY(&rkb->rkb_outbufs.rkbq_bufs));
+         rd_assert(TAILQ_EMPTY(&rkb->rkb_waitresps.rkbq_bufs));
