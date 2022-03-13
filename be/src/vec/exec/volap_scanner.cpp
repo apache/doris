@@ -42,6 +42,7 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     DCHECK(block->rows() == 0);
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
+    int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
@@ -65,7 +66,12 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
 
         RETURN_IF_ERROR(
                 VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
-    } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
+    } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
+             block->allocated_bytes() < raw_bytes_threshold);
+    // NOTE:
+    // There is no need to check raw_bytes_threshold since block->rows() == 0 is checked first.
+    // But checking raw_bytes_threshold is still added here for consistency with raw_rows_threshold
+    // and olap_scanner.cpp.
 
     return Status::OK();
 }
