@@ -449,8 +449,7 @@ module.exports = [
               "bitand",
               "bitor",
               "bitxor",
-              "bitnot",
-              "bit_length"
+              "bitnot"
             ],
           },
           {
