@@ -256,6 +256,9 @@ private:
     using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
     std::queue<AddBatchReq> _pending_batches;
     std::atomic<int> _pending_batches_num {0};
+    // limit _pending_batches size
+    std::atomic<size_t> _pending_batches_bytes {0};
+    size_t _max_pending_batches_bytes {10 * 1024 * 1024};
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;

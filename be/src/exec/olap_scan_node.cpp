@@ -77,6 +77,8 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
 
+    _max_scanner_queue_size_bytes = query_options.mem_limit / 20; //TODO: session variable percent
+
     /// TODO: could one filter used in the different scan_node ?
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.resize(filter_size);
@@ -306,6 +308,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             materialized_batch = _materialized_row_batches.front();
             DCHECK(materialized_batch != nullptr);
             _materialized_row_batches.pop_front();
+            _materialized_row_batches_bytes -= materialized_batch->tuple_data_pool()->total_reserved_bytes();
         }
     }
 
@@ -394,12 +397,14 @@ Status OlapScanNode::close(RuntimeState* state) {
     }
 
     _materialized_row_batches.clear();
+    _materialized_row_batches_bytes = 0;
 
     for (auto row_batch : _scan_row_batches) {
         delete row_batch;
     }
 
     _scan_row_batches.clear();
+    _scan_row_batches_bytes = 0;
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner
@@ -1371,6 +1376,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     int max_thread = _max_materialized_row_batches;
     if (config::doris_scanner_row_num > state->batch_size()) {
         max_thread /= config::doris_scanner_row_num / state->batch_size();
+        if (max_thread <= 0) max_thread = 1;
     }
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -1393,7 +1399,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             if (state->fragment_mem_tracker() != nullptr) {
                 mem_consume = state->fragment_mem_tracker()->consumption();
             }
-            if (mem_consume < (mem_limit * 6) / 10) {
+            if (mem_consume < (mem_limit * 6) / 10 && _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {
                 // Memory already exceed
@@ -1473,6 +1479,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             if (LIKELY(!_scan_row_batches.empty())) {
                 scan_batch = _scan_row_batches.front();
                 _scan_row_batches.pop_front();
+                _scan_row_batches_bytes -= scan_batch->tuple_data_pool()->total_reserved_bytes();
 
                 // delete scan_batch if transfer thread should be stopped
                 // because scan_batch wouldn't be useful anymore
@@ -1573,10 +1580,12 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // need yield this thread when we do enough work. However, OlapStorage read
     // data in pre-aggregate mode, then we can't use storage returned data to
     // judge if we need to yield. So we record all raw data read in this round
-    // scan, if this exceed threshold, we yield this thread.
+    // scan, if this exceed row number or bytes threshold, we yield this thread.
     int64_t raw_rows_read = scanner->raw_rows_read();
     int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
-    while (!eos && raw_rows_read < raw_rows_threshold) {
+    int64_t raw_bytes_read = 0;
+    int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
+    while (!eos && raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -1602,6 +1611,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             row_batchs.push_back(row_batch);
             __sync_fetch_and_add(&_buffered_bytes,
                                  row_batch->tuple_data_pool()->total_reserved_bytes());
+            raw_bytes_read += row_batch->tuple_data_pool()->total_reserved_bytes();
         }
         raw_rows_read = scanner->raw_rows_read();
     }
@@ -1630,6 +1640,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         } else {
             for (auto rb : row_batchs) {
                 _scan_row_batches.push_back(rb);
+                _scan_row_batches_bytes += rb->tuple_data_pool()->total_reserved_bytes();
             }
         }
         // If eos is true, we will process out of this lock block.
@@ -1669,13 +1680,16 @@ Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
 
-        while (UNLIKELY(_materialized_row_batches.size() >= _max_materialized_row_batches &&
+        // check queue limit for both both batch size and bytes
+        while (UNLIKELY((_materialized_row_batches.size() >= _max_materialized_row_batches ||
+                         _materialized_row_batches_bytes >= _max_scanner_queue_size_bytes / 2) &&
                         !_transfer_done)) {
             _row_batch_consumed_cv.wait(l);
         }
 
         VLOG_CRITICAL << "Push row_batch to materialized_row_batches";
         _materialized_row_batches.push_back(row_batch);
+        _materialized_row_batches_bytes += row_batch->tuple_data_pool()->total_reserved_bytes();
     }
     // remove one batch, notify main thread
     _row_batch_added_cv.notify_one();
