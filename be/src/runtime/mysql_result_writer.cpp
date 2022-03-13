@@ -159,8 +159,10 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
 
     case TYPE_DECIMALV2: {
         DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-        int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-        buf_ret = _row_buffer->push_decimal(decimal_val, output_scale);
+        // TODO: Support decimal output_scale after we support FE can sure
+        // accuracy of output_scale
+        // int output_scale = _output_expr_ctxs[index]->root()->output_scale();
+        buf_ret = _row_buffer->push_decimal(decimal_val, -1);
         break;
     }
 

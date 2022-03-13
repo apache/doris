@@ -41,7 +41,7 @@ Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& 
     DCHECK_GT(_tuple_ids.size(), 0);
 
     _column_to_check.reserve(_tuple_ids.size());
-    // Resolve tuple ids to tuple indexes.
+    // Resolve tuple ids to column id, one tuple only need check one column to speed up
     for (auto tuple_id : _tuple_ids) {
         uint32_t loc = 0;
         for (auto& tuple_desc : desc.tuple_descriptors()) {
@@ -57,8 +57,6 @@ Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& 
 }
 
 Status VTupleIsNullPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
-    // TODO: not execute const expr again, but use the const column in function context
-    // call function
     size_t num_columns_without_result = block->columns();
     auto target_rows = block->rows();
     auto ans = ColumnVector<UInt8>::create(target_rows, 1);
@@ -69,7 +67,7 @@ Status VTupleIsNullPredicate::execute(VExprContext* context, Block* block, int* 
                 *block->get_by_position(col_id).column).get_null_map_column().get_data().data();
 
         for (int i = 0; i < target_rows; ++i) {
-            ans_map[i] &= null_map[i] == uint8_t(-1);
+            ans_map[i] &= null_map[i] == JOIN_NULL_HINT;
         }
     }
 
