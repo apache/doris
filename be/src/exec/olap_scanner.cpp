@@ -180,6 +180,8 @@ Status OlapScanner::_init_tablet_reader_params(
              !_tablet_reader_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
+    _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
+
     if (_aggregation || single_version) {
         _tablet_reader_params.return_columns = _return_columns;
         _tablet_reader_params.direct_mode = true;
@@ -230,6 +232,8 @@ Status OlapScanner::_init_return_columns() {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
+        if (slot->is_nullable() && !_tablet->tablet_schema().column(index).is_nullable())
+            _tablet_columns_convert_to_null_set.emplace(index);
         _query_slots.push_back(slot);
     }
 
