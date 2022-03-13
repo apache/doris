@@ -72,11 +72,3 @@ for (String table_name in tables) {
         }
     }
 }
-
-def baseDir = new File("""${scriptDir}/sql""")
-files = baseDir.listFiles().sort{ it.name }
-
-for (String file in files) {
-    logger.info(file)
-    qt_tpcds new File(file).text
-}
