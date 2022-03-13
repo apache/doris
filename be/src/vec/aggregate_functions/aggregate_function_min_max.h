@@ -76,35 +76,6 @@ public:
         value = to.value;
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
-            change(column, row_num, arena);
-            return true;
-        } else
-            return false;
-    }
-
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
-            change(to, arena);
-            return true;
-        } else
-            return false;
-    }
-
-    bool change_every_time(const IColumn& column, size_t row_num, Arena* arena) {
-        change(column, row_num, arena);
-        return true;
-    }
-
-    bool change_every_time(const Self& to, Arena* arena) {
-        if (to.has()) {
-            change(to, arena);
-            return true;
-        } else
-            return false;
-    }
-
     bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
         if (!has() || assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] < value) {
             change(column, row_num, arena);
@@ -190,35 +161,6 @@ public:
     void change(const Self& to, Arena*) {
         has_value = true;
         value = to.value;
-    }
-
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
-            change(column, row_num, arena);
-            return true;
-        } else
-            return false;
-    }
-
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
-            change(to, arena);
-            return true;
-        } else
-            return false;
-    }
-
-    bool change_every_time(const IColumn& column, size_t row_num, Arena* arena) {
-        change(column, row_num, arena);
-        return true;
-    }
-
-    bool change_every_time(const Self& to, Arena* arena) {
-        if (to.has()) {
-            change(to, arena);
-            return true;
-        } else
-            return false;
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
@@ -382,35 +324,6 @@ public:
         if (!has() ||
             assert_cast<const ColumnString&>(column).get_data_at(row_num) > get_string_ref()) {
             change(column, row_num, arena);
-            return true;
-        } else
-            return false;
-    }
-
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
-            change(column, row_num, arena);
-            return true;
-        } else
-            return false;
-    }
-
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
-            change(to, arena);
-            return true;
-        } else
-            return false;
-    }
-
-    bool change_every_time(const IColumn& column, size_t row_num, Arena* arena) {
-        change(column, row_num, arena);
-        return true;
-    }
-
-    bool change_every_time(const Self& to, Arena* arena) {
-        if (to.has()) {
-            change(to, arena);
             return true;
         } else
             return false;
