@@ -26,6 +26,9 @@ import org.apache.commons.cli.*
 import org.apache.doris.regression.util.SuiteInfo
 import org.codehaus.groovy.control.CompilerConfiguration
 
+import java.util.concurrent.Executors
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Future
 import java.util.stream.Collectors
 
 @Slf4j
@@ -35,6 +38,7 @@ class RegressionTest {
     static ClassLoader classloader
     static CompilerConfiguration compileConfig
     static GroovyShell shell
+    static ExecutorService executorService;
 
     static void main(String[] args) {
         CommandLine cmd = ConfigOptions.initCommands(args)
@@ -44,15 +48,21 @@ class RegressionTest {
 
         Config config = Config.fromCommandLine(cmd)
         initGroovyEnv(config)
-        Recorder recorder = runSuites(config)
-        printResult(config, recorder)
+        for (int i = 0; i < config.times; i++) {
+            log.info("=== run ${i} time ===")
+            Recorder recorder = runSuites(config)
+            printResult(config, recorder)
+        }
     }
 
     static void initGroovyEnv(Config config) {
+        log.info("parallel = ${config.parallel}")
         classloader = new GroovyClassLoader()
         compileConfig = new CompilerConfiguration()
         compileConfig.setScriptBaseClass((Suite as Class).name)
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
+        log.info("starting ${config.parallel} threads")
+        executorService = Executors.newFixedThreadPool(config.parallel);
     }
 
     static List<File> findSuiteFiles(String root) {
@@ -102,7 +112,7 @@ class RegressionTest {
         return groups;
     }
 
-    static void runSuite(Config config, SuiteFile sf, Recorder recorder) {
+    static Integer runSuite(Config config, SuiteFile sf, Recorder recorder) {
         File file = sf.file
         String suiteName = sf.suiteName
         String group = sf.group
@@ -120,16 +130,12 @@ class RegressionTest {
                 log.error("Run ${suiteName} in ${file.absolutePath} failed".toString(), t)
             }
         }
+
+        return 0
     }
 
-    static Recorder runSuites(Config config) {
-        runSuites(config, suiteName -> { suiteName == "load" } ) 
-        runSuites(config, suiteName -> { suiteName != "load" } )
-    }
-
-    static Recorder runSuites(Config config, Closure suiteNameMatch) {
+    static void runSuites(Config config, Recorder recorder, Closure suiteNameMatch) {
         def files = findSuiteFiles(config.suitePath)
-        def recorder = new Recorder()
         List<SuiteFile> runScripts = files.stream().map({ file ->
             String suiteName = file.name.substring(0, file.name.lastIndexOf('.'))
             String group = parseGroup(config, file)
@@ -138,12 +144,30 @@ class RegressionTest {
             { suiteNameMatch(sf.suiteName) && canRun(config, sf.suiteName, sf.group) }
         }).collect(Collectors.toList())
 
+        if (config.randomOrder) {
+            Collections.shuffle(files)
+        }
         log.info('Start to run suites')
         int totalFile = runScripts.size()
+        def futures = new ArrayList<Future>()
         runScripts.eachWithIndex { sf, i ->
             log.info("[${i + 1}/${totalFile}] Run ${sf.suiteName} in ${sf.file}".toString())
-            runSuite(config, sf, recorder)
+            Future future = executorService.submit(
+                             ()-> { runSuite(config, sf, recorder)}
+                             )
+            futures.add(future)
         }
+
+        for (Future<Integer> future : futures) {
+            future.get()
+        }
+    }
+
+    static Recorder runSuites(Config config) {
+        def recorder = new Recorder()
+        runSuites(config, recorder, suiteName -> { suiteName == "load" } )
+        runSuites(config, recorder, suiteName -> { suiteName != "load" } )
+
         return recorder
     }
 
